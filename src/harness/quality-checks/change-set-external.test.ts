@@ -5,6 +5,7 @@ import { resetFindingDeltaStore } from "./finding-delta.js";
 const {
 	runChecksAsync,
 	tryAcquireHeavyProcess,
+	acquireHeavyProcess,
 	releaseHeavyProcess,
 	getProfileForFile,
 	findProjectRootForLanguage,
@@ -14,6 +15,7 @@ const {
 } = vi.hoisted(() => ({
 	runChecksAsync: vi.fn(),
 	tryAcquireHeavyProcess: vi.fn(),
+	acquireHeavyProcess: vi.fn(),
 	releaseHeavyProcess: vi.fn(),
 	getProfileForFile: vi.fn(),
 	findProjectRootForLanguage: vi.fn(),
@@ -39,6 +41,7 @@ vi.mock("../check-engine/index.js", () => ({
 
 vi.mock("../project-heavy-process-lock.js", () => ({
 	tryAcquireProjectHeavyProcessLease: tryAcquireHeavyProcess,
+	acquireProjectHeavyProcessLease: acquireHeavyProcess,
 }));
 
 vi.mock("../language-profiles.js", () => ({
@@ -121,6 +124,7 @@ function completedReport() {
 }
 
 beforeEach(() => {
+	acquireHeavyProcess.mockReset().mockResolvedValue(releaseHeavyProcess);
 	runChecksAsync.mockReset();
 	tryAcquireHeavyProcess.mockReset();
 	releaseHeavyProcess.mockReset();
@@ -242,12 +246,48 @@ describe("ChangeSet external-check batching", () => {
 		expect(scheduleTests).toHaveBeenCalledTimes(1);
 		expect(scheduleTests).toHaveBeenCalledWith({
             root: "/repo", paths: ["/repo/src/a.ts", "/repo/src/b.ts"],
-            timeoutMs: 5000, maxTests: 150, maxWorkers: 2, waitForCapacity: false,
+            timeoutMs: 5000, ...(recovery ? {} : { maxTests: 150 }), maxWorkers: 2, waitForCapacity: recovery,
         });
 		expect(checksRan).toEqual(["affected_tests"]);
-		expect(tryAcquireHeavyProcess).toHaveBeenCalledTimes(1);
+		expect(recovery ? acquireHeavyProcess : tryAcquireHeavyProcess).toHaveBeenCalledTimes(1);
 		expect(releaseHeavyProcess).toHaveBeenCalledTimes(1);
 	});
+
+    it("does not let inapplicable files consume the source-check path budget", async () => {
+        runChecksAsync.mockResolvedValue(completedReport());
+        const paths = [...Array.from({ length: 100 }, (_, i) => `/repo/cache/${i}.bin`), "/repo/src/a.ts"];
+        const batch = createChangeSetExternalBatch({ paths, checks: { typescript: config() }, cwd: "/repo" });
+        const results = await batch.resultsForFile("/repo/src/a.ts");
+        expect(runChecksAsync).toHaveBeenCalledTimes(1);
+        expect(results.some(row => row.name === "external_check_deferred")).toBe(false);
+        expect(await batch.resultsForFile(paths[0]!)).toEqual([]);
+    });
+
+    it("keeps applicable security targets in the budget even under a cache directory", async () => {
+        const paths = Array.from({ length: 33 }, (_, i) => `/repo/cache/${i}.bin`);
+        const batch = createChangeSetExternalBatch({ paths, checks: { gitleaks: { ...config(), file_types: [".bin"] } }, cwd: "/repo" });
+        expect((await batch.resultsForFile(paths[0]!))[0]?.detail).toContain("more than 32 applicable inputs");
+        expect(runChecksAsync).not.toHaveBeenCalled();
+    });
+
+    it("runs source checks when a separate security scope exceeds its budget", async () => {
+        runChecksAsync.mockResolvedValue(completedReport());
+        const paths = [...Array.from({ length: 33 }, (_, i) => `/repo/cache/${i}.bin`), "/repo/src/a.ts"];
+        const batch = createChangeSetExternalBatch({ paths, cwd: "/repo", checks: {
+            typescript: config(), gitleaks: { ...config(), file_types: [".bin"] },
+        } });
+        await batch.resultsForFile("/repo/src/a.ts");
+        expect(runChecksAsync).toHaveBeenCalledTimes(1);
+        expect((await batch.resultsForFile(paths[0]!))[0]?.detail).toContain("more than 32 applicable inputs");
+    });
+
+    it("retains unavailable recovery when the bounded project wait expires", async () => {
+        acquireHeavyProcess.mockResolvedValue(null);
+        const batch = createChangeSetExternalBatch({ paths: ["/repo/src/a.ts"], checks: { typescript: config() }, cwd: "/repo", recovery: true });
+        expect((await batch.resultsForFile("/repo/src/a.ts"))[0]?.name).toBe("external_check_deferred");
+        expect(acquireHeavyProcess).toHaveBeenCalledWith("/repo", expect.any(Number), expect.any(AbortSignal));
+        expect(runChecksAsync).not.toHaveBeenCalled();
+    });
 
 	it("defers one explicit verdict for a mixed-language affected-test ChangeSet", async () => {
 		getProfileForFile.mockImplementation((path: string) =>
@@ -339,7 +379,7 @@ describe("ChangeSet external-check batching", () => {
 		const all = (await Promise.all(paths.map((path) => batch.resultsForFile(path)))).flat();
 		expect(all).toHaveLength(1);
 		expect(all[0]?.name).toBe("external_check_deferred");
-		expect(all[0]?.detail).toContain("cap 32");
+		expect(all[0]?.detail).toContain("more than 32 applicable inputs");
 		expect(tryAcquireHeavyProcess).not.toHaveBeenCalled();
 		expect(runChecksAsync).not.toHaveBeenCalled();
 		expect(scheduleTests).not.toHaveBeenCalled();

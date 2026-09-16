@@ -5,6 +5,12 @@ description: "Run `interlinked verify`, understand the PostToolUse quality check
 
 # interlinked-verify — check your work & land edits through the gates
 
+On the first authored edit per language/session without a detected test layout,
+PostToolUse probes Python/JS/TS/Rust/Go runner readiness and supplies setup/test guidance.
+It does not install packages or hard-block absent tests. Inspect custom layouts before
+adding public-contract assertions, then execute them. Explicit `tests readiness` rechecks
+changed prerequisites; the automatic probe does not run on every edit.
+
 For Cowork, load **interlinked-cowork**. `cowork verify <workspace>` runs only tsc,
 biome and gitleaks with before/after workspace hashes; skipped checks remain
 unmeasured. It is not the full `verify` command or a per-edit ratchet. Run configured
@@ -19,13 +25,17 @@ through unchanged; run the original compiler normally in those cases.
 The file-mode Rust formatter reads the nearest `Cargo.toml` only within the
 project root. A neighboring directory with a shared name prefix is outside
 that scope; unreadable manifests are reported instead of guessing an edition.
-Affected Python tests outside the check root retain their absolute paths;
-directory-name prefixes alone never make a candidate project-relative.
+Python behavioral suites run from the resolved project root; companion filenames are
+not a sound dependency boundary. Directory-name prefixes never establish confinement.
+Missing-companion guidance describes a naming-convention observation, not proof of missing
+behavioral coverage. Inspect the project's test layout before adding language-appropriate
+public-contract tests.
 
 Interlinked gates edits at **three moments**, and they run different check sets:
 - **PreToolUse content gate**: real agent Edit/Write calls run deterministic `pre_block` checks
   without synchronously launching biome/tsc on the daemon event loop; those external overlays
-  are reported as **NOT CHECKED** and run asynchronously after the write. Transactional CLI
+  are reported as **NOT CHECKED** only for applicable file types and run asynchronously after
+  the write. Python/Go/Rust edits do not receive JS/TS overlay deferrals. Transactional CLI
   paths (`interlinked write` / `verify-changeset`) still run `pre_block → biome → tsc` and fail
   closed. `interlinked multi-edit` uses the same shared content gate.
 - **Other PreToolUse guards** (real Edit/Write only): function tokens, coverage, cyclomatic, CRAP, baseline —
@@ -61,6 +71,95 @@ Route evidence receipts, incremental coverage setup and deletion trials to
 
 ## `interlinked verify`
 
+### Behavioral contract evidence
+
+`interlinked tests contracts import <source> --json` prints proposed cases from explicit
+`json interlinked-contract` fences; it never executes or accepts them. Each fence is a
+JSON object with `id`, `description`, `inputs` (literal project-relative UTF-8 files),
+`runner: {kind: "process", argv: ["python3", "main.py"]}` and
+`expect: {exitCode: 0, json: {message: "ready"}}`. Import records source path/hash/quote
+and ties expected observations to that exact example. Save selected cases in a
+version-1 `cases` manifest at `.interlinked/behavioral-contracts.json` (or use `--file`).
+`inspect --json` reads provenance; `run --timeout 60000 --json` explicitly executes the
+selected runners and records per-case receipts under `.interlinked/contract-runs/`.
+`run --previous <manifest>` also tests retained prior expectations against current code.
+
+Process cases use a disposable workspace containing declared inputs and already installed
+tooling. This is not an OS sandbox. External state is unsealed, so historical passes are
+not reused as current verdicts. HTTP cases use a literal loopback HTTP URL, GET/POST,
+no redirects, and exact text/JSON/status/header expectations. Comparisons do not normalize
+string values. Missing tooling, stale inputs, conflicting citations and budget exhaustion
+are separate from a measured failure. A source citation alone does not prove semantics:
+use `source.observation: json|stdout|contract-example` for exact example binding.
+
+Accepted case digests belong in operator-owned `.interlinked/contract-policy.json`,
+`{version: 1, accepted: {"<digest>": "rationale"}}`. Never self-approve a proposed case.
+`configured` describes that file, not authenticated ownership; protect it outside agent
+write authority when required. Intentional replacements need rationale and changed
+requirements. `replaces: {id, reason}` does not automatically grant acceptance.
+
+Post-edit `[interlinked:test-contract-review]` is bounded, deduplicated advisory guidance
+about new/changed expectations, fixtures or collection settings. Review expectations
+against user requirements before adapting them to implementation output. No automatic
+runner execution or Stop repair loop is added. See
+`docs/plans/behavioral-contract-verification-20260916.md` for schema and scope limits.
+
+`interlinked tests readiness <language> --cwd <project> --json` probes prerequisites for
+Python, TypeScript/JavaScript, Rust and Go without collecting tests or installing packages.
+Python names the selected interpreter and reports exact approved install argv when possible;
+an absent runner or coverage plugin is unavailable evidence. Provision within the existing
+authorization boundary, then rerun readiness and execute the tests. There is no system-Python
+fallback around a broken selected environment.
+
+At a meaningful change boundary, `interlinked tests review [paths...] --base HEAD --json`
+provides a bounded source/test inventory and at most five simplification candidates. Without
+paths it discovers staged, unstaged and untracked Git changes. It reads at most 32 source/test
+files of 256 KiB each; deletions, unsafe paths and exhausted budgets are explicit gaps. This
+is review guidance, not test execution or a passing verdict. Retain executable assertions for
+old public contracts and new requirements; review validation ownership, duplication, forwarding
+and shared mutable state together. After behavior passes, one focused simplification pass is
+enough; rerun relevant tests after changing code and leave uncertain advice unresolved.
+
+`interlinked tests suite <language> --cwd <project> --timeout <ms> --json` explicitly runs
+a bounded project suite for `typescript`, `javascript`, `python`, `rust` or `go`. The default
+budget is 60 seconds including admission. TS/JS use the shared Vitest scheduler; Python uses
+the active `VIRTUAL_ENV`, then project `.venv`/`venv`, then platform Python (an explicit
+adapter interpreter takes precedence). A selected missing interpreter is unavailable;
+it never silently switches environments. Rust uses offline Cargo
+with two jobs/test threads; Go runs all packages with two build jobs and caching disabled.
+No runner is installed automatically. Python retains project pytest options and configured
+discovery (`testpaths`, `python_files`); the invocation does not append an implicit `.`.
+Fresh structured pytest case reports distinguish test failures from collection/configuration
+errors and coverage-plugin failures. Fixture and teardown failures count as failed tests.
+Known failures remain visible alongside incomplete collection; bounded diagnostics accompany
+unavailable results. Terminal text alone is not a pytest verdict. Only an observed passing suite exits successfully;
+missing/empty execution is not a pass. `tests plan/run/status` remain the TS/JS dependency-aware
+queue interface; the non-TS suite command does not certify or discharge that queue.
+Active distributed pytest collection is currently unmeasured. Serial execution remains
+supported when xdist is installed but inactive; no plugin is silently disabled to obtain a pass.
+
+The default Python edit/commit coverage runner isolates each invocation's JSON report and
+coverage.py database (`COVERAGE_FILE`) in an owned temporary subdirectory of the requested
+report directory. Normalized results survive; those temporary files are cleaned after parsing,
+including failure paths. Project cwd and pytest configuration remain in effect, and existing
+caller coverage files are preserved. Custom command overrides retain their argv/report contract
+and remain unqualified for concurrent report isolation and structured red/green verdicts.
+Python CRAP attribution requires native function regions with declaration lines; unsupported,
+ambiguous or wholly excluded functions remain explicitly unmeasured. A green suite with an
+unmeasured enabled quality check does not discharge commit obligations. See the quality-gates
+skill for the native coverage.py/Radon attribution contract.
+
+For evolving requirements, distinguish newly required observable behavior from contracts
+that should remain valid. Exercise representative successful, boundary, error and state-transition
+cases from the public task before concluding the implementation is complete. Existing passing
+tests can all remain green while the new feature is largely missing. Keep this proportional
+to the change; do not create a mandatory test-authoring loop for trivial reversible edits.
+Hidden evaluator cases are unavailable to product checks and must not shape harness rules.
+
+Heavy runners retain at least the configured 2 GiB admission budget plus the host reserve;
+the proportional ceiling does not reject an otherwise idle nominal 8 GiB Linux guest merely
+because its reported usable RAM is slightly smaller. Insufficient available memory still defers.
+
 The proposed qualification baseline is an 8 GB whole host shared with the user's
 other applications. Its operator plan, `docs/plans/8gb-host-resource-plan.md`, is private
 operator material and absent from public clones. Qualification requires aggregate measurements across owned
@@ -74,14 +173,27 @@ line endings when reproducing a warning; normalizing a fixture can hide a locati
 
 For `[interlinked:hook-coverage] NOT CHECKED`, use `interlinked harness coverage verify
 --json`. This starts one daemon-owned recovery run over the pending versions and waits
-for completion; `--no-wait` returns after starting it. Poll `harness coverage status
---json` to inspect progress. Checks reuse the configured PostToolUse battery in bounded
+for completion; `--no-wait` returns after starting it. Use `harness coverage status
+--progress --json` for cached progress: it reports generation, observation time, pending
+count and job counters without rehashing files or returning historical receipts. This
+is not a fresh coverage verdict. The waiting CLI uses this compact path and fetches a
+fresh full status before reporting completion; it still accepts older daemons that
+return full reports. Use plain `harness coverage status --json` for an explicit refresh,
+pending identities and full receipt details. Checks reuse the configured PostToolUse battery in bounded
 external batches. This does not replay PreToolUse guards or certify every hook phase.
 While waiting, an unavailable status response is retried up to three consecutive
 polls without restarting verification. A responsive report resets that counter.
 Persistent unavailability exits nonzero with the original reason; the job may still
 be running. Only a ready response with a missing or different job establishes that
 the observed job changed or disappeared.
+On Claude and Codex Stop/SubagentStop, advisory coverage feedback stays on exit-0 stderr and
+does not request another agent turn. Only an explicit blocking decision requests
+continuation. This delivery rule does not clear pending evidence or certify checks;
+retry unavailable recovery after its prerequisites change, not merely because a
+turn ended. Writer identity remains unknown after recovery.
+An initially absent watched path contributes to policy identity but creates no write-check
+obligation. Creation or deletion after observation still requires evidence; previously
+recorded historical gaps are not cleared by this rule.
 Recovery groups pending files by project and applicable checks, then checks up to 32
 compatible files together. Documentation does not inherit an unrelated source-test
 timeout, and nested projects acquire their own admission lane sequentially. Each
@@ -90,11 +202,36 @@ the complete union of related tests for up to 32 sources. This reduces repeated 
 suites without selecting a passing subset. Ordinary hook deadlines and source-count
 limits remain unchanged; recovery still defers honestly on capacity or timeout.
 
+Explicit recovery now waits up to 30 seconds for each external batch's existing project
+lease. Its affected-test scheduler waits within the configured recovery deadline and
+permits a necessary full-suite plan without the interactive test-count cap, retaining the
+two-worker limit. Ordinary PostToolUse still uses immediate admission and its test-count
+cap. Unsupported runners and exhausted capacity/time remain unmeasured; the shared named
+test dispatcher supports TS/JS with Vitest and single-language Python/pytest, Rust/Cargo,
+and Go project suites. Mixed-language batches remain explicitly deferred. Python no longer
+guesses one companion file, Rust executes assertions instead of only compiling tests, and
+Go covers the project packages. These project suites produce fresh execution evidence, not
+reusable dependency-closure receipts. Missing runners, empty/unrecognized successful output,
+and pytest collection/configuration errors are unmeasured. Current non-TS suite failures are
+warnings; without a before result they are not classified as introduced regressions.
+The external path cap applies separately to each check's applicable paths in the selected project.
+An inapplicable binary path does not consume a TypeScript check slot; an applicable security
+target still counts. This is not a blanket dependency/cache exclusion.
+
 The daemon retains `automated_check` receipts with exact file identities, completed check
 names and findings. Completed checks may have findings; a receipt is not a clean verdict.
-Ordinary single-file PostToolUse checks also consume their exact pending version when
-they complete without deferral. Multi-file batches use the explicit recovery command,
-which accounts for shared external deferrals before attributing evidence to each file.
+Nonempty `unavailable` on a receipt means partial evidence: completed checks and their
+findings are retained, but the file version stays pending. Multi-file per-file checks retain
+partial receipts when shared checks defer. Shared receipts include per-check configuration
+hashes and the request's captured file identities. File or policy changes prevent full discharge.
+Legacy receipts
+remain readable. These historical receipts are not yet a cache for skipping future work;
+check-specific configuration/dependency/runtime identities and exact batch scope are still
+required before safe reuse.
+Ordinary single-file and multi-file PostToolUse checks consume their exact pending versions
+when all applicable evidence completes without deferral. Explicit recovery uses the same
+shared scope evidence. Recovery has a 30-minute job budget; cancellation reaches the job's
+owned asynchronous subprocesses and capacity waits. Earlier recorded evidence survives.
 Unavailable checks, unreadable/excluded/absent files, and file or policy changes during
 verification stay pending. With waiting enabled, findings or remaining pending versions
 produce exit 1. Re-run after the reported capacity/tool problem is resolved. A daemon

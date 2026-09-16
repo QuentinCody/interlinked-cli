@@ -5,6 +5,28 @@ description: "Configure and respond to Interlinked's metric ratchets: line-count
 
 # interlinked-quality-gates — the metric ratchets
 
+File-size and per-function checks share Write/Edit/MultiEdit and native patch projection.
+Multi-file patches check every reconstructed target, and moves retain their source
+before-state. Equivalent known effects face the same policy. Unknown reconstruction
+is unmeasured, never a passing receipt. Arbitrary shell writes still require checking
+their observed effects after execution.
+
+Behavioral execution and structural measurement have separate language coverage. Explicit
+`tests suite` supports TS/JS, Python, Rust and Go; the new iterative diagnostic profiles
+remain JS/TS and Python only. A passing runner is not evidence that new requirements have
+tests. Exercise new public boundary/error/state-transition contracts as well as preserving
+existing cases. Project-suite failures without a before result are not proven regressions.
+No new verbosity or erosion hook gate is enabled by these diagnostics.
+
+Python test-first guidance recognizes `test_<name>.py` and `<name>_test.py`, including
+root, package and separate test directories. Discovery refreshes when directories or
+runner configuration change during a daemon session. These are naming hints, not proof
+of coverage: inspect custom collection layouts before creating redundant tests. The
+configured new-file policy now applies to JS/TS and Python; an empty repository still
+receives a warning rather than a strict missing-companion block. Python uses
+`# interlinked-tdd: exempt` for the existing explicit exemption directive. This does not
+establish equivalent pre-execution TDD enforcement for arbitrary Bash writes.
+
 The experimental Cowork portable plugin does not carry these repository baselines
 or run coverage/mutation automatically. Load **interlinked-cowork** for explicit
 host bridging and version checks. Its `cowork verify` external-tool subset is not
@@ -16,15 +38,31 @@ caps may only fall. The harness raises water-lines itself (internal writes); **a
 hand-lowering a water-line is the canonical gate-gaming move and is blocked.** North star:
 ~100% coverage paired with mutation testing.
 
-**When a gate blocks you, the correct move is always to meet the bar — decompose, add a test,
-cover the line — never to loosen the baseline.** The strict gates (cyclomatic, per-edit
-coverage) have **no suppression and no env bypass**; decomposition or a test is the only way
-past. The habit that pays here is **decompose-first**: extract helpers *as you write* branchy
-functions, rather than waiting for the gate to block. (Measured on the harness's own repo
-across 17+ sessions of the strongest available models, at an identical per-edit rate — so it
-is a property of how models write branchy code, not of one codebase.)
+**Meet a gate by improving the implementation or its behavioral evidence, never by
+loosening the baseline.** The strict cyclomatic and per-edit coverage gates have no
+suppression or environment bypass. Read applicable limits before editing. Simplify
+redundant logic, remove duplication, or extract a cohesive responsibility with clear
+inputs and outputs. Early returns can reduce nesting without reducing branch count.
+Avoid trivial wrappers, repeated parameter forwarding and scattered control flow that
+only move measured complexity between functions.
+
+After a meaningful refactor, run relevant existing tests and preserve intended public
+contracts, including error behavior and state transitions. Where evidence is absent,
+add focused cases from the user's requirements; state untested scope. A passing local
+test or lower complexity score does not prove complete correctness. Intentional contract
+changes need corresponding expectations; do not preserve a bug merely to keep a test green.
+Do not tailor implementations or test selection to hidden benchmark cases.
 
 ## The gates you bump into at edit time
+
+Behavioral contracts complement metric gates: `tests contracts inspect|run` separates
+expectation provenance, configured acceptance, execution failures and unavailable evidence.
+Exact example/expectation conflicts require reconciliation; a citation without an exact
+observation binding remains a semantic review obligation. Passing agent-authored tests,
+coverage or mutation scores cannot certify expected answers. `tests contracts run
+--previous <manifest>` retains old expectations against current code; legitimate behavior
+changes remain possible through explicit requirement/rationale review. This is not a new
+heuristic edit block. Use **interlinked-verify** for schema, runner budgets and ownership.
 
 Execution evidence is available through `interlinked data checks` and `data investigate`.
 `check-results.jsonl` retains per-call findings and reported execution coverage;
@@ -41,7 +79,7 @@ or block.
 | **Line cap** | a Write/Edit grows a *cappable* file past its ceiling | **500** lines (`DEFAULT_MAX_LINES`) | Decompose into a re-exporting entry + sibling modules |
 | **Function tokens** | an edit introduces or grows an implementation above the inclusive canonical-token cap | **500** tokens; no per-edit slew allowance | Extract cohesive helpers; an already-over-cap function may hold or shrink |
 | **Cyclomatic — over cap** | edit adds/raises a function over the hard cap | shipped **25**; this repo overrides to **22** | Extract cohesive branches into named helpers |
-| **Cyclomatic — slew** | a uniquely-named ≤cap function jumps **>2** branches in one edit | tolerance **2**/edit | Extract cohesive branches into named helpers; do not stage one logical complexity increase across edits |
+| **Cyclomatic — below cap** | no edit-size restriction; the resulting function is within its effective cap | no slew | Prefer cohesive implementation; avoid extraction solely to reduce the size of one edit |
 | **Cognitive — over cap** | edit leaves a function over the cognitive cap | **30** | Flatten: guard clauses, extract the deepest-nested block |
 | **Cognitive — slew** | a uniquely-named ≤cap function jumps **>4** cognitive points in one edit | tolerance **4**/edit | Flatten rather than extract-in-place; a branch pulled out unchanged keeps its nesting cost |
 | **Per-edit coverage** | edit adds an uncovered executable line/function, or drops a file's coverage vs its high-water | gate default on; drop ε 0.005; hard floor `min_coverage` default 0 (off) | Stay within the source/test pair and add coverage; default debt mode allows the first uncovered/red edit but blocks unrelated wandering |
@@ -123,8 +161,9 @@ model's separate `modelTokens` value and chunks inputs that do not fit; semantic
 scores, and tokenization never affect this gate. See **interlinked-semantic-index** for that surface.
 
 **Cyclomatic** — strict, **no override**. Over-cap uses an identity-free multiset compare (a new
-over-cap function, or raising one past the cap, blocks); sub-cap limits a named function to +2
-branches/edit. JS/TS via the TS AST, Python via `radon`, other languages skipped. **Fails open
+over-cap function, or raising one past the cap, blocks). Below the cap, a whole implementation
+and the same implementation built incrementally face the same end-state limit. JS/TS uses
+the TS AST and Python uses its qualified AST counter; unsupported languages remain unmeasured. **Fails open
 (allows) + warns loudly** when the analyzer is unavailable — never a silent skip.
 
 **Cognitive** — same three rules, promoted from warn-only to blocking 2026-08-01 (measured p99 26
@@ -134,12 +173,48 @@ blocks; and the remedy is flattening, not extraction — pulling a deeply-nested
 own function unchanged carries the nesting cost with it. Run `interlinked caps` for live values;
 the numbers in this table are the committed defaults, not a promise about your repo.
 
-**Per-edit coverage** — default **ON**. Runs the *affected tests only* under a scoped overlay,
+**Per-edit coverage** — default **ON**. Runs tests under a scoped overlay,
 then decides: red-bar (default on) → uncovered-added-line → per-file coverage drop vs
 `coverage-edit-baseline.json` → `min_coverage` floor → CRAP (default on). With default
 `debt_mode:true`, the first uncovered or red result opens a pair-scoped debt and the edit lands;
 keep working in that source/test pair until it is covered and green. The commit gate remains the
 ground-truth backstop.
+
+JS/TS can select affected tests from its supported dependency evidence. Python currently
+uses the bounded full-suite route: a companion filename or an empty JS graph cannot prove
+a complete Python test selection. Over-budget work retains the existing deferral policy.
+Python suite and coverage paths share interpreter selection: explicit adapter configuration,
+active `VIRTUAL_ENV`, project `.venv`/`venv`, then the platform Python. A selected but broken
+environment is unavailable, with no silent fallback. Overlays execute in the staged tree
+using the original project's interpreter; recognized environment layouts are linked rather
+than copied, with proposed writes kept from mutating the original environment.
+If observed imports resolve to original project source outside the staged tree, the run
+is unmeasured for that edit, even when those cases pass or fail. This detects common editable
+install mistakes; it does not remap editable installs or certify all subprocess/data inputs.
+
+Default pytest execution records fresh structured case outcomes. Missing, empty, skipped-only
+or incomplete execution never earns a green verdict or a clean baseline. Observed assertion,
+fixture or teardown failures remain red even if coverage is missing or collection is incomplete;
+the configured failure/debt policy still applies. Custom Python command overrides retain their
+argv but are unmeasured for red/green without structured evidence. Default Python coverage
+runs own separate JSON report directories and `COVERAGE_FILE` databases, cleaned after parsing;
+they preserve project cwd/configuration and do not clear a caller's existing report/database.
+Custom command overrides keep their existing report-path contract and are not qualified for
+concurrent report isolation. Reusable dependency-aware indexing and live mutation still lack
+parity. Do not describe the language as fully qualified from a runner pass.
+
+Python edit/commit CRAP now uses coverage.py's native function-region executable lines,
+matched to Radon by declaration line and function name. Nested bodies do not contribute to
+their enclosing function's coverage; excluded lines and branch percentages do not inflate
+function line coverage. Reports must include native regions with `start_line` (introduced in
+coverage.py 7.13.1). Older/malformed reports, ambiguous or unmatched functions, and functions
+with no measured executable lines produce explicit missingness, not inferred coverage or
+invocation counts. A wholly excluded function is unmeasured for CRAP. Missing attribution
+cannot earn a clean edit baseline or discharge commit obligations while CRAP is enabled;
+known coverage violations still apply. Unavailable complexity analysis also keeps commit
+obligations open. These changes qualify the edit/commit paths, not every metrics/report surface.
+Active distributed pytest execution is explicitly unmeasured until worker collection and
+runtime identity are qualified; installing xdist alone does not make a serial run unsupported.
 
 Vitest coverage include/exclude edits block only when a concrete path example is
 provably included by HEAD and omitted by the proposed combined scope. These
@@ -616,6 +691,8 @@ Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline 
 | `interlinked caps status` | Ledger burn-down per metric: cap, entries remaining, top offenders, delta vs the previous snapshot. |
 | `interlinked caps propose` | Data-driven cap proposals from a live census: percentile ladder and the count each candidate cap would grandfather. |
 | `interlinked metrics complexity [--metric <m>] [--top <n>]` | Complexity census: percentiles, histograms, hotspots, per-file mass, over-cap counts. |
+| `interlinked metrics diagnostics [--profile js-ts\|python] [--cwd <path>] [--json\|--short]` | Explicit verbosity/erosion census, line overlap and absolute contributors; separate language profiles, diagnostic only. |
+| `interlinked metrics diagnostics compare <before> <after> [--json]` | Validate snapshot identity, scope and totals; incompatible overall deltas are withheld with nonzero exit, dilution remains visible. |
 | `interlinked metrics score [--profile structure-v1] [--cwd <path>] [--json\|--short]` | Explained composite and individual burdens, explicit evidence bounds and ranking eligibility; legacy structure profile remains selectable. |
 | `interlinked metrics arch [--cwd <path>] [--json]` | Import graph statistics including isolated modules; graphVersion 2 retains N² propagation cost and adds normalizedReach with N(N−1). |
 | `interlinked metrics split-plan <file>` | Where to cut one over-cap file: 2–4 cohesive modules from the intra-file reference graph. |
@@ -667,6 +744,26 @@ are absent. Use `maxFunctionTokens` to judge the cap and the summed value to und
 nested-inclusive function payload carried by a file.
 
 ### Model-free scoring and evidence workflows
+
+`interlinked metrics diagnostics` is a separate read-only `interlinked-iterative-js-ts-v1`
+profile: union of existing trivial-helper pattern lines and all exact-clone body lines over
+token-bearing product SLOC, plus CC × sqrt(innermost-owned function SLOC) mass above CC 10.
+JSON retains overlap, redundant clone lines, per-function contributions, source/parser identity,
+exclusions and gaps. No target tests, models or new per-edit scans run. Interpret absolute
+burdens alongside ratios: unrelated simple code can dilute the denominator. `--profile python`
+selects a separate AST/tokenize profile using isolated stdlib Python >=3.10, bounded batches
+(eight files, ten seconds each, thirty-second analysis budget). It excludes docstrings and
+Python test names, preserves nesting/indentation in clone evidence, and measures an advisory
+opposite-boolean-return pattern. The body CC counter is versioned independently of radon;
+existing Python edit gates are unchanged. Missing tools, exhausted budgets, unsupported source
+and parse failures remain gaps. This limited pattern set is
+not benchmark-equivalent, a composite score, a safe-deletion verdict or a new hard gate.
+Interactive trivial-helper warnings remain capped; the explicit census is uncapped.
+`metrics diagnostics compare` accepts saved reports and refuses incompatible/missing scope;
+the older `metrics compare` remains for scores. Save snapshots outside the measured tree so
+their files do not change recorded exclusions. `simplify review --diagnostics js-ts|python`
+joins candidates to existing scoped review/overlap/recording, with validation still not run. See
+`docs/metrics-iterative-diagnostics.md` for the counting contract and pending qualification.
 
 `interlinked metrics score` defaults to the schema-2 `interlinked-slop-v1` composite:
 individual structure, file-size, coverage, mutation, test-integrity, redundancy,
@@ -838,6 +935,14 @@ Opaque consumers retain repository-wide source dependencies; opaque shared setup
 configuration widens every shard. Configuration/runtime/discovery identity still
 invalidates globally when needed. The same static dependency graph powers
 `tests plan/run`; ordinary test-run receipts do not replace coverage contributions.
+
+Coverage-index runtime validation captures a shared original/workspace root once
+per validation boundary, comparing that capture with both expected identities.
+Distinct overlays still get separate captures, and later validations read fresh
+bytes; this is not a time-based cache or a lockfile-only dependency identity.
+Proposal promotion checks whether candidate entries exist before scanning source
+or runtime inputs. No candidate means no promotion, not a fresh coverage verdict.
+
 A bounded child process uses Vitest's native discovery
 to identify executable test files. Both warm and status load the project's Vitest
 configuration in that child; status does not execute tests. Helpers, resolved setup
@@ -1091,7 +1196,10 @@ public `interlinked mutation adopt` command.
   `INTERLINKED_DISABLE_BASELINE_GUARD=1`.
 - **Cyclomatic & per-edit-coverage gates have no bypass and no suppression** — decompose/test is
   mandatory. (`per_edit_coverage.enabled:false` in `guard-rules.local.json` is a repo-wide
-  policy opt-out, not a per-edit escape.)
+  policy opt-out, not a per-edit escape. Record the rationale next to it as
+  `disabled_reason` or `_note`: the Stop-phase `[interlinked:gate-reach]` line stays loud
+  about the zero reach but reports "OFF by recorded decision" with that text instead of
+  asking you to record why on every Stop.)
 - **Mutation has two configs and two states.** `check-policy*.json → mutation_gate` controls the
   report score floor; `guard-rules*.json → per_edit_mutation` controls the live survivor gate.
   `mutation-baseline.json` and `mutation-manifest.json` are not substitutes.
@@ -1117,9 +1225,9 @@ public `interlinked mutation adopt` command.
   Use it only for mutants with no observable behavior change; agent-facing message prose is
   behavior in this repo, so assert it instead of accepting. Campaign guidance:
   `docs/plans/15-survivor-elimination-campaign.md`.
-- **Do not split one branchy change into multiple edits to evade the +2 slew.** The edit-sized
-  tolerance is a regression detector, not permission to accumulate the same design debt slowly.
-  Extract a helper or simplify the control flow.
+- **Cyclomatic policy judges the resulting code.** The former +2-per-edit slew is removed;
+  hard caps, grandfathered debt and coverage/CRAP obligations remain. Simplify decisions or
+  extract a cohesive responsibility when necessary; avoid trivial forwarding helpers.
 - **`tsgo` ≠ `typescript` for the AST gate.** The cyclomatic/CRAP gate parses with the optional
   `typescript` compiler API; `tsgo` is typecheck-only with no importable JS API. Installing with
   `--omit=optional` makes the cyclomatic gate fail open to the regex walker AND leaves the

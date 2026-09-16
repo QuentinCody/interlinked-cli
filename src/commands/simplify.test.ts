@@ -96,6 +96,26 @@ afterEach(() => {
 });
 
 describe("buildSimplificationReport", () => {
+    it("adds explicit Python diagnostic candidates with scoped coverage and no validation claim", () => {
+        write("src/predicate.py", "def is_valid(x):\n    if x:\n        return True\n    else:\n        return False\n");
+        const report = buildSimplificationReport("review", { cwd: fixture, diagnostics: "python" });
+        const parsed = parseSimplificationReport(report);
+        expect(parsed?.findings).toContainEqual(expect.objectContaining({ source: "diagnostics.iterative.opposite_boolean_returns",
+            evidence_state: "heuristic", validation: expect.objectContaining({ status: "not_run" }), auto_fix: false }));
+        expect(report.coverage.analyzed_files).toBe(1);
+        expect(report.coverage.sources.find(source => source.source === "diagnostics.iterative")?.analyzed_paths).toEqual(["src/predicate.py"]);
+        expect(report.coverage.languages).toContainEqual(expect.objectContaining({ language: "python", files: 1, status: "checked" }));
+        expect(report.findings.filter(finding => finding.source.startsWith("diagnostics.")).every(finding => finding.impact.validated === null)).toBe(true);
+    });
+
+    it("keeps diagnostics opt-in and deduplicates overlapping candidate impacts", () => {
+        write("src/helpers.ts", "function processItems(x: number[]) { return x.length; }\nprocessItems([]);\n");
+        const ordinary = buildSimplificationReport("review", { cwd: fixture });
+        expect(ordinary.coverage.sources.some(source => source.source === "diagnostics.iterative")).toBe(false);
+        const diagnostic = buildSimplificationReport("review", { cwd: fixture, diagnostics: "js-ts" });
+        expect(diagnostic.findings).toContainEqual(expect.objectContaining({ source: "diagnostics.iterative.single_use_trivial_helper" }));
+        expect(parseSimplificationReport(diagnostic)).not.toBeNull();
+    });
 	// test-contract: public-api — local scan emits the shared strict schema and
 	// keeps every unvalidated detector result advisory/read-only
 	it("emits canonical evidence without invented validation", () => {

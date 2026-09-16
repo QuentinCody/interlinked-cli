@@ -14,6 +14,7 @@ import {
 } from "../../checks/helper-hygiene.js";
 import { checkAnonymousRegistration } from "../../checks/anonymous-registration.js";
 import { checkSingleUseTrivialHelper } from "../../checks/over-extraction.js";
+import { checkPythonSimplification } from "../../checks/python-simplification.js";
 import { detectPayloadFieldCasing } from "../../checks/payload-casing.js";
 import {
 	checkExcessiveUseEffect,
@@ -33,6 +34,13 @@ import {
 import type { CheckRegistration } from "../types.js";
 
 export const CODE_QUALITY_ENTRIES_EXTRA: CheckRegistration[] = [
+    {
+        id: "python_simplification", name: "Python simplification review", phase: "post",
+        description: "Bounded Python AST advice for trailing continue, elif after return/raise, and forwarding large parameter sets. Reports the actual statement; does not weight an enclosing block or penalize dataclass counts and boundary validation.",
+        tier: 2, determinism: "heuristic", severity: "warning", pipeline: "agent_safety",
+        fix_instruction: "Review the concrete simplification and preserve evaluation order, public contracts and state ownership. Validate changes with relevant tests. Advice is not a requirement to rewrite code or add abstractions.",
+        fn: checkPythonSimplification, resultsPropName: "pythonSimplification", content_keywords: ["def ", "for ", "while "],
+    },
 	{
 		id: "design_slop",
 		phase: "post",
@@ -347,7 +355,7 @@ export const CODE_QUALITY_ENTRIES_EXTRA: CheckRegistration[] = [
 		id: "single_use_trivial_helper",
 		name: "Single-use trivial helper",
 		description:
-			"Detects a NON-exported function with exactly one call site in its own file whose body is ≤3 statements AND whose name carries no information the call site lacks — a generic verb over a shape word (processItems, handleData, buildResult) or a name that merely restates the single call it wraps (parseJson → JSON.parse). The counterweight to the complexity caps: every metric gate is satisfied by extracting, and nothing pushed back, so a helper that bought a metric point and charged the reader a hop looked identical to one that earned its name. Advisory by design — a helper naming a domain rule the call site lacks, or one long enough that inlining re-inflates the caller, is silent.",
+            "Advisory review of single-use helpers whose generic or forwarding name adds little information. JS/TS checks non-exported functions with at most three statements; Python checks undecorated private module functions returning one call. Callback references, public helpers and named domain rules are retained. Review callers before inlining: local references cannot establish whole-program reachability.",
 		tier: 2,
 		determinism: "heuristic",
 		severity: "warning",
@@ -357,6 +365,6 @@ export const CODE_QUALITY_ENTRIES_EXTRA: CheckRegistration[] = [
 			"Either inline this helper at its single call site, or rename it to state the rule it encodes — a name the call site does not already imply. Never delete a helper that genuinely shrinks a large caller; this check only flags trivial ones whose name adds nothing.",
 		fn: checkSingleUseTrivialHelper,
 		resultsPropName: "singleUseTrivialHelper",
-		content_keywords: ["function", "=>"],
+		content_keywords: ["function", "=>", "def "],
 	},
 ];

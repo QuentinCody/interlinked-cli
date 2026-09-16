@@ -5,6 +5,20 @@ description: "Overview and router for the Interlinked CLI — a local guard, qua
 
 # interlinked — overview & skill router
 
+Use **interlinked-verify** for `tests contracts import|inspect|run`: portable executable
+examples, expected-value provenance and retained previous expectations. Use
+**interlinked-spec-audit** for preparing explicit documentation examples. Contract
+review is advisory; configured acceptance is separate from agent-authored proposals.
+
+For provider edit normalization and Stop delivery, use **interlinked-harness**; for
+native qualification, use **interlinked-setup**; for re-entry/translation evidence,
+use **interlinked-observability**. Early test-readiness guidance is covered by
+**interlinked-verify**. Provider-specific capabilities remain available.
+
+Use **interlinked-verify** for `tests readiness` and bounded `tests review`, including Python
+test setup and the distinction between tools present, assertions executed, and requirements
+covered. Use **interlinked-simplification** for the advisory Python cleanup/forwarding family.
+
 **Interlinked is a local control plane for AI coding agents.** A local daemon ("the harness")
 hooks into Claude Code, Codex, Copilot CLI, Gemini CLI, Cursor, OpenCode, and
 Pi — and on every tool call the runner exposes to its hook surface it enforces deterministic
@@ -39,6 +53,7 @@ Everything is per-`cwd` under `<repo>/.interlinked/`. Key files:
 | `check-policy.json` / `.local.json` | team / local | report-ratchet settings, including the mutation-score floor |
 | `lint-import.json`, `lint-baseline.json` | team | imported analyzer scopes/configuration digests and tighten-only existing-debt allowances |
 | `package-allowlist.json` | committed | approved dependencies (default-deny installs) |
+| `package-proposals/` | local | pending dependency requests; never approval grants |
 | `verify-suppressions.json` | committed | file/glob check suppressions |
 | `test-dependencies.json` | team | additive literal test-to-input dependency declarations |
 | `test-runs/` | local | durable pending requests, validated passing receipts, native reports and the last observed job |
@@ -94,7 +109,7 @@ observed invocation and native enforcement are separate evidence.
 | Installing / enabling Interlinked, connecting a coding client/hook, daemon down or **zombie**, `doctor` fails, config/mode | **interlinked-setup** |
 | A Bash command or edit was **BLOCKED**; a sandbox/effect-residue warning; a `[interlinked:*]` warning; suppressions | **interlinked-harness** |
 | Running `interlinked verify`; a `pre_block` check blocked an edit; landing a cross-file refactor; scratch scripts | **interlinked-verify** |
-| Selecting tests, explaining invalidation/reuse, resuming deferred test work (`tests plan/run/status`) | **interlinked-verify**; incremental coverage contracts: **interlinked-quality-gates** |
+| Selecting tests, explaining invalidation/reuse, resuming deferred test work (`tests plan/run/status`), explicit TS/JS/Python/Rust/Go suites (`tests suite`) | **interlinked-verify**; incremental coverage contracts: **interlinked-quality-gates** |
 | `[interlinked:hook-coverage] NOT CHECKED`; verifying or reviewing pending file versions (`harness coverage`) | **interlinked-verify**; daemon/capability diagnostics: **interlinked-setup** |
 | Discovering/adopting lint configs, script aliases and CI/tasks (`lint scan`, `lint import`, `lint check`), native or declared SARIF adapters, explicit `--config tool=file` and hook/audit cadence | **interlinked-verify**; baseline integrity and retirement: **interlinked-quality-gates** |
 | Blocked by a **line-cap / function-token / coverage / complexity / CRAP / mutation** ratchet; configuring report, per-edit, or durable `mutation cloud` work; operating the mutation journal; "can't lower a baseline"; `adopt`; automatic obligation or manual marker debt; **dead code** (`deadcode` scan + `--categorize` deletion-safety buckets, per-edit `dead_code_action`) | **interlinked-quality-gates** |
@@ -108,6 +123,12 @@ observed invocation and native enforcement are separate evidence.
 | Distill AGENTS.md / CLAUDE.md guidance into enforced harness rules | **enforce** (`/enforce`) |
 
 ## Quick orientation
+
+`metrics diagnostics --profile js-ts|python` provides separate verbosity/erosion censuses with overlap and
+absolute contributors. Route counting semantics and measurement gaps to **interlinked-quality-gates**;
+route `simplify review --diagnostics js-ts|python` and candidate review to **interlinked-simplification**.
+`metrics diagnostics compare` validates saved diagnostic scope and identity. These features add
+no hook gate or automatic scan cadence; Python uses an isolated, bounded stdlib parser.
 ```bash
 interlinked                 # guided human first run (posture + hooks + skills + daemon)
 interlinked enable          # explicit/automation install primitive
@@ -135,7 +156,7 @@ keeps history available through `data search`; ordinary live-tail readers have n
 
 ## Golden rules for an agent in a guarded repo
 1. **When blocked, read the `Suggestion:` and take the safe path** — don't rewrite to dodge the pattern.
-2. **Meet quality gates by fixing code** (decompose, add a test, cover the line) — never lower a baseline.
+2. **Meet quality gates by improving code and behavioral evidence** — simplify logic or extract cohesive responsibilities, verify relevant behavior, and never lower a baseline. A lower complexity score alone does not prove a better solution.
 3. **`[proven]` findings are real** — fix them; triage `[heuristic]` ones.
 4. **Package installs are default-deny** — surface an unapproved dep to the human, don't `--force`.
 5. **Checkpoints/rewind mutate git** — never run them without explicit per-turn authorization.

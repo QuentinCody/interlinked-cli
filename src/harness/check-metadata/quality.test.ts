@@ -73,7 +73,7 @@ const EXPECTED: Record<string, CheckMeta> = {
 	},
 	affected_tests: {
 		name: "Affected Tests",
-		description: "Run a shared affected-test plan; widen uncertain dependencies and retain deferred work",
+		description: "Run a shared TS/JS affected-test plan or bounded Python/Rust/Go project tests; report missing runners and empty suites as unmeasured",
 		tier: 2,
 		determinism: "fully_deterministic",
 	},

@@ -10,15 +10,18 @@
 // caller surfaces that deferral instead of building an unbounded queue.
 
 import { runProcessAsync } from "../check-engine/spawn-async.js";
-import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
-import { tryAcquireForegroundCapacity } from "../test-capacity.js";
+import { acquireProjectHeavyProcessLease, tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
+import { acquireTestCapacity, tryAcquireForegroundCapacity } from "../test-capacity.js";
 import { readResourceBudget } from "../resource-budget.js";
+import { combinedProcessSignal } from "../check-engine/process-cancellation.js";
 
 interface TestProcessSpec {
 	command: string;
 	args: string[];
 	cwd: string;
 	timeoutMs: number;
+    /** Explicit recovery shares one deadline across admission and execution. */
+    waitForCapacity?: boolean;
 	/** Optional cancellation from the owning hook request. */
 	signal?: AbortSignal;
 	/** Internal composition seam: the caller already owns this project's heavy
@@ -48,18 +51,35 @@ type TestProcessOutcome =
 export async function runBoundedTestProcess(
 	spec: TestProcessSpec,
 ): Promise<TestProcessOutcome> {
-	const release = spec.admissionAlreadyHeld
-		? undefined
-		: tryAcquireProjectHeavyProcessLease(spec.cwd);
+    const deadline = Date.now() + spec.timeoutMs;
+    const signal = combinedProcessSignal(spec.signal) ?? new AbortController().signal;
+    const release = await admitProject(spec, deadline, signal);
 	if (!spec.admissionAlreadyHeld && !release) return { kind: "deferred", reason: "busy" };
 	try {
-		const capacity = tryAcquireForegroundCapacity();
+		const capacity = spec.waitForCapacity
+            ? await acquireTestCapacity("background", deadline, signal)
+            : tryAcquireForegroundCapacity();
 		if (!capacity) return { kind: "deferred", reason: "busy" };
-		try { return await runAdmittedTestProcess(spec); }
+        try { return await runBeforeDeadline(spec, deadline, signal); }
 		finally { capacity.release(); }
+	} catch {
+        return { kind: "deferred", reason: signal.aborted ? "interrupted" : "unavailable" };
 	} finally {
 		release?.();
 	}
+}
+
+async function admitProject(spec: TestProcessSpec, deadline: number, signal: AbortSignal): Promise<(() => void) | null | undefined> {
+    if (spec.admissionAlreadyHeld) return undefined;
+    try {
+        return spec.waitForCapacity ? await acquireProjectHeavyProcessLease(spec.cwd, deadline, signal) : tryAcquireProjectHeavyProcessLease(spec.cwd);
+    } catch { return null; }
+}
+
+async function runBeforeDeadline(spec: TestProcessSpec, deadline: number, signal: AbortSignal): Promise<TestProcessOutcome> {
+    if (signal.aborted) return { kind: "deferred", reason: "interrupted" };
+    if (Date.now() >= deadline) return { kind: "deferred", reason: "timeout" };
+    return runAdmittedTestProcess({ ...spec, timeoutMs: deadline - Date.now(), signal });
 }
 
 async function runAdmittedTestProcess(spec: TestProcessSpec): Promise<TestProcessOutcome> {
@@ -83,6 +103,7 @@ async function runAdmittedTestProcess(spec: TestProcessSpec): Promise<TestProces
 	if (result.timedOut) return { kind: "deferred", reason: "timeout" };
 	if (result.killed) return { kind: "deferred", reason: "interrupted" };
 	if (result.code === null) return { kind: "deferred", reason: "unavailable" };
+    if (result.stdoutTruncated || result.stderrTruncated) return { kind: "deferred", reason: "unavailable" };
 	// POSIX wrappers such as npm can translate a child signal into the
 	// conventional 128 + signum exit code (143 for SIGTERM, 137 for
 	// SIGKILL/OOM). That run did not complete its assertions and therefore

@@ -34,6 +34,7 @@ export const CQ_RESULT_KEYS = [
 	"newExportWithoutImporter",
 	"extractedHelperDuplicate",
 	"singleUseTrivialHelper",
+    "pythonSimplification",
 	"circularImports",
 	"untestedInversePair",
 	"untestedIdempotent",

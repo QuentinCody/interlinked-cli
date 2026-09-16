@@ -303,7 +303,8 @@ beforeEach(() => {
 	mRunBehavioral.mockReturnValue([]);
 	mAssertionDensity.mockReturnValue(null);
 	batchResultsForFile.mockResolvedValue([]);
-	createChangeSetExternalBatch.mockReturnValue({ resultsForFile: batchResultsForFile });
+	createChangeSetExternalBatch.mockReturnValue({ resultsForFile: batchResultsForFile,
+        evidenceForFile: vi.fn().mockResolvedValue({ checks: [], unavailable: [], scopes: [] }) });
 });
 
 // ===========================================================================

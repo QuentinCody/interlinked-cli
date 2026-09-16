@@ -1,4 +1,5 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
+import { existsSync } from "node:fs";
 import { parseNpmAuditJson, parseOsvScannerJson } from "../check-engine/output-parsers.js";
 import { runProcessAsync } from "../check-engine/spawn-async.js";
 import { getProfileForFile } from "../language-profiles.js";
@@ -11,6 +12,8 @@ import { pushResult } from "./change-set-result-map.js";
 import { resolveDependencyAuditCommandAsync } from "./dependency-audit.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./result-types.js";
 import { scheduleTests } from "../test-scheduler.js";
+import { runLanguageTestSuite } from "./language-test-suite.js";
+import type { LanguageId } from "../types.js";
 
 interface NamedRunOptions {
 	recovery?: boolean;
@@ -32,11 +35,17 @@ async function runAffectedTestsAdmitted(
     if (!paths.some(path => pathMatchesCheck(path, candidate.check))) return null;
     const inputs = [...paths];
     const profiles = inputs.map(path => getProfileForFile(path)).filter(profile => profile !== null && profile !== undefined);
-    if (!profiles.every(profile => profile.id === "typescript" && (profile.test_runner?.command ?? "npx vitest run").includes("vitest"))) {
+    const languages = testLanguages(profiles.map(profile => profile.id), projectRoot);
+    if (!languages.length) return { name: candidate.name, reason: "No language or project test adapter was identified" };
+    if (languages.length === 1 && languages[0] !== "typescript") {
+        return runProjectSuite(options, resultMap, projectRoot, inputs, candidate, languages[0]!);
+    }
+    if (languages.length !== 1 || !profiles.every(profile => profile.id === "typescript" && (profile.test_runner?.command ?? "npx vitest run").includes("vitest"))) {
         return { name: candidate.name, reason: "mixed-language ChangeSets have no single bounded affected-test command" };
     }
     const result = await scheduleTests({ root: projectRoot, paths: inputs, timeoutMs: candidate.check.timeout_ms,
-        maxTests: candidate.check.max_dependent_tests ?? 150, maxWorkers: 2, waitForCapacity: false });
+        ...(options.recovery ? {} : { maxTests: candidate.check.max_dependent_tests ?? 150 }),
+        maxWorkers: 2, waitForCapacity: options.recovery === true });
     if (result.status === "deferred" || result.status === "stale") return { name: candidate.name, reason: result.reason };
     if (result.status === "empty") return { name: candidate.name, reason: result.reason };
     options.outChecksRan?.push(candidate.name);
@@ -45,6 +54,26 @@ async function runAffectedTestsAdmitted(
         pushResult(resultMap, inputs[0] ?? projectRoot, { name: candidate.name, severity: candidate.check.severity,
             message: `Tests failed for ${inputs.length} changed input(s) (shared test plan)`, file: inputs[0] ?? projectRoot, detail: result.output });
     }
+    return null;
+}
+
+function testLanguages(detected: LanguageId[], root: string): LanguageId[] {
+    if (detected.length) return [...new Set(detected)];
+    const markers: Array<[LanguageId, string[]]> = [["typescript", ["package.json"]], ["python", ["pyproject.toml", "requirements.txt", "setup.py", "pytest.ini"]],
+        ["rust", ["Cargo.toml"]], ["go", ["go.mod"]]];
+    return markers.filter(([, files]) => files.some(file => existsSync(join(root, file)))).map(([language]) => language);
+}
+
+async function runProjectSuite(options: NamedRunOptions, resultMap: Map<string, QualityCheckResult[]>,
+    root: string, paths: string[], candidate: NamedExternalCandidate, language: LanguageId): Promise<DeferredCheck | null> {
+    const result = await runLanguageTestSuite({ root, language, timeoutMs: candidate.check.timeout_ms, recovery: options.recovery === true });
+    options.outToolMetrics?.push({ tool: `affected-tests-${language}`, ms: result.durationMs, finding_count: result.status === "failed" ? 1 : 0 });
+    if (result.status === "unavailable") return { name: candidate.name, reason: [result.reason, result.output].filter(Boolean).join("\n") };
+    options.outChecksRan?.push(candidate.name);
+    if (result.status === "failed") pushResult(resultMap, paths[0] ?? root, {
+        name: candidate.name, severity: "warning", file: paths[0] ?? root,
+        message: result.reason, detail: result.output,
+    });
     return null;
 }
 

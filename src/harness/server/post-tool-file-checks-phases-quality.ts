@@ -15,6 +15,7 @@ import { join, relative } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import { GENERIC_CHECK_META, QUALITY_CHECK_META } from "../check-metadata.js";
 import { isOperationalCheckDeferral } from "../operational-check-deferrals.js";
+import { novelQualityFeedback } from "../quality-feedback.js";
 import type { QualityCheckResult } from "../quality-checks/result-types.js";
 import {
 	classifyDeterminism,
@@ -105,7 +106,7 @@ export function formatQualityDecisionWarnings(
 		const reasons = [...new Set(group.map(deferredReason))];
 		const checkWord = group.length === 1 ? "check" : "checks";
 		warnings.push(
-			`[interlinked:checks-deferred] [proven] NOT CHECKED: ${labels.join(", ")}${target} (${reasons.join("; ")}). Retry each deferred check after active project work finishes; no clean verdict exists for ${checkWord}.`,
+			`[interlinked:checks-deferred] [proven] NOT CHECKED: ${labels.join(", ")}${target} (${reasons.join("; ").slice(0, 600)}). Retry each deferred check after its prerequisites change; no clean verdict exists for ${checkWord}.`,
 		);
 	}
 	return warnings;
@@ -228,7 +229,11 @@ export function applyQualityDecision(
 	ctx: ServerRuntime,
 	qualityResults: QualityCheckResult[],
 	decision: HarnessDecision,
+    session?: SessionTrajectory,
+    completed: readonly string[] = [],
 ): void {
+    const feedbackRoot = findProjectRoot(qualityResults[0]?.file ?? "", ctx.cwd) ?? ctx.cwd;
+    if (session) qualityResults = novelQualityFeedback(session, `${feedbackRoot}\0${JSON.stringify(ctx.rules.quality_checks)}`, qualityResults, completed);
 	if (qualityResults.length === 0) return;
 	decision.warnings = [
 		...(decision.warnings || []),

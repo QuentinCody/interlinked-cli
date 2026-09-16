@@ -102,10 +102,11 @@ export function buildSimplificationCoverage(
 	const discoveredRel = options.discovered.map((path) => normalizedRel(options.cwd, path));
 	const selected = selectedPaths(options.cwd, options.discovered, options.scope);
 	const missing = selected.filter((path) => !existsSync(join(options.cwd, path))).sort();
-	const supported = selected.filter((path) => isSupported(options.cwd, path));
-	const unsupported = selected.filter((path) => isUnsupportedExisting(options.cwd, path));
 	const sources = scopedSources(options.sources, options.findings, selected);
 	const analyzedPathSet = new Set(sources.flatMap((source) => source.analyzed_paths));
+    const measuredOther = new Set(selected.filter(path => analyzedPathSet.has(path) && existsSync(join(options.cwd, path))));
+	const supported = selected.filter((path) => isSupported(options.cwd, path) || measuredOther.has(path));
+	const unsupported = selected.filter((path) => isUnsupportedExisting(options.cwd, path) && !measuredOther.has(path));
 	const analyzed = supported.filter((path) => analyzedPathSet.has(path));
 	const unanalyzed = supported.filter((path) => !analyzedPathSet.has(path));
 	const unsupportedExtensions = [
@@ -118,10 +119,7 @@ export function buildSimplificationCoverage(
 		analyzed_files: analyzed.length,
 		excluded_files: selected.length - analyzed.length,
 		missing_paths: missing,
-		included_paths: [
-			"**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
-			"src/**/* for dead-code reachability",
-		],
+		included_paths: includedPatterns(supported),
 		excluded_paths: [
 				exclusion("unsupported local simplification language", unsupported),
 				exclusion("selected path is deleted or unreadable", missing),
@@ -132,9 +130,10 @@ export function buildSimplificationCoverage(
 				language: "javascript/typescript",
 				extensions: [...LOCAL_SIMPLIFICATION_EXTENSIONS].sort(),
 				status: "checked",
-				files: supported.length,
+				files: supported.filter(path => LOCAL_SIMPLIFICATION_EXTENSIONS.has(extname(path).toLowerCase())).length,
 				reason: null,
 			},
+            ...pythonCoverage(supported),
 			{
 				language: "other",
 				extensions: unsupportedExtensions,
@@ -148,10 +147,21 @@ export function buildSimplificationCoverage(
 		sources,
 		limitations: [
 			"Static reachability cannot prove runtime-loaded, reflected, framework-wired, or public API code is unused.",
-			"Local detectors currently cover JavaScript and TypeScript; stdlib/native replacements and the safety of every shrink candidate require semantic review.",
+			"Default local detectors cover JavaScript and TypeScript; explicit Python diagnostics add only their declared candidate scope. Replacement safety requires semantic review.",
 			"No candidate patch, typecheck, test, security check, or mutation run was executed by this read-only command.",
 			"Analyzed-file counts include only selected paths named in at least one detector's exact read receipt.",
 			"Estimated impacts may overlap and must not be summed; validated impact remains null until a patch is independently checked.",
 		],
 	};
+}
+
+function pythonCoverage(supported: string[]): SimplificationCoverageReceipt["languages"] {
+    const files = supported.filter(path => extname(path).toLowerCase() === ".py").length;
+    return files ? [{ language: "python", extensions: [".py"], status: "checked", files, reason: "Explicit Python diagnostic adapter; limited patterns, not all simplification capabilities" }] : [];
+}
+
+function includedPatterns(supported: string[]): string[] {
+    const patterns = ["**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}", "src/**/* for dead-code reachability"];
+    if (supported.some(path => extname(path).toLowerCase() === ".py")) patterns.push("**/*.py (explicit diagnostic profile)");
+    return patterns;
 }

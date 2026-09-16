@@ -10,6 +10,20 @@ import { CLAUDE_POST_TOOL_USE_MATCHER, createClaudeCodeAdapter } from "./claude-
 
 const adapter = createClaudeCodeAdapter();
 
+describe.each(["Stop", "SubagentStop"])("Claude continuation control: %s", name => {
+    const event = adapter.parseHookInput({ session_id: "stop-parity" }, name);
+    it.each(["allow", "ask"] as const)("keeps %s diagnostics from continuing the model", decision => {
+        const output = adapter.encodeDecision({ decision, warnings: ["pending evidence"], additional_context: "operator diagnostic" }, event);
+        expect(output.stdout).toBeUndefined();
+        expect(output.exit_code).toBe(0);
+        expect(output.stderr).toContain("pending evidence");
+    });
+    it("requests continuation for explicit repair blocks", () => {
+        const output = adapter.encodeDecision({ decision: "block", reason: "repair the measured regression" }, event);
+        expect(JSON.parse(output.stdout!)).toEqual({ decision: "block", reason: "repair the measured regression" });
+    });
+});
+
 describe("Claude Code adapter identity", () => {
 	it("has the expected id and label", () => {
 		expect(adapter.id).toBe("claude-code");

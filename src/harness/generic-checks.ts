@@ -1,4 +1,5 @@
 // ===========================================
+export { checkPythonSimplification } from "./checks/python-simplification.js";
 // Generic Checks — Language-agnostic and language-specific inline analysis
 // ===========================================
 // Pure functions that analyze file content (<1ms each for inline checks).

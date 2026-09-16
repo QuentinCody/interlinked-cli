@@ -70,9 +70,9 @@ export interface EditedPathResolution {
 	readonly shouldRunChecks: boolean;
 }
 
-function resolveDeclaredPaths(event: HarnessEvent, isDirectFileEdit: boolean): string[] {
+function resolveDeclaredPaths(event: HarnessEvent, isDirectFileEdit: boolean, includeGenerated: boolean): string[] {
 	if (isDirectFileEdit) {
-		return extractAllEditedFilePaths(event).filter((path) => !isGeneratedArtifactPath(path));
+		return extractAllEditedFilePaths(event).filter((path) => includeGenerated || !isGeneratedArtifactPath(path));
 	}
 	if (!event.tool_name || !SHELL_TOOLS.includes(event.tool_name)) return [];
 	const cmd = typeof event.tool_input?.command === "string" ? event.tool_input.command : "";
@@ -82,7 +82,7 @@ function resolveDeclaredPaths(event: HarnessEvent, isDirectFileEdit: boolean): s
 	// and emitted capacity-deferral warnings while another agent held the
 	// compiler lease. Mentioning a file is not evidence of writing it.
 	const write = detectBashCodeFileWrite(cmd);
-	if (write === null || isGeneratedArtifactPath(write.target)) return [];
+	if (write === null || (!includeGenerated && isGeneratedArtifactPath(write.target))) return [];
 	return [write.target];
 }
 
@@ -102,11 +102,11 @@ function resolveDeclaredPaths(event: HarnessEvent, isDirectFileEdit: boolean): s
  * The read-only set lives in `lib/hook-read-only-tools.ts`, shared with the
  * generated `.mjs` runtime's fast path.
  */
-function observedPaths(event: HarnessEvent): string[] {
+function observedPaths(event: HarnessEvent, includeGenerated: boolean): string[] {
 	if (isReadOnlyToolName(event.tool_name)) return [];
 	return (event.change_set?.files ?? [])
 		.map((effect) => effect.path)
-		.filter((path) => !isGeneratedArtifactPath(path));
+		.filter((path) => includeGenerated || !isGeneratedArtifactPath(path));
 }
 
 /**
@@ -122,12 +122,12 @@ function observedPaths(event: HarnessEvent): string[] {
  * `isDirectFileEdit: false`, which handed a pre-write-GATED edit to the
  * bash-channel obligation gate.
  */
-export function resolveEditedPaths(event: HarnessEvent): EditedPathResolution {
+export function resolveEditedPaths(event: HarnessEvent, includeGenerated = false): EditedPathResolution {
 	const isDirectFileEdit = isDirectFileEditTool(event.tool_name);
-	const effects = observedPaths(event);
+	const effects = observedPaths(event, includeGenerated);
 	const editedFilePaths = effects.length > 0
 		? effects
-		: resolveDeclaredPaths(event, isDirectFileEdit);
+		: resolveDeclaredPaths(event, isDirectFileEdit, includeGenerated);
 	const editedFilePath = editedFilePaths[0] || "";
 	const shouldRunChecks = isDirectFileEdit || editedFilePaths.length > 0;
 	return { editedFilePath, editedFilePaths, isDirectFileEdit, shouldRunChecks };

@@ -22,6 +22,7 @@
  * rationale. Grouping below follows the same order.
  */
 export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
+    "python_simplification",
 	// Dead-code / coverage scans
 	"knip",
 	"tseslint-types",

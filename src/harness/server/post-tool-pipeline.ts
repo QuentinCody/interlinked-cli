@@ -36,6 +36,7 @@ import { appendFlakeCheckWarning } from "./post-tool-flake-phase.js";
 import { appendMutationHarvestWarning } from "./post-tool-mutation-harvest.js";
 import { appendBashEditObligationWarnings } from "../bash-edit-obligations.js";
 import { resolveEditedPaths } from "./post-tool-pipeline-paths.js";
+import { hasSourceChecks, prepareSourceChecks } from "./post-tool-source-scope.js";
 import {
 	dischargeCoverageOnGreenRun,
 	pushWarnings,
@@ -49,6 +50,7 @@ import { withPostToolWarningSpool } from "./post-tool-pipeline-spool.js";
 import {
 	appendBaselineEffect,
 	appendRequiredToolWarnings,
+    appendTestReadinessGuidance,
 	attachObservedChangeSet,
 	attachTailResults,
 	emitAllCleanSummary,
@@ -209,6 +211,7 @@ async function runFileChecks(
 				? [editedFilePath]
 				: [""];
 	acc.editedFilePaths = pathsToCheck;
+    await appendTestReadinessGuidance(ctx, session, pathsToCheck, postDecision);
 	// Phase mark — everything before this point was tool-response checks
 	// (silent-failure, context-bloat) plus paths-to-check setup.
 	acc.markPhase("tool_response_checks");
@@ -313,7 +316,11 @@ async function runPostToolPipelineInner(
 	// Run quality checks (synchronous, with timeouts per check). Resolve which
 	// file(s) this event edited (direct edit declared paths, or a path scanned
 	// out of a Bash command) and whether any checks should run at all.
-	const { editedFilePath, editedFilePaths, isDirectFileEdit, shouldRunChecks } = resolveEditedPaths(event);
+    const resolvedEdits = resolveEditedPaths(event, true);
+    const editedFilePaths = await prepareSourceChecks(ctx, event, resolvedEdits.editedFilePaths, postDecision);
+    const editedFilePath = editedFilePaths[0] ?? (resolvedEdits.editedFilePaths.length === 0 ? resolvedEdits.editedFilePath : "");
+    const { isDirectFileEdit } = resolvedEdits;
+    const shouldRunChecks = hasSourceChecks(resolvedEdits, editedFilePaths);
 	// Ring-2 equalizer (gap 6): bash-channel edits judged post-state → obligations.
 	appendBashEditObligationWarnings(event, ctx.cwd, isDirectFileEdit, editedFilePaths, postDecision);
 	if (shouldRunChecks) {

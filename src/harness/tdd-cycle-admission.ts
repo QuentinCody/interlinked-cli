@@ -32,6 +32,7 @@
 
 import { isAbsolute, resolve } from "node:path";
 import { isTddExemptPath } from "./evaluator/tdd-new-file-gate.js";
+import { isTestSourcePath } from "./checks/shared.js";
 
 /**
  * Source-code extensions where TDD cycle tracking is meaningful.
@@ -82,6 +83,7 @@ export function canTrackCycle(sourceFile: string): boolean {
 	if (!sourceFile) return false;
 	if (!TDD_SOURCE_EXT_RE.test(sourceFile)) return false;
 	if (TDD_TEST_FILE_RE.test(sourceFile)) return false;
+    if (/\.py$/i.test(sourceFile) && isTestSourcePath(sourceFile)) return false;
 	if (TDD_CONFIG_FILE_RE.test(sourceFile)) return false;
 	return !isTddExemptPath(sourceFile);
 }

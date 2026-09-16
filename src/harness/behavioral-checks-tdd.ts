@@ -37,7 +37,7 @@ export { checkAssertionDensity, checkProdTestLocRatio, countAssertions, gitNumst
 // (no `.test.` infix) — without it a scratch file called exactly test.ts is
 // classified as implementation and told to write a test for itself
 // (recurrence log: 7 tdd_cycle_violation events on bare "test.ts").
-const TEST_FILE_RE = /\.(test|spec)\.|__tests__\/|\/tests\/|(?:^|\/)(?:test|spec)\.[cm]?[jt]sx?$/;
+const TEST_FILE_RE = /\.(test|spec)\.|__tests__\/|(?:^|\/)tests\/|(?:^|\/)test_[^/]+\.py$|_test\.py$|(?:^|\/)(?:test|spec)\.[cm]?[jt]sx?$/;
 
 // Source-code extensions where TDD cycle tracking is meaningful. The cycle
 // state machine and the "write a failing test first" nudge are about CODE

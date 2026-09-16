@@ -5,7 +5,7 @@
 // response semantics. This adapter covers Codex's full twelve-event surface,
 // keeps `turn_id` distinct in the unified envelope, abstains on allowed/asked
 // PermissionRequest events so Codex's native policy can prompt, and translates
-// Stop/SubagentStop feedback into Codex's continuation shape.
+// explicit Stop/SubagentStop blocks into Codex's continuation shape.
 //
 // Configuration: Codex reads `.codex/hooks.json` (project) or
 // `~/.codex/hooks.json` (user). Hooks are gated by a `[features]
@@ -258,14 +258,17 @@ function encodeCodexPermissionDecision(decision: HarnessDecision): AdapterOutput
 }
 
 function encodeCodexContinuationDecision(decision: HarnessDecision): AdapterOutput {
-	const reason = feedbackText(decision);
-	if (decision.decision === "allow" && !reason) {
-		return { exit_code: 0 };
+	const feedback = feedbackText(decision);
+	if (decision.decision !== DECISION_BLOCK) {
+		// Stop has no non-blocking model-context or approval channel. Keep
+		// diagnostics for the operator without turning warnings into more work.
+		const diagnostic = [decision.reason, feedback].filter(Boolean).join("\n");
+		return diagnostic ? { stderr: diagnostic, exit_code: 0 } : { exit_code: 0 };
 	}
 	return {
 		stdout: JSON.stringify({
 			decision: DECISION_BLOCK,
-			reason: reason || decisionReason(decision),
+			reason: [decisionReason(decision), feedback].filter(Boolean).join("\n"),
 		}),
 		exit_code: 0,
 	};
@@ -292,7 +295,7 @@ function encodeCodexBlock(decision: HarnessDecision, event: UnifiedHookEvent): A
 function encodeCodexAllow(decision: HarnessDecision, event: UnifiedHookEvent): AdapterOutput {
 	const feedback = feedbackText(decision);
 	if (event.runner_native_event === EVT_PRE_TOOL && decision.updated_input) {
-		return { exit_code: 0, stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: EVT_PRE_TOOL, updatedInput: decision.updated_input, additionalContext: feedback } }) };
+		return { exit_code: 0, stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: EVT_PRE_TOOL, permissionDecision: "allow", updatedInput: decision.updated_input, additionalContext: feedback } }) };
 	}
 	if (!feedback) {
 		return { exit_code: 0 };

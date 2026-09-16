@@ -37,6 +37,9 @@ describe("canTrackCycle — positive (must be admitted)", () => {
 });
 
 describe("canTrackCycle — negative (must NOT be admitted)", () => {
+    it.each(["test_api.py", "api_test.py", "tests/helper.py", "conftest.py", "setup.py"])("does not create implementation cycles for Python test/configuration path %s", path => {
+        expect(canTrackCycle(path)).toBe(false);
+    });
 	it("N1: rejects a config file with no companion test", () => {
 		// The real junk cycle from the 2026-07-26 session — it was stuck red
 		// after the file had already been deleted.

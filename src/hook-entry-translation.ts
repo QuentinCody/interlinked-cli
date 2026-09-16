@@ -30,11 +30,19 @@ function denialControl(output: AdapterOutput, event: UnifiedHookEvent, body: Jso
     return body.decision === "block" || typeof body.additionalContext === "string" || typeof specific.additionalContext === "string" ? ["context"] : [];
 }
 
+function hasAdvisoryContext(decision: HarnessDecision): boolean {
+    return decision.decision === "allow" && Boolean(decision.additional_context || decision.warnings?.length);
+}
+
 /** Records representable output, not proof that a native process consumed it. */
 export function measureHookTranslation(output: AdapterOutput, decision: HarnessDecision, event: UnifiedHookEvent): HookTranslation {
     const requested: HookControl[] = [];
     const body = jsonBody(output);
     const encoded: HookControl[] = [];
+    if (hasAdvisoryContext(decision)) {
+        requested.push("context");
+        encoded.push(...denialControl(output, event, body));
+    }
     if (decision.decision !== "allow") { requested.push(decision.decision === "ask" ? "ask" : "deny"); encoded.push(...(output.translation?.encoded ?? denialControl(output, event, body))); }
     if (decision.updated_input) {
         requested.push("rewrite_input");
@@ -55,4 +63,13 @@ export function encodeHookResult(args: { adapter: RunnerAdapter; event: UnifiedH
         appendFileSync(join(args.dataDir, "hook-translations.jsonl"), `${JSON.stringify({ schema: 1, event_id: args.event.event_id, session_id: args.event.session_id, provider: args.adapter.id, native_event: args.event.runner_native_event, runtime_version: args.event.runner_version ?? "unmeasured", profile_digest: hookProfileDigest(args.adapter.capabilities), translation, enforcement: "unmeasured" })}\n`, { mode: 0o600 });
     } catch { /* Diagnostic loss must not change the already encoded decision. */ }
     return { stdout: output.stdout, stderr: output.stderr, exit_code: output.exit_code, fell_back: args.fellBack };
+}
+
+/** Retain a lifecycle boundary even when the loop guard skips daemon evaluation. */
+export function recordSuppressedStop(dataDir: string | null, provider: string | undefined, nativeEvent: string): void {
+    if (!dataDir) return;
+    try {
+        mkdirSync(dataDir, { recursive: true });
+        appendFileSync(join(dataDir, "hook-reentry.jsonl"), `${JSON.stringify({ schema: 1, timestamp: new Date().toISOString(), provider: provider ?? "unknown", native_event: nativeEvent, outcome: "suppressed-reentry", daemon_evaluated: false })}\n`, { mode: 0o600 });
+    } catch { /* Diagnostic failure must not restart a stopped turn. */ }
 }

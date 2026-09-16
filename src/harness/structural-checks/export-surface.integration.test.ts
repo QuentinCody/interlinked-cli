@@ -470,6 +470,21 @@ describe("checkRippleTests", () => {
 // =============================================================================
 
 describe("findTestFileForSource", () => {
+    it.each(["test_foo.py", "foo_test.py"])("finds a Python companion named %s", name => {
+        existsImpl = path => path === `/proj/${name}`;
+        expect(findTestFileForSource("/proj/foo.py")).toBe(`/proj/${name}`);
+        expect(findTestFileForSource(`/proj/${name}`)).toBeNull();
+    });
+    it("preserves JS colocated spec preference before a __tests__ test", () => {
+        existsImpl = path => path === "/proj/foo.spec.ts" || path === "/proj/__tests__/foo.test.ts";
+        expect(findTestFileForSource("/proj/foo.ts")).toBe("/proj/foo.spec.ts");
+    });
+    it("does not invoke Vitest on a discovered Python companion", () => {
+        existsImpl = path => path === "/proj/test_foo.py";
+        const result = checkRippleTests("/proj/foo.py", "foo.py", makeGraph());
+        expect(result).toEqual([expect.objectContaining({ check: "export_ripple_tests_deferred" })]);
+        expect(spawnSyncMock).not.toHaveBeenCalled();
+    });
 	it("returns null when the file itself is a .test file (L217)", () => {
 		expect(findTestFileForSource("/proj/foo.test.ts")).toBeNull();
 	});

@@ -239,6 +239,7 @@ describe("DEFAULT_ADVISORY_SKIPS", () => {
 				"non_null_assertion",
 				"over_mocking",
 				"positional_optional_boolean",
+                "python_simplification",
 				// CI-hang class from the 2026-07 unit-lane saga: a /proc path used as
 				// an unwritable-path fixture. Advisory — the literal cannot prove intent.
 				"procfs_probe_in_test",

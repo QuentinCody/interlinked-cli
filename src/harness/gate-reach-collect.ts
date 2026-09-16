@@ -132,6 +132,7 @@ const isGateReachSnapshot = wireObject<GateReachSnapshot>({
 		status: wireLiteral("measured", "disabled", "source_unavailable"),
 		eligible: wireNumber, measured: wireNumber, skipped: wireRecord(wireNumber),
 		unmeasured: wireNumber, reach: wireNumber, reason: wireAbsentOptional(wireString),
+		recorded_reason: wireAbsentOptional(wireString),
 	})),
 });
 
@@ -222,10 +223,41 @@ function coverageRatchetInput(cwd: string, eligible: string[]): GateReachInput {
  * A disabled gate is explicit; an absent journal is unavailable. Old or failed
  * attempts never count as fresh measurements just because the gate is enabled.
  */
-function perEditCoverageInput(eligible: string[], enabled: boolean, cwd: string): GateReachInput {
+/**
+ * The operator's recorded rationale for switching `per_edit_coverage` off:
+ * the typed `disabled_reason`, or the repo-wide `_note` convention every other
+ * config section already uses for exactly this. `undefined` when neither is a
+ * non-blank string — a blank note is not a recorded decision. Pure over the
+ * config section so the callers (Stop path, `metrics coverage` CLI) cannot
+ * disagree about where the reason lives.
+ */
+export function recordedDisableReason(section: unknown): string | undefined {
+	if (typeof section !== "object" || section === null) return undefined;
+	// SAFETY: guarded above as a non-null object; indexing by string is the
+	// only operation, and every value is re-checked as a string before use.
+	const record = section as Record<string, unknown>;
+	for (const key of ["disabled_reason", "_note"]) {
+		const value = record[key];
+		if (typeof value === "string" && value.trim() !== "") return value;
+	}
+	return undefined;
+}
+
+function perEditCoverageInput(args: {
+	eligible: string[];
+	enabled: boolean;
+	cwd: string;
+	recordedReason?: string;
+}): GateReachInput {
+	const { eligible, enabled, cwd, recordedReason } = args;
 	const base = { gate: "per_edit_coverage", eligible: eligible.length, measured: 0 };
 	if (!enabled) {
-		return { ...base, disabled: true, reason: "config per_edit_coverage.enabled=false" };
+		return {
+			...base,
+			disabled: true,
+			reason: "config per_edit_coverage.enabled=false",
+			...(recordedReason !== undefined ? { recordedReason } : {}),
+		};
 	}
     const reach = coverageExecutionReach(cwd, eligible);
     if (!reach.present) return { ...base, sourceUnavailable: true, reason: "no_per_edit_measurement_ledger" };
@@ -239,6 +271,9 @@ export function collectGateReachSnapshot(args: {
 	sessionId: string;
 	now: number;
 	perEditCoverageEnabled: boolean;
+	/** Operator-recorded rationale for a disabled per-edit gate; see
+	 *  {@link recordedDisableReason}. Ignored when the gate is enabled. */
+	perEditCoverageDisabledReason?: string;
 	/** Optional gate-id allow-list, for surfaces that want a subset. */
 	gates?: string[];
 }): GateReachSnapshot {
@@ -255,7 +290,14 @@ export function collectGateReachSnapshot(args: {
 			? []
 			: [
 					coverageRatchetInput(args.cwd, eligible),
-                    perEditCoverageInput(eligible, args.perEditCoverageEnabled, args.cwd),
+					perEditCoverageInput({
+						eligible,
+						enabled: args.perEditCoverageEnabled,
+						cwd: args.cwd,
+						...(args.perEditCoverageDisabledReason !== undefined
+							? { recordedReason: args.perEditCoverageDisabledReason }
+							: {}),
+					}),
 				];
 	const wanted = args.gates;
 	return buildGateReachSnapshot({
@@ -277,6 +319,8 @@ export function buildGateReachStopWarning(args: {
 	cwd: string;
 	sessionId: string;
 	perEditCoverageEnabled: boolean;
+	/** See {@link recordedDisableReason}; passed through to the snapshot. */
+	perEditCoverageDisabledReason?: string;
 	/** false = the session wrote nothing; the gates judged none of its work, so
 	 *  the reach figure is nag, not signal — skip (undefined = legacy caller, run). */
 	sessionWroteFiles?: boolean;
@@ -300,6 +344,9 @@ export function buildGateReachStopWarning(args: {
 		sessionId: args.sessionId,
 		now,
 		perEditCoverageEnabled: args.perEditCoverageEnabled,
+		...(args.perEditCoverageDisabledReason !== undefined
+			? { perEditCoverageDisabledReason: args.perEditCoverageDisabledReason }
+			: {}),
 		...(args.gates !== undefined ? { gates: args.gates } : {}),
 	});
 	recordGateReach(args.cwd, snapshot);

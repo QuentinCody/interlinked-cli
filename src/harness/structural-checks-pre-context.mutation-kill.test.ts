@@ -5,6 +5,8 @@ import { makeRouteMap as completeRouteMapFixture } from "./__tests__/fixtures/ma
 import { makeMinimalEvent as completeEventFixture, makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 import { describe, expect, it, vi } from "vitest";
 import { join } from "node:path";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import type { ProjectGraph } from "./project-graph.js";
 import type { SessionTrajectory, StructuralChecksConfig } from "./types.js";
 import {
@@ -125,11 +127,31 @@ describe("preCheckRecentlyFailed — mutation kills", () => {
 });
 
 describe("preCheckTestFirst — mutation kills", () => {
+    it.each(["test_scheduler.py", "scheduler_test.py", "tests/helpers.py", "conftest.py", "setup.py"])("does not nudge Python test/configuration input %s as production code", name => {
+        expect(preCheckTestFirst(ctx({ config: { ...baseConfig(), test_first: true }, ext: ".py",
+            filePath: `/workspace/${name}`, relPath: name }), session())).toEqual([]);
+    });
+
+    it("finds Python companions in a separate tree and recognizes their recorded run", () => {
+        const root = mkdtempSync(join(tmpdir(), "pre-context-python-"));
+        try {
+            mkdirSync(join(root, "tests"));
+            const testFile = join(root, "tests", "test_scheduler.py");
+            writeFileSync(testFile, "def test_behavior():\n    assert True\n");
+            writeFileSync(join(root, "pytest.ini"), "[pytest]\ntestpaths = tests\n");
+            const context = ctx({ config: { ...baseConfig(), test_first: true }, ext: ".py",
+                event: { ...completeEventFixture(), cwd: root }, filePath: join(root, "scheduler.py"), relPath: "scheduler.py" });
+            const trajectory = session();
+            expect(preCheckTestFirst(context, trajectory)).toEqual([expect.stringContaining("test_scheduler.py haven't been run")]);
+            trajectory.test_runs.set(testFile, { status: "pass", at_step: 1 });
+            expect(preCheckTestFirst(context, trajectory)).toEqual([]);
+        } finally { rmSync(root, { recursive: true, force: true }); }
+    });
 	// test-contract: boundary — an extension outside the recognized source-extension set must not enter the test-first flow.
 	it("skips the check entirely for a non-source extension", () => {
 		const c = { ...baseConfig(), test_first: true };
 		const out = preCheckTestFirst(
-			ctx({ config: c, ext: ".py", filePath: "/workspace/src/tool.py", relPath: "src/tool.py" }),
+			ctx({ config: c, ext: ".md", filePath: "/workspace/src/tool.md", relPath: "src/tool.md" }),
 			session(),
 		);
 		expect(out).toEqual([]);
@@ -168,7 +190,7 @@ describe("preCheckTestFirst — mutation kills", () => {
 	// test-contract: public-api — every listed source extension must individually enter the test-first branch; deleting any one from the recognized set would exempt that extension.
 	it("recognizes every supported source extension as eligible for the test-first nudge", () => {
 		const c = { ...baseConfig(), test_first: true };
-		const extensions = [".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
+		const extensions = [".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs", ".py"];
 		for (const ext of extensions) {
 			const out = preCheckTestFirst(
 				ctx({

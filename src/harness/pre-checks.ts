@@ -10,7 +10,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 import { countCodeLines, isCappableFile, maxLinesFor } from "./large-file-policy.js";
-import { projectLineCount } from "./line-count-projection.js";
+import { projectFileChanges, type ProjectedFileChange } from "./projected-file-changes.js";
 import type { SessionTrajectory } from "./types.js";
 
 const MS_PER_SECOND = 1000;
@@ -373,15 +373,18 @@ export function checkLargeFileLineCountWrite(
 	toolInput: JsonObject,
 	cwd: string,
 ): PreCheckResult | null {
-	const filePath =
-		(typeof toolInput.file_path === "string" && toolInput.file_path) ||
-		(typeof toolInput.path === "string" && toolInput.path) ||
-		"";
-	if (!filePath) return null;
+    for (const change of projectFileChanges(toolInput, cwd)) {
+        const verdict = checkProjectedFileSize(change, cwd);
+        if (verdict) return verdict;
+    }
+    return null;
+}
 
-	const projection = projectLineCount(toolInput, filePath);
-	if (!projection) return null;
-	const { before, after, content } = projection;
+function checkProjectedFileSize(change: ProjectedFileChange, cwd: string): PreCheckResult | null {
+    if (change.deleted) return null;
+    const filePath = change.path, content = change.after;
+    const before = change.existed ? change.before.split("\n").length : 0;
+    const after = change.after.split("\n").length;
 
 	if (!isCappableFile({ filePath, content, root: cwd })) return null;
 
@@ -399,8 +402,7 @@ export function checkLargeFileLineCountWrite(
 	// past a recorded ceiling surfaces in verify's large_files check instead.
 	// See large-file-policy.ts::countCodeLines.
 	if (
-		projection.afterText !== null &&
-		countCodeLines(projection.afterText) <= countCodeLines(projection.beforeText)
+		countCodeLines(change.after) <= countCodeLines(change.before)
 	) {
 		return null;
 	}

@@ -103,6 +103,13 @@ describe("coreSections", () => {
 				passLabel: "every private helper earns its name",
 				color: "33",
 			},
+            {
+                label: "Python simplification review",
+                key: "pythonSimplification",
+                noun: "localized control-flow or parameter-forwarding review candidates",
+                passLabel: "no Python simplification findings reported",
+                color: "33",
+            },
 			{
 				label: "circular imports",
 				key: "circularImports",

@@ -264,6 +264,12 @@ function checkCrapRisersBlock(ctx: InlineBlockContext): QualityCheckResult[] {
 	];
 }
 
+/** Parser missingness is execution evidence, not a source defect or completed check. */
+function preservePythonAdviceMissingness(result: QualityCheckResult): QualityCheckResult {
+    if (result.name !== "python_simplification" || !result.detail?.includes("Python simplification NOT CHECKED:")) return result;
+    return { ...result, name: "external_check_deferred", message: "Python AST review unavailable (python_simplification)" };
+}
+
 /** Section 8: agent-safety checks (post phase), with cold-file gate. */
 function checkAgentSafetyBlock(ctx: InlineBlockContext): QualityCheckResult[] {
 	const { filePath, absFilePath, fileContent } = ctx;
@@ -303,7 +309,7 @@ function checkAgentSafetyBlock(ctx: InlineBlockContext): QualityCheckResult[] {
 			});
 		}
 	}
-	return out;
+	return out.map(preservePythonAdviceMissingness);
 }
 
 /** Section 8b: library-footgun registry, grouped by check id. */

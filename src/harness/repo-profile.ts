@@ -16,9 +16,10 @@ import { isJsonObject } from "../lib/json-types.js";
  *   "colocated" (never "none") and sets `scanTruncated`, so enforcement is
  *   not silently disabled on the large/deep repos this scan exists for.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { join, resolve } from "node:path";
+import { PYTHON_TEST_FILE } from "./test-conventions.js";
 
 interface RepoProfile {
 	/** Supported test runner detectable. */
@@ -47,7 +48,7 @@ const MAX_WALK_DEPTH = 6;
 const MAX_WALK_ENTRIES = 2000;
 
 const JS_TEST_FILE = /\.(test|spec)\./;
-const PY_TEST_FILE = /^test_.*\.py$/;
+const PYTHON_CONFIG_FILES = ["pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml", "pyproject.toml", "setup.cfg", "tox.ini"];
 
 const JS_RUNNER_CONFIG_FILES = [
 	"vitest.config.ts",
@@ -69,8 +70,8 @@ interface WalkResult {
 	colocatedTestFile: boolean;
 	/** Top-level test roots that actually contain test files. */
 	rootsWithTests: Set<string>;
-	/** A test_*.py exists under a top-level test root (pytest layout signal). */
-	pythonTestUnderTestRoot: boolean;
+	/** A pytest-convention test exists in any scanned project directory. */
+	pythonTestFile: boolean;
 	/**
 	 * The walk hit the depth or entry cap and returned partial results. A
 	 * truncated walk that found no tests must NOT be reported as "none".
@@ -84,13 +85,13 @@ function shouldSkipDir(name: string): boolean {
 
 function recordFile(name: string, testRoot: string | null, out: WalkResult): void {
 	const isJsTest = JS_TEST_FILE.test(name);
-	const isPyTest = PY_TEST_FILE.test(name);
+	const isPyTest = PYTHON_TEST_FILE.test(name);
+	if (isPyTest) out.pythonTestFile = true;
 	if (testRoot === null) {
-		if (isJsTest) out.colocatedTestFile = true;
+		if (isJsTest || isPyTest) out.colocatedTestFile = true;
 		return;
 	}
 	if (isJsTest || isPyTest) out.rootsWithTests.add(testRoot);
-	if (isPyTest) out.pythonTestUnderTestRoot = true;
 }
 
 /**
@@ -157,11 +158,11 @@ function processDirFrame(
  * `out.truncated` (partial results) rather than throwing, so the caller can
  * fail toward enforcement instead of misreading a partial scan as "none".
  */
-function walkForTests(projectRoot: string): WalkResult {
+function walkForTests(projectRoot: string, inputs: Set<string>): WalkResult {
 	const out: WalkResult = {
 		colocatedTestFile: false,
 		rootsWithTests: new Set<string>(),
-		pythonTestUnderTestRoot: false,
+		pythonTestFile: false,
 	};
 	const stack: Array<{ dir: string; depth: number; testRoot: string | null }> = [
 		{ dir: projectRoot, depth: 0, testRoot: null },
@@ -170,6 +171,7 @@ function walkForTests(projectRoot: string): WalkResult {
 	while (stack.length > 0) {
 		const frame = stack.pop();
 		if (frame === undefined) break;
+		inputs.add(frame.dir);
 		budget = processDirFrame(frame, out, stack, budget);
 		if (budget < 0) return out;
 	}
@@ -213,11 +215,12 @@ function fileContains(path: string, needle: string): boolean {
 	return readFileSync(path, "utf8").includes(needle);
 }
 
-function detectPythonRunner(projectRoot: string, pythonTestUnderTestRoot: boolean): boolean {
-	if (pythonTestUnderTestRoot) return true;
-	if (existsSync(join(projectRoot, "pytest.ini"))) return true;
+function detectPythonRunner(projectRoot: string, pythonTestFile: boolean): boolean {
+	if (pythonTestFile) return true;
+	if (PYTHON_CONFIG_FILES.slice(0, 4).some(name => existsSync(join(projectRoot, name)))) return true;
 	if (fileContains(join(projectRoot, "pyproject.toml"), "[tool.pytest")) return true;
-	return fileContains(join(projectRoot, "setup.cfg"), "[tool:pytest]");
+	return fileContains(join(projectRoot, "setup.cfg"), "[tool:pytest]") ||
+        fileContains(join(projectRoot, "tox.ini"), "[pytest]");
 }
 
 function resolveTestLayout(walk: WalkResult): RepoProfile["testLayout"] {
@@ -250,13 +253,17 @@ function failTowardEnforcementProfile(detectedAt: string): RepoProfile {
  * a test suite, never throws.
  */
 export function detectRepoProfile(projectRoot: string): RepoProfile {
+    return detectProfile(projectRoot, new Set());
+}
+
+function detectProfile(projectRoot: string, inputs: Set<string>): RepoProfile {
 	const detectedAt = new Date().toISOString();
 	try {
-		const walk = walkForTests(projectRoot);
+		const walk = walkForTests(projectRoot, inputs);
 		return {
 			runners: {
-				js: detectJsRunner(projectRoot),
-				python: detectPythonRunner(projectRoot, walk.pythonTestUnderTestRoot),
+				js: walk.truncated === true || detectJsRunner(projectRoot),
+				python: walk.truncated === true || detectPythonRunner(projectRoot, walk.pythonTestFile),
 			},
 			testLayout: resolveTestLayout(walk),
 			testDirRoots: [...walk.rootsWithTests].sort(),
@@ -268,15 +275,31 @@ export function detectRepoProfile(projectRoot: string): RepoProfile {
 	}
 }
 
-const profileCache = new Map<string, RepoProfile>();
+interface CachedProfile { profile: RepoProfile; inputs: string[]; identity: string; }
+const profileCache = new Map<string, CachedProfile>();
 
-/** Memoized per resolved root for the daemon lifetime. */
+/** Metadata invalidates a discovery hint, not reusable test/coverage evidence. */
+function discoveryIdentity(paths: string[]): string {
+    return paths.map(path => {
+        try {
+            const stat = statSync(path);
+            return `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+        } catch { return "unavailable"; }
+    }).join("|");
+}
+
+/** Reuse discovery only while visited directories and configuration metadata match.
+ * Creating/deleting a nested test or modifying pytest configuration refreshes the
+ * profile without a daemon restart. This does not read dependency/source bytes. */
 export function getRepoProfile(projectRoot: string): RepoProfile {
 	const key = resolve(projectRoot);
 	const cached = profileCache.get(key);
-	if (cached !== undefined) return cached;
-	const profile = detectRepoProfile(projectRoot);
-	profileCache.set(key, profile);
+	if (cached && discoveryIdentity(cached.inputs) === cached.identity) return cached.profile;
+    const inputs = new Set([key, ...["package.json", ...JS_RUNNER_CONFIG_FILES, ...PYTHON_CONFIG_FILES]
+        .map(name => join(key, name))]);
+	const profile = detectProfile(key, inputs);
+    const paths = [...inputs];
+	profileCache.set(key, { profile, inputs: paths, identity: discoveryIdentity(paths) });
 	return profile;
 }
 

@@ -5,6 +5,31 @@ description: "Understand and respond to the Interlinked PreToolUse guard — the
 
 # interlinked-harness — the guard: what blocks you & how to respond
 
+Claude and Codex Stop/SubagentStop advisories remain operator diagnostics on stderr.
+Only explicit blocking repair decisions request another model turn. Source guidance is
+sent during editing. File-size and per-function gates share native edit/patch content
+projection; unreadable or invalid updates stay unmeasured. Shell effects remain
+post-execution evidence unless a supported pre-write path is used.
+
+PostToolUse classifies recognized untracked Python environments, installed Node dependency
+trees and named harness outputs before authored-source checks. Explicit edits, tracked files,
+protected policy and unsafe/symlink paths do not receive this exemption. Security scope stays
+separate; excluded files are not passes and runtime-input fingerprints are not narrowed.
+The same source role separates recovery batches. Repeated unavailable-check diagnostics are
+deduplicated for delivery; raw findings and unresolved evidence remain. Retry when prerequisites
+change, not merely because the same diagnostic repeats. Missing evidence cannot yield “all clean.”
+
+For edits outside the guarded repository, both command-based and named external checks
+(affected tests and dependency audit) skip this repository's runner. Inline content checks
+remain available. Security findings on excluded dependency files retain normal severity and
+enforcement; source-quality exclusion is not a security exemption.
+
+The built-in generic `rm` prior-inspection rule is advisory. A recent literal `Read` event
+does not prove inspection of the deletion targets, and clients may expose different read tools.
+Inspect the intended targets using the available tools; this heuristic does not require a
+particular invocation. Deterministic destructive-command, reservation and protected-file
+decisions still apply. Do not infer safe deletion merely from a recent unrelated read.
+
 Guard audit records retain references for repeated warning text. Use `interlinked data search
 --source warning-occurrences` to inspect full first/changed messages, hashes and occurrence
 counts; `data show ID` opens their raw evidence. This bounds repetition in the activity mirror
@@ -146,6 +171,14 @@ Writer identity is `unknown`; a reservation is not proof that its holder perform
 the write. Glob reservations, symbolic links, inaccessible or oversized files
 remain explicitly unmeasured. A stopped or unavailable observer cannot certify coverage.
 
+`harness coverage status --progress --json` reads cached observation time, generation
+and recovery counts without reconciling files or returning receipt history. Use it for
+progress, not to certify current bytes. Plain `harness coverage status --json` still
+reconciles and returns full evidence. Neither status command starts recovery.
+Receipts with nonempty `unavailable` retain completed checks as partial evidence while
+keeping the version pending. Retrying is not made unnecessary merely by having a receipt;
+safe cross-run reuse needs the relevant check input identities.
+
 `harness coverage accept-policy <digest>` records an explicitly reviewed current
 policy identity. It neither runs checks nor restores old policy bytes. A later
 Claude ConfigChange can refuse application of a differing identity, after the disk
@@ -187,6 +220,13 @@ stay on stderr. Cursor uses `additional_context` on generic `postToolUse`. OpenC
 appends post-tool feedback to tool output; Pi appends it to `tool_result` and can notify an
 interactive UI. Copilot remains stderr-only and some lifecycle events are observation-only.
 Allow-warnings are easy to overlook — read them.
+
+Codex `Stop` and `SubagentStop` request continuation only for an explicit harness
+`block`. Its reason is preserved before any additional context or warnings. An
+`allow` or `ask` decision emits no stdout; diagnostics stay on exit-0 stderr for
+operator inspection, not model-visible continuation. These events have no native
+approval channel. Pending hook-coverage evidence alone does not force another turn
+or become checked by allowing completion; inspect coverage status separately.
 
 **Silence = no model-visible finding, NOT "everything was checked" (2026-08-27).** A served,
 clean PostToolUse result writes ZERO BYTES — no `[interlinked:Bash] all clean (354ms)` row, not

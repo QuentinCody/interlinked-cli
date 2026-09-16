@@ -51,6 +51,69 @@ afterEach(() => {
 });
 
 describe("evaluateTddNewFileGate — mode gating", () => {
+    it("applies Python test-first advice to every native patch addition", () => {
+        const event: HarnessEvent = { ...writeEvent("", undefined), tool_name: "apply_patch", cwd: tmp, tool_input: {
+            patch: "*** Begin Patch\n*** Add File: alpha.py\n+def alpha(): return 1\n*** Add File: beta.py\n+def beta(): return 2\n*** End Patch",
+        } };
+        const rules = makeGuardRules();
+        rules.structural_checks.test_first_mode = "warn";
+        const verdict = evaluateTddNewFileGateForEvent(event, rules, undefined);
+        expect(verdict?.warnings?.join(" ")).toContain("alpha.py");
+        expect(verdict?.warnings?.join(" ")).toContain("beta.py");
+    });
+
+    it("recognizes a companion added in the same patch without calling it executed", () => {
+        const event: HarnessEvent = { ...writeEvent("", undefined), tool_name: "apply_patch", cwd: tmp, tool_input: {
+            patch: "*** Begin Patch\n*** Add File: alpha.py\n+def alpha(): return 1\n*** Add File: test_alpha.py\n+def test_alpha(): assert False\n*** End Patch",
+        } };
+        const rules = makeGuardRules();
+        rules.structural_checks.test_first_mode = "warn";
+        expect(evaluateTddNewFileGateForEvent(event, rules, undefined)).toBeNull();
+    });
+    it("honors explicit Python enforcement regardless of other language suites", () => {
+        const args = { filePath: "module.py", cwd: tmp, session: undefined, testFirstMode: "enforce" as const };
+        const first = evaluateTddNewFileGate(args);
+        expect(first?.decision).toBe("block");
+        writeFileSync(join(tmp, "test_existing.py"), "def test_existing(): assert True\n");
+        expect(evaluateTddNewFileGate(args)?.decision).toBe("block");
+        rmSync(join(tmp, "test_existing.py"));
+        expect(evaluateTddNewFileGate(args)?.decision).toBe("block");
+    });
+
+    it("requires the first companion in an empty Python repo with explicit enforcement", () => {
+        rmSync(join(tmp, "repo-shape.spec.ts"));
+        writeFileSync(join(tmp, "pytest.ini"), "[pytest]\n");
+        const args = { filePath: join(tmp, "module.py"), cwd: tmp, session: undefined, testFirstMode: "enforce" as const };
+        expect(evaluateTddNewFileGate(args)?.decision).toBe("block");
+        writeFileSync(join(tmp, "test_existing.py"), "def test_existing(): assert True\n");
+        const blocked = evaluateTddNewFileGate(args);
+        expect(blocked?.decision).toBe("block");
+        expect(blocked?.reason).toContain("test_module.py");
+        expect(blocked?.reason).toContain("# interlinked-tdd: exempt");
+        rmSync(join(tmp, "test_existing.py"));
+        expect(evaluateTddNewFileGate(args)?.decision).toBe("block");
+    });
+
+    it("honors warning mode even in a Python repo with existing tests", () => {
+        writeFileSync(join(tmp, "test_existing.py"), "def test_existing(): assert True\n");
+        expect(evaluateTddNewFileGate({ filePath: "module.py", cwd: tmp, session: undefined, testFirstMode: "warn" })?.decision).toBe("allow");
+    });
+
+    it.each(["test_module.py", "module_test.py", "tests/helpers.py", "conftest.py", "setup.py"])("does not demand tests for Python support/test path %s", (filePath) => {
+        expect(evaluateTddNewFileGate({ filePath, cwd: tmp, session: undefined, testFirstMode: "enforce" })).toBeNull();
+    });
+
+    it("accepts the Python exemption comment on a new source file", () => {
+        expect(evaluateTddNewFileGate({ filePath: "module.py", cwd: tmp, session: undefined, testFirstMode: "enforce", content: "# interlinked-tdd: exempt\n" })).toBeNull();
+    });
+
+    it("recognizes a session-written Python test under the project test root", () => {
+        expect(evaluateTddNewFileGate({
+            filePath: "src/module.py", cwd: tmp,
+            session: makeSession([join(tmp, "tests/test_module.py")]), testFirstMode: "enforce",
+        })).toBeNull();
+    });
+
 	it("N: returns null when test_first_mode is 'nudge' (below the gate's floor)", () => {
 		const decision = evaluateTddNewFileGate({
 			filePath: join(tmp, "src/foo.ts"),
@@ -405,14 +468,15 @@ describe("hasTddExemptDirective", () => {
 });
 
 describe("evaluateTddNewFileGate — non-source extensions", () => {
-	it("returns null for a .js file (not our concern)", () => {
+	it("includes JavaScript files in the configured test-first policy", () => {
 		const decision = evaluateTddNewFileGate({
 			filePath: join(tmp, "src/foo.js"),
 			cwd: tmp,
 			session: undefined,
 			testFirstMode: "enforce",
 		});
-		expect(decision).toBeNull();
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("foo.test.js");
 	});
 
 	it("returns null for a .json file", () => {
@@ -683,11 +747,11 @@ describe("companionTestCandidates — profile-conditional shapes", () => {
 	});
 });
 
-describe("evaluateTddNewFileGate — layout 'none' demotes to warn-only", () => {
+describe("evaluateTddNewFileGate — explicit enforcement in empty repositories", () => {
 	let repo: string;
 
 	beforeEach(() => {
-		// No test files anywhere: this repo never opted into TDD.
+		// No test files anywhere; explicit enforce mode must bootstrap the first test.
 		repo = makeRepo("tdd-gate-none-");
 		resetRepoProfileCache();
 	});
@@ -697,17 +761,15 @@ describe("evaluateTddNewFileGate — layout 'none' demotes to warn-only", () => 
 		resetRepoProfileCache();
 	});
 
-	it("emits an allow+warning instead of a block", () => {
+	it("blocks missing companions instead of silently demoting explicit policy", () => {
 		const decision = gateAt(repo, "src/lib/foo.ts");
-		expect(decision?.decision).toBe("allow");
-		expect(decision?.reason).toBeUndefined();
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toMatch(/no companion test/);
 		expect(decision?.rule_id).toBe("tdd_new_file_gate");
-		expect(decision?.warnings).toHaveLength(1);
-		expect(decision?.warnings?.[0]).toMatch(/no companion test/);
-		expect(decision?.warnings?.[0]).toMatch(/demoted to a warning/);
+		expect(decision?.warnings).toBeUndefined();
 	});
 
-	it("event wrapper + debt_mode ON: warns and opens NO debt", () => {
+	it("event wrapper + debt_mode ON: requires a first test before opening pair debts", () => {
 		const decision = evaluateTddNewFileGateForEvent(
 			{
 				hook_event: "PreToolUse",
@@ -721,12 +783,12 @@ describe("evaluateTddNewFileGate — layout 'none' demotes to warn-only", () => 
 			rulesFor(true),
 			makeSession([]),
 		);
-		expect(decision?.decision).toBe("allow");
-		expect(decision?.warnings?.[0]).toMatch(/no companion test/);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toMatch(/no companion test/);
 		expect(readOpenDebts(repo)).toHaveLength(0);
 	});
 
-	it("event wrapper + debt_mode OFF: still warn-only, never a hard block", () => {
+	it("event wrapper + debt_mode OFF: requires the first test", () => {
 		const decision = evaluateTddNewFileGateForEvent(
 			{
 				hook_event: "PreToolUse",
@@ -740,7 +802,7 @@ describe("evaluateTddNewFileGate — layout 'none' demotes to warn-only", () => 
 			rulesFor(false),
 			makeSession([]),
 		);
-		expect(decision?.decision).toBe("allow");
+		expect(decision?.decision).toBe("block");
 		expect(readOpenDebts(repo)).toHaveLength(0);
 	});
 

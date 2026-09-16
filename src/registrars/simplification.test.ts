@@ -38,6 +38,7 @@ describe("registerSimplifyCommands", () => {
 		expect(review?.options.map((option) => option.long)).toContain("--range");
 		expect(audit?.options.map((option) => option.long)).toContain("--deep-handoff");
 		expect(review?.options.map((option) => option.long)).toContain("--deep-handoff");
+        expect(review?.options.map((option) => option.long)).toContain("--diagnostics");
 	});
 
 	// test-contract: public-api — persistence is consistent and opt-in for

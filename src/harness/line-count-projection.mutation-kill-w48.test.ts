@@ -91,9 +91,7 @@ describe("projectLineCount — MultiEdit shape: type-guard branches", () => {
 			edits: [null, { old_string: "foo", new_string: "baz" }],
 		};
 		const result = projectLineCount(toolInput, p);
-		expect(result).not.toBeNull();
-		expect(result?.afterText).toBe("baz bar");
-		expect(result?.after).toBe(1);
+		expect(result).toBeNull(); // Invalid entries make the proposed operation unmeasured.
 	});
 
 	// kills 20393f2642de4746 ('typeof raw !== "object"' forced false): a
@@ -114,9 +112,7 @@ describe("projectLineCount — MultiEdit shape: type-guard branches", () => {
 		);
 		const toolInput: JsonObject = { edits: [fnEdit] };
 		const result = projectLineCount(toolInput, p);
-		expect(result).not.toBeNull();
-		expect(result?.afterText).toBe(content);
-		expect(result?.after).toBe(1);
+		expect(result).toBeNull();
 	});
 
 	// kills a178e80803b35f65 (whole cond forced false), 837d8fc8319b2436
@@ -130,9 +126,7 @@ describe("projectLineCount — MultiEdit shape: type-guard branches", () => {
 		const p = makeFile("e.txt", content);
 		const toolInput: JsonObject = { edits: [{ old_string: 123, new_string: "y" }] };
 		const result = projectLineCount(toolInput, p);
-		expect(result).not.toBeNull();
-		expect(result?.afterText).toBe(content);
-		expect(result?.after).toBe(1);
+		expect(result).toBeNull();
 	});
 
 	// kills 6007e559d6bafd38 (new_string check forced false): symmetric case
@@ -144,9 +138,7 @@ describe("projectLineCount — MultiEdit shape: type-guard branches", () => {
 		const p = makeFile("f.txt", content);
 		const toolInput: JsonObject = { edits: [{ old_string: "foo", new_string: 456 }] };
 		const result = projectLineCount(toolInput, p);
-		expect(result).not.toBeNull();
-		expect(result?.afterText).toBe(content);
-		expect(result?.after).toBe(1);
+		expect(result).toBeNull();
 	});
 });
 
@@ -211,8 +203,6 @@ describe("projectLineCount — MultiEdit shape: replace_all + arithmetic", () =>
 			edits: [{ old_string: "", new_string: "XYZ", replace_all: false }],
 		};
 		const result = projectLineCount(toolInput, p);
-		expect(result).not.toBeNull();
-		expect(result?.afterText).toBe(content);
-		expect(result?.after).toBe(1);
+		expect(result).toBeNull();
 	});
 });

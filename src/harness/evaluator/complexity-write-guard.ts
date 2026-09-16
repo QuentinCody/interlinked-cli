@@ -3,7 +3,7 @@
 // ===========================================
 // Blocks a Write/Edit/MultiEdit/apply_patch that would push a function's
 // cyclomatic complexity past the cap. This module is now just the CYCLOMATIC
-// SPEC — the decision engine (over-cap hybrid comparison, sub-cap slew ratchet,
+// SPEC — the decision engine (over-cap hybrid comparison, optional metric slew,
 // content projection, apply_patch reconstruction, block rendering) lives in
 // `per-function-metric-gate.ts` and is shared with the cognitive gate, which
 // used to be a hand-mirrored copy of it.
@@ -12,7 +12,7 @@
 // an edit that holds or reduces an already-complex function is always allowed —
 // the refactor-down path — so the on-disk before-state is the implicit ratchet
 // baseline. Only a NEW over-cap function, RAISING an existing function past the
-// cap, or a sub-cap rise over `SUB_CAP_RATCHET_TOLERANCE` is blocked.
+// cap is blocked. Cyclomatic end-state policy does not depend on edit size.
 //
 // Dispatch is per-language: `.ts/.tsx/.js/.jsx/.mjs/.cjs/.mts/.cts` parse with
 // the TS AST (`computeCyclomaticAst`); `.py` parses with radon
@@ -23,7 +23,7 @@
 //
 // There is deliberately NO escape hatch / suppression: an agent-writable
 // override gets gamed (the agent would suppress every file it wants to grow),
-// which defeats the gate. The only way past is to decompose.
+// which defeats the gate. Simplify decisions or extract cohesive responsibilities.
 //
 // Because a no-override block has no relief valve for a false positive, it runs
 // ONLY when the analyzer is available (the optional `typescript` dep for JS/TS,
@@ -59,33 +59,10 @@ export { projectContent, resolveFilePath } from "./per-function-metric-gate.js";
  */
 export const DEFAULT_MAX_CYCLOMATIC = 25;
 
-/**
- * Per-edit sub-cap SLEW tolerance. A uniquely-named function that stays at or
- * below the cap may rise by AT MOST this many branches in a single edit; a
- * larger one-edit jump blocks (decompose, then retry). This relaxes the former
- * strict "may not increase at all" sub-cap ratchet into a per-edit rate limit:
- * a small incremental rise *toward* — but never *past* — the cap is acceptable,
- * while a big leap in one edit is the smell worth catching.
- *
- * The hard cap (`maxCyclomaticFor`) is unchanged and remains the END-STATE
- * backstop: no edit may leave a function over the cap regardless of how small
- * the rise (a within-tolerance bump that crosses the cap is caught by the
- * over-cap path, not here). Many small rises across several edits can still walk
- * a function toward the cap — that is the accepted trade (the cap is the ceiling
- * the slew limit only governs how fast you may approach it).
- *
- * CRAP inherits this automatically: CRAP is monotonic in cyclomatic, so a
- * bounded cyclomatic rise is a bounded CRAP rise, and CRAP's own cap (30) stays
- * its end-state backstop. There is deliberately no separate sub-cap CRAP ratchet
- * — every CRAP gate (`decideCrap` block, `computeCrapRisers` advisory) fires
- * only at/over 30 — so nothing on the CRAP side needs loosening.
- *
- * Set to 1 for a tighter "+1 per edit" policy. A future per-repo override can
- * live alongside `maxCyclomaticFor` in `.interlinked/metric-caps.json`. The
- * cognitive analog is `SUB_CAP_COGNITIVE_RATCHET_TOLERANCE` (= 4, deliberately
- * looser — see cognitive-write-guard.ts).
- */
-export const SUB_CAP_RATCHET_TOLERANCE = 2;
+// The former +2-per-edit cyclomatic slew incentivized smaller patches or
+// premature extraction without changing the eventual allowed complexity.
+// Hard caps, grandfathered debt and CRAP checks still apply. Cognitive policy
+// is independent and retains its existing slew contract.
 
 const JS_TS_RE = /\.(?:ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
 const PY_RE = /\.py$/;
@@ -168,7 +145,9 @@ function warnAnalyzerUnavailable(language: string): void {
 const CYCLOMATIC_SPEC: MetricGateSpec<FunctionComplexityEntry> = {
 	label: "cyclomatic",
 	anonName: ANON_FN,
-	slewTolerance: SUB_CAP_RATCHET_TOLERANCE,
+    // End-state policy: equivalent final functions have the same verdict,
+    // regardless of patch size or whether a session started with a stub.
+	slewTolerance: null,
 	metricOf: (entry) => entry.cyclomatic,
 	selectAnalyzer,
 	capFor: maxCyclomaticFor,
@@ -177,7 +156,7 @@ const CYCLOMATIC_SPEC: MetricGateSpec<FunctionComplexityEntry> = {
 	limitPhrase: "cyclomatic limit",
 	unitPlural: "branch(es)",
 	unitAdj: "branch",
-	advice: "Decompose: extract cohesive branches into smaller named functions, then retry.",
+	advice: "Simplify redundant decisions or extract a cohesive responsibility with clear inputs and outputs. Avoid duplicated validation, parameter forwarding and shared mutable state spread across helpers; validate preserved behavior with relevant tests.",
 	planFor: decompositionPlanHint,
 };
 

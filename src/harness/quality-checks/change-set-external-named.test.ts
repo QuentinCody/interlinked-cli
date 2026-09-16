@@ -23,18 +23,20 @@ import type {
 } from "./change-set-external-candidates.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./result-types.js";
 
-const { getProfileForFile, scheduleTests, resolveDependencyAuditCommandAsync, runProcessAsync } =
+const { getProfileForFile, scheduleTests, resolveDependencyAuditCommandAsync, runProcessAsync, runLanguageTestSuite } =
 	vi.hoisted(() => ({
 		getProfileForFile: vi.fn(),
 		scheduleTests: vi.fn(),
 		resolveDependencyAuditCommandAsync: vi.fn(),
 		runProcessAsync: vi.fn(),
+        runLanguageTestSuite: vi.fn(),
 	}));
 
 vi.mock("../language-profiles.js", () => ({ getProfileForFile }));
 vi.mock("../test-scheduler.js", () => ({ scheduleTests }));
 vi.mock("./dependency-audit.js", () => ({ resolveDependencyAuditCommandAsync }));
 vi.mock("../check-engine/spawn-async.js", () => ({ runProcessAsync }));
+vi.mock("./language-test-suite.js", () => ({ runLanguageTestSuite }));
 
 import { runNamedChecksAdmitted } from "./change-set-external-named.js";
 
@@ -113,9 +115,18 @@ beforeEach(() => {
 	});
 	runProcessAsync.mockReset();
 	runProcessAsync.mockResolvedValue(processResult({ code: 0 }));
+    runLanguageTestSuite.mockReset();
 });
 
 describe("runNamedChecksAdmitted — affected tests", () => {
+    it("retains actionable Python collection diagnostics in a deferred batch", async () => {
+        getProfileForFile.mockReturnValue({ id: "python" });
+        runLanguageTestSuite.mockResolvedValue({ status: "unavailable", reason: "pytest collection failed",
+            output: "ImportError: missing_project_dependency", durationMs: 12 });
+        const result = await runNamed({ paths: ["/repo/feature.py"], affectedTests: testsCandidate({ file_types: [".py"] }) });
+        expect(result.deferred).toEqual([{ name: "affected_tests", reason: "pytest collection failed\nImportError: missing_project_dependency" }]);
+        expect(result.checksRan).toEqual([]);
+    });
     it("retains a scheduler failure as unavailable without a measured verdict", async () => {
         scheduleTests.mockRejectedValueOnce(new Error("Test scheduler busy; request retained"));
         const result = await runNamed({ paths: ["/repo/src/a.ts"], affectedTests: testsCandidate() });

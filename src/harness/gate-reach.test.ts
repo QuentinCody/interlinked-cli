@@ -300,6 +300,71 @@ describe("formatGateReachReport", () => {
 		);
 	});
 
+	describe("recorded disable reason — positive (must change the report)", () => {
+		const recorded = {
+			gate: "per_edit_coverage",
+			eligible: 10,
+			measured: 0,
+			disabled: true,
+			reason: "per_edit_coverage.enabled=false",
+			recordedReason: "OFF locally: full-suite wall ~250s makes per-edit overlay runs unaffordable.",
+		};
+
+		it("stays loud but names the recorded decision instead of NOTHING", () => {
+			const report = formatGateReachReport({ snapshot: snapshotOf([recorded]), regressions: [] });
+			expect(report).not.toBeNull();
+			expect(report).toContain("1 quality gate is OFF by recorded decision");
+			expect(report).not.toContain("measured NOTHING");
+			expect(report).toContain('recorded_reason="OFF locally: full-suite wall ~250s');
+			expect(report).toContain("disabled=true");
+		});
+
+		it("drops the 'record why it is off' ask from the footer once it is recorded", () => {
+			const report = formatGateReachReport({ snapshot: snapshotOf([recorded]), regressions: [] });
+			expect(report).not.toContain("record why it is off");
+			expect(report).toContain("Re-enable the gate when its recorded condition is met");
+		});
+
+		it("pluralises the recorded headline", () => {
+			const report = formatGateReachReport({
+				snapshot: snapshotOf([recorded, { ...recorded, gate: "mutation" }]),
+				regressions: [],
+			});
+			expect(report).toContain("2 quality gates are OFF by recorded decision");
+		});
+
+		it("collapses whitespace and bounds a paragraph-length note", () => {
+			const r = computeGateReach({ ...recorded, recordedReason: `a\n\n  b ${"x".repeat(400)}` });
+			expect(r.recorded_reason?.startsWith("a b x")).toBe(true);
+			expect(r.recorded_reason?.length).toBeLessThanOrEqual(160);
+			expect(r.recorded_reason?.endsWith("…")).toBe(true);
+		});
+	});
+
+	describe("recorded disable reason — negative (must not change the report)", () => {
+		it("keeps the NOTHING headline and the full footer while any disabled gate is unexplained", () => {
+			const snapshot = snapshotOf([
+				{ gate: "a", eligible: 1, measured: 0, disabled: true, recordedReason: "documented" },
+				{ gate: "b", eligible: 1, measured: 0, disabled: true },
+			]);
+			const report = formatGateReachReport({ snapshot, regressions: [] });
+			expect(report).toContain("1 quality gate measured NOTHING");
+			expect(report).toContain("record why it is off");
+		});
+
+		it("ignores a blank note — a blank note is not a recorded decision", () => {
+			const r = computeGateReach({ gate: "a", eligible: 1, measured: 0, disabled: true, recordedReason: "  \n " });
+			expect(r.recorded_reason).toBeUndefined();
+		});
+
+		it("never carries a recorded reason on a gate that is not disabled", () => {
+			const r = computeGateReach({ gate: "a", eligible: 4, measured: 4, recordedReason: "stale note" });
+			expect(r.status).toBe("measured");
+			expect(r.recorded_reason).toBeUndefined();
+			expect(formatGateReachLine(r)).not.toContain("recorded_reason");
+		});
+	});
+
 	it("reports an unavailable measurement source without calling it disabled", () => {
 		const snapshot = snapshotOf([
 			{ gate: "mutation", eligible: 10, measured: 0, sourceUnavailable: true, reason: "no manifest" },

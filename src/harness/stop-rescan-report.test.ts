@@ -174,12 +174,29 @@ describe("digestStopRescan — negative (must not fire)", () => {
 });
 
 describe("SANCTIONED_SCRATCH_CHECKS", () => {
-	it("P9: names the four probe-pattern classes the scratchpad policy sanctions", () => {
+	it("P9: names the probe-pattern classes the scratchpad policy sanctions", () => {
 		expect([...SANCTIONED_SCRATCH_CHECKS].sort()).toEqual([
 			"json_parse_unsafe",
 			"no_test_file",
+			"process_env_outside_config",
 			"top_level_side_effect",
+			"ubs_magic_number_no_const",
 			"ubs_print_debug_leak",
+			"unjustified_cast",
+			"untestable_time_in_source",
+			"unvalidated_input_boundary",
 		]);
+	});
+
+	it("N4: drops an entry-script-family finding under scratch/ (a probe reads argv and casts fixtures by design)", () => {
+		for (const checkId of ["unjustified_cast", "unvalidated_input_boundary", "process_env_outside_config"]) {
+			const out = run([finding({ file: "scratch/probe.ts", checkId })]);
+			expect(out.warnings.join("\n"), checkId).not.toContain("scratch/probe.ts");
+		}
+	});
+
+	it("P10: keeps an entry-script-family finding on product code outside scratch/", () => {
+		const out = run([finding({ file: "src/a.ts", checkId: "unjustified_cast" })]);
+		expect(out.warnings.join("\n")).toContain("unjustified_cast");
 	});
 });

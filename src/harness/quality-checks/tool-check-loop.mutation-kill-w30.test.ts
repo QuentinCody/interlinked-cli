@@ -332,28 +332,28 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 	});
 
 	// test-contract: kill 30c8463e998b6529 (`!profile` → false) — real no-profile
-	// skip is a true continue (boundary not fired).
-	it("affected_tests: no-profile skip is a true continue", async () => {
+	// missing profile is explicit unmeasured evidence, not a silent success.
+	it("affected_tests: no profile reports unmeasured scope", async () => {
 		mockGetProfileForFile.mockReturnValue(null);
 		const boundaries: string[] = [];
 		const out = await runToolCheckLoop(
 			makeCtx({ checks: { affected_tests: cfg() }, onCheckBoundary: (n) => boundaries.push(n) }),
 		);
-		expect(out).toEqual([]);
-		expect(boundaries).not.toContain("inline_affected_tests");
+		expect(out).toMatchObject([{ name: "affected_tests_deferred", detail: "No language or project test adapter was identified." }]);
+		expect(boundaries).toContain("deferred_affected_tests");
 	});
 
 	// test-contract: kill 76953ebf1b8662bf (`!dispatcher` → false) — real
-	// no-dispatcher skip is a true continue (boundary not fired).
-	it("affected_tests: no-dispatcher skip is a true continue", async () => {
+	// missing dispatcher is explicit unmeasured evidence, not a silent success.
+	it("affected_tests: no dispatcher reports unmeasured scope", async () => {
 		mockGetProfileForFile.mockReturnValue(loopProfile("python"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const boundaries: string[] = [];
 		const out = await runToolCheckLoop(
 			makeCtx({ checks: { affected_tests: cfg() }, onCheckBoundary: (n) => boundaries.push(n) }),
 		);
-		expect(out).toEqual([]);
-		expect(boundaries).not.toContain("inline_affected_tests");
+		expect(out).toMatchObject([{ name: "affected_tests_deferred", detail: "No test dispatcher is registered for python." }]);
+		expect(boundaries).toContain("deferred_affected_tests");
 	});
 
 	// test-contract: kill b978d218609438ce (`!== undefined` → false) and

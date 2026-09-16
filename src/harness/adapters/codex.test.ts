@@ -472,30 +472,52 @@ describe("Codex encodeDecision — allow with additional_context (non-Permission
 	});
 });
 
-describe("Codex encodeDecision — Stop/SubagentStop continuation path", () => {
-	it("allow with no reason and no warnings emits zero bytes (native default continue)", () => {
-		const event = adapter.parseHookInput({ session_id: "c" }, "Stop");
+describe.each(["Stop", "SubagentStop"])("Codex encodeDecision — %s continuation path", (nativeEvent) => {
+	it("allow without feedback permits completion with zero bytes", () => {
+		const event = adapter.parseHookInput({ session_id: "c" }, nativeEvent);
 		const out = adapter.encodeDecision({ decision: "allow" }, event);
 		expect(out).toEqual({ exit_code: 0 });
 	});
 	it("block emits a decision:block continuation payload carrying the reason", () => {
-		const event = adapter.parseHookInput({ session_id: "c" }, "Stop");
+		const event = adapter.parseHookInput({ session_id: "c" }, nativeEvent);
 		const out = adapter.encodeDecision({ decision: "block", reason: "finish the task" }, event);
 		expect(JSON.parse(out.stdout || "{}")).toEqual({
 			decision: "block",
 			reason: "finish the task",
 		});
 	});
-	it("SubagentStop with warnings but no reason uses the warnings as the continuation reason", () => {
-		const event = adapter.parseHookInput({ session_id: "c" }, "SubagentStop");
+	it.each([
+		{ warnings: ["verification unavailable"] },
+		{ additional_context: "verification unavailable" },
+		{ reason: "verification unavailable" },
+	])("allow feedback stays diagnostic without forcing continuation: %j", (feedback) => {
+		const event = adapter.parseHookInput({ session_id: "c" }, nativeEvent);
+		const out = adapter.encodeDecision({ decision: "allow", ...feedback }, event);
+		expect(out).toEqual({ stderr: "verification unavailable", exit_code: 0 });
+	});
+	it("does not turn an approval request into repeated agent work", () => {
+		const event = adapter.parseHookInput({ session_id: "c" }, nativeEvent);
+		const out = adapter.encodeDecision({ decision: "ask", reason: "operator review needed", warnings: ["verification unavailable"] }, event);
+		expect(out).toEqual({ stderr: "operator review needed\nverification unavailable", exit_code: 0 });
+	});
+	it("preserves the explicit block reason when advisory feedback accompanies it", () => {
+		const event = adapter.parseHookInput({ session_id: "c" }, nativeEvent);
 		const out = adapter.encodeDecision(
-			{ decision: "allow", warnings: ["left TODOs behind"] },
+			{ decision: "block", reason: "repair the failing contract", additional_context: "expected 2, received 3", warnings: ["verification unavailable"] },
 			event,
 		);
 		expect(JSON.parse(out.stdout || "{}")).toEqual({
 			decision: "block",
-			reason: "left TODOs behind",
+			reason: "repair the failing contract\nexpected 2, received 3\nverification unavailable",
 		});
+	});
+	it("retains a diagnostic reason for an explicit block missing its reason", () => {
+		const event = adapter.parseHookInput({ session_id: "c" }, nativeEvent);
+		const out = adapter.encodeDecision({ decision: "block", warnings: ["verification unavailable"] }, event);
+		const body = JSON.parse(out.stdout || "{}");
+		expect(body.decision).toBe("block");
+		expect(body.reason).toContain("no reason was attached");
+		expect(body.reason).toContain("verification unavailable");
 	});
 });
 

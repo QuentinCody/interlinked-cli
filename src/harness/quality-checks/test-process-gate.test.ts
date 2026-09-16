@@ -14,6 +14,26 @@ describe("runBoundedTestProcess", () => {
 	const projectRoot = mkdtempSync(join(tmpdir(), "interlinked-test-process-gate-"));
 	afterAll(() => rmSync(projectRoot, { recursive: true, force: true }));
 
+    it("waits for project capacity during recovery, then executes within the shared deadline", async () => {
+        const owner = tryAcquireProjectHeavyProcessLease(projectRoot);
+        expect(owner).not.toBeNull();
+        const timer = setTimeout(() => owner?.(), 40);
+        try {
+            await expect(runBoundedTestProcess({ command: process.execPath, args: ["-e", "console.log('executed')"],
+                cwd: projectRoot, timeoutMs: 2000, waitForCapacity: true })).resolves.toMatchObject({ kind: "completed", stdout: "executed\n" });
+        } finally { clearTimeout(timer); owner?.(); }
+    });
+
+    it("cancels a waiting recovery without starting a child", async () => {
+        const owner = tryAcquireProjectHeavyProcessLease(projectRoot);
+        const controller = new AbortController();
+        const pending = runBoundedTestProcess({ command: process.execPath, args: ["-e", "process.exit(0)"], cwd: projectRoot,
+            timeoutMs: 2000, waitForCapacity: true, signal: controller.signal });
+        controller.abort();
+        try { expect(await pending).toMatchObject({ kind: "deferred" }); }
+        finally { owner?.(); }
+    });
+
     it("defers another project's tests while a foreground check owns the host lane", async () => {
         const owner = tryAcquireForegroundCapacity();
         expect(owner).not.toBeNull();

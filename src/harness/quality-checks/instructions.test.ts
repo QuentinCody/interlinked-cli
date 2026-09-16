@@ -93,7 +93,7 @@ const EXPECTED_INSTRUCTIONS: Readonly<Record<string, string>> = {
 	missing_return_types:
 		"Add explicit return type annotations to all exported functions. This improves API documentation, enables better type inference for consumers, and catches accidental return type changes.",
 	no_test_file:
-		"This source file has no corresponding test file. Create a test file with at least basic coverage. Name it {filename}.test.ts or {filename}.spec.ts in the same directory.",
+		"No companion test was found under the checked naming conventions; this does not establish missing behavioral coverage. Inspect the project's test layout and run relevant behavior. Add public-contract tests using its language and runner where coverage is missing.",
 	complexity:
 		"This function has high measured complexity. Extract helpers or use early returns to reduce nesting and parameter count.",
 	export_ripple:

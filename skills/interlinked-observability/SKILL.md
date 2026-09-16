@@ -6,6 +6,25 @@ description: "Investigate agent activity and JSONL/gzip evidence. Load for data 
 
 # interlinked-observability — inspect what agents did
 
+`hook-reentry.jsonl` records Stop/SubagentStop re-entry suppressed before daemon evaluation.
+Translation receipts now include advisory context representation as well as denials and
+rewrites. Operator-only Stop diagnostics are not model-context delivery. Audit native
+completion messages by unique ID; streaming chunks and daemon Stop counts are insufficient
+to count continuations. The SlopCodeBench exporter retains these receipts and registrations.
+
+Shared hook-check receipts may include `scopes` with a batch ID, check name, configuration
+hash and captured request-file identities. `kind: request-inputs` is historical execution
+evidence, not a complete runtime/dependency closure or reusable cache key. Nonempty
+`unavailable` preserves partial evidence and leaves the obligation pending. Keep those states
+separate from clean results when comparing recovered check counts or latency.
+
+`source-scan-scope.v1` capture rows record dependency/runtime exclusions from authored-source
+quality, with `excluded_not_checked` status. `source-scan-security.v1` retains the separate
+security findings and request-input evidence. Neither row authenticates a writer or certifies
+runtime-input closure. Repeated unavailable-check messages are deduplicated for delivery by
+session, project, configuration and reason; raw check results retain missingness. Counts in
+the agent channel therefore differ intentionally from raw deferral counts.
+
 Cowork plugin receipts use a separate metadata-only schema and explicit exports.
 Use **interlinked-cowork** and `interlinked cowork report <receipts> --effects <listing>`
 for native conformance. An intended hook decision is not execution/prevention proof;
@@ -220,6 +239,19 @@ lists behavioral receipt freshness; `metrics coverage status` validates the cont
 index. `metrics coverage warm` explicitly runs the suite and belongs to
 **interlinked-quality-gates**, so do not trigger its CPU work merely to display status.
 
+For hook-check evidence, `harness coverage status --progress --json` reads cached
+observation time, generation, pending count and job counters without rehashing files
+or serializing receipt history. `readiness` describes that observation, not a fresh
+coverage verdict. Plain `harness coverage status --json` reconciles selected files and
+returns full pending identities and receipts. Neither starts recovery; route explicit
+`harness coverage verify` and unresolved check prerequisites to **interlinked-verify**.
+Hook-check receipts with nonempty `unavailable` retain partial work; their pending version
+is not discharged. Do not count them as fully checked files or reusable passing evidence.
+For runtime scan profiling, Node's `interlinked.coverage-runtime-scan` diagnostics channel
+emits root, completed flag, bytes read, entries visited and duration even on failed captures.
+Subscribers must be in the scanning process. The optional `evals/slopcodebench/scan-cost.mjs`
+preload prints bounded measurements to stderr; it emits no contents or environment values.
+
 ## `interlinked impact` — facts, not attribution
 
 `interlinked impact [--base <ref>] [--experiment-manifest <path>] [--cwd <path>]
@@ -334,9 +366,13 @@ tail -n 40 .interlinked/stop-digest.jsonl | jq -r '[.kind,.tag//.check,.file]|@t
 Row kinds: `stop-warning` (a trimmed nudge), `subagent-attributed` (a finding on
 a file a SUBAGENT wrote — attributed via `timeline.jsonl` and kept out of the
 main list), `pre-existing` (present in the session's git baseline), and
-`sanctioned-scratch` (probe-pattern findings under `scratch/`, which the
+`sanctioned-scratch` (probe-pattern findings under root `scratch/`, which the
 scratchpad policy sanctions — still reported by `interlinked verify
---all-checks`).
+--all-checks`). The sanctioned classes are what a probe IS: print, no
+companion test, import-time side effect, raw `JSON.parse`, plus the
+entry-script family whose own rationale exempts bin/cli files — argv
+boundary, env read, unjustified cast, wall clock, magic number. Product
+code outside `scratch/` keeps every one of them.
 
 Two consequences worth knowing:
 - **The rescan reports introduced-only.** A whole-file scan still runs, but a

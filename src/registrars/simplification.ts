@@ -35,6 +35,7 @@ export function registerSimplifyCommands(program: Command): void {
 	simplify
 		.command("review")
 		.description("Review changed, staged, or explicit git-range files using full repository context")
+        .option("--diagnostics <profile>", "Include iterative diagnostic candidates: js-ts or python (explicit full census)")
 		.option("--changed", "Review tracked and untracked worktree changes (default)")
 		.option("--staged", "Review only paths staged in the git index")
 		.option("--range <base..head>", "Review paths changed by an explicit validated git range")

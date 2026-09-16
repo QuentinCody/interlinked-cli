@@ -57,6 +57,6 @@ describe("wiring — the guard actually short-circuits the entry point", () => {
 		// refactor that keeps the helper but drops the call reintroduces the loop
 		// with every unit test still green.
 		const source = readFileSync(new URL("./hook-entry.ts", import.meta.url), "utf-8");
-		expect(source).toMatch(/if \(isStopHookReentry\(nativeEventName, nativeJson\)\) process\.exit\(0\);/);
+		expect(source).toMatch(/if \(isStopHookReentry\(nativeEventName, nativeJson\)\)\s*\{\s*recordSuppressedStop\([^;]+;\s*process\.exit\(0\);/);
 	});
 });

@@ -39,10 +39,11 @@ function summarizeWithDetails(list: readonly FileKeyedRow[]): JsonObject {
 	};
 }
 
-function summarizeMarkup(cq: CodeQualityResults): JsonObject {
+function summarizeSupplementalChecks(cq: CodeQualityResults): JsonObject {
     return {
         json_validity: summarizeWithDetails(cq.jsonValidity),
         html_duplicate_id: summarizeWithDetails(cq.htmlDuplicateId),
+        python_simplification: summarizeWithDetails(cq.pythonSimplification),
     };
 }
 
@@ -168,7 +169,7 @@ export function outputJson(args: OutputJsonArgs): void {
 		suppressions: summarizeWithDetails(cq.suppressions),
 		large_files: summarizeWithDetails(cq.largeFiles),
 		untested_files: summarizeWithDetails(cq.untestedFiles),
-        ...summarizeMarkup(cq),
+        ...summarizeSupplementalChecks(cq),
 		phantom_imports: summarizeWithDetails(cq.phantomImports),
 		console_statements: summarize(cq.consoleStatements),
 		silent_catches: summarize(cq.silentCatches),

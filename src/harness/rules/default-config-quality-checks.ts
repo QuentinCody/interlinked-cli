@@ -142,7 +142,7 @@ export const DEFAULT_QUALITY_CHECKS: Record<string, QualityCheckConfig> = {
 		timeout_ms: 15_000,
 		severity: "error",
 		description:
-			"Run a shared affected-test plan for changed source, tests, configuration and fixtures",
+			"Run TS/JS affected-test plans or bounded Python/Rust/Go project tests; unavailable execution is not a pass",
 	},
 	python_typecheck: {
 		enabled: true,

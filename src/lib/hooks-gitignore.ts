@@ -8,8 +8,10 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { SOURCE_SCAN_OUTPUTS } from "../harness/source-scan-scope.js";
 
 const GITIGNORE_ENTRIES = [
+    ...SOURCE_SCAN_OUTPUTS,
 	".interlinked/config.local.json",
 	".interlinked/activity.jsonl",
 	".interlinked/collection.jsonl",
@@ -39,6 +41,28 @@ const GITIGNORE_ENTRIES = [
 	".interlinked/sponsor.status",
 	".interlinked/sponsor-feed.json",
 	".interlinked/sponsor-beacons.jsonl",
+	// Daemon-owned observations and execution output must not self-generate
+	// workspace changes on every hook. Keep shared policy/ratchet files out of
+	// this list; tracked files remain observable under Git's ordinary semantics.
+	".interlinked/capture-receipts.jsonl",
+	".interlinked/capture-capabilities.jsonl",
+	".interlinked/capture/",
+	".interlinked/check-results.jsonl",
+	".interlinked/check-executions.jsonl",
+	".interlinked/costs.jsonl",
+	".interlinked/harness-protocol.json",
+	".interlinked/hook-coverage.json",
+	".interlinked/hook-translations.jsonl",
+	".interlinked/logs/",
+	".interlinked/metrics/executions.jsonl",
+	".interlinked/reservation-events.jsonl",
+	".interlinked/thinking-cursor.json",
+	".interlinked/timeline-cursor.json",
+	".interlinked/timeline.jsonl",
+	".interlinked/warning-occurrences.jsonl",
+	".interlinked/stop-digest.jsonl",
+	".interlinked/test-runs/",
+    ".interlinked/contract-runs/",
 ];
 
 const DATA_GITIGNORE_ENTRIES = new Set([

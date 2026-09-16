@@ -54,6 +54,12 @@ import {
 import { type InlineBlockContext, runInlineCheckBlock } from "./inline-block.js";
 
 // --- Fixture builders -------------------------------------------------------
+it("preserves unavailable Python analysis as an operational deferral", () => {
+    vi.mocked(buildAgentSafetyChecks).mockReturnValueOnce([{ name: "python_simplification", severity: "warning", fn: () => [{ line: 1, text: "Python simplification NOT CHECKED: parser unavailable" }] }]);
+    const results = runInlineCheckBlock(ctx({ filePath: "app.py", absFilePath: "/repo/app.py", fileContent: "def broken(" }));
+    expect(results).toContainEqual(expect.objectContaining({ name: "external_check_deferred", message: "Python AST review unavailable (python_simplification)" }));
+    expect(results.some(result => result.name === "python_simplification")).toBe(false);
+});
 
 const baseEvent: HarnessEvent = {
 	hook_event: "PostToolUse",

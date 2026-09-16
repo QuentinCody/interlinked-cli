@@ -126,10 +126,8 @@ export interface QualityCheckTarget {
 
 /**
  * Resolve the file a PostToolUse event targets, or `null` when there is no
- * usable path or it sits under an excluded directory (node_modules / dist /
- * vendor / .next / build). Exported for direct unit testing — the excluded-
- * directory branch is otherwise buried behind the full `runQualityChecks`
- * pipeline.
+ * usable path. The request classifier owns dependency/source scope and budgets;
+ * target resolution itself must not discard paths by directory name.
  */
 export function resolveQualityCheckTarget(event: HarnessEvent, cwd: string): QualityCheckTarget | null {
 	const input = event.tool_input;
@@ -142,10 +140,8 @@ export function resolveQualityCheckTarget(event: HarnessEvent, cwd: string): Qua
 				? fallbackPath
 				: "";
 	if (!filePath) return null;
-	const normalized = filePath.replace(/\\/g, "/");
-	if (["/node_modules/", "/dist/", "/vendor/", "/.next/", "/build/"].some((part) => normalized.includes(part))) {
-		return null;
-	}
+	// Source scope belongs to the request classifier. A directory name alone
+    // must not erase an explicit, tracked or protected edit here.
 	const absPath = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
 	const extension = extname(absPath);
 	return {

@@ -75,6 +75,12 @@ export interface GateReachInput {
 	/** Short token explaining `disabled` / `sourceUnavailable`. Whitespace is
 	 *  collapsed to `_` so the rendered line stays a parseable `k=v` sequence. */
 	reason?: string;
+	/** Operator-recorded rationale for a DISABLED gate (config `disabled_reason`
+	 *  or `_note`). Kept only while `disabled` is set. A recorded reason does
+	 *  not make the gate measure anything; it makes the zero EXPLAINED instead
+	 *  of unexplained, and the report says which of the two it is rather than
+	 *  asking the operator to record what they already recorded. */
+	recordedReason?: string;
 }
 
 /** One gate's validated coverage-of-itself. */
@@ -91,6 +97,8 @@ interface GateReach {
 	 *  enumerator that found nothing must never read as perfect reach. */
 	reach: number;
 	reason?: string;
+	/** Operator-recorded rationale; present only on a `disabled` gate. */
+	recorded_reason?: string;
 }
 
 /** One session's figures for every gate reported. */
@@ -185,6 +193,7 @@ export function computeGateReach(input: GateReachInput): GateReach {
 	const skipped = normalizeSkipped(input.skipped);
 	const unmeasured = Math.max(0, eligible - measured - sumValues(skipped));
 	const reason = safeReason(input.reason);
+	const recordedReason = status === "disabled" ? safeRecordedReason(input.recordedReason) : undefined;
 	return {
 		gate: input.gate,
 		unit: input.unit ?? DEFAULT_UNIT,
@@ -195,7 +204,23 @@ export function computeGateReach(input: GateReachInput): GateReach {
 		unmeasured,
 		reach: eligible === 0 ? 0 : measured / eligible,
 		...(reason !== undefined ? { reason } : {}),
+		...(recordedReason !== undefined ? { recorded_reason: recordedReason } : {}),
 	};
+}
+
+/** Longest recorded rationale carried onto a rendered line. The config note
+ *  can be a paragraph; the Stop line needs the first sentence, not the essay. */
+const RECORDED_REASON_MAX_CHARS = 160;
+
+/** Collapse whitespace and bound the length; drop an empty note entirely so a
+ *  blank `_note` never reads as "recorded". */
+function safeRecordedReason(raw: string | undefined): string | undefined {
+	if (typeof raw !== "string") return undefined;
+	const collapsed = raw.replace(/\s+/g, " ").trim();
+	if (collapsed === "") return undefined;
+	return collapsed.length > RECORDED_REASON_MAX_CHARS
+		? `${collapsed.slice(0, RECORDED_REASON_MAX_CHARS - 1)}…`
+		: collapsed;
 }
 
 /** Compute every gate and stamp the result with session + time. */
@@ -233,6 +258,9 @@ export function formatGateReachLine(reach: GateReach): string {
 	else if (reach.status === "source_unavailable") parts.push("measurement_source=unavailable");
 	else parts.push(`reach=${formatPct(reach.reach)}`);
 	if (reach.reason !== undefined) parts.push(`reason=${reach.reason}`);
+	// Quoted: a recorded rationale is prose, and the k=v grammar of the rest
+	// of the line must survive it.
+	if (reach.recorded_reason !== undefined) parts.push(`recorded_reason="${reach.recorded_reason}"`);
 	return parts.join(" ");
 }
 
@@ -292,9 +320,17 @@ export function formatGateReachRegression(regression: GateReachRegression): stri
  *  is missing, which outranks a gate that merely lost ground. */
 function reportHeadline(snapshot: GateReachSnapshot, regressions: GateReachRegression[]): string | null {
 	const disabled = snapshot.gates.filter((g) => g.status === "disabled");
+	const unexplained = disabled.filter((g) => g.recorded_reason === undefined);
+	if (unexplained.length > 0) {
+		const noun = unexplained.length === 1 ? "gate" : "gates";
+		return `${unexplained.length} quality ${noun} measured NOTHING this session — a gate that is off reports success by not looking.`;
+	}
 	if (disabled.length > 0) {
-		const noun = disabled.length === 1 ? "gate" : "gates";
-		return `${disabled.length} quality ${noun} measured NOTHING this session — a gate that is off reports success by not looking.`;
+		// Still loud (plan 16 §4 requirement 3), but precise: the operator
+		// recorded why, so the ask is "re-enable when the condition is met",
+		// not "record why".
+		const noun = disabled.length === 1 ? "gate is" : "gates are";
+		return `${disabled.length} quality ${noun} OFF by recorded decision — reach is zero, not success; the rationale is on the line below.`;
 	}
 	const unavailable = snapshot.gates.filter((g) => g.status === "source_unavailable");
 	if (unavailable.length > 0) {
@@ -326,8 +362,18 @@ export function formatGateReachReport(args: {
 	for (const regression of args.regressions) {
 		lines.push(`  ! ${formatGateReachRegression(regression)}`);
 	}
-	lines.push(
-		"  Re-enable the gate, widen its scope, or record why it is off — an unmeasured file is not a passing file.",
-	);
+	lines.push(`  ${reportFooter(args.snapshot)}`);
 	return lines.join("\n");
+}
+
+/** The closing instruction. "Record why it is off" is only an instruction
+ *  when some disabled gate carries no recorded reason; asking for what is
+ *  already in the config is the nag this footer used to be. */
+function reportFooter(snapshot: GateReachSnapshot): string {
+	const disabled = snapshot.gates.filter((g) => g.status === "disabled");
+	const allRecorded = disabled.length > 0 && disabled.every((g) => g.recorded_reason !== undefined);
+	if (allRecorded) {
+		return "Re-enable the gate when its recorded condition is met — an unmeasured file is not a passing file.";
+	}
+	return "Re-enable the gate, widen its scope, or record why it is off — an unmeasured file is not a passing file.";
 }

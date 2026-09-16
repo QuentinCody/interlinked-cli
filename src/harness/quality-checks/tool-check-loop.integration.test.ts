@@ -316,6 +316,13 @@ describe("runToolCheckLoop — skip guards", () => {
 		expect(mockGetOrCreateEngine).not.toHaveBeenCalled();
 	});
 
+    it.each(["affected_tests", "dependency_audit"])("does not run this project's named %s check for a foreign file", async name => {
+        const out = await runToolCheckLoop(makeCtx({ checks: { [name]: cfg() }, editedFileInRepo: false }));
+        expect(out).toEqual([]);
+        expect(mockRunProcessAsync).not.toHaveBeenCalled();
+        expect(mockResolveDependencyAuditCommand).not.toHaveBeenCalled();
+    });
+
 	it("still runs inline (no-command) checks for an out-of-repo file", async () => {
 		mockContainsSecrets.mockReturnValue(["aws-key"]);
 		const out = await runToolCheckLoop(
@@ -737,6 +744,21 @@ describe("runToolCheckLoop — inline_language_checks", () => {
 // ==========================================================================
 
 describe("runToolCheckLoop — affected_tests", () => {
+    it.each(["pytest.ini", "pyproject.toml", "requirements.txt", "setup.cfg", "tox.ini"])("routes a noncode edit in a Python-only project identified by %s", async marker => {
+        const root = mkdtempSync(join(tmpdir(), "python-fixture-tests-"));
+        try {
+            writeFileSync(join(root, marker), "");
+            const { findProjectRoot } = await import("./project-root.js");
+            vi.mocked(findProjectRoot).mockReturnValueOnce(root);
+            mockGetProfileForFile.mockImplementation(path => path === "source.py" ? loopProfile("python") : null);
+            const dispatcher = vi.fn().mockResolvedValue([]);
+            TEST_DISPATCHERS.python = dispatcher;
+            await runToolCheckLoop(makeCtx({ cwd: root, filePath: "fixtures/sample.yaml",
+                checks: { affected_tests: cfg({ file_types: [""] }) } }));
+            expect(dispatcher).toHaveBeenCalledWith(expect.objectContaining({ checkCwd: root,
+                absPath: join(root, "fixtures/sample.yaml"), profile: loopProfile("python") }));
+        } finally { rmSync(root, { recursive: true, force: true }); }
+    });
 	it("routes a fixture edit in a Node project through its TypeScript test dispatcher", async () => {
 		const root = mkdtempSync(join(tmpdir(), "node-fixture-tests-"));
 		try {
@@ -756,10 +778,10 @@ describe("runToolCheckLoop — affected_tests", () => {
 		} finally { rmSync(root, { recursive: true, force: true }); }
 	});
 
-	it("skips when there is no language profile", async () => {
+	it("reports missing behavioral evidence when there is no language profile", async () => {
 		mockGetProfileForFile.mockReturnValue(null);
 		const out = await runToolCheckLoop(makeCtx({ checks: { affected_tests: cfg() } }));
-		expect(out).toEqual([]);
+		expect(out).toEqual([expect.objectContaining({ name: "affected_tests_deferred" })]);
 	});
 
 	it("dispatches an edited test file so its assertions are checked", async () => {
@@ -772,11 +794,11 @@ describe("runToolCheckLoop — affected_tests", () => {
 		expect(dispatcher).toHaveBeenCalledTimes(1);
 	});
 
-	it("skips when no dispatcher is registered for the language id", async () => {
+	it("reports missing behavioral evidence when no dispatcher is registered", async () => {
 		mockGetProfileForFile.mockReturnValue(loopProfile("python"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const out = await runToolCheckLoop(makeCtx({ checks: { affected_tests: cfg() } }));
-		expect(out).toEqual([]);
+		expect(out).toEqual([expect.objectContaining({ name: "affected_tests_deferred" })]);
 	});
 
 	it("invokes the dispatcher with resolved paths and maps its results", async () => {

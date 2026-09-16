@@ -356,9 +356,9 @@ describe("resolveQualityCheckTarget", () => {
 		};
 	}
 
-	it("returns null for a file path under an excluded build/vendor directory", () => {
+	it("leaves dependency classification to the request scope instead of erasing a declared path", () => {
 		const target = resolveQualityCheckTarget(event("/repo/node_modules/pkg/index.js"), "/repo");
-		expect(target).toBeNull();
+		expect(target?.filePath).toBe("/repo/node_modules/pkg/index.js");
 	});
 
 	it.each([{}, { file_path: 42 }, { path: false }, { file_path: "", path: "" }])("ignores tool inputs without a usable file path: %j", (tool_input) => {

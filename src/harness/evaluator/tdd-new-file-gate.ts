@@ -1,22 +1,23 @@
 // ===========================================
 // TDD Gate: new-file creation
 // ===========================================
-// Blocks creation of a new non-test `.ts`/`.tsx` source file unless a companion
+// Checks creation of new non-test JS/TS or Python source unless a companion
 // test file already exists on disk OR was written earlier in the same session.
 //
-// Runs only when `structural_checks.test_first_mode === "enforce"` (the
-// current default). Scope is intentionally narrow — existing files can still
+// Runs when structural_checks.test_first_mode is "enforce" or "warn".
+// Existing files can still
 // be Edit'd without a gate; we start with the gentler "new-files-only"
 // rollout and will widen to all edits in a follow-up.
 //
 // Bypasses:
-//   - Per-file directive `// interlinked-tdd: exempt` in the first ~400 bytes
+//   - Per-file directive `// interlinked-tdd: exempt` (Python: `#`) in the first ~400 bytes
 //     of the Write content (meant for genuinely untestable surfaces — entry
 //     points that only wire DI, generated bridges, etc.).
 //   - Path is on the exemption list (tests, fixtures, generated artifacts,
 //     type declarations, config files, standalone scripts).
 
 import { readOptionalToolString, readToolString } from "./tool-input-values.js";
+import { extractApplyPatchRaw, looksLikeApplyPatch, parseApplyPatchSections, reconstructAfterContent } from "../apply-patch-content.js";
 import { basename, dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import {
@@ -29,6 +30,8 @@ import { existsSync } from "node:fs";
 import { appendDebtTxn } from "../obligation-ledger-io.js";
 import type { ObligationTxn } from "../obligations.js";
 import { getRepoProfile } from "../repo-profile.js";
+import { isTestSourcePath } from "../checks/shared.js";
+import { supportsTestFirstPath, tddDirectiveComment } from "../test-conventions.js";
 import type {
 	GuardRulesConfig,
 	HarnessDecision,
@@ -36,14 +39,13 @@ import type {
 	SessionTrajectory,
 } from "../types.js";
 
-/** The only mode in which this gate fires. Extracted so the conditional reads
+/** The mode that blocks in repositories with a known test layout. See
  *  as intent; see `types.ts#GuardRulesConfig.structural_checks.test_first_mode`. */
 const ENFORCE_MODE: "enforce" = "enforce";
 
-const SOURCE_EXT_RE = /\.(ts|tsx)$/;
-
 // Paths where a companion test isn't meaningful — skip the gate.
 const EXEMPT_PATH_RES: readonly RegExp[] = [
+	/(^|\/)(?:conftest|setup)\.py$/,
 	/\.d\.ts$/, // type-only declarations
 	/\.test\.tsx?$/, // the tests themselves
 	/\.spec\.tsx?$/,
@@ -69,7 +71,7 @@ const EXEMPT_PATH_RES: readonly RegExp[] = [
 	/(^|\/)site\//,
 ];
 
-const TDD_EXEMPT_DIRECTIVE_RE = /\/\/\s*interlinked-tdd:\s*exempt\b/;
+const TDD_EXEMPT_DIRECTIVE_RE = /(?:\/\/|#)\s*interlinked-tdd:\s*exempt\b/;
 const EXEMPT_DIRECTIVE_SCAN_BYTES = 400;
 
 interface TddNewFileGateArgs {
@@ -78,13 +80,14 @@ interface TddNewFileGateArgs {
 	session: SessionTrajectory | undefined;
 	content?: string | undefined;
 	testFirstMode: "nudge" | "warn" | "enforce" | undefined;
+    plannedTests?: ReadonlySet<string>;
 }
 
 /** Public API — consumed by `evaluator/pre-tool.ts` on every file-write event.
  *
  *  Returns `null` when the gate is not applicable (wrong mode, wrong ext, in
  *  an exempt path, existing file, or companion found). Returns a `block`
- *  decision when a new `.ts`/`.tsx` file is being created without a
+ *  decision in enforce mode when supported source is created without a
  *  companion test. */
 export function evaluateTddNewFileGate(args: TddNewFileGateArgs): HarnessDecision | null {
 	// "warn" runs the same detection but resolves to allow+warning below —
@@ -92,7 +95,7 @@ export function evaluateTddNewFileGate(args: TddNewFileGateArgs): HarnessDecisio
 	// at this gate (the always-on test-first nudge covers them elsewhere).
 	if (args.testFirstMode !== ENFORCE_MODE && args.testFirstMode !== "warn") return null;
 	if (!args.filePath) return null;
-	if (!SOURCE_EXT_RE.test(args.filePath)) return null;
+	if (!supportsTestFirstPath(args.filePath) || isTestSourcePath(args.filePath)) return null;
 	if (isExemptPath(args.filePath)) return null;
 	if (hasExemptDirective(args.content)) return null;
 
@@ -104,31 +107,17 @@ export function evaluateTddNewFileGate(args: TddNewFileGateArgs): HarnessDecisio
 
 	const projectRoot = args.cwd || process.cwd();
 	const candidates = companionTestCandidates(abs, projectRoot);
+    if (candidates.some(candidate => args.plannedTests?.has(resolve(projectRoot, candidate)))) return null;
 	if (hasCompanionTest(abs, projectRoot)) return null;
 	if (sessionWroteCompanion(args, abs, candidates)) return null;
 
-	return missingCompanionVerdict(args, candidates, projectRoot);
+	return missingCompanionVerdict(args, candidates);
 }
 
-/**
- * Build the "no companion test" verdict once the gate has decided to fire.
- *
- * Layout-conditional severity (portability — external assessment 2026-07-06):
- * the gate was written against this repo's colocated-vitest workflow and, on a
- * repo with NO test files anywhere (`testLayout === "none"`), a hard block is
- * pure noise — that repo never opted into TDD, and there is no existing test
- * convention the agent could follow. On such repos the same message is emitted
- * as an allow+warning instead (never a block, never an opened debt — see the
- * pass-through guard in {@link downgradeNewFileBlockToDebt}). Colocated and
- * separate-tree repos DID opt in (they have tests) and keep the historical
- * hard-block semantics byte-for-byte. The demotion lives here, inside the
- * gate, not as config mutation, so a repo that later grows its first test file
- * re-enters enforce mode automatically on the next profile detection.
- */
+/** Explicit policy owns severity; absent tests must not disable enforcement. */
 function missingCompanionVerdict(
 	args: TddNewFileGateArgs,
 	candidates: string[],
-	projectRoot: string,
 ): HarnessDecision {
 	const hint = companionHintPath(args.filePath);
 	const surface = extractPublicSurface(args.content);
@@ -137,29 +126,19 @@ function missingCompanionVerdict(
 		: "";
 	const body =
 		`new source file "${args.filePath}" has no companion test. ` +
-		`Red/green TDD is enforced for new .ts/.tsx files. ` +
+		`The configured test-first policy applies to new JS/TS and Python source files. ` +
 		`Create ${hint} first with a failing test, then write the implementation. ` +
 		`(Searched: ${candidates.map((c) => shortest(c, args.cwd)).join(", ")}.)` +
 		surfaceLine +
-		` If this file has no testable surface, add "// interlinked-tdd: exempt" as the first line.`;
+		` Companion names are discovery hints, not proof of behavioral coverage. ` +
+        `Retain tests for established public behavior and new requirements. Use interlinked tests readiness <language> if the runner is missing, and interlinked tests review at the change boundary. ` +
+		`If this file has no testable surface, add "${tddDirectiveComment(args.filePath)} interlinked-tdd: exempt" as the first line.`;
 	if (args.testFirstMode === "warn") {
 		return {
 			decision: "allow",
 			warnings: [
 				`[interlinked:tdd] ${body} (test_first_mode "warn": advisory here — ` +
 					`strict mode blocks this. interlinked mode strict to enforce.)`,
-			],
-			rule_id: "tdd_new_file_gate",
-			severity: "low",
-			category: "tdd",
-		};
-	}
-	if (getRepoProfile(projectRoot).testLayout === "none") {
-		return {
-			decision: "allow",
-			warnings: [
-				`[interlinked:tdd] ${body} (Advisory only: this repo has no test files, so TDD ` +
-					`enforcement is demoted to a warning here.)`,
 			],
 			rule_id: "tdd_new_file_gate",
 			severity: "low",
@@ -240,6 +219,8 @@ export function evaluateTddNewFileGateForEvent(
 	const structuralChecks = rules.structural_checks;
 	const toolInput = event.tool_input || {};
 	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
+    const patch = extractApplyPatchRaw(toolInput);
+    if (!filePath && looksLikeApplyPatch(patch)) return evaluatePatchTestFirst(event, rules, session, patch);
 	const block = evaluateTddNewFileGate({
 		filePath,
 		cwd: event.cwd,
@@ -256,6 +237,27 @@ export function evaluateTddNewFileGateForEvent(
 	return downgradeNewFileBlockToDebt(block, event, rules, filePath);
 }
 
+function evaluatePatchTestFirst(event: HarnessEvent, rules: GuardRulesConfig, session: SessionTrajectory | undefined, patch: string): HarnessDecision | null {
+    const root = event.cwd || process.cwd();
+    const additions = parseApplyPatchSections(patch).filter(section => section.op === "add");
+    const plannedTests = new Set(additions.filter(section => isTestSourcePath(section.path) && reconstructAfterContent(section, "") !== null)
+        .map(section => resolve(root, section.path)));
+    const warnings: string[] = [];
+    let result: HarnessDecision | null = null;
+    for (const section of additions) {
+        const content = reconstructAfterContent(section, "");
+        if (content === null) continue;
+        const verdict = evaluateTddNewFileGate({ filePath: section.path, cwd: root, session, content, plannedTests,
+            testFirstMode: rules.structural_checks?.test_first_mode });
+        const decision = downgradeNewFileBlockToDebt(verdict, event, rules, section.path);
+        if (!decision) continue;
+        warnings.push(...(decision.warnings ?? []));
+        result = decision;
+        if (decision.decision === "block") return { ...decision, warnings };
+    }
+    return result ? { ...result, warnings } : null;
+}
+
 /**
  * Convert a new-file hard block into an opened coverage debt + allow when
  * `per_edit_coverage.debt_mode` is on; otherwise return the verdict (block /
@@ -270,15 +272,16 @@ function downgradeNewFileBlockToDebt(
 	filePath: string,
 ): HarnessDecision | null {
 	// Not a new-file block (allow / null / unrelated rule) ⇒ pass through.
-	// The layout-"none" portability demotion returns an ALLOW+warning that
-	// carries this same rule_id — the decision check keeps it a pure warning
-	// (never converted into an opened debt).
+	// Warning mode remains advisory; only explicit enforcement opens debts.
 	if (!block || block.rule_id !== "tdd_new_file_gate" || block.decision !== "block") return block;
 	// Debt mode off ⇒ keep the historical hard block.
 	if (rules.per_edit_coverage?.debt_mode !== true) return block;
 	// No cwd ⇒ can't resolve the ledger path; fall back to the hard block.
 	const projectRoot = event.cwd;
 	if (!projectRoot) return block;
+	// Bootstrap must establish a test before pair-scoped debt can be useful.
+	// Otherwise an empty project can finish without ever acquiring a suite.
+	if (getRepoProfile(projectRoot).testLayout === "none") return block;
 	return openNewFileCoverageDebt(projectRoot, filePath, event.session_id);
 }
 

@@ -140,7 +140,7 @@ describe("TEMPORAL_PRECONDITION_RULES — full field pin (every literal, all thr
 			enabled: true,
 			trigger: "PreToolUse",
 			tool_match: ["Bash", "Shell", "run_command"],
-			action: "ask",
+			action: "warn",
 			patterns: [
 				{
 					field: "command",
@@ -162,9 +162,9 @@ describe("TEMPORAL_PRECONDITION_RULES — full field pin (every literal, all thr
 				within_last_n: 20,
 			},
 			reason:
-				"Deleting paths without first reading any file in the last 20 actions risks destroying unintended work.",
+				"No recent native Read event was observed; this does not establish whether the deletion targets were inspected.",
 			suggestion:
-				"Read one of the files you're about to remove (or a sibling) before issuing `rm`.",
+				"Inspect the intended deletion targets with the client's available read tools. This advisory does not require a particular tool invocation.",
 			severity: "medium",
 			category: "file-deletion",
 		});

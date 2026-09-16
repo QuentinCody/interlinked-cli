@@ -203,7 +203,16 @@ describe("characterize-before-touch — Python parity (plan 25)", () => {
 		});
 		expect(d?.decision).toBe("block");
 		expect(d?.reason).toContain("test_legacy.py");
+		expect(d?.reason).toContain("# interlinked-tdd: exempt");
+		expect(d?.reason).not.toContain("// interlinked-tdd: exempt");
 	});
+
+    it("retains the nested source's parent/tests Python convention", () => {
+        seedBaseline(["pkg/deep/legacy.py"]);
+        const abs = seedSource("pkg/deep/legacy.py", "def f():\n    return 1\n");
+        seedSource("pkg/tests/test_legacy.py", "def test_f(): assert True\n");
+        expect(evaluateCharacterizeBeforeTouch({ filePath: abs, cwd: tmp, session: makeSession(), mode: "block" })).toBeNull();
+    });
 
 	it("N8: a pytest companion beside the file satisfies the gate", () => {
 		seedBaseline(["pkg/legacy.py"]);

@@ -66,6 +66,14 @@ interlinked findings ack <findingId> --reason <text> [--by <name>]
 corpus `status` (candidate/approved/…) vs. the reconciliation state the CLI reports.
 
 ## `interlinked doctest`
+
+For expected output as well as successful execution, use `tests contracts import <doc>`
+on explicit `json interlinked-contract` fences. Ordinary code fences remain illustrative.
+Import creates proposed cases with the original document hash and quoted example; it never
+executes them or authorizes policy. Exact observation bindings detect altered expectations;
+general requirement interpretation stays advisory. Run selected cases explicitly with
+`tests contracts run`; use **interlinked-verify** for the manifest and bounded runners.
+Existing `doctest` behavior remains exit-status based.
 Executes markdown code-fences that opted in with a `doctest` info-string token, asserting each
 exits 0. Only tagged fences run (untagged `rm -rf` examples are never executed).
 ````

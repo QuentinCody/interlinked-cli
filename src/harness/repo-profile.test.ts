@@ -162,6 +162,18 @@ describe("repo-profile", () => {
 	});
 
 	describe("runners.python", () => {
+        it.each(["test_mod.py", "mod_test.py", "test_.py", "pkg/test_mod.py", "pkg/nested/mod_test.py"])("detects pytest default naming at %s", (path) => {
+            writeFixture(root, { [path]: "def test_value(): assert True\n" });
+            const profile = detectRepoProfile(root);
+            expect(profile.runners.python).toBe(true);
+            expect(profile.testLayout).toBe("colocated");
+        });
+
+        it.each([".pytest.ini", "pytest.toml", ".pytest.toml", "tox.ini"])("detects pytest configuration %s", (filename) => {
+            writeFixture(root, { [filename]: "[pytest]\n" });
+            expect(detectRepoProfile(root).runners.python).toBe(true);
+        });
+
 		it("detects pytest.ini", () => {
 			writeFixture(root, { "pytest.ini": "[pytest]\n" });
 			expect(detectRepoProfile(root).runners.python).toBe(true);
@@ -284,6 +296,37 @@ describe("repo-profile", () => {
 	});
 
 	describe("memoization", () => {
+        it("refreshes when a nested test tree appears and disappears", () => {
+            writeFixture(root, { "pkg/deep/module.py": "value = 1\n" });
+            expect(getRepoProfile(root).testLayout).toBe("none");
+            writeFixture(root, { "pkg/deep/tests/test_module.py": "def test_value(): assert True\n" });
+            expect(getRepoProfile(root).runners.python).toBe(true);
+            rmSync(join(root, "pkg/deep/tests"), { recursive: true });
+            const profile = getRepoProfile(root);
+            expect(profile.runners.python).toBe(false);
+            expect(profile.testLayout).toBe("none");
+        });
+
+        it("refreshes when root tests appear and are removed", () => {
+            expect(getRepoProfile(root).testLayout).toBe("none");
+            writeFixture(root, { "test_module.py": "def test_value(): assert True\n" });
+            expect(getRepoProfile(root).testLayout).toBe("colocated");
+            rmSync(join(root, "test_module.py"));
+            expect(getRepoProfile(root).testLayout).toBe("none");
+        });
+
+        it("refreshes when configuration is created, rewritten and removed", () => {
+            expect(getRepoProfile(root).runners.python).toBe(false);
+            writeFixture(root, { "pyproject.toml": "[tool.pytest.ini_options]\n" });
+            expect(getRepoProfile(root).runners.python).toBe(true);
+            writeFixture(root, { "pyproject.toml": "[project]\nname = 'example'\n" });
+            expect(getRepoProfile(root).runners.python).toBe(false);
+            writeFixture(root, { "pytest.ini": "[pytest]\n" });
+            expect(getRepoProfile(root).runners.python).toBe(true);
+            rmSync(join(root, "pytest.ini"));
+            expect(getRepoProfile(root).runners.python).toBe(false);
+        });
+
 		let otherRoot: string;
 		beforeEach(() => {
 			otherRoot = mkdtempSync(join(tmpdir(), "repo-profile-other-"));
@@ -299,12 +342,12 @@ describe("repo-profile", () => {
 			expect(second).toBe(first);
 		});
 
-		it("does not re-scan after the repo changes (daemon-lifetime memo)", () => {
+		it("refreshes after a test is created in an already visited directory", () => {
 			writeFixture(root, { "src/a.ts": "export const a = 1;\n" });
 			const first = getRepoProfile(root);
 			expect(first.testLayout).toBe("none");
 			writeFixture(root, { "src/a.test.ts": "export {};\n" });
-			expect(getRepoProfile(root).testLayout).toBe("none");
+			expect(getRepoProfile(root).testLayout).toBe("colocated");
 		});
 
 		it("resetRepoProfileCache forces a fresh detection", () => {

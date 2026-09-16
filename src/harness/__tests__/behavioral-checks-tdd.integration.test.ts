@@ -1099,6 +1099,15 @@ describe("checkTddCycleViolation — bare test.ts basename", () => {
 		expect(checkTddCycleViolation(sessionWithNoTestCycle(file), file)).toBeNull();
 	});
 
+    it.each(["test_module.py", "module_test.py", "pkg/test_module.py", "tests/helpers.py"])("does not treat Python test path %s as implementation", (file) => {
+        expect(checkTddCycleViolation(sessionWithNoTestCycle(file), file)).toBeNull();
+    });
+
+    it("still reports repeated implementation edits to Python production code", () => {
+        const file = "pkg/module.py";
+        expect(checkTddCycleViolation(sessionWithNoTestCycle(file), file)?.name).toBe("tdd_cycle_violation");
+    });
+
 	it("does NOT flag a nested scratch/spec.mts (bare spec basename)", () => {
 		const file = "scratch/spec.mts";
 		expect(checkTddCycleViolation(sessionWithNoTestCycle(file), file)).toBeNull();

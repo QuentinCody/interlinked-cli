@@ -23,7 +23,27 @@ it never edits source or changes the branch.
 checks the tamper-evident guard-decision chain. It is also distinct from `interlinked debt`,
 whose `list`, `show`, and `resolve` verbs operate the automatic obligation ledger.
 
+For a small active change, `interlinked tests review [paths...] --base HEAD --json` combines
+behavioral review prompts with at most five local simplification candidates. It does not run
+tests or certify the change. Python advice covers trailing `continue`, `elif` after an
+unconditional return/raise, large parameter-forwarding sets, and private single-use forwarding
+helpers. Locations identify the statement rather than charging its enclosing block. Dataclass
+counts, boundary validation, tuple returns and section banners are not blanket penalties.
+The `python_simplification` family and `single_use_trivial_helper` are advisory. Review the
+callers and domain contract before applying advice; retain useful abstraction boundaries.
+
 ## Metrics deletion trials
+
+For explained verbosity and erosion, `metrics diagnostics --profile js-ts|python [--json]`
+provides separate, versioned line-overlap and complexity-contribution profiles. Neither is a
+benchmark-compatible score or removal proof. `simplify review --diagnostics js-ts|python`
+explicitly adds its clone/pattern candidates to the normal scoped review, overlap groups,
+coverage receipts and optional `--record` flow. It runs a full census for clone context, then
+selects changed/staged/range candidates and related peers. Omitting the option adds no census.
+Source hashes remain in evidence; estimated removals are null, validation is `not_run`, and
+auto-fix is false. Python's declared analyzed paths cover only its limited diagnostic adapter,
+not all simplification capabilities. Retain public seams and useful domain abstractions.
+Use **interlinked-quality-gates** for profiles, budgets, gaps and snapshot comparison.
 
 The separate `metrics deletions [--cwd <path>] [--json]` command joins static redundancy
 candidates with current coverage and exact-site mutation receipts. Public APIs, dynamic
@@ -80,7 +100,8 @@ independently validated impact when it exists.
 Read `coverage.status`, selected/analyzed file counts, per-language/source status, exclusions,
 missing paths, and limitations before making a repository-wide claim. Each source's
 `analyzed_paths` is the exact sorted repository-relative read set; the top-level analyzed count is
-their in-scope union, not a supported-extension count. Local detectors currently support JS/TS;
+their in-scope union, not a supported-extension count. Default local detectors support JS/TS;
+the explicit Python diagnostic adapter contributes its own measured paths and limited scope.
 runtime loading, reflection, framework wiring, and public surfaces can escape static reachability.
 
 An empty report means **“No findings in covered scope.”** It does not mean the repository is

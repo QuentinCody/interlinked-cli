@@ -24,6 +24,7 @@ const EXPECTED_KEY_ORDER = [
 	"newExportWithoutImporter",
 	"extractedHelperDuplicate",
 	"singleUseTrivialHelper",
+    "pythonSimplification",
 	"circularImports",
 	"untestedInversePair",
 	"untestedIdempotent",

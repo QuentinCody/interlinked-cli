@@ -51,13 +51,28 @@ import {
  * Finding classes that are the SANCTIONED probe pattern under `scratch/`.
  * A probe script prints, runs at import time, and has no companion test — that
  * is what a probe IS. Dropped from the Stop rescan for scratch paths only;
- * `interlinked verify --all-checks` still reports every one of them.
+ * `interlinked verify --all-checks` still reports every one of them, and every
+ * drop is spooled to the digest (`kind: "sanctioned-scratch"`).
+ *
+ * The second group is the "library module" family: each check's own rationale
+ * exempts an entry script (`unvalidated_input_boundary` names bin/cli entry
+ * files, `process_env_outside_config` names bootstrap files, the cast and
+ * clock checks presume a reviewer and a test suite). A root `scratch/` probe
+ * is an entry script with neither, so under `scratch/` these are the probe
+ * pattern too, not a defect it introduced (measured 2026-09-15: six such
+ * findings on one 30-line probe, zero on product code).
  */
 export const SANCTIONED_SCRATCH_CHECKS: ReadonlySet<string> = new Set([
 	"ubs_print_debug_leak",
 	"no_test_file",
 	"top_level_side_effect",
 	"json_parse_unsafe",
+	// entry-script family
+	"unvalidated_input_boundary",
+	"process_env_outside_config",
+	"unjustified_cast",
+	"untestable_time_in_source",
+	"ubs_magic_number_no_const",
 ]);
 
 /** Files listed in full before the main list collapses to a count. */

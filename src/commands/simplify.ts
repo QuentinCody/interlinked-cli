@@ -29,6 +29,7 @@ import {
 } from "../lib/simplification-types.js";
 import { buildSimplificationCoverage } from "./simplify-coverage.js";
 import { collectAdvisoryOpportunityEvidence } from "./simplify-opportunity-detectors.js";
+import { collectDiagnosticSimplificationEvidence } from "./simplify-diagnostics.js";
 import {
 	collectDeadCodeEvidence,
 	collectSingleInterfaceEvidence,
@@ -40,6 +41,7 @@ import { discoverFiles } from "./verify/file-discovery.js";
 const TEXT_FINDING_LIMIT = 10;
 
 export interface SimplifyCommandOptions {
+    diagnostics?: string;
 	cwd?: string;
 	json?: boolean;
 	record?: boolean;
@@ -323,12 +325,13 @@ export function buildSimplificationReport(
 	const deadCode = collectDeadCodeEvidence(cwd);
 	const interfaces = collectSingleInterfaceEvidence(cwd, discovered);
 	const opportunities = collectAdvisoryOpportunityEvidence(cwd, discovered);
-	const drafts = [...deadCode.drafts, ...interfaces.drafts, ...opportunities.drafts]
+    const diagnostics = collectDiagnosticSimplificationEvidence(cwd, options.diagnostics);
+	const drafts = [...deadCode.drafts, ...interfaces.drafts, ...opportunities.drafts, ...diagnostics.drafts]
 		.filter((draft) => draftInScope(draft, scope));
 	const findings = sortFindings(groupOverlappingFindings(
 		drafts.map((draft) => materializeFinding(draft, repository)),
 	));
-	const sources = [...deadCode.sources, ...interfaces.sources, ...opportunities.sources];
+	const sources = [...deadCode.sources, ...interfaces.sources, ...opportunities.sources, ...diagnostics.sources];
 	return {
 		schema_version: SIMPLIFICATION_REPORT_SCHEMA_VERSION,
 		lens: "simplification",

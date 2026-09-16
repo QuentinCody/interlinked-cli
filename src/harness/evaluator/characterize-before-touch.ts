@@ -25,6 +25,7 @@ import { loadUntestedFilesBaseline } from "../tested-file-policy.js";
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent, SessionTrajectory } from "../types.js";
 import { evaluateCampaignTargetGate } from "./characterize-campaign-target.js";
 import { companionTestCandidates } from "./companion-test.js";
+import { tddDirectiveComment } from "../test-conventions.js";
 
 const SOURCE_EXT_RE = /\.(ts|tsx|py)$/;
 const TEST_PATH_RE =
@@ -60,26 +61,12 @@ function onDiskHeadHasExempt(abs: string): boolean {
 
 /** Python companion conventions (plan 25 parity): pytest's `test_<base>.py`
  *  beside the file, `<base>_test.py`, and a sibling or parent `tests/` dir. */
-function pyCompanionCandidates(abs: string): string[] {
-	const dir = abs.slice(0, abs.lastIndexOf(sep));
-	const base = abs.slice(abs.lastIndexOf(sep) + 1).replace(/\.py$/i, "");
-	const parent = dir.slice(0, dir.lastIndexOf(sep));
-	return [
-		resolve(dir, `test_${base}.py`),
-		resolve(dir, `${base}_test.py`),
-		resolve(dir, "tests", `test_${base}.py`),
-		resolve(parent, "tests", `test_${base}.py`),
-	];
-}
-
 function companionSatisfied(
 	abs: string,
 	projectRoot: string,
 	session: SessionTrajectory | undefined,
 ): { satisfied: boolean; candidates: string[] } {
-	const candidates = /\.py$/i.test(abs)
-		? pyCompanionCandidates(abs)
-		: companionTestCandidates(abs, projectRoot);
+	const candidates = companionTestCandidates(abs, projectRoot);
 	for (const candidate of candidates) {
 		if (existsSync(candidate)) return { satisfied: true, candidates };
 	}
@@ -120,12 +107,12 @@ export function evaluateCharacterizeBeforeTouch(args: CharacterizeGateArgs): Har
 	const shortCandidates = candidates.map((c) => repoRelativePosix(resolve(c), cwd)).join(", ");
 	const body =
 		`editing untested legacy file "${rel}" — it is on the untested-files list ` +
-		`(.interlinked/untested-files-baseline.json), so NO test pins its current behavior. ` +
+		`(.interlinked/untested-files-baseline.json), with no companion found by the configured naming conventions. ` +
 		`Write a characterization test FIRST: capture what the code does TODAY with ` +
 		`exact-value assertions (searched: ${shortCandidates}), then make the change against ` +
 		`that safety net — that is what keeps a refactor a refactor. Once the file has a ` +
 		`companion, drop it from the untested list. File-level escape for genuinely ` +
-		`untestable surfaces: "// interlinked-tdd: exempt" in the first lines. ` +
+		`untestable surfaces: "${tddDirectiveComment(rel)} interlinked-tdd: exempt" in the first lines. ` +
 		`Posture: strict blocks, balanced warns, lenient off (interlinked mode <name>).`;
 
 	if (args.mode === "block") {

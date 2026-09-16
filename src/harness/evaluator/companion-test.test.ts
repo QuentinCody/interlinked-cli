@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { companionTestCandidates, hasCompanionTest } from "./companion-test.js";
+import { companionHintPath, companionTestCandidates, hasCompanionTest } from "./companion-test.js";
 
 let dir: string;
 
@@ -29,6 +29,31 @@ function touch(rel: string): void {
 }
 
 describe("companionTestCandidates", () => {
+    it.each([
+        "src/pkg/test_foo.py", "src/pkg/foo_test.py", "src/pkg/tests/test_foo.py",
+        "src/tests/test_foo.py", "tests/src/pkg/test_foo.py", "tests/pkg/foo_test.py",
+        "tests/test_foo.py", "test/test_foo.py",
+    ])("finds a Python companion at %s", (testPath) => {
+        touch(testPath);
+        expect(hasCompanionTest(join(dir, "src/pkg/foo.py"), dir)).toBe(true);
+    });
+
+    it("keeps a parent/tests Python companion without a projectRoot", () => {
+        touch("src/tests/test_foo.py");
+        expect(hasCompanionTest(join(dir, "src/pkg/foo.py"))).toBe(true);
+    });
+
+    it("does not borrow a parent/tests companion outside the supplied root", () => {
+        touch("tests/test_foo.py");
+        mkdirSync(join(dir, "project"));
+        const root = join(dir, "project");
+        expect(hasCompanionTest(join(root, "foo.py"), root)).toBe(false);
+    });
+
+    it("uses Python naming in the user-facing hint", () => {
+        expect(companionHintPath("pkg/service.py")).toBe("pkg/test_service.py");
+    });
+
 	it("P1: returns the four colocated candidates for a source file", () => {
 		const got = companionTestCandidates(join(dir, "foo.ts"));
 		expect(got).toEqual([

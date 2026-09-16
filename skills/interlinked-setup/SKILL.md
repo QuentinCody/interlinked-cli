@@ -5,6 +5,25 @@ description: "Install, operate, and troubleshoot the Interlinked CLI harness in 
 
 # interlinked-setup — install, operate & troubleshoot the harness
 
+Provider qualification must exercise native edit routes, file-size denial/prevention,
+and completion after ordinary Stop advisories. Claude and Codex keep those advisories on
+stderr; explicit repair blocks still request continuation. Codex rewrites include
+`permissionDecision: allow`. Retain registrations and native transcripts: an encoded
+response alone does not prove native enforcement.
+
+Before behavioral qualification, use `interlinked tests readiness <language> --json`, then
+run a real project suite. Python readiness probes the selected environment for pytest,
+pytest-cov and coverage; it does not install or infer passing tests. The hook installer also
+ignores the named generated payload-key, enforcement-status and coverage-runtime-estimate
+outputs. These ignore entries never exempt policy files or make runtime-input caching sound.
+
+For an externally frozen policy, keep the policy files on read-only supervisor mounts and
+pin their parent directories as mount points; a read-only file under a replaceable parent is
+insufficient. Keep daemon sockets, atomic receipt writes, proposals and intended ratchet state
+writable. Qualify CLI mutations, direct replacement, local overrides and daemon restart under
+the actual non-root agent identity before claiming immutable effective policy. A same-UID
+daemon and `--by` labels do not provide an authorization boundary.
+
 Interlinked is a **local, offline-first guard layer** for AI coding agents. Repository
 config, logs, and daemon state live under `<repo>/.interlinked/`; installation also writes
 selected providers' settings, managed bridge files, and installed skill directories at
@@ -13,6 +32,13 @@ Unix-socket server) evaluates each event the installed runner exposes to its hoo
 This skill covers turning it on, keeping the daemon healthy, configuring it, and turning it
 off. The remote server is **optional** — hooks, guard, and activity capture work with zero
 network.
+
+`interlinked enable` adds named daemon telemetry, capture state and test-run outputs to
+`.gitignore`. Re-running setup updates older installations whose generated ignore list is
+incomplete; otherwise harness bookkeeping can appear as new workspace edits and schedule
+unnecessary checks. This does not ignore the entire `.interlinked` tree or change runtime-input
+validation: shared policy/ratchet files remain observable, and deliberately tracked output
+still participates in Git-visible change capture. Do not untrack files automatically.
 
 ## Load this when
 - Installing Interlinked or connecting a runner (Claude Code / Codex / Copilot CLI / Gemini / Cursor / OpenCode / Pi).
@@ -369,6 +395,10 @@ limits on those events causes Codex configuration warnings. Both install paths o
 reinstalling also removes obsolete limits from Interlinked-owned handlers while preserving
 foreign hooks. Use the manifest-scoped refresh below for an existing adapter install.
 Changed project hook definitions may need renewed review in Codex `/hooks`.
+Stop/SubagentStop continuation is emitted only for an explicit harness `block`.
+Allowed or approval-requested diagnostics stay on exit-0 stderr without restarting
+the agent; Stop has no approval channel. Updating this translation requires the
+compiled hook runtime to be rebuilt or upgraded, not a hook-matcher change.
 
 Claude's installed `WorktreeCreate` hook is a deliberate hard stop: that native event replaces
 Claude's default Git behavior, and Interlinked fails it without returning a path. Across every

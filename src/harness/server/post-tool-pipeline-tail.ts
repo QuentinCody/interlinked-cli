@@ -1,4 +1,8 @@
 import { getOrCreateEngine } from "../check-engine/index.js";
+import { getRepoProfile } from "../repo-profile.js";
+import { testReadiness, testReadinessGuidance } from "../test-readiness.js";
+import { contractFeedback } from "../contracts/feedback.js";
+import { isOperationalCheckDeferral } from "../operational-check-deferrals.js";
 import {
 	baselineCallKey,
 	consumeBaselineSnapshot,
@@ -37,6 +41,28 @@ interface TailResults {
 	elapsedMs: number;
 }
 
+/** One read-only prerequisite probe per language/session, before completion. */
+export async function appendTestReadinessGuidance(ctx: Pick<ServerRuntime, "cwd">, session: Pick<SessionTrajectory, "acknowledged_checks">, paths: string[], decision: HarnessDecision): Promise<void> {
+    for (const message of contractFeedback(ctx.cwd, paths, session.acknowledged_checks)) pushWarnings(decision, message);
+    if (!paths.some(path => /\.(?:py|[cm]?[jt]sx?|rs|go)$/.test(path))) return;
+    if (getRepoProfile(ctx.cwd).testLayout !== "none") return;
+    const languages = new Set(paths.map(path => {
+        if (/\.py$/.test(path)) return "python";
+        if (/\.[cm]?[jt]sx?$/.test(path)) return "typescript";
+        if (/\.rs$/.test(path)) return "rust";
+        if (/\.go$/.test(path)) return "go";
+        return null;
+    }));
+    for (const language of languages) {
+        if (!language) continue;
+        const key = `test-readiness:${language}`;
+        if (session.acknowledged_checks.has(key)) continue;
+        session.acknowledged_checks.add(key);
+        const readiness = await testReadiness(ctx.cwd, language);
+        pushWarnings(decision, testReadinessGuidance(readiness, language));
+    }
+}
+
 /** Attach structured results and timing accumulated during the per-file fan-out. */
 export function attachTailResults(results: TailResults): void {
 	const {
@@ -47,7 +73,7 @@ export function attachTailResults(results: TailResults): void {
 		phaseBreakdown,
 		elapsedMs,
 	} = results;
-	if (allCheckResults.length > 0) postDecision.check_results = allCheckResults;
+	if (allCheckResults.length > 0) postDecision.check_results = [...(postDecision.check_results ?? []), ...allCheckResults];
 	if (checksRan.length > 0) {
 		postDecision.checks_ran = [...new Set(checksRan)];
 		postDecision.checks_timing_ms = elapsedMs;
@@ -95,6 +121,7 @@ export function emitAllCleanSummary(options: {
 }): void {
 	const { postDecision, rules, checksRan, elapsedMs } = options;
 	if ((postDecision.warnings || []).length !== 0 || checksRan.length === 0) return;
+    if (postDecision.check_results?.some(result => isOperationalCheckDeferral(result.name))) return;
 	const checkSummary = [...new Set(checksRan)].map(abbreviateCheckName).join(", ");
 	postDecision.summary = `[interlinked] ✓ ${rules.rules.length} guard rules, ${checkSummary} — all clean (${elapsedMs}ms)`;
 }

@@ -8,7 +8,9 @@ import { hasErrorCode } from "../check-engine/tool-errors.js";
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { basename, dirname, extname, join, relative } from "node:path";
+import { basename, dirname, extname, relative } from "node:path";
+import { companionTestCandidates } from "../evaluator/companion-test.js";
+import { isTestSourcePath } from "../checks/shared.js";
 import { getOrCreateEngine } from "../check-engine/index.js";
 import type { ProjectGraph } from "../project-graph.js";
 import type { ExportedSymbol, StructuralCheckResult } from "../types.js";
@@ -177,6 +179,10 @@ export function checkRippleTests(
 	relPath: string,
 	graph: Pick<ProjectGraph, "getExports" | "getDependents" | "getImporters" | "classifyModule" | "getProjectBoundary" | "toRelative">,
 ): StructuralCheckResult[] {
+    if (extname(filePath).toLowerCase() === ".py") return [{
+        check: "export_ripple_tests_deferred", severity: "warning", file: filePath,
+        message: `Python ripple tests for ${relPath} require the configured project suite; companion names do not establish affected scope.`,
+    }];
 	const testFile = findTestFileForSource(filePath);
 	if (!testFile) return [];
 
@@ -219,24 +225,22 @@ export function checkRippleTests(
 /**
  * Public API — consumed by checkRippleTests and structural-checks PreToolUse.
  *
- * Find the test file for a source file using TS/JS filename conventions.
+ * Find a naming-convention companion; this is a hint, not coverage evidence.
  * Returns the absolute path to the test file, or null if none exists.
  */
-export function findTestFileForSource(filePath: string): string | null {
+export function findTestFileForSource(filePath: string, projectRoot?: string): string | null {
+    return sourceCompanionCandidates(filePath, projectRoot).find(candidate => existsSync(candidate)) ?? null;
+}
+
+function sourceCompanionCandidates(filePath: string, projectRoot?: string): string[] {
 	const ext = extname(filePath);
-	const base = filePath.slice(0, -ext.length);
 	const dir = dirname(filePath);
 	const baseName = basename(filePath, ext);
 
 	// Skip if the file IS a test file
-	if (baseName.endsWith(".test") || baseName.endsWith(".spec")) return null;
-
-	const candidates = [
-		`${base}.test${ext}`,
-		`${base}.spec${ext}`,
-		join(dir, "__tests__", `${baseName}.test${ext}`),
-		join(dir, "__tests__", `${baseName}.spec${ext}`),
-	];
-
-	return candidates.find((t) => existsSync(t)) || null;
+	if (baseName.endsWith(".test") || baseName.endsWith(".spec")) return [];
+    if (ext.toLowerCase() === ".py" && isTestSourcePath(filePath)) return [];
+    const candidates = companionTestCandidates(filePath, ext.toLowerCase() === ".py" ? projectRoot : undefined);
+    // Preserve the historical preference for colocated JS/TS suffixes.
+    return candidates.sort((a, b) => Number(dirname(b) === dir) - Number(dirname(a) === dir));
 }

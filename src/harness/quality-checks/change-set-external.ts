@@ -11,7 +11,7 @@
 import { resolve } from "node:path";
 import { getOrCreateEngine } from "../check-engine/index.js";
 import type { CheckReport, CheckResult, ToolId } from "../check-engine/types.js";
-import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
+import { acquireProjectHeavyProcessLease, tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
 import { requestTests } from "../test-requests.js";
 import type { QualityCheckConfig } from "../types.js";
 import { type EngineFindingRow, formatEngineFindings } from "./finding-delta.js";
@@ -19,6 +19,7 @@ import { findProjectRoot } from "./project-root.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./result-types.js";
 import {
 	candidateChecks,
+	hasExternalCheck,
 	pathMatchesCheck,
 	type DeferredCheck,
 	type ExternalCandidate,
@@ -28,6 +29,8 @@ import {
 } from "./change-set-external-candidates.js";
 import { runNamedChecksAdmitted } from "./change-set-external-named.js";
 import { pushResult } from "./change-set-result-map.js";
+import { ChangeSetEvidence, type BatchFileEvidence } from "./change-set-evidence.js";
+import { currentProcessSignal } from "../check-engine/process-cancellation.js";
 
 export { MULTI_FILE_NAMED_EXTERNAL_CHECKS } from "./change-set-external-candidates.js";
 
@@ -42,6 +45,7 @@ export interface ChangeSetExternalBatch {
 	/** Results attributed to one path. The underlying external batch is lazy,
 	 * idempotent, and shared by every call. */
 	resultsForFile(filePath: string): Promise<QualityCheckResult[]>;
+    evidenceForFile(filePath: string): Promise<BatchFileEvidence>;
 }
 
 interface ChangeSetExternalBatchOptions {
@@ -288,18 +292,9 @@ async function runBatch(
 	paths: readonly string[],
 ): Promise<Map<string, QualityCheckResult[]>> {
 	const resultMap = new Map(paths.map((path) => [path, []]));
-	const primaryPath = paths[0];
+	const primaryPath = paths.find(path => hasExternalCheck(path, options.checks));
 	if (!primaryPath) return resultMap;
 	retainAffectedChanges(options, paths);
-	if (paths.length > MAX_CHANGESET_EXTERNAL_FILES) {
-		aggregateDeferral(resultMap, primaryPath, paths.length, [
-			{
-				name: "external checks",
-				reason: `ChangeSet has ${paths.length} files (cap ${MAX_CHANGESET_EXTERNAL_FILES})`,
-			},
-		]);
-		return resultMap;
-	}
 	const projectRoot = findProjectRoot(primaryPath, options.cwd) || options.cwd;
 	const canonicalRoot = resolve(projectRoot);
 	const projectPaths = paths.filter((path) => {
@@ -309,6 +304,7 @@ async function runBatch(
 	const { candidates, deferred, affectedTests, dependencyAudit } = candidateChecks({
 		...options,
 		paths: projectPaths,
+        maxFiles: MAX_CHANGESET_EXTERNAL_FILES,
 	});
 	if (projectPaths.length !== paths.length) {
 		deferred.push({
@@ -335,7 +331,9 @@ async function runBatch(
 		return resultMap;
 	}
 
-	const release = tryAcquireProjectHeavyProcessLease(projectRoot);
+	const release = options.recovery
+		? await acquireProjectHeavyProcessLease(projectRoot, Date.now() + MAX_BATCH_TOOL_TIMEOUT_MS, currentProcessSignal() ?? new AbortController().signal)
+		: tryAcquireProjectHeavyProcessLease(projectRoot);
 	if (!release) {
 		deferBusyBatch([...candidates, ...namedCandidates], deferred);
 		aggregateDeferral(resultMap, primaryPath, paths.length, deferred);
@@ -375,11 +373,25 @@ export function createChangeSetExternalBatch(
 ): ChangeSetExternalBatch {
 	const paths = uniquePaths(options.paths);
 	let batch: Promise<Map<string, QualityCheckResult[]>> | undefined;
+    let evidence: ChangeSetEvidence;
+    const completed: string[] = [];
+    const start = (): Promise<Map<string, QualityCheckResult[]>> => {
+        evidence = new ChangeSetEvidence(paths, structuredClone(options.checks), options.cwd);
+        return runBatch({ ...options, outChecksRan: completed }, paths).then(results => {
+            evidence.finish();
+            options.outChecksRan?.push(...completed);
+            return results;
+        });
+    };
 	return {
 		async resultsForFile(filePath: string): Promise<QualityCheckResult[]> {
-			batch ??= runBatch(options, paths);
+			batch ??= start();
 			const results = await batch;
 			return results.get(filePath) ?? [];
 		},
+        async evidenceForFile(filePath: string): Promise<BatchFileEvidence> {
+            batch ??= start();
+            return evidence.forFile(filePath, completed, await batch);
+        },
 	};
 }

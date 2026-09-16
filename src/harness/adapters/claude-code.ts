@@ -143,11 +143,22 @@ export function createClaudeCodeAdapter(opts: ClaudeCodeAdapterOptions = {}): Ru
 	};
 }
 
+function encodeClaudeContinuation(decision: HarnessDecision): AdapterOutput {
+    const diagnostic = [decision.reason, decision.additional_context, ...(decision.warnings ?? [])].filter(Boolean).join("\n");
+    if (decision.decision === "block") {
+        return { exit_code: 0, stdout: JSON.stringify({ decision: "block", reason: diagnostic || "Further work is required." }) };
+    }
+    // Stop additionalContext continues Claude even on exit 0. Ordinary diagnostics
+    // stay visible to operators; only an explicit repair decision requests more work.
+    return { exit_code: 0, ...(diagnostic ? { stderr: diagnostic } : {}) };
+}
+
 function encodeClaudeDecision(
 	decision: HarnessDecision,
 	event: UnifiedHookEvent | undefined,
 ): AdapterOutput {
 	const stderr = (decision.warnings ?? []).join("\n");
+    if (event?.phase === "stop" || event?.phase === "subagent-stop") return encodeClaudeContinuation(decision);
 	if (event?.phase === "worktree-create") {
 		return encodeClaudeWorktreeCreationDecision(decision, stderr);
 	}

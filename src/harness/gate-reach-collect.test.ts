@@ -20,6 +20,7 @@ import {
 	GATE_REACH_LEDGER_REL,
 	readLatestGateReachSnapshot,
 	recordGateReach,
+	recordedDisableReason,
 	shouldCollectGateReach,
 } from "./gate-reach-collect.js";
 import { buildGateReachSnapshot, type GateReachSnapshot } from "./gate-reach.js";
@@ -187,6 +188,29 @@ describe("collectGateReachSnapshot", () => {
 		expect(perEdit?.eligible).toBe(1);
 		expect(perEdit?.measured).toBe(0);
 		expect(perEdit?.reason).toContain("per_edit_coverage.enabled=false");
+		expect(perEdit?.recorded_reason).toBeUndefined();
+	});
+
+	it("carries the operator's recorded reason onto a disabled per-edit gate and round-trips it through the ledger", () => {
+		write("src/a.ts", "export const a = 1;\n");
+		writeCoverageBaseline({ "src/a.ts": { lines_pct: 100, branches_pct: 100 } });
+		const snapshot = collectGateReachSnapshot({
+			cwd: repo,
+			sessionId: "s1",
+			now: 1000,
+			perEditCoverageEnabled: false,
+			perEditCoverageDisabledReason: "OFF until the incremental index lands",
+		});
+		expect(gateOf(snapshot, "per_edit_coverage")).toMatchObject({
+			status: "disabled",
+			recorded_reason: "OFF until the incremental index lands",
+		});
+		recordGateReach(repo, snapshot);
+		const reread = readLatestGateReachSnapshot(repo);
+		expect(reread).not.toBeNull();
+		expect(reread?.gates.find((g) => g.gate === "per_edit_coverage")?.recorded_reason).toBe(
+			"OFF until the incremental index lands",
+		);
 	});
 
 	it("reports an enabled per-edit coverage gate as unmeasured, not as measured", () => {
@@ -228,6 +252,30 @@ describe("collectGateReachSnapshot", () => {
 		});
 		expect(snapshot.session_id).toBe("abc");
 		expect(snapshot.at).toBe(new Date(1_700_000_000_000).toISOString());
+	});
+});
+
+describe("recordedDisableReason", () => {
+	it("P1: reads the typed disabled_reason", () => {
+		expect(recordedDisableReason({ enabled: false, disabled_reason: "cost" })).toBe("cost");
+	});
+	it("P2: falls back to the repo-wide _note convention", () => {
+		expect(recordedDisableReason({ enabled: false, _note: "OFF locally: suite wall 250s" })).toBe(
+			"OFF locally: suite wall 250s",
+		);
+	});
+	it("P3: prefers disabled_reason over _note when both exist", () => {
+		expect(recordedDisableReason({ disabled_reason: "typed", _note: "note" })).toBe("typed");
+	});
+	it("N1: a blank note is not a recorded decision", () => {
+		expect(recordedDisableReason({ enabled: false, _note: "   " })).toBeUndefined();
+	});
+	it("N2: a non-string value is not a recorded decision", () => {
+		expect(recordedDisableReason({ enabled: false, _note: 42 })).toBeUndefined();
+	});
+	it("N3: an absent section yields undefined", () => {
+		expect(recordedDisableReason(undefined)).toBeUndefined();
+		expect(recordedDisableReason(null)).toBeUndefined();
 	});
 });
 

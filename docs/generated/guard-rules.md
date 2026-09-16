@@ -76,7 +76,7 @@ These evaluate on every delivered PreToolUse event (before tool execution).
 | `builtin-rm-rf-root` | critical | block | Recursive deletion of root-level or wildcard paths is dangerous Be more specific about what to delete |
 | `builtin-rm-wrangler` | critical | block | CRITICAL: .wrangler contains the local development database (SQLite). Deleting it DESTROYS ALL LOCAL DATA. To fix deployment issues, try: rm -rf .wrangler/cache (keeps database) |
 | `builtin-rm-node-modules` | medium | block | Deleting node_modules requires a full reinstall If you have dependency issues, try: npm cache clean --force && npm install |
-| `builtin-rm-requires-prior-inspection` | medium | ask | Deleting paths without first reading any file in the last 20 actions risks destroying unintended work. Read one of the files you're about to remove (or a sibling) before issuing `rm`. |
+| `builtin-rm-requires-prior-inspection` | medium | warn | No recent native Read event was observed; this does not establish whether the deletion targets were inspected. Inspect the intended deletion targets with the client's available read tools. This advisory does not require a particular tool invocation. |
 
 ## Filesystem
 

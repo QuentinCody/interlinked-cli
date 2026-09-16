@@ -6,11 +6,13 @@
 // `collectPerFileFindings` alongside `runAgentSafetyChecks`.
 
 import { checkSingleUseTrivialHelper } from "../../harness/checks/over-extraction.js";
+import { checkPythonSimplification } from "../../harness/checks/python-simplification.js";
 import type { FileCheckContext } from "./file-checks-shared.js";
 import { toIssues } from "./file-checks-shared.js";
 
 export function runOverExtractionChecks(ctx: FileCheckContext): void {
 	const { content, file, relPath, r } = ctx;
+    r.pythonSimplification.push(...toIssues("python_simplification", relPath, checkPythonSimplification(content, file)));
 	r.singleUseTrivialHelper.push(
 		...toIssues("single_use_trivial_helper", relPath, checkSingleUseTrivialHelper(content, file)),
 	);

@@ -63,7 +63,7 @@ describe("projectLineCount", () => {
 			{ old_string: "old();", new_string: "first();" },
 			{ old_string: "old();", new_string: "second();" },
 		] }, path);
-		expect(projection?.afterText).toBe("first();");
+		expect(projection).toBeNull(); // The full operation cannot be projected successfully.
 	});
 
 	it("Edit inserts new_string LITERALLY (no $-substitution)", () => {

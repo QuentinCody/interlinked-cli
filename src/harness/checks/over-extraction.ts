@@ -27,8 +27,9 @@
 
 import { createRequire } from "node:module";
 import type * as TS from "typescript";
-import { parseTsSourceWith } from "./cyclomatic-ast.js";
+import { parseTsSourceWith, type ParsedTsSource } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isStrictTestFile, JS_TS_EXTS } from "./shared.js";
+import { checkPythonTrivialHelper } from "./python-simplification.js";
 
 type TsModule = typeof TS;
 
@@ -231,11 +232,19 @@ function message(name: string, statements: number): string {
  * extraction, only one that bought nothing.
  */
 export function checkSingleUseTrivialHelper(content: string, filePath: string): InlineMatch[] {
+    if (filePath.endsWith(".py")) return checkPythonTrivialHelper(content, filePath);
 	if (!JS_TS_EXTS.has(getExtension(filePath)) || isStrictTestFile(filePath)) return [];
 	const ts = loadTs();
 	if (!ts) return [];
 
 	const sf = parseTsSourceWith(ts, content, filePath);
+	return collectTrivialHelperEvidence({ ts, sf }, MAX_MATCHES).map(({ line, text }) => ({ line, text }));
+}
+
+export interface TrivialHelperEvidence extends InlineMatch { startOffset: number; endOffset: number; }
+
+/** Uncapped evidence for explicit diagnostics; interactive warnings retain their existing cap. */
+export function collectTrivialHelperEvidence({ ts, sf }: ParsedTsSource, limit = Infinity): TrivialHelperEvidence[] {
 	const candidates = collectCandidates(ts, sf);
 	if (candidates.length === 0) return [];
 
@@ -243,12 +252,13 @@ export function checkSingleUseTrivialHelper(content: string, filePath: string): 
 		exported: exportListNames(ts, sf),
 		identifiers: indexIdentifiers(ts, sf),
 	};
-	const matches: InlineMatch[] = [];
+	const matches: TrivialHelperEvidence[] = [];
 	for (const c of candidates) {
-		if (matches.length >= MAX_MATCHES) break;
+		if (matches.length >= limit) break;
 		if (!boughtNothing(ts, c, facts)) continue;
 		const line = sf.getLineAndCharacterOfPosition(c.decl.getStart()).line + 1;
-		matches.push({ line, text: message(c.name, c.body.statements.length) });
+		matches.push({ line, text: message(c.name, c.body.statements.length),
+			startOffset: c.decl.getStart(sf), endOffset: c.decl.getEnd() });
 	}
 	return matches;
 }

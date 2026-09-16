@@ -9,7 +9,7 @@ async function runConfiguredCheck(ctx: ToolCheckLoopContext, name: string, check
     if (skipBeforeYield(ctx, name, check)) return { id: name, status: skippedBefore(check), elapsed_ms: 0, finding_count: 0 };
     await yieldEventLoop();
     ctx.onCheckBoundary?.(`yield_${name}`);
-    if (skipAfterYield(ctx, check)) return { id: name, status: "skipped_test_file_or_foreign_project", elapsed_ms: 0, finding_count: 0 };
+    if (skipAfterYield(ctx, check, name)) return { id: name, status: "skipped_test_file_or_foreign_project", elapsed_ms: 0, finding_count: 0 };
     const start = performance.now();
     const outcome = await runOneCheck(ctx, name, check);
     if (outcome.boundary !== null) ctx.onCheckBoundary?.(outcome.boundary);

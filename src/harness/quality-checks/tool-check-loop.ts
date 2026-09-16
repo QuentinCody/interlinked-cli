@@ -325,14 +325,16 @@ async function runAffectedTests(
 	// project-wide).
 	const absPath = isAbsolute(ctx.filePath) ? ctx.filePath : resolve(ctx.cwd, ctx.filePath);
 	const checkCwd = findProjectRoot(ctx.filePath, ctx.cwd) || ctx.cwd;
-	const profile = getProfileForFile(ctx.filePath) ?? nodeSupportProfile(checkCwd);
-	if (!profile) return null;
+	const profile = getProfileForFile(ctx.filePath) ?? projectSupportProfile(checkCwd);
+	if (!profile) return [{ name: "affected_tests_deferred", severity: "warning", file: ctx.filePath,
+        message: "Affected tests not measured", detail: "No language or project test adapter was identified." }];
 
 	// Keep the public registry as the lookup seam. Tests and downstream
 	// embedders replace registry entries to supply their own runner, while the
 	// widened view accounts for languages that deliberately have no dispatcher.
 	const dispatcher = TEST_DISPATCHERS[profile.id];
-	if (!dispatcher) return null;
+	if (!dispatcher) return [{ name: "affected_tests_deferred", severity: "warning", file: ctx.filePath,
+        message: "Affected tests not measured", detail: `No test dispatcher is registered for ${profile.id}.` }];
 
 	const dispatched = await dispatcher({
 		filePath: ctx.filePath,
@@ -355,8 +357,10 @@ async function runAffectedTests(
 	}));
 }
 
-function nodeSupportProfile(root: string): ReturnType<typeof getProfileForFile> {
-	return existsSync(join(root, "package.json")) ? getProfileForFile("source.ts") : null;
+function projectSupportProfile(root: string): ReturnType<typeof getProfileForFile> {
+    if (existsSync(join(root, "package.json"))) return getProfileForFile("source.ts");
+    const markers = ["pyproject.toml", "pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml", "setup.cfg", "setup.py", "tox.ini", "Pipfile", "requirements.txt"];
+    return markers.some(marker => existsSync(join(root, marker))) ? getProfileForFile("source.py") : null;
 }
 
 /** name → handler. Two names (software_version_regression,
@@ -400,11 +404,11 @@ export function skipBeforeYield(
  * content checks (secrets, strong_typing, software_version_regression, the
  * inline-checks block) carry no `command` and still run for out-of-tree files.
  */
-export function skipAfterYield(ctx: ToolCheckLoopContext, check: QualityCheckConfig): boolean {
+export function skipAfterYield(ctx: ToolCheckLoopContext, check: QualityCheckConfig, name = ""): boolean {
 	if (check.skip_test_files && isLikelyTestFile(ctx.testCheckBaseName, ctx.absForTestCheck)) {
 		return true;
 	}
-	return ctx.editedFileInRepo === false && Boolean(check.command);
+	return ctx.editedFileInRepo === false && Boolean(check.command || MULTI_FILE_NAMED_EXTERNAL_CHECKS.has(name));
 }
 
 /**

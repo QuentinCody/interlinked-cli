@@ -14,7 +14,7 @@ it("submits an edited test to one shared plan instead of launching companion tes
         checkCwd: "/repo", timeoutMs: 5000, severity: "error", checkName: "affected_tests", maxDependentTests: 12 });
     expect(scheduleTests).toHaveBeenCalledExactlyOnceWith({ root: "/repo", paths: ["/repo/src/a.test.ts"], timeoutMs: 5000, maxTests: 12, waitForCapacity: false });
     expect(result).toEqual([{ name: "affected_tests_deferred", severity: "warning", file: "src/a.test.ts",
-        message: "Affected test request retained", detail: "Host capacity busy; request retained" }]);
+        message: "Affected tests not measured", detail: "Host capacity busy; request retained" }]);
 });
 
 it("reports an unsupported configured runner without claiming a completed check", async () => {

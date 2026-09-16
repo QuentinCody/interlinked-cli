@@ -24,9 +24,8 @@
 // resolver, the per-edit slew tolerance (cyclomatic 2, cognitive 4), and every
 // word of the block message including the metric-specific advice.
 
-import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import type { JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import { extractApplyPatchRaw, looksLikeApplyPatch, parseApplyPatchSections } from "../apply-patch-content.js";
 import { appendPlanHints, type PlanHintFn } from "./metric-gate-plan-hints.js";
@@ -34,7 +33,7 @@ import { type FileGrandfather, ledgerOverCapViolation } from "../function-comple
 import { ledgerBlockLines } from "./metric-gate-ledger-line.js";
 import { isCappableFile } from "../large-file-policy.js";
 import { processApplyPatchSection } from "./apply-patch-section-metric.js";
-import { safeReadFile } from "./safe-read-file.js";
+import { projectDirectChange } from "../projected-file-changes.js";
 
 /** The only structural requirement on a metric's per-function entry: a name.
  *  The numeric value is read through the spec's `metricOf`, so an entry may
@@ -117,48 +116,14 @@ export function resolveFilePath(toolInput: JsonObject): string {
 	);
 }
 
-/** Apply one old→new replacement (first occurrence, or all when replace_all). */
-function applyEdit(text: string, oldStr: string, newStr: string, all: boolean): string {
-	if (all) return text.split(oldStr).join(newStr);
-	const idx = text.indexOf(oldStr);
-	return idx === -1 ? text : text.slice(0, idx) + newStr + text.slice(idx + oldStr.length);
-}
-
-/** Apply a MultiEdit `edits` array in order, skipping any entry that is not a
- *  well-formed `{ old_string, new_string }` pair. */
-function applyEditList(text: string, edits: readonly unknown[]): string {
-	let after = text;
-	for (const raw of edits) {
-		if (!isJsonObject(raw)) continue;
-		const e = raw;
-		if (typeof e.old_string !== "string" || typeof e.new_string !== "string") continue;
-		after = applyEdit(after, e.old_string, e.new_string, e.replace_all === true);
-	}
-	return after;
-}
-
 /** Materialize before/after content for a Write/Edit/MultiEdit, else null. One
  *  edit-application rule for every per-function metric gate. */
 export function projectContent(
 	toolInput: JsonObject,
 	abs: string,
 ): { before: string; after: string } | null {
-	const before = existsSync(abs) ? safeReadFile(abs) : "";
-	if (before === null) return null;
-
-	if (typeof toolInput.content === "string") {
-		return { before, after: toolInput.content };
-	}
-	if (typeof toolInput.old_string === "string" && typeof toolInput.new_string === "string") {
-		if (before === "") return null; // Edit needs an existing file
-		const all = toolInput.replace_all === true;
-		return { before, after: applyEdit(before, toolInput.old_string, toolInput.new_string, all) };
-	}
-	if (Array.isArray(toolInput.edits)) {
-		if (before === "") return null;
-		return { before, after: applyEditList(before, toolInput.edits) };
-	}
-	return null; // unknown shape — fail open (apply_patch is handled separately)
+    const change = projectDirectChange(toolInput, abs);
+    return change ? { before: change.before, after: change.after } : null;
 }
 
 /** Count of entries per name within ONE state, used to tell a uniquely-named

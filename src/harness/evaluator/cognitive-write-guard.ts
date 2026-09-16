@@ -96,14 +96,14 @@ interface CognitiveWriteBlock {
 
 /**
  * Per-edit sub-cap SLEW tolerance for cognitive complexity — the cognitive
- * analog of `SUB_CAP_RATCHET_TOLERANCE` (cyclomatic, = 2). Deliberately set
- * HIGHER than the cyclomatic tolerance rather than copied verbatim: cognitive
+ * policy is independent of cyclomatic's end-state cap. Historically set
+ * higher than the former cyclomatic tolerance: cognitive
  * increments are nesting-weighted, so the same single-edit structural change
  * (e.g. one more branch added a level deeper) costs more cognitive than
  * cyclomatic — the spec's own oracle example puts a 3-deep nested `if` at
  * cyclomatic 4 but cognitive 6 (docs/design/history-relational-metrics.md
  * §"3-deep nested if"), roughly 1.5x at shallow nesting and worse as nesting
- * grows. A tolerance of 2 (cyclomatic's value) would false-block routine
+ * grows. A tolerance of 2 (the historical cyclomatic value) would false-block routine
  * single-branch edits inside already-nested code; doubling it to 4 keeps
  * "roughly one added branch's worth of nesting-weighted cost" as the
  * per-edit allowance while still catching a genuinely large one-edit jump

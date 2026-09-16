@@ -533,7 +533,7 @@ describe("applyQualityDecision", () => {
 		], decision);
 
 		expect(decision.warnings).toEqual([
-			"[interlinked:checks-deferred] [proven] NOT CHECKED: project typecheck deferred for src/a.ts (the typecheck worker is busy). Retry each deferred check after active project work finishes; no clean verdict exists for check.",
+			"[interlinked:checks-deferred] [proven] NOT CHECKED: project typecheck deferred for src/a.ts (the typecheck worker is busy). Retry each deferred check after its prerequisites change; no clean verdict exists for check.",
 		]);
 	});
 

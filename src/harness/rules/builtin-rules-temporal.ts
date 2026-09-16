@@ -60,7 +60,9 @@ export const TEMPORAL_PRECONDITION_RULES: GuardRule[] = [
 		enabled: true,
 		trigger: "PreToolUse",
 		tool_match: ["Bash", "Shell", "run_command"],
-		action: "ask",
+        // A generic Read event neither proves inspection of the deletion target
+        // nor exists on every client's tool surface. Keep this heuristic advisory.
+		action: "warn",
 		patterns: [
 			// `rm` MUST be the command verb — at line start or after a shell
 			// separator. Prevents matching `vercel rm`, `npm rm`, `git rm`.
@@ -85,9 +87,9 @@ export const TEMPORAL_PRECONDITION_RULES: GuardRule[] = [
 			within_last_n: 20,
 		},
 		reason:
-			"Deleting paths without first reading any file in the last 20 actions risks destroying unintended work.",
+			"No recent native Read event was observed; this does not establish whether the deletion targets were inspected.",
 		suggestion:
-			"Read one of the files you're about to remove (or a sibling) before issuing `rm`.",
+			"Inspect the intended deletion targets with the client's available read tools. This advisory does not require a particular tool invocation.",
 		severity: "medium",
 		category: "file-deletion",
 	},

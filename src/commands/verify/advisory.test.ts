@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_ADVISORY_SKIPS, JS_TS_EXTS, TOOL_IDS } from "./advisory.js";
 
 describe("DEFAULT_ADVISORY_SKIPS", () => {
+    it("keeps Python simplification advice outside the default gate", () => {
+        expect(DEFAULT_ADVISORY_SKIPS.has("python_simplification")).toBe(true);
+    });
 	it("is a non-empty set", () => {
 		expect(DEFAULT_ADVISORY_SKIPS.size).toBeGreaterThan(0);
 	});

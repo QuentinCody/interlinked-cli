@@ -71,6 +71,11 @@ type CheckClassification =
 	| { readonly kind: "deferred"; readonly reason: string }
 	| { readonly kind: "batch"; readonly toolId: ToolId };
 
+/** Applicability only: no path-name or gitignore exemptions, and no passing verdict. */
+export function hasExternalCheck(path: string, checks: Record<string, QualityCheckConfig>): boolean {
+    return Object.entries(checks).some(([name, check]) => classifyCheck(name, check, [path]).kind !== "ignored");
+}
+
 /** Decide what one configured check contributes, given the paths in the change set. */
 function classifyCheck(
 	name: string,
@@ -96,6 +101,7 @@ function classifyCheck(
 export function candidateChecks(options: {
 	paths: readonly string[];
 	checks: Record<string, QualityCheckConfig>;
+    maxFiles?: number;
 }): {
 	candidates: ExternalCandidate[];
 	deferred: DeferredCheck[];
@@ -110,6 +116,10 @@ export function candidateChecks(options: {
 	for (const [name, check] of Object.entries(options.checks)) {
 		const classified = classifyCheck(name, check, options.paths);
 		if (classified.kind === "ignored") continue;
+        if (exceedsAttributionBudget(check, options.paths, options.maxFiles)) {
+            deferred.push({ name, reason: `Check has more than ${options.maxFiles} applicable inputs; attribution budget exhausted` });
+            continue;
+        }
 		if (classified.kind === "affected_tests") {
 			affectedTests = { name, check };
 			continue;
@@ -132,4 +142,8 @@ export function candidateChecks(options: {
 		...(affectedTests ? { affectedTests } : {}),
 		...(dependencyAudit ? { dependencyAudit } : {}),
 	};
+}
+
+function exceedsAttributionBudget(check: QualityCheckConfig, paths: readonly string[], limit: number | undefined): boolean {
+    return limit !== undefined && paths.filter(path => pathMatchesCheck(path, check)).length > limit;
 }

@@ -440,7 +440,7 @@ describe("builtin-git-force-push-requires-inspection (temporal rule)", () => {
 // ===========================================
 
 describe("builtin-rm-requires-prior-inspection (temporal rule)", () => {
-	it("asks when `rm <path>` has no prior Read in the last 20 actions", () => {
+	it("warns without requiring an unavailable native Read tool", () => {
 		const rules = loadConfig();
 		const session = makeSession({ tool_sequence: [] });
 		// Use a path outside the negation allowlist (dist/build/.cache/...)
@@ -453,8 +453,8 @@ describe("builtin-rm-requires-prior-inspection (temporal rule)", () => {
 			new ReservationManager(),
 			new CohortManager(),
 		);
-		expect(result.decision).toBe("ask");
-		expect(result.rule_id).toBe("builtin-rm-requires-prior-inspection");
+		expect(result.decision).toBe("allow");
+		expect(result.warnings?.join(" ")).toContain("No recent native Read event was observed");
 	});
 
 	it("stays dormant when at least one Read has occurred recently", () => {

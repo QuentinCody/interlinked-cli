@@ -103,7 +103,7 @@ describe("pre-context mutation contracts", () => {
 			expect(out).toEqual([expect.stringContaining("No test file found")]);
 		}
 		const suffix = preCheckTestFirst(
-			ctx({ config: { ...baseConfig(), test_first: true }, filePath: "/workspace/src/widget.test.ts.bak", relPath: "src/widget.test.ts.bak" }),
+			ctx({ config: { ...baseConfig(), test_first: true }, filePath: "/workspace/src/widget.test.ts.source.ts", relPath: "src/widget.test.ts.source.ts" }),
 			session(),
 		);
 		expect(suffix).toEqual([expect.stringContaining("No test file found")]);

@@ -16,6 +16,13 @@ the version is an exact pin** (`pkg@1.2.3`). An approved name at a floating vers
 `lodash@^4`, `lodash@latest`) is still blocked — a range can resolve to a newer, compromised
 release.
 
+PyPI names use standard canonical spelling: case-insensitive, with runs of `-`, `_` and `.`
+collapsed to `-`. `PyYAML` and `pyyaml` use the same grant. This does not authorize a different
+version. Conflicting legacy aliases fail closed; an authorized add replaces aliases with one
+canonical entry, and remove removes all aliases. Other ecosystems retain their own semantics.
+`tests readiness python --json` only proposes already-approved exact install argv; it never
+installs or adds an approval. Resolve missing grants through the existing operator boundary.
+
 ## Load this when
 - A package install was blocked with `[interlinked:supply-chain]`.
 - Editing a manifest (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`,
@@ -63,10 +70,26 @@ present); many "blocked install" situations are really "don't add this" (e.g. `l
 6. **Daemon down (`[harness-offline]`)?** `interlinked harness start`, then retry.
 
 ## Getting a package approved (human sign-off operations)
+
+An agent can record a request without granting approval:
+```bash
+interlinked allowlist propose npm example-package --package-version 1.2.3 --reason "Needed for the public API" --json
+```
+This writes a pending record under `.interlinked/package-proposals/`. It does not contact a
+registry, install anything, change the allowlist, or send a message. Writer identity remains
+unknown. Surface the concrete request for operator review; the operator provisions approval
+separately. In an externally frozen deployment, approval files and their path ancestors must
+be protected by the supervisor while proposal/receipt state stays writable. A same-UID local
+daemon and a proposal label do not establish that boundary.
 ```bash
 interlinked allowlist add <ecosystem> <package> --by <name> [--reason <t>] [--version-range <r>] [--force]
 ```
 `--by` is **required**. Ecosystems: `npm, pypi, cargo, rubygems, go, composer, maven, gradle, nuget`.
+`--by` is an attribution label, not authenticated approval. The local writable allowlist
+does not enforce an immutable-policy experiment: an agent with the same filesystem
+authority can change it. Such a deployment needs policy owned outside the agent's write
+scope (including its parent directory), with direct edits, replacement and CLI writes
+tested against that boundary. Guidance to request approval is not that boundary.
 `add` runs **three admission screens** (cheapest first) and **refuses without `--force`** if any fires:
 1. **Typosquat** (npm only, offline) — Levenshtein ≤2 to a popular package name.
 2. **License** (network) — the version's declared SPDX license vs the committed
@@ -118,6 +141,12 @@ constrains which requested version passes. `license_allowlist` is **optional** �
 - **Manifest-edit is a distinct gate.** Get the package approved *first*, then edit the
   manifest, then install at the pin. Flipping a dep to a git/path/URL source counts as new →
   blocked. A plain version bump of an existing dep is allowed.
+  Supported manifest classifiers retain a dependency's exact registry version when checking
+  a version-scoped approval. For example, `PyYAML==6.0.2` can satisfy an approval for `6.0.2`;
+  it is not treated as an unspecified request. Python extras and environment markers do not
+  supply the package version. A wrong, missing or ambiguous pin cannot borrow a version from
+  a marker, URL or nested table. This does not add unsupported manifest syntaxes or authorize
+  an agent to approve its own dependencies.
 - **`interlinked audit` is NOT this.** It's the tamper-evident guard-decision log (see
   **interlinked-observability**). The dependency-vuln (SCA) lane runs in the **default**
   `interlinked verify` (the `dep-audit` tool, `npm audit`-based). Membership auditing =

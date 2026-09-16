@@ -20,7 +20,7 @@
 import { scanUserPrompt } from "../content-scanner/prompt-scan.js";
 import { captureProviderCapabilities } from "../data-capture-capabilities.js";
 import { buildEditMechanicsStopNudge } from "../edit-mechanics-stop.js";
-import { buildGateReachStopWarning } from "../gate-reach-collect.js";
+import { buildGateReachStopWarning, recordedDisableReason } from "../gate-reach-collect.js";
 import { deleteLiveSnapshot } from "../live-snapshot.js";
 import {
 	maybeCaptureFromPreToolUse,
@@ -380,10 +380,14 @@ function buildStopWarnings(
 	// Gate reach (plan 16 §4) — each gate's coverage OF ITSELF; disabled gates are
 	// LOUD (silent disablement is the failure this prevents). Read-only sessions
 	// (zero files_written) skip it — the gates judged none of this session's work.
+	// A disabled per-edit gate with a recorded rationale (`_note` /
+	// `disabled_reason`) stays loud but stops asking for what is already recorded.
+	const perEditDisabledReason = recordedDisableReason(ctx.rules.per_edit_coverage);
 	const gateReachWarning = buildGateReachStopWarning({
 		cwd,
 		sessionId: event.session_id || "unknown",
 		perEditCoverageEnabled: ctx.rules.per_edit_coverage?.enabled !== false,
+		...(perEditDisabledReason !== undefined ? { perEditCoverageDisabledReason: perEditDisabledReason } : {}),
 		sessionWroteFiles: session.files_written.size > 0,
 	});
 	if (gateReachWarning !== null) warnings.push(gateReachWarning);

@@ -13,6 +13,8 @@ import type { WorkspaceChangeSet } from "./workspace-effects.js";
  *  derived from WATER_LINE_PATHS below, so this snapshot set is a strict
  *  superset of the guard set and the two cannot drift apart. */
 const NON_WATER_LINE_CONTROL_PATHS = [
+    ".interlinked/behavioral-contracts.json",
+    ".interlinked/contract-policy.json",
 	".interlinked/check-policy.json",
 	".interlinked/check-policy.local.json",
 	".interlinked/config.json",

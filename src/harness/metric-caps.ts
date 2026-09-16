@@ -171,8 +171,9 @@ export const METRIC_DEFS: readonly MetricDef[] = [
 		howToConfigure:
 			"`interlinked caps set function-tokens <n>` (or .interlinked/metric-caps.json → max_function_tokens)",
 		fixHint:
-			"Split the implementation into cohesive named helpers. Existing over-cap " +
-			"functions may hold or shrink, but may not grow; there is no inline suppression.",
+			"Simplify redundant logic or extract a cohesive responsibility with clear inputs and outputs. " +
+			"Avoid wrappers that only move tokens. Check relevant behavior after refactoring. " +
+			"Existing over-cap functions may hold or shrink, but may not grow; there is no inline suppression.",
 	},
 	{
 		key: "cyclomatic",
@@ -190,8 +191,8 @@ export const METRIC_DEFS: readonly MetricDef[] = [
 		howToConfigure:
 			"`interlinked caps set cyclomatic <n>` (or .interlinked/metric-caps.json → max_cyclomatic)",
 		fixHint:
-			"Extract cohesive groups of branches into smaller, named helper functions. There is " +
-			"no suppression; decomposition is the only way past.",
+			"Remove redundant branches or extract a cohesive responsibility; moving branches alone " +
+			"does not establish better design. Check relevant behavior after refactoring. There is no suppression.",
 	},
 	{
 		key: "cognitive",

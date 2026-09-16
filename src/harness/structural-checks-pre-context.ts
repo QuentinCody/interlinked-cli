@@ -19,6 +19,9 @@ import { isAdvisorySpecCompletion } from "./spec/drift-confidence.js";
 import type { RouteMap } from "./route-map.js";
 import type { SessionTracker } from "./session-state.js";
 import { findTestFileForSource } from "./structural-checks/export-surface.js";
+import { isTestSourcePath } from "./checks/shared.js";
+import { isTddExemptPath } from "./evaluator/tdd-new-file-gate.js";
+import { supportsTestFirstPath } from "./test-conventions.js";
 import { isReadOperation, isWriteOperation } from "./structural-checks/helpers.js";
 import type {
 	HarnessEvent,
@@ -72,6 +75,12 @@ export function preCheckRecentlyFailed(
  * Test-first nudge: before editing a (non-test) source file, surface whether a
  * test file exists and has been run this session.
  */
+function isTestFirstImplementation(filePath: string, extension: string): boolean {
+    if (!supportsTestFirstPath(filePath)) return false;
+    if (/\.(test|spec)\.[^.]+$/.test(filePath) || filePath.includes("__tests__")) return false;
+    return extension !== ".py" || !(isTestSourcePath(filePath) || isTddExemptPath(filePath));
+}
+
 export function preCheckTestFirst(
 	ctx: PreToolContext,
 	session: SessionTrajectory | undefined,
@@ -79,11 +88,9 @@ export function preCheckTestFirst(
 	const { config, relPath, filePath, toolName, ext, graph } = ctx;
 	if (!(config.test_first && isWriteOperation(toolName) && session)) return [];
 
-	const isSourceExt = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"].includes(ext);
-	const isTest = /\.(test|spec)\.[^.]+$/.test(filePath) || filePath.includes("__tests__");
-	if (!(isSourceExt && !isTest)) return [];
+	if (!isTestFirstImplementation(filePath, ext)) return [];
 
-	const testFile = findTestFileForSource(filePath);
+	const testFile = findTestFileForSource(filePath, ext === ".py" ? ctx.event.cwd : undefined);
 	if (!testFile) {
 		return [
 			`[interlinked:test-first] No test file found for ${relPath}. Write tests before modifying the implementation.`,

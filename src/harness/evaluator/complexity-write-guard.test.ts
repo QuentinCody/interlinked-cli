@@ -25,7 +25,6 @@ import {
 	projectContent,
 	resolveFilePath,
 	selectAnalyzer,
-	SUB_CAP_RATCHET_TOLERANCE,
 } from "./complexity-write-guard.js";
 
 const pythonMock = vi.mocked(mockedComputeCyclomaticPython);
@@ -551,15 +550,11 @@ describe("checkFunctionComplexityWrite — apply_patch Move sections", () => {
 });
 
 
-describe("sub-cap per-edit slew ratchet (bounded rise, cap is the backstop)", () => {
+describe("cyclomatic end-state policy is independent of patch size", () => {
 	// fnWith(name, b) → cyclomatic b + 1, so branchesFor(cyclomatic) = cyclomatic - 1.
-	// Fixtures are built relative to SUB_CAP_RATCHET_TOLERANCE so a future change to
-	// the tolerance is a one-place edit (mirrors the line-cap test convention).
+	// Exercise the historical +2 boundary as well as larger single edits.
+	const SUB_CAP_RATCHET_TOLERANCE = 2;
 	const branchesFor = (cyclomatic: number) => cyclomatic - 1;
-
-	it("pins the per-edit slew tolerance (default 2)", () => {
-		expect(SUB_CAP_RATCHET_TOLERANCE).toBe(2);
-	});
 
 	it("allows a single-branch sub-cap rise within tolerance (5 -> 6)", () => {
 		const file = join(tmp, "slew-one.ts");
@@ -583,7 +578,7 @@ describe("sub-cap per-edit slew ratchet (bounded rise, cap is the backstop)", ()
 		expect(out).toBeNull();
 	});
 
-	it("blocks a sub-cap rise one past the tolerance (5 -> 8 at the default)", () => {
+	it("allows a cohesive sub-cap increase independent of edit size", () => {
 		const file = join(tmp, "ratchet.ts");
 		const pre = 5;
 		const post = pre + SUB_CAP_RATCHET_TOLERANCE + 1; // rise === tolerance + 1
@@ -592,9 +587,7 @@ describe("sub-cap per-edit slew ratchet (bounded rise, cap is the backstop)", ()
 			{ file_path: file, content: fnWith("f", branchesFor(post)) },
 			tmp,
 		);
-		expect(out?.block).toContain(`${pre} -> ${post}`);
-		expect(out?.block).toContain(`rose ${post - pre} in one edit`);
-		expect(out?.block).toContain(`+${SUB_CAP_RATCHET_TOLERANCE}/edit`);
+		expect(out).toBeNull();
 	});
 
 	it("still blocks a within-tolerance rise that crosses the cap (cap is the backstop)", () => {
@@ -916,7 +909,7 @@ describe("projectContent — direct exact-observable branch coverage", () => {
 		writeFileSync(file, content);
 		const fakeEdit = Object.assign(() => {}, { old_string: "untouched", new_string: "CHANGED" });
 		const out = projectContent({ edits: [fakeEdit] }, file);
-		expect(out).toEqual({ before: content, after: content });
+		expect(out).toBeNull();
 	});
 });
 
@@ -940,11 +933,11 @@ describe("projectContent / applyEdit — replace_all and not-found branches (old
 
 	// test-contract: boundary — an old_string that never occurs leaves the
 	// content byte-for-byte unchanged (no phantom edit at a -1 index).
-	it("old_string not found leaves content unchanged", () => {
+	it("old_string not found leaves the proposed effect unmeasured", () => {
 		const file = join(tmp, "notfound.ts");
 		writeFileSync(file, "hello world");
 		const out = projectContent({ old_string: "ZZZ_NOT_PRESENT", new_string: "y" }, file);
-		expect(out).toEqual({ before: "hello world", after: "hello world" });
+		expect(out).toBeNull();
 	});
 });
 
@@ -956,7 +949,7 @@ describe("projectContent — edits array: per-entry type guards and replace_all"
 		const content = "start undefined middle";
 		writeFileSync(file, content);
 		const out = projectContent({ edits: [{ new_string: "REPLACED" }] }, file);
-		expect(out).toEqual({ before: content, after: content });
+		expect(out).toBeNull();
 	});
 
 	// test-contract: invariant — mirror of the above for new_string.
@@ -965,7 +958,7 @@ describe("projectContent — edits array: per-entry type guards and replace_all"
 		const content = "before OLDMARK after";
 		writeFileSync(file, content);
 		const out = projectContent({ edits: [{ old_string: "OLDMARK" }] }, file);
-		expect(out).toEqual({ before: content, after: content });
+		expect(out).toBeNull();
 	});
 
 	// test-contract: public-api — an edits[] entry's OWN replace_all:true
@@ -1040,20 +1033,20 @@ describe("checkApplyPatchComplexity — source-content resolution reaches the re
 	// test-contract: boundary — when the source path does not exist at all,
 	// `before` must resolve to the empty string (not a placeholder), so a
 	// blank-line context hunk against it still reconstructs successfully.
-	it("a missing source path resolves before to '' (blank-context hunk reconstructs)", () => {
+	it("a missing update source cannot establish a projected regression", () => {
 		pythonMock.mockImplementation((content: string) =>
 			content.includes("MARKER_LINE") ? [pyEntry("newfn", 40)] : [],
 		);
 		const patch = blankContextAddPatch(join(tmp, "never-existed.py"));
 		const out = checkFunctionComplexityWrite({ command: patch }, tmp);
-		expect(out?.block).toContain("newfn");
+		expect(out).toBeNull();
 		pythonMock.mockReset();
 	});
 
 	// test-contract: boundary — when the source path EXISTS but cannot be
 	// read (a directory), `before` must also fall back to '' (not some other
 	// sentinel), so the same blank-context hunk still reconstructs.
-	it("an unreadable (directory) source path also resolves before to '' (blank-context hunk reconstructs)", () => {
+	it("an unreadable update source cannot establish a projected regression", () => {
 		pythonMock.mockImplementation((content: string) =>
 			content.includes("MARKER_LINE") ? [pyEntry("newfn2", 40)] : [],
 		);
@@ -1061,7 +1054,7 @@ describe("checkApplyPatchComplexity — source-content resolution reaches the re
 		mkdirSync(dest);
 		const patch = blankContextAddPatch(dest);
 		const out = checkFunctionComplexityWrite({ command: patch }, tmp);
-		expect(out?.block).toContain("newfn2");
+		expect(out).toBeNull();
 		pythonMock.mockReset();
 	});
 });
@@ -1078,10 +1071,9 @@ describe("buildBlock — exact message contract (all template pieces present)", 
 		const out = checkFunctionComplexityWrite({ file_path: file, content: "AFTER" }, tmp);
 		const expected =
 			"[interlinked:cyclomatic] BLOCKED: this edit pushes 1 function(s) past a " +
-			`cyclomatic limit — a function may rise by at most ${SUB_CAP_RATCHET_TOLERANCE} branch(es) ` +
-			`per edit, and no function may exceed the ${DEFAULT_MAX_CYCLOMATIC}-branch cap:\n` +
+            `cyclomatic limit — no function may exceed the ${DEFAULT_MAX_CYCLOMATIC}-branch cap:\n` +
 			"  • foo (cyclomatic 99, new over-cap function)\n" +
-			"Decompose: extract cohesive branches into smaller named functions, then retry. " +
+            "Simplify redundant decisions or extract a cohesive responsibility with clear inputs and outputs. Avoid duplicated validation, parameter forwarding and shared mutable state spread across helpers; validate preserved behavior with relevant tests. " +
 			"Holding or reducing an existing function is always allowed; there is no suppression.\n" +
 			`This ${DEFAULT_MAX_CYCLOMATIC}-branch cap is per-repo configurable: \`interlinked caps set cyclomatic <n>\` ` +
 			"(run `interlinked caps explain cyclomatic` for what cyclomatic complexity measures).";
@@ -1247,20 +1239,19 @@ describe("subCapRatchetViolations — the <= cap band gate and sort order", () =
 
 	// test-contract: boundary — a big rise that lands EXACTLY at cap is still
 	// `<= cap`, so the ratchet (not the strictly-over-cap path) must catch it.
-	it("a big rise landing exactly at cap is caught by the ratchet", () => {
+	it("a cohesive rise landing exactly at the cap is allowed", () => {
 		pythonMock.mockImplementation((content: string) =>
 			content === "AFTER" ? [pyEntry("named", DEFAULT_MAX_CYCLOMATIC)] : [pyEntry("named", 5)],
 		);
 		const file = join(tmp, "ratchet-at-cap.py");
 		writeFileSync(file, "BEFORE");
 		const out = checkFunctionComplexityWrite({ file_path: file, content: "AFTER" }, tmp);
-		expect(out).not.toBeNull();
-		expect(out?.block).toContain(`rose ${DEFAULT_MAX_CYCLOMATIC - 5} in one edit`);
+		expect(out).toBeNull();
 	});
 
 	// test-contract: invariant — the returned violation strings are sorted
 	// alphabetically, independent of the functions' source/iteration order.
-	it("two ratchet violations are listed alphabetically, not in source order", () => {
+	it("two sub-cap increases do not force extraction", () => {
 		pythonMock.mockImplementation((content: string) =>
 			content === "AFTER"
 				? [pyEntry("zebra", 20), pyEntry("apple", 22)] // source order: zebra first
@@ -1269,11 +1260,6 @@ describe("subCapRatchetViolations — the <= cap band gate and sort order", () =
 		const file = join(tmp, "ratchet-sort-order.py");
 		writeFileSync(file, "BEFORE");
 		const out = checkFunctionComplexityWrite({ file_path: file, content: "AFTER" }, tmp);
-		const block = out?.block ?? "";
-		const appleIdx = block.indexOf("apple");
-		const zebraIdx = block.indexOf("zebra");
-		expect(appleIdx).toBeGreaterThanOrEqual(0);
-		expect(zebraIdx).toBeGreaterThanOrEqual(0);
-		expect(appleIdx).toBeLessThan(zebraIdx);
+        expect(out).toBeNull();
 	});
 });

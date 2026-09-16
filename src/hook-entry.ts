@@ -21,7 +21,7 @@ import { methodForPhase } from "./harness/daemon-protocol.js";
 import type { HarnessDecision } from "./harness/types.js";
 import { resetSupervisorBackoff } from "./harness/supervisor-backoff.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
-import { encodeHookResult } from "./hook-entry-translation.js";
+import { encodeHookResult, recordSuppressedStop } from "./hook-entry-translation.js";
 import {
 	coldDestructiveCommandBlockReason,
 	coldGraphShardBlockReason,
@@ -253,8 +253,11 @@ function maybeSelfHealOnStop(
 async function mainFromStdin(): Promise<void> {
 	const nativeJson = await readStdinJson();
 	const nativeEventName = argOrEnv("--event") ?? process.env.INTERLINKED_EVENT ?? "PreToolUse";
-	if (isStopHookReentry(nativeEventName, nativeJson)) process.exit(0);
 	const runner = argOrEnv("--runner") ?? process.env.INTERLINKED_RUNNER;
+    if (isStopHookReentry(nativeEventName, nativeJson)) {
+        recordSuppressedStop(resolveHookDataDir(process.cwd(), null), runner, nativeEventName);
+        process.exit(0);
+    }
 	const socketPath = argOrEnv("--socket") ?? process.env.INTERLINKED_SOCKET;
 	const result = await runHookEntry({
 		nativeEventName,

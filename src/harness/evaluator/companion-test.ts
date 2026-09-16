@@ -10,9 +10,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getRepoProfile } from "../repo-profile.js";
-
-/** Both companion-test filename suffixes we recognize. */
-const COMPANION_SUFFIXES = ["test", "spec"] as const;
+import { companionNames, companionNameMatches, companionNameHint } from "../test-conventions.js";
 
 /** The ordered list of companion test paths we look for. First hit wins.
  *  Exported for callers that need the paths themselves (block-message hints,
@@ -23,8 +21,8 @@ const COMPANION_SUFFIXES = ["test", "spec"] as const;
  *  When `projectRoot` is provided AND the detected repo profile says tests
  *  live in a separate tree, mirrored candidates under each detected test root
  *  are appended (see {@link separateTreeCandidates}). Callers that omit
- *  `projectRoot` — and every colocated-layout repo — get exactly the
- *  historical colocated set, byte-for-byte. */
+ *  `projectRoot` retain the JS/TS colocated set. Python also searches standard
+ *  sibling/parent tests directories and project-root test trees. */
 export function companionTestCandidates(srcAbs: string, projectRoot?: string): string[] {
 	const dir = dirname(srcAbs);
 	const ext = extname(srcAbs);
@@ -33,18 +31,24 @@ export function companionTestCandidates(srcAbs: string, projectRoot?: string): s
 	//   <dir>/foo.test.ts        — sibling test file
 	//   <dir>/__tests__/foo.test.ts — sibling __tests__ folder
 	//   ... plus the .spec variants of both.
-	const candidates = [
-		join(dir, `${base}.test${ext}`),
-		join(dir, "__tests__", `${base}.test${ext}`),
-		join(dir, `${base}.spec${ext}`),
-		join(dir, "__tests__", `${base}.spec${ext}`),
-	];
+    const directories = ext.toLowerCase() === ".py" ? pythonCompanionDirectories(dir, projectRoot) : [dir, join(dir, "__tests__")];
+	const candidates = companionNames(base, ext).flatMap(name => directories.map(directory => join(directory, name)));
 	if (projectRoot !== undefined) {
 		candidates.push(...separateTreeCandidates(srcAbs, resolve(projectRoot), base, ext));
 	}
 	// Dedupe (a source file living inside a test root can make a mirrored
 	// candidate collide with a colocated one) while preserving search order.
 	return [...new Set(candidates)];
+}
+
+function pythonCompanionDirectories(dir: string, projectRoot?: string): string[] {
+    const directories = [dir, join(dir, "tests"), join(dir, "__tests__")];
+    const parent = dirname(dir);
+    const relativeParent = relative(resolve(projectRoot ?? parent), parent);
+    if (relativeParent !== ".." && !relativeParent.startsWith(`..${sep}`) && !isAbsolute(relativeParent)) {
+        directories.push(join(parent, "tests"));
+    }
+    return directories;
 }
 
 /**
@@ -55,8 +59,7 @@ export function companionTestCandidates(srcAbs: string, projectRoot?: string): s
  * directory scan and the session-written path match, so the two can't drift.
  */
 export function isCompanionFileName(fileName: string, base: string, ext: string): boolean {
-	if (!fileName.startsWith(`${base}.`)) return false;
-	return COMPANION_SUFFIXES.some((suffix) => fileName.endsWith(`.${suffix}${ext}`));
+    return companionNameMatches(fileName, base, ext);
 }
 
 /**
@@ -98,9 +101,8 @@ export function hasCompanionTest(srcAbs: string, projectRoot?: string): boolean 
  *      `src/` without repeating the `src` segment)
  *   3. Flat:                       tests/foo.test.ts
  *      (small repos dump all tests directly in the test root)
- * Only consulted when the repo profile detects `testLayout === "separate-tree"`;
- * on colocated / no-test repos this returns [] so the historical candidate set
- * is unchanged.
+ * JS/TS mirrors require a detected separate test tree. Python additionally
+ * includes conventional roots before the first test file has been created.
  */
 function separateTreeCandidates(
 	srcAbs: string,
@@ -109,29 +111,20 @@ function separateTreeCandidates(
 	ext: string,
 ): string[] {
 	const profile = getRepoProfile(projectRoot);
-	if (profile.testLayout !== "separate-tree") return [];
+	if (profile.testLayout !== "separate-tree" && ext !== ".py") return [];
 	const relDir = dirname(relative(projectRoot, srcAbs));
 	// Source outside the project root — no mirror path to derive.
 	if (relDir.startsWith("..") || isAbsolute(relDir)) return [];
-	const out: string[] = [];
-	for (const testRoot of profile.testDirRoots) {
-		for (const suffix of COMPANION_SUFFIXES) {
-			const file = `${base}.${suffix}${ext}`;
-			if (relDir !== ".") out.push(join(projectRoot, testRoot, relDir, file));
-			const stripped = relDir === "." ? "" : relDir.split(sep).slice(1).join(sep);
-			if (stripped !== "") out.push(join(projectRoot, testRoot, stripped, file));
-			out.push(join(projectRoot, testRoot, file));
-		}
-	}
-	return out;
+    const roots = ext === ".py" ? new Set([...profile.testDirRoots, "tests", "test"]) : profile.testDirRoots;
+    const directories = [...new Set([relDir, relDir.split(sep).slice(1).join(sep), ""])].filter(dir => dir !== ".");
+    return [...roots].flatMap(root => companionNames(base, ext).flatMap(file =>
+        directories.map(dir => join(projectRoot, root, dir, file))));
 }
 
 /** Agents see a friendly relative path, not the resolved absolute one. */
 export function companionHintPath(srcRaw: string): string {
-	const ext = extname(srcRaw);
-	const base = basename(srcRaw, ext);
 	const dir = dirname(srcRaw);
 	return dir && dir !== "."
-		? `${dir}/${base}.test${ext}`
-		: `${base}.test${ext}`;
+		? `${dir}/${companionNameHint(srcRaw)}`
+		: companionNameHint(srcRaw);
 }

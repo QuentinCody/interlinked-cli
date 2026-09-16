@@ -120,10 +120,7 @@ export async function runQualityPhase(
 	// the structural-checks block (export-surface diff, project
 	// graph update, impact analysis, deletion-hygiene).
 	markPhase("structural_checks");
-	const batchedExternalResults = acc.externalCheckBatch
-		? await acc.externalCheckBatch.resultsForFile(editedFilePath)
-		: [];
-	const perFileQualityResults = await runQualityChecksWithCoverage({ watcher: ctx.hookCoverage, event: checkEvent, checks: rules.quality_checks, cwd: CWD, options: {
+	const perFileQualityResults = await runQualityChecksWithCoverage({ watcher: ctx.hookCoverage, event: checkEvent, checks: rules.quality_checks, cwd: CWD, externalBatch: acc.externalCheckBatch, options: {
 		...qualityOpts,
 		...(currentBaseline !== undefined ? { baseline: currentBaseline } : {}),
 		...(rules.diff_aware !== undefined ? { diffAware: rules.diff_aware } : {}),
@@ -148,6 +145,9 @@ export async function runQualityPhase(
 		// still run. See `editedFileInRepo` above.
 		editedFileInRepo,
 	} });
+	const batchedExternalResults = acc.externalCheckBatch
+		? await acc.externalCheckBatch.resultsForFile(editedFilePath)
+		: [];
 	const rawQualityResults = [...batchedExternalResults, ...perFileQualityResults];
 	// Phase mark — runQualityChecks ran tsc/biome/inline checks.
 	// The subprocess time is captured in tool_breakdown; this
@@ -177,7 +177,7 @@ export async function runQualityPhase(
 	// Collect quality check results for local persistence
 	collectQualityResultEntries(qualityResults, allCheckResults);
 
-	applyQualityDecision(ctx, qualityResults, decision);
+	applyQualityDecision(ctx, qualityResults, decision, session, checksRan);
 
 	return previousSuppressionCount;
 }
