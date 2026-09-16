@@ -16,6 +16,19 @@ describe("export existence — positive (must fire)", () => {
     });
 });
 
+describe("export existence — fixture paths are input data, not tests (2026-09-16)", () => {
+    const smoke = 'import { api } from "./api.js"; test("exports", () => { expect(api).toBeDefined(); });';
+    it("N: skips a file under __tests__/fixtures/", () => {
+        expect(check(smoke, "src/harness/structure/__tests__/fixtures/declared/test/client.test.ts")).toEqual([]);
+    });
+    it("N: skips a file under __fixtures__/", () => {
+        expect(check(smoke, "src/x/__fixtures__/index.test.ts")).toEqual([]);
+    });
+    it("P: still fires for a real test that merely sits next to a fixtures directory", () => {
+        expect(check(smoke, "src/harness/structure/__tests__/client.test.ts")).toHaveLength(1);
+    });
+});
+
 describe("export existence — negative (must not fire)", () => {
     it.each([
         'expect(api()).toBeDefined()',

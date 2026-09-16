@@ -53,6 +53,7 @@ import {
 import { extractAllEditedFilePaths } from "../server-tool-helpers.js";
 import { loadStructureConfig } from "../structure/structure-loader.js";
 import type { HarnessDecision, HarnessEvent, PreEditBaseline, SessionTrajectory } from "../types.js";
+import { TEST_FILE_RE } from "../behavioral-checks-tdd-assertions.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
 export {
@@ -145,6 +146,7 @@ export function captureDiffAwareBaseline(
 	ctx: ServerRuntime,
 	event: HarnessEvent,
 	filePath: string,
+	session?: SessionTrajectory,
 ): void {
 	const { rules } = ctx;
 	if (rules.diff_aware?.enabled === false) return;
@@ -167,7 +169,28 @@ export function captureDiffAwareBaseline(
 	const targetPaths = filePath ? [filePath] : extractAllEditedFilePaths(event);
 	for (const target of targetPaths) {
 		captureBaselineForTarget(ctx, target);
+		if (session) seedNewTestFileAssertionCounts(ctx, session, target);
 	}
+}
+
+/**
+ * A test file that does not exist yet gets a ZERO assertion-count entry in
+ * the session cache, so `checkAssertionDensity` judges the creating edit
+ * against 0 blocks / 0 assertions instead of treating it as "first sight —
+ * establish baseline silently". Without this, a brand-new test file whose
+ * blocks carry no assertions drew no density warning (found 2026-09-16
+ * while auditing the gates before a coverage campaign). Keyed by both the
+ * raw and the resolved path, matching how `files_written` is recorded, so
+ * the PostToolUse lookup hits whichever spelling the runner sends.
+ */
+function seedNewTestFileAssertionCounts(ctx: ServerRuntime, session: SessionTrajectory, target: string): void {
+	if (!TEST_FILE_RE.test(target)) return;
+	const absPath = isAbsolute(target) ? target : resolve(ctx.cwd, target);
+	if (existsSync(absPath)) return;
+	if (session.assertion_counts.has(target) || session.assertion_counts.has(absPath)) return;
+	const zero = { blocks: 0, assertions: 0 };
+	session.assertion_counts.set(target, { ...zero });
+	if (absPath !== target) session.assertion_counts.set(absPath, { ...zero });
 }
 
 /**
@@ -178,9 +201,14 @@ export function captureDiffAwareBaseline(
 function captureBaselineForTarget(ctx: ServerRuntime, target: string): void {
 	const CWD = ctx.cwd;
 	const baselineFilePath = isAbsolute(target) ? target : resolve(CWD, target);
-	if (!existsSync(baselineFilePath)) return;
 	try {
-		const preContent = readFileSync(baselineFilePath, "utf-8");
+		// A file that does not exist yet gets a ZERO-VALUED baseline (empty
+		// pre-content), not no baseline. Skipping it (pre-2026-09-16) made every
+		// delta ratchet — assertion strength, as-any, suppressions, non-null,
+		// seams — inert on exactly the edit that creates a file, so a brand-new
+		// test file made of nothing but `toBeDefined()` drew no warning. Every
+		// counter reads 0 on "", so "new" and "grew from nothing" agree.
+		const preContent = existsSync(baselineFilePath) ? readFileSync(baselineFilePath, "utf-8") : "";
 		const missingRT = checkMissingReturnTypes(preContent, baselineFilePath);
 		const complexFns = checkFunctionComplexity(preContent, baselineFilePath);
 		// CRAP baseline — fail-open when coverage data is absent.

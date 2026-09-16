@@ -435,14 +435,22 @@ describe("checkMockingTheSutSelf", () => {
 
 describe("checkMockOnlyTest", () => {
 	// --- positive: must fire ---
-	it("flags a block whose only assertion is toHaveBeenCalledWith", () => {
+	it("flags a block whose only assertion is an EMPTY toHaveBeenCalledWith()", () => {
+		const code = `it("calls the API", async () => {
+			await run();
+			expect(client.fetch).toHaveBeenCalledWith();
+		});`;
+		const matches = checkMockOnlyTest(code, TEST);
+		expect(matches.length).toBe(1);
+		expect(nonNull(matches[0]).text).toContain("mocks were called");
+	});
+
+	it("N: does NOT flag a block whose toHaveBeenCalledWith pins the arguments (2026-09-16 adjudication: 20/20 FPs)", () => {
 		const code = `it("calls the API", async () => {
 			await run();
 			expect(client.fetch).toHaveBeenCalledWith("/users", { page: 1 });
 		});`;
-		const matches = checkMockOnlyTest(code, TEST);
-		expect(matches.length).toBe(1);
-		expect(nonNull(matches[0]).text).toContain("mock interactions");
+		expect(checkMockOnlyTest(code, TEST)).toEqual([]);
 	});
 
 	it("flags a block with multiple positive call assertions and no value check", () => {

@@ -10,6 +10,55 @@ function run(content: string, path = "cart.test.ts"): ReturnType<typeof checkWil
 	return checkWildcardInObservable(content, path);
 }
 
+describe("checkWildcardInObservable — coverage-only shapes (adjudication 2026-09-16)", () => {
+	it("P: flags a block whose only observable is not.toThrow() with no argument", () => {
+		const found = run(`it("runs the checks", () => { expect(() => runChecks(ctx)).not.toThrow(); });`);
+		expect(found).toHaveLength(1);
+		expect(found[0]?.text).toContain("toThrow");
+	});
+
+	it("P: flags expect(Array.isArray(x)).toBe(true) — shape, not contents", () => {
+		expect(run(`it("lists", () => { expect(Array.isArray(result.items)).toBe(true); });`)).toHaveLength(1);
+	});
+
+	it("P: flags Array.isArray + not.toThrow() together with no literal", () => {
+		const code = `it("scans", () => { expect(() => scan(c)).not.toThrow(); expect(Array.isArray(c.hits)).toBeTruthy(); });`;
+		expect(run(code)).toHaveLength(1);
+	});
+
+	it("N: a title that DECLARES the no-throw contract makes bare not.toThrow() the behavior, not a wildcard", () => {
+		const titles = [
+			"never throws on an unwritable cwd",
+			"does not throw when console.warn is not a function",
+			"survives a broken symlink",
+			"tolerates an unreadable entry",
+			"fails open without a config",
+			"must not throw resolving paths",
+		];
+		for (const title of titles) {
+			expect(run(`it("${title}", () => { expect(() => f()).not.toThrow(); });`), title).toEqual([]);
+		}
+	});
+
+	it("P: the no-throw title exemption does not cover a second, unrelated wildcard", () => {
+		const code = `it("never throws", () => { expect(() => f()).not.toThrow(); expect(Array.isArray(f())).toBe(true); });`;
+		expect(run(code)).toHaveLength(1);
+	});
+
+	it("N: not.toThrow(SomeError) names the error and is NOT a wildcard", () => {
+		expect(run(`it("rejects", () => { expect(() => parse(x)).not.toThrow(SyntaxError); });`)).toEqual([]);
+	});
+
+	it("N: not.toThrow() beside a literal-pinning assertion does not fire", () => {
+		const code = `it("runs", () => { expect(() => run()).not.toThrow(); expect(run()).toEqual([1, 2]); });`;
+		expect(run(code)).toEqual([]);
+	});
+
+	it("N: expect(Array.isArray(x)).toBe(false) pins a negative shape claim and is left alone", () => {
+		expect(run(`it("scalar", () => { expect(Array.isArray(v)).toBe(false); });`)).toEqual([]);
+	});
+});
+
 describe("checkWildcardInObservable — positive (must fire)", () => {
 	it("flags a quantifier-only regex on toMatch (u051: byte-count wildcard)", () => {
 		const found = run(`it("logs the byte count", () => { expect(msg).toMatch(/\\d+/); });`);

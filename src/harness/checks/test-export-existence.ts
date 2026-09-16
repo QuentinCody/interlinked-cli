@@ -77,7 +77,13 @@ function isSmokeBody(parsed: ParsedTsSource, body: TS.Node, imports: Set<string>
 }
 
 /** Report active tests whose assertions only check statically imported export existence. */
+/** A test file that is itself INPUT DATA for another test (a structure /
+ *  extractor fixture) is not a test of this repo; both adjudicated false
+ *  positives (2026-09-16) were `__tests__/fixtures/**` files. */
+const TEST_FIXTURE_PATH_RE = /(?:^|\/)(?:__tests__\/fixtures|__fixtures__)\//;
+
 export function checkExportExistenceSmokeTest(content: string, filePath: string): InlineMatch[] {
+    if (TEST_FIXTURE_PATH_RE.test(filePath.replace(/\\/g, "/"))) return [];
     const parsed = parseTestQuality(content, filePath);
     if (!parsed) return [];
     const imports = qualityImportNames(parsed);

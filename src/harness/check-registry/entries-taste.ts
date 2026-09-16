@@ -200,7 +200,7 @@ export const TASTE_ENTRIES: CheckRegistration[] = [
 		id: "conditional_in_test",
 		phase: "post",
 		name: "Conditional Logic in Test",
-		description: "Test body contains if/switch/try — tests should be straight-line",
+		description: "Test body contains if/switch/try — tests should be straight-line (a catch-less try/finally cleanup and an `if (…) throw` narrowing guard are not branching and are exempt)",
 		tier: 2,
 		determinism: "partially_deterministic",
 		severity: "warning",

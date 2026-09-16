@@ -175,7 +175,7 @@ export const TEST_AND_DEMO_ENTRIES: CheckRegistration[] = [
 		phase: "pre_warn",
 		name: "Mock-Only Test",
 		description:
-			"Detects it() / test() blocks whose every assertion is a call-interaction matcher (toHaveBeenCalled* / toHaveReturned*) with no assertion on a return value, output, or state — a change-detector that verifies the call was made, not the behavior. Blocks whose call assertions are all negated (only `not.toHaveBeenCalled()`) are exempt.",
+			"Detects it() / test() blocks whose every assertion is a bare call-interaction matcher (toHaveBeenCalled / toHaveBeenCalledTimes / toHaveReturned* / an EMPTY …With()) with no assertion on a return value, output, or state — a change-detector that verifies the call was made, not the behavior. A `…CalledWith(args)` that pins the arguments is a value assertion (the outbound call's arguments are the contract) and does not count; blocks whose call assertions are all negated (only `not.toHaveBeenCalled()`) are exempt.",
 		tier: 2,
 		determinism: "partially_deterministic",
 		severity: "warning",

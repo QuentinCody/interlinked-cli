@@ -165,9 +165,22 @@ function isWildcardAssertion(
 	topLevelCommas: number,
 	negated: boolean,
 ): boolean {
-	if (negated) return false;
+	// The one negation that is NOT evidence: `not.toThrow()` with no argument
+	// says only "it ran" — the exact shape a coverage-driven test takes when
+	// it exercises code without asserting behavior (adjudication 2026-09-16
+	// found six such blocks no detector flagged).
+	if (negated) return matcherName === "toThrow" && argText.trim().length === 0;
 	if (isTypeofAssertion(subjectText, matcherName, argText)) return true;
+	if (isShapeProbeAssertion(subjectText, matcherName, argText)) return true;
 	return isWildcardMatcherArg(matcherName, argText, topLevelCommas);
+}
+
+/** `expect(Array.isArray(x)).toBe(true)` / `.toBeTruthy()` — checks the
+ *  container's shape, never its contents; `[]` satisfies it. */
+function isShapeProbeAssertion(subjectText: string, matcherName: string, argText: string): boolean {
+	if (!/^\s*Array\.isArray\s*\(/.test(subjectText)) return false;
+	if (matcherName === "toBeTruthy") return argText.trim().length === 0;
+	return matcherName === "toBe" && argText.trim() === "true";
 }
 
 // ===========================================
@@ -177,7 +190,21 @@ function isWildcardAssertion(
 interface AssertionInfo {
 	isWildcard: boolean;
 	matcherName: string;
+	/** `not.toThrow()` with no argument — see {@link NO_THROW_CONTRACT_RE}. */
+	isBareNoThrow: boolean;
 }
+
+/**
+ * A test whose TITLE declares the no-throw contract ("never throws on an
+ * unwritable cwd", "survives a broken symlink", "tolerates …", "fails open
+ * …") is a robustness test: not throwing IS the behavior under test. Sampling
+ * the first rollout of the bare `not.toThrow()` rule (2026-09-16, 10 hits)
+ * read 7 of 10 as this shape, so such a block is exempt. A title that claims
+ * something else ("runs the checks", "scans") and proves it only by not
+ * throwing still fires.
+ */
+const NO_THROW_CONTRACT_RE =
+	/\b(?:(?:never|not|no|without|won'?t|doesn'?t|does not|must not|should not)\s+(?:\w+\s+){0,2}throw(?:s|n|ing)?|survives?|tolerates?|swallows?|absorbs?|idempotent|best-effort|fails?\s+open|fail-open|no-throw|safe(?:ly)?\s+(?:on|with|when))\b/i;
 
 const EXPECT_CALL_RE = /\bexpect\s*\(/g;
 const MATCHER_CHAIN_RE = /^((?:\s*\.\s*[A-Za-z_$][\w$]*)+)\s*\(/;
@@ -222,6 +249,7 @@ function collectBlockAssertions(body: string): AssertionInfo[] {
 				negated,
 			),
 			matcherName,
+			isBareNoThrow: negated && matcherName === "toThrow" && argText.trim().length === 0,
 		});
 		EXPECT_CALL_RE.lastIndex = matcherSpan.end + 1;
 		m = EXPECT_CALL_RE.exec(body);
@@ -232,6 +260,14 @@ function collectBlockAssertions(body: string): AssertionInfo[] {
 interface WildcardTestBlock {
 	line: number;
 	body: string;
+}
+
+/** The it()/test() title: the leading string literal of the call's arguments
+ *  (the body slice starts right after the opening paren). Empty when the
+ *  block has no literal title (`test(() => …)`). */
+function blockTitle(body: string): string {
+	const m = /^\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/.exec(body);
+	return m?.[2] ?? "";
 }
 
 const TEST_CALL_RE = /\b(?:it|test)((?:\s*\.\s*[A-Za-z_$][\w$]*(?:\([^)]*\))?)*)\s*\(/g;
@@ -277,15 +313,24 @@ export function checkWildcardInObservable(content: string, filePath: string): In
 	for (const block of findTestBlocks(masked)) {
 		if (matches.length >= MAX_MATCHES) break;
 		if (smokeLines.has(block.line)) continue;
-		const assertions = collectBlockAssertions(block.body);
-		if (assertions.length === 0) continue;
-		if (!assertions.every((a) => a.isWildcard)) continue;
-		const matcherNames = [...new Set(assertions.map((a) => a.matcherName).filter((n) => n.length > 0))];
-		const label = matcherNames.length > 0 ? matcherNames.join(", ") : "wildcard matcher";
-		matches.push({
-			line: block.line,
-			text: `wildcard_in_observable: every assertion (${label}) matches almost any value — assert a specific literal instead.`,
-		});
+		const match = wildcardBlockMatch(block);
+		if (match) matches.push(match);
 	}
 	return matches;
+}
+
+/** One block's verdict: a finding when EVERY assertion is wildcard-shaped,
+ *  unless the block's only wildcards are bare `not.toThrow()` and its title
+ *  declares that no-throw contract. */
+function wildcardBlockMatch(block: WildcardTestBlock): InlineMatch | null {
+	const assertions = collectBlockAssertions(block.body);
+	if (assertions.length === 0) return null;
+	if (!assertions.every((a) => a.isWildcard)) return null;
+	if (assertions.every((a) => a.isBareNoThrow) && NO_THROW_CONTRACT_RE.test(blockTitle(block.body))) return null;
+	const matcherNames = [...new Set(assertions.map((a) => a.matcherName).filter((n) => n.length > 0))];
+	const label = matcherNames.length > 0 ? matcherNames.join(", ") : "wildcard matcher";
+	return {
+		line: block.line,
+		text: `wildcard_in_observable: every assertion (${label}) matches almost any value — assert a specific literal instead.`,
+	};
 }

@@ -98,10 +98,53 @@ const NODE_ASSERT_HELPERS = new Set<string>([
 ]);
 
 interface ExpectClassification {
-	/** True when the matcher is a call/return-interaction matcher. */
+	/** True when the matcher is a call/return-interaction matcher that carries
+	 *  NO argument evidence — `toHaveBeenCalled()`, `toHaveBeenCalledTimes(2)`,
+	 *  or a `…With()` with an empty argument list. */
 	isCallInteraction: boolean;
 	/** True when the matcher chain contains a `.not` modifier. */
 	negated: boolean;
+}
+
+/**
+ * CALL matchers whose (non-empty) arguments PIN what the collaborator
+ * RECEIVED. `toHaveBeenCalledWith(cwd, ["gemini", "cursor"])` is the contract
+ * of a delegating command: the mapping from input to outbound call is the
+ * behavior, and a broken mapping fails the test. Independent adjudication
+ * (2026-09-16, 20/20 sampled hits) read every hit that carried one of these
+ * as a false positive, so an argument-pinning CALL matcher counts as a value
+ * assertion, not a bare call check.
+ *
+ * The RETURN / RESOLVE family (`toHaveReturnedWith(x)`) is deliberately NOT
+ * here: a mock returns whatever the test configured, so asserting it
+ * returned that value restates the setup — still a tautology.
+ */
+const ARGUMENT_PINNING_MATCHERS = new Set<string>([
+	"toHaveBeenCalledWith",
+	"toHaveBeenLastCalledWith",
+	"toHaveBeenNthCalledWith",
+	"toHaveBeenCalledExactlyOnceWith",
+	"toBeCalledWith",
+	"lastCalledWith",
+	"nthCalledWith",
+]);
+
+/** `mock.calls[0]` / `mock.lastCall` / `mock.results` inspection reads the
+ *  recorded arguments or results — argument evidence by another route. */
+const MOCK_RECORD_INSPECTION_RE = /\.mock\s*\.\s*(?:calls|lastCall|results|contexts|instances)\b/;
+
+/** True when an interaction matcher's argument list carries evidence: a
+ *  pinning matcher with at least one non-empty argument. `toHaveBeenNthCalledWith(1)`
+ *  (only the index) pins nothing, so the first argument alone does not count
+ *  for the Nth variants. */
+function pinsArguments(body: string, matcher: string, argsStart: number): boolean {
+	if (!ARGUMENT_PINNING_MATCHERS.has(matcher)) return false;
+	const span = findCallSpan(body, argsStart);
+	if (span === null) return false;
+	const args = body.slice(argsStart, span.end).trim();
+	if (args.length === 0) return false;
+	const nth = /^(?:toHaveBeenNthCalledWith|nthCalledWith)$/.test(matcher);
+	return !nth || span.topLevelCommas.length > 0;
 }
 
 // A non-call classification, shared for every expect whose matcher cannot be
@@ -135,7 +178,8 @@ export function classifyBlockExpects(body: string): ExpectClassification[] {
 			const matcher = segments[segments.length - 1] ?? "";
 			const matcherArgsStart = span.end + 1 + chain[0].length;
 			out.push({
-				isCallInteraction: CALL_INTERACTION_MATCHERS.has(matcher),
+				isCallInteraction:
+					CALL_INTERACTION_MATCHERS.has(matcher) && !pinsArguments(body, matcher, matcherArgsStart),
 				negated:
 					segments.includes("not") ||
 					matcherHasZeroInteractionCount(body, matcher, matcherArgsStart),
@@ -246,6 +290,7 @@ export function checkMockOnlyTest(content: string, filePath: string): InlineMatc
 		const hasOtherAssertions =
 			/\bassert\s*[(.]/.test(body) ||
 			/\.\s*should\b/.test(body) ||
+			MOCK_RECORD_INSPECTION_RE.test(body) ||
 			hasImportedAssertHelperCall(body, importedAssertHelpers);
 		const expects = classifyBlockExpects(body);
 		// Mock-only: at least one assertion, EVERY assertion is a call
@@ -260,7 +305,7 @@ export function checkMockOnlyTest(content: string, filePath: string): InlineMatc
 			const name = readCaseName(content, argsStart, firstArgEnd);
 			matches.push({
 				line: lineIdx + 1,
-				text: `test ${name}asserts only mock interactions (toHaveBeenCalled / toHaveReturned) — it checks that a collaborator was called, not that the code produced a correct value, output, or state, so it passes even when the behavior is wrong. Assert a return value, rendered output, or observable state. A bare not.toHaveBeenCalled() is fine; a positive call-only assertion is not.`,
+				text: `test ${name}asserts only that mocks were called (toHaveBeenCalled / toHaveBeenCalledTimes / an empty …With()) — never WHAT they were called with, nor a return value, output, or state, so it passes even when the behavior is wrong. Pin the arguments (toHaveBeenCalledWith(...)) or assert an observable. A bare not.toHaveBeenCalled() is fine.`,
 			});
 		}
 		m = IT_TEST_OPEN_RE.exec(stripped);

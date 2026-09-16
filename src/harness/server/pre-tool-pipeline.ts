@@ -372,7 +372,7 @@ export async function runPreToolPipeline(
 	if (tsgoDecision) return tsgoDecision;
 
 	// --- Diff-aware: capture pre-edit baseline for file write tools ---
-	captureDiffAwareBaseline(ctx, event, filePath);
+	captureDiffAwareBaseline(ctx, event, filePath, session);
 
 	// --- Structure context injection (non-blocking) ---
 	injectStructureContext(ctx, event, session, preDecision, filePath);

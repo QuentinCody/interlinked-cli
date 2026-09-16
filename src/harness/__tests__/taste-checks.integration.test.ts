@@ -434,6 +434,45 @@ describe("checkConditionalInTest", () => {
 		expect(checkConditionalInTest(content, "/x/foo.test.ts").length).toBe(1);
 	});
 
+	it("still flags a multi-line try whose catch opens on the next line", () => {
+		const content = `
+			it("thing", () => {
+				try {
+					fn();
+				}
+				catch (e) { return; }
+				expect(1).toBe(1);
+			});
+		`;
+		expect(checkConditionalInTest(content, "/x/foo.test.ts").length).toBe(1);
+	});
+
+	it("N: does NOT flag try/finally with no catch — cleanup is not branching (adjudicated 14/20 FPs, 2026-09-16)", () => {
+		const content = `
+			it("thing", () => {
+				const spy = vi.spyOn(fs, "readFileSync");
+				try {
+					expect(load()).toEqual({ a: 1 });
+				} finally {
+					spy.mockRestore();
+				}
+			});
+		`;
+		expect(checkConditionalInTest(content, "/x/foo.test.ts")).toEqual([]);
+	});
+
+	it("N: does NOT flag an `if (…) throw` narrowing guard before the assertions", () => {
+		const content = `
+			it("thing", () => {
+				const entry = summary["a.ts"];
+				if (!entry) throw new Error("missing entry");
+				if (entry.lines === undefined) { throw new Error("no lines"); }
+				expect(entry.lines.pct).toBe(100);
+			});
+		`;
+		expect(checkConditionalInTest(content, "/x/foo.test.ts")).toEqual([]);
+	});
+
 	it("allows straight-line test", () => {
 		const content = `
 			it("thing", () => {

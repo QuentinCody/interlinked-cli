@@ -43,8 +43,51 @@ describe("checkMockOnlyTest — anonymous single-argument test blocks", () => {
 		const matches = checkMockOnlyTest(code, TEST);
 		expect(matches.length).toBe(1);
 		expect(nonNull(matches[0]).text).toBe(
-			"test asserts only mock interactions (toHaveBeenCalled / toHaveReturned) — it checks that a collaborator was called, not that the code produced a correct value, output, or state, so it passes even when the behavior is wrong. Assert a return value, rendered output, or observable state. A bare not.toHaveBeenCalled() is fine; a positive call-only assertion is not.",
+			"test asserts only that mocks were called (toHaveBeenCalled / toHaveBeenCalledTimes / an empty …With()) — never WHAT they were called with, nor a return value, output, or state, so it passes even when the behavior is wrong. Pin the arguments (toHaveBeenCalledWith(...)) or assert an observable. A bare not.toHaveBeenCalled() is fine.",
 		);
+	});
+});
+
+describe("checkMockOnlyTest — argument-pinning call matchers are value assertions (2026-09-16)", () => {
+	it("N1: a sole toHaveBeenCalledWith(args) does not fire — the outbound call's arguments ARE the contract", () => {
+		const code = `it("maps runner names", () => {
+			enable(["Gemini ", "cursor"]);
+			expect(installAllHooks).toHaveBeenCalledWith(CWD, ["gemini", "cursor"]);
+		});`;
+		expect(checkMockOnlyTest(code, TEST)).toEqual([]);
+	});
+
+	it("N2: toHaveBeenNthCalledWith(2, payload) pins the second call's payload", () => {
+		const code = `it("routes", () => {
+			send();
+			expect(framed).toHaveBeenNthCalledWith(2, { kind: "framed" });
+		});`;
+		expect(checkMockOnlyTest(code, TEST)).toEqual([]);
+	});
+
+	it("N3: inspecting mock.calls is argument evidence even when the only matcher is a count", () => {
+		const code = `it("records the fd", () => {
+			close(7);
+			const [fd] = closeSpy.mock.calls[0];
+			expect(closeSpy).toHaveBeenCalledTimes(1);
+		});`;
+		expect(checkMockOnlyTest(code, TEST)).toEqual([]);
+	});
+
+	it("P1: toHaveBeenNthCalledWith(1) with ONLY the index still fires — it pins nothing", () => {
+		const code = `it("routes", () => {
+			send();
+			expect(framed).toHaveBeenNthCalledWith(1);
+		});`;
+		expect(checkMockOnlyTest(code, TEST)).toHaveLength(1);
+	});
+
+	it("P2: toHaveReturnedWith(x) still fires — a mock returns what the test configured", () => {
+		const code = `it("returns", () => {
+			run();
+			expect(fetcher).toHaveReturnedWith(42);
+		});`;
+		expect(checkMockOnlyTest(code, TEST)).toHaveLength(1);
 	});
 });
 

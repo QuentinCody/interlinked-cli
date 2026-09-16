@@ -124,6 +124,56 @@ export function checkCommentedOutCode(content: string, filePath: string): Inline
 
 const CONTROL_FLOW_IN_TEST = /\b(if|switch|try)\s*[({]/;
 
+/** `if (cond) throw …` — a narrowing guard that fails loudly, not a second
+ *  case; the assertions after it run on exactly one path. */
+const IF_THROW_GUARD = /\bif\s*\([^)]*\)\s*(?:\{\s*)?throw\b/;
+const TRY_OPEN = /\btry\s*\{/;
+
+/**
+ * Two shapes an independent adjudication (2026-09-16, 18 of 20 sampled hits)
+ * read as false positives: a `try { … } finally { cleanup }` with NO `catch`
+ * (restoring a spy, chmod, or fd is not branching — every assertion still
+ * runs on one path), and an `if (…) throw` narrowing guard. A `try` that has
+ * a `catch` still counts: a handler that swallows or `return`s hides which
+ * path the test took.
+ */
+function isExemptControlFlow(sLines: string[], j: number): boolean {
+	const line = nonNull(sLines[j]);
+	if (IF_THROW_GUARD.test(line)) return true;
+	if (!TRY_OPEN.test(line)) return false;
+	return !tryHasCatch(sLines, j, line.indexOf("try"));
+}
+
+/** Walk from the `try {` on line `j` to its closing brace and report whether
+ *  the next token afterwards is `catch`. Bounded to the file; a never-closed
+ *  block reads as "has catch" so the detector stays conservative. */
+function tryHasCatch(sLines: string[], j: number, from: number): boolean {
+	let depth = 0;
+	let opened = false;
+	for (let k = j; k < sLines.length; k++) {
+		const offset = k === j ? from : 0;
+		const text = nonNull(sLines[k]).slice(offset);
+		for (let c = 0; c < text.length; c++) {
+			const ch = text[c];
+			if (ch === "{") {
+				depth++;
+				opened = true;
+			} else if (ch === "}") {
+				depth--;
+				// `c` indexes the sliced text; re-add the slice offset so the
+				// tail is taken from the right column of the full line.
+				if (opened && depth === 0) return nextTokenIsCatch(sLines, k, offset + c + 1);
+			}
+		}
+	}
+	return true;
+}
+
+function nextTokenIsCatch(sLines: string[], k: number, col: number): boolean {
+	const tail = `${nonNull(sLines[k]).slice(col)}\n${sLines.slice(k + 1, k + 3).join("\n")}`;
+	return /^\s*catch\b/.test(tail);
+}
+
 /**
  * Look for branching control flow at the TOP LEVEL of a test body only.
  *
@@ -146,7 +196,7 @@ function findControlFlowInBody(sLines: string[], start: number, end: number): nu
 		const line = nonNull(sLines[j]);
 		// Check for a top-level conditional BEFORE counting braces on this
 		// line — the conditional typically precedes its opening `{`.
-		if (seenOpen && depth === 1 && j > start && CONTROL_FLOW_IN_TEST.test(line)) {
+		if (seenOpen && depth === 1 && j > start && CONTROL_FLOW_IN_TEST.test(line) && !isExemptControlFlow(sLines, j)) {
 			return j;
 		}
 		for (const ch of line) {

@@ -108,6 +108,7 @@ vi.mock("./runtime-context.js", async () => {
 });
 
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { countAssertionStrength, countSuppressionDirectives } from "../quality-checks.js";
 import {
 	checkProdDeltaWithoutTestDelta,
 	checkProdTestLocRatio,
@@ -146,6 +147,8 @@ import type { ServerRuntime } from "./runtime-context.js";
 const mExists = vi.mocked(existsSync);
 const mReadFile = vi.mocked(readFileSync);
 const mStat = vi.mocked(statSync);
+const mCountAssertionStrength = vi.mocked(countAssertionStrength);
+const mCountSuppressionDirectives = vi.mocked(countSuppressionDirectives);
 
 // ---- Fixtures ----
 
@@ -929,12 +932,39 @@ describe("captureDiffAwareBaseline", () => {
 		expect(mReadFile).not.toHaveBeenCalled();
 	});
 
-	it("skips when the target file does not exist on disk", () => {
+	it("captures a ZERO-VALUED baseline when the target file does not exist on disk (new file)", () => {
+		// Pre-2026-09-16 this returned early with NO baseline, which made every
+		// delta ratchet inert on the edit that creates a file — a brand-new test
+		// file of nothing but weak assertions drew no assertion_strength warning.
 		mExists.mockReturnValue(false);
 		const ctx = makeCtx();
 		captureDiffAwareBaseline(ctx, ev({ tool_name: "Write" }), "src/a.ts");
-		expect(ctx.preEditBaselines.size).toBe(0);
 		expect(mReadFile).not.toHaveBeenCalled();
+		const pre = ctx.preEditBaselines.get("/repo/src/a.ts");
+		expect(pre?.assertionStrengthPreContent).toBe("");
+		// The counters are sentinel-mocked in this file; what matters is that
+		// every one of them was fed the EMPTY pre-content, not skipped.
+		expect(mCountAssertionStrength).toHaveBeenCalledWith("", "/repo/src/a.ts");
+		expect(mCountSuppressionDirectives).toHaveBeenCalledWith("");
+	});
+
+	it("seeds a ZERO assertion-count entry for a NEW test file so the density delta judges the creating edit", () => {
+		mExists.mockReturnValue(false);
+		const ctx = makeCtx();
+		const session = makeSession();
+		captureDiffAwareBaseline(ctx, ev({ tool_name: "Write" }), "src/a.test.ts", session);
+		expect(session.assertion_counts.get("src/a.test.ts")).toEqual({ blocks: 0, assertions: 0 });
+		expect(session.assertion_counts.get("/repo/src/a.test.ts")).toEqual({ blocks: 0, assertions: 0 });
+	});
+
+	it("does not seed assertion counts for a new NON-test file, nor for a test file that already exists", () => {
+		const session = makeSession();
+		mExists.mockReturnValue(false);
+		captureDiffAwareBaseline(makeCtx(), ev({ tool_name: "Write" }), "src/a.ts", session);
+		expect(session.assertion_counts.size).toBe(0);
+		mExists.mockReturnValue(true);
+		captureDiffAwareBaseline(makeCtx(), ev({ tool_name: "Edit" }), "src/b.test.ts", session);
+		expect(session.assertion_counts.size).toBe(0);
 	});
 
 	it("tolerates a missing tool_name (|| '' fallback) → not a file write", () => {

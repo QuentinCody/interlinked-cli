@@ -12,7 +12,10 @@ import { stripCommentsAndStrings } from "./checks/shared.js";
 import { hasTddExemptDirective } from "./evaluator/tdd-new-file-gate.js";
 import type { AssertionCounts, CheckResultEntry, SessionTrajectory } from "./types.js";
 
-const TEST_FILE_RE = /\.(test|spec)\.|__tests__\/|\/tests\//;
+/** Test-file scope for the assertion-density delta. Exported so the PreToolUse
+ *  baseline capture can seed a ZERO count for a test file that does not exist
+ *  yet (2026-09-16) — the same scope, one definition. */
+export const TEST_FILE_RE = /\.(test|spec)\.|__tests__\/|\/tests\//;
 
 // ---- Assertion density (delta-based; called outside runBehavioralChecks) ----
 

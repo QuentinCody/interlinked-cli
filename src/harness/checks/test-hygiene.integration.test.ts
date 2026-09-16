@@ -75,7 +75,7 @@ it("returns 404 when missing", () => { expect(b).toBe(2); });
 		expect(checkMockingTheSutSelf(`vi.mock("./sub/foo");`, TEST).length).toBe(0);
 		expect(
 			checkMockOnlyTest(
-				`it("calls the API", async () => { await run(); expect(client.fetch).toHaveBeenCalledWith("/users"); });`,
+				`it("calls the API", async () => { await run(); expect(client.fetch).toHaveBeenCalled(); });`,
 				TEST,
 			).length,
 		).toBe(1);

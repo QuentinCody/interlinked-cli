@@ -28,13 +28,25 @@ describe("checkMockOnlyTest — zero-count matcher exemption vs literal-zero arg
 		expect(checkMockOnlyTest(code, TEST)).toEqual([]);
 	});
 
-	it("P: flags a sole toHaveBeenCalledWith(0) — a literal zero ARGUMENT is not a zero-count exemption", () => {
+	it("N: a sole toHaveBeenCalledWith(0) pins the argument 0 and is NOT mock-only (2026-09-16)", () => {
+		// Pre-2026-09-16 this was a P: case guarding matcherHasZeroInteractionCount
+		// against treating a zero ARGUMENT as a zero COUNT. That guard is still
+		// exercised by the `toHaveBeenCalledWith()` case below: with an empty
+		// argument list the matcher is a bare call check, and the zero-count
+		// exemption must NOT apply to it either.
+		const code = `it("case", () => {
+			expect(fn).toHaveBeenCalledWith(0);
+		});`;
+		expect(checkMockOnlyTest(code, TEST)).toEqual([]);
+	});
+
+	it("P: flags a sole toHaveBeenCalledWith() — empty arguments pin nothing, and it is not a zero-count matcher", () => {
 		// Kills: matcherHasZeroInteractionCount BooleanLiteral (da0bd1e),
 		// its ConditionalExpression !has->false (89d0166/false), and the
 		// chain-search-offset arithmetic mutant (634c4e) — each would
 		// wrongly grant a zero-count exemption to a non-count matcher.
 		const code = `it("case", () => {
-			expect(fn).toHaveBeenCalledWith(0);
+			expect(fn).toHaveBeenCalledWith();
 		});`;
 		const matches = checkMockOnlyTest(code, TEST);
 		expect(matches.length).toBe(1);
@@ -186,7 +198,7 @@ test(() => {
 		const matches = checkMockOnlyTest(code, TEST);
 		expect(matches.length).toBe(1);
 		expect(nonNull(matches[0]).text).toBe(
-			"test asserts only mock interactions (toHaveBeenCalled / toHaveReturned) — it checks that a collaborator was called, not that the code produced a correct value, output, or state, so it passes even when the behavior is wrong. Assert a return value, rendered output, or observable state. A bare not.toHaveBeenCalled() is fine; a positive call-only assertion is not.",
+			"test asserts only that mocks were called (toHaveBeenCalled / toHaveBeenCalledTimes / an empty …With()) — never WHAT they were called with, nor a return value, output, or state, so it passes even when the behavior is wrong. Pin the arguments (toHaveBeenCalledWith(...)) or assert an observable. A bare not.toHaveBeenCalled() is fine.",
 		);
 	});
 
@@ -230,7 +242,7 @@ const irrelevant = "leaked name";
 		const matches = checkMockOnlyTest(code, TEST);
 		expect(matches.length).toBe(1);
 		expect(nonNull(matches[0]).text).toBe(
-			"test asserts only mock interactions (toHaveBeenCalled / toHaveReturned) — it checks that a collaborator was called, not that the code produced a correct value, output, or state, so it passes even when the behavior is wrong. Assert a return value, rendered output, or observable state. A bare not.toHaveBeenCalled() is fine; a positive call-only assertion is not.",
+			"test asserts only that mocks were called (toHaveBeenCalled / toHaveBeenCalledTimes / an empty …With()) — never WHAT they were called with, nor a return value, output, or state, so it passes even when the behavior is wrong. Pin the arguments (toHaveBeenCalledWith(...)) or assert an observable. A bare not.toHaveBeenCalled() is fine.",
 		);
 	});
 });
@@ -728,16 +740,9 @@ describe.each(REMAINING_NODE_ASSERT_HELPERS)(
 // CALL_INTERACTION_MATCHERS membership (module-level StringLiteral survivors)
 // ==========================================================================
 const PLAIN_CALL_INTERACTION_MATCHERS = [
-	"toHaveBeenCalledWith",
-	"toHaveBeenLastCalledWith",
-	"toHaveBeenNthCalledWith",
-	"toHaveBeenCalledExactlyOnceWith",
 	"toHaveBeenCalledBefore",
 	"toHaveBeenCalledAfter",
 	"toBeCalled",
-	"toBeCalledWith",
-	"lastCalledWith",
-	"nthCalledWith",
 	"toHaveReturned",
 	"toHaveReturnedWith",
 	"toHaveLastReturnedWith",
@@ -764,6 +769,57 @@ describe.each(PLAIN_CALL_INTERACTION_MATCHERS)(
 		});
 	},
 );
+
+// ==========================================================================
+// ARGUMENT_PINNING_MATCHERS membership (2026-09-16): a CALL matcher whose
+// non-empty arguments pin what the collaborator received is a value assertion
+// (independent adjudication read 20/20 sampled toHaveBeenCalledWith hits as
+// false positives). The EMPTY-argument form is still a bare call check.
+// Nth variants need an argument beyond the index.
+// ==========================================================================
+const ARGUMENT_PINNING_CALL_MATCHERS: [string, string][] = [
+	["toHaveBeenCalledWith", "9"],
+	["toHaveBeenLastCalledWith", "9"],
+	["toHaveBeenNthCalledWith", "1, 9"],
+	["toHaveBeenCalledExactlyOnceWith", "9"],
+	["toBeCalledWith", "9"],
+	["lastCalledWith", "9"],
+	["nthCalledWith", "1, 9"],
+];
+
+describe.each(ARGUMENT_PINNING_CALL_MATCHERS)(
+	"checkMockOnlyTest — %s pins arguments",
+	(matcherName, pinningArgs) => {
+		it(`N: a sole ${matcherName}(${pinningArgs}) is NOT mock-only — the arguments are the contract`, () => {
+			const code = `it("case", () => {
+				expect(fn).${matcherName}(${pinningArgs});
+			});`;
+			expect(checkMockOnlyTest(code, TEST)).toEqual([]);
+		});
+
+		it(`P: a sole ${matcherName}() with an EMPTY argument list is still flagged`, () => {
+			const code = `it("case", () => {
+				expect(fn).${matcherName}();
+			});`;
+			expect(checkMockOnlyTest(code, TEST).length).toBe(1);
+		});
+	},
+);
+
+describe("checkMockOnlyTest — Nth pinning needs more than the index", () => {
+	it("P: toHaveBeenNthCalledWith(1) alone is flagged; the index pins nothing", () => {
+		const code = `it("case", () => {
+			expect(fn).toHaveBeenNthCalledWith(1);
+		});`;
+		expect(checkMockOnlyTest(code, TEST).length).toBe(1);
+	});
+	it("P: nthCalledWith(2) alone is flagged", () => {
+		const code = `it("case", () => {
+			expect(fn).nthCalledWith(2);
+		});`;
+		expect(checkMockOnlyTest(code, TEST).length).toBe(1);
+	});
+});
 
 const TIMES_MATCHER_NAMES = [
 	"toHaveBeenCalledTimes",
