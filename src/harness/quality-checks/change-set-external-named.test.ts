@@ -83,6 +83,7 @@ async function runNamed(input: {
 	paths: readonly string[];
 	affectedTests?: NamedExternalCandidate;
 	dependencyAudit?: NamedExternalCandidate;
+	root?: string;
 }) {
 	const resultMap = new Map<string, QualityCheckResult[]>();
 	const deferred: DeferredCheck[] = [];
@@ -91,7 +92,7 @@ async function runNamed(input: {
 	await runNamedChecksAdmitted(
 		{ outChecksRan: checksRan, outToolMetrics: toolMetrics },
 		resultMap,
-		"/repo",
+		input.root ?? "/repo",
 		input.paths,
 		input.affectedTests,
 		input.dependencyAudit,
@@ -119,6 +120,51 @@ beforeEach(() => {
 });
 
 describe("runNamedChecksAdmitted — affected tests", () => {
+    it("skips affected-tests entirely when no changed path matches the check's file types", async () => {
+        const result = await runNamed({
+            paths: ["/repo/README.md", "/repo/notes.txt"],
+            affectedTests: testsCandidate({ file_types: [".ts"] }),
+        });
+        expect(result.deferred).toEqual([]);
+        expect(result.checksRan).toEqual([]);
+        expect(result.resultMap.size).toBe(0);
+        expect(getProfileForFile).not.toHaveBeenCalled();
+        expect(scheduleTests).not.toHaveBeenCalled();
+    });
+
+    it("defers as unidentified when no test-file profile resolves and no project marker file exists", async () => {
+        getProfileForFile.mockReturnValue(undefined);
+        const result = await runNamed({
+            paths: ["/repo/mystery.ts"],
+            affectedTests: testsCandidate(),
+            root: "/repo",
+        });
+        expect(result.deferred).toEqual([
+            { name: "affected_tests", reason: "No language or project test adapter was identified" },
+        ]);
+        expect(result.checksRan).toEqual([]);
+        expect(scheduleTests).not.toHaveBeenCalled();
+    });
+
+    it("falls back to a detected project marker language when no test-file profile resolves", async () => {
+        getProfileForFile.mockReturnValue(undefined);
+        const result = await runNamed({
+            paths: ["/repo/mystery.ts"],
+            affectedTests: testsCandidate(),
+            root: process.cwd(),
+        });
+        expect(result.deferred).toEqual([]);
+        expect(result.checksRan).toEqual(["affected_tests"]);
+        expect(scheduleTests).toHaveBeenCalledWith(expect.objectContaining({ root: process.cwd() }));
+    });
+
+    it("defers a single detected language whose configured test runner isn't vitest", async () => {
+        getProfileForFile.mockReturnValue({ id: "typescript", test_runner: { command: "npx jest" } });
+        const result = await runNamed({ paths: ["/repo/src/a.ts"], affectedTests: testsCandidate() });
+        expect(result.deferred).toEqual([{ name: "affected_tests", reason: "mixed-language ChangeSets have no single bounded affected-test command" }]);
+        expect(scheduleTests).not.toHaveBeenCalled();
+    });
+
     it("retains actionable Python collection diagnostics in a deferred batch", async () => {
         getProfileForFile.mockReturnValue({ id: "python" });
         runLanguageTestSuite.mockResolvedValue({ status: "unavailable", reason: "pytest collection failed",
@@ -127,6 +173,33 @@ describe("runNamedChecksAdmitted — affected tests", () => {
         expect(result.deferred).toEqual([{ name: "affected_tests", reason: "pytest collection failed\nImportError: missing_project_dependency" }]);
         expect(result.checksRan).toEqual([]);
     });
+    it("runs the passing single-language project suite with a measured verdict and no finding", async () => {
+        getProfileForFile.mockReturnValue({ id: "python" });
+        runLanguageTestSuite.mockResolvedValue({ status: "passed", durationMs: 8, output: "" });
+        const result = await runNamed({ paths: ["/repo/feature.py"], affectedTests: testsCandidate({ file_types: [".py"] }) });
+        expect(result.deferred).toEqual([]);
+        expect(result.checksRan).toEqual(["affected_tests"]);
+        expect(result.toolMetrics).toEqual([{ tool: "affected-tests-python", ms: 8, finding_count: 0 }]);
+        expect(result.resultMap.get("/repo/feature.py")).toBeUndefined();
+    });
+
+    it("attributes a failing single-language project suite to the touched file with runner evidence", async () => {
+        getProfileForFile.mockReturnValue({ id: "python" });
+        runLanguageTestSuite.mockResolvedValue({
+            status: "failed", reason: "pytest reported failures", output: "1 failed, 4 passed", durationMs: 15,
+        });
+        const result = await runNamed({ paths: ["/repo/feature.py"], affectedTests: testsCandidate({ file_types: [".py"] }) });
+        expect(result.deferred).toEqual([]);
+        expect(result.checksRan).toEqual(["affected_tests"]);
+        expect(result.toolMetrics).toEqual([{ tool: "affected-tests-python", ms: 15, finding_count: 1 }]);
+        expect(result.resultMap.get("/repo/feature.py")).toEqual([
+            expect.objectContaining({
+                name: "affected_tests", severity: "warning", file: "/repo/feature.py",
+                message: "pytest reported failures", detail: "1 failed, 4 passed",
+            }),
+        ]);
+    });
+
     it("retains a scheduler failure as unavailable without a measured verdict", async () => {
         scheduleTests.mockRejectedValueOnce(new Error("Test scheduler busy; request retained"));
         const result = await runNamed({ paths: ["/repo/src/a.ts"], affectedTests: testsCandidate() });
@@ -169,6 +242,41 @@ describe("runNamedChecksAdmitted — affected tests", () => {
 });
 
 describe("runNamedChecksAdmitted — dependency audit", () => {
+	it("skips the audit entirely when no changed path is a dependency manifest", async () => {
+		const { deferred, checksRan, resultMap } = await runNamed({
+			paths: ["/repo/src/a.ts"],
+			dependencyAudit: auditCandidate(["package.json"]),
+		});
+		expect(deferred).toEqual([]);
+		expect(checksRan).toEqual([]);
+		expect(resultMap.size).toBe(0);
+		expect(resolveDependencyAuditCommandAsync).not.toHaveBeenCalled();
+	});
+
+	it("defers as unavailable when a resolved audit command carries no runnable argv", async () => {
+		resolveDependencyAuditCommandAsync.mockResolvedValue({ cmd: [], parser: "npm-audit" });
+		const { deferred } = await runNamed({
+			paths: ["/repo/package.json"],
+			dependencyAudit: auditCandidate(["package.json"]),
+		});
+		expect(deferred).toEqual([
+			{ name: "dependency_audit", reason: "dependency audit command is unavailable" },
+		]);
+		expect(runProcessAsync).not.toHaveBeenCalled();
+	});
+
+	it("defers as timed out when the audit process exceeds its timeout", async () => {
+		runProcessAsync.mockResolvedValue(processResult({ timedOut: true }));
+		const { deferred, checksRan } = await runNamed({
+			paths: ["/repo/package.json"],
+			dependencyAudit: auditCandidate(["package.json"]),
+		});
+		expect(deferred).toEqual([
+			{ name: "dependency_audit", reason: "dependency audit timed out" },
+		]);
+		expect(checksRan).toEqual([]);
+	});
+
 	it("defers when the ChangeSet spans two dependency ecosystems", async () => {
 		const { deferred } = await runNamed({
 			paths: ["/repo/requirements.txt", "/repo/Cargo.toml"],

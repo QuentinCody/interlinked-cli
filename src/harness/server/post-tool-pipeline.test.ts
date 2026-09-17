@@ -100,6 +100,26 @@ vi.mock("./post-tool-warning-spool.js", () => ({
 	completePostToolWarningSpool: vi.fn(),
 }));
 
+// Real implementation by default (the fake "/repo" cwd makes every real
+// exclusion check fail open, so this already behaves as a pass-through in
+// every existing test) — overridable so one test can force "every resolved
+// path got excluded from source-quality scope" without faking git/lstat.
+vi.mock("./post-tool-source-scope.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./post-tool-source-scope.js")>();
+	return { ...actual, prepareSourceChecks: vi.fn(actual.prepareSourceChecks) };
+});
+
+// Real implementation by default — overridable so one test can force the
+// shape `runFileChecks`'s single-path fallback exists to handle (a resolution
+// whose fan-out array is empty but whose single-path field is not), which
+// `resolveEditedPaths`'s real invariants never currently produce on their own
+// (its `editedFilePath` is always derived FROM `editedFilePaths[0]`, so it is
+// "" exactly when the array is empty).
+vi.mock("./post-tool-pipeline-paths.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./post-tool-pipeline-paths.js")>();
+	return { ...actual, resolveEditedPaths: vi.fn(actual.resolveEditedPaths) };
+});
+
 // Bind to the mocked exports so each test can re-program return values.
 import { existsSync, readFileSync } from "node:fs";
 import { getOrCreateEngine } from "../check-engine/index.js";
@@ -116,6 +136,8 @@ import {
 	consecutiveFailureWarning,
 } from "../tool-result-checks.js";
 import { runPerFileChecks } from "./post-tool-file-checks.js";
+import { resolveEditedPaths } from "./post-tool-pipeline-paths.js";
+import { prepareSourceChecks } from "./post-tool-source-scope.js";
 import {
 	beginPostToolWarningSpool,
 	completePostToolWarningSpool,
@@ -136,6 +158,8 @@ const mGetEngine = vi.mocked(getOrCreateEngine);
 const mRunPerFile = vi.mocked(runPerFileChecks);
 const mBeginWarningSpool = vi.mocked(beginPostToolWarningSpool);
 const mCompleteWarningSpool = vi.mocked(completePostToolWarningSpool);
+const mPrepareSourceChecks = vi.mocked(prepareSourceChecks);
+const mResolveEditedPaths = vi.mocked(resolveEditedPaths);
 const { CheckEngine } = await vi.importActual<typeof import("../check-engine/index.js")>("../check-engine/index.js");
 function engineWithAvailability(isToolAvailable: (tool: string) => boolean) {
 	const engine = new CheckEngine("/repo");
@@ -1045,6 +1069,38 @@ describe("edited-path resolution", () => {
 		const event = ev({ tool_name: "Bash" });
 		await runPostToolPipeline(makeCtx(), event, makeSession());
 		expect(mRunPerFile).not.toHaveBeenCalled();
+	});
+
+	it("skips per-file checks when prepareSourceChecks excludes every resolved path from an otherwise-nonempty resolution", async () => {
+		// resolvedEdits.editedFilePaths is nonempty (one direct-edit path), but
+		// prepareSourceChecks returns [] (every candidate excluded from
+		// source-quality scope). `editedFilePath` then falls to the ternary's
+		// "" arm (resolvedEdits.editedFilePaths.length !== 0, so the
+		// resolvedEdits.editedFilePath fallback is NOT used either) and
+		// hasSourceChecks is false, so no per-file check runs at all.
+		mExtractPaths.mockReturnValue(["/repo/a.ts"]);
+		mPrepareSourceChecks.mockResolvedValueOnce([]);
+		const event = ev({ tool_name: "Edit", tool_input: { file_path: "/repo/a.ts" } });
+		await runPostToolPipeline(makeCtx(), event, makeSession());
+		expect(mRunPerFile).not.toHaveBeenCalled();
+	});
+
+	it("runs a per-file check against the single-path fallback when the fan-out array is empty but a legacy single path is present", async () => {
+		// `resolveEditedPaths`'s own invariants never produce this shape today
+		// (its `editedFilePath` is always derived FROM `editedFilePaths[0]`, so
+		// it's "" exactly when the array is empty) — this exercises the
+		// defensive fallback `runFileChecks` still carries for it, via the
+		// module boundary rather than by faking an impossible real resolution.
+		mResolveEditedPaths.mockReturnValueOnce({
+			editedFilePath: "src/legacy-fallback.ts",
+			editedFilePaths: [],
+			isDirectFileEdit: true,
+			shouldRunChecks: true,
+		});
+		const event = ev({ tool_name: "Edit", tool_input: { file_path: "src/legacy-fallback.ts" } });
+		await runPostToolPipeline(makeCtx(), event, makeSession());
+		expect(mRunPerFile).toHaveBeenCalledTimes(1);
+		expect(mRunPerFile.mock.calls[0]?.[3]).toBe("src/legacy-fallback.ts");
 	});
 
 	it("passes a shared accumulator across the per-file fan-out", async () => {

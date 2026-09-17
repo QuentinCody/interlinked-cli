@@ -68,6 +68,35 @@ describe("evaluateTddNewFileGate — mode gating", () => {
         rules.structural_checks.test_first_mode = "warn";
         expect(evaluateTddNewFileGateForEvent(event, rules, undefined)).toBeNull();
     });
+
+    it("skips an unreconstructable section and stops at the first blocking section (falls back to process.cwd() when event.cwd is absent)", () => {
+        // No `cwd` on the event: exercises the `event.cwd || process.cwd()`
+        // fallback in `evaluatePatchTestFirst`. The unique, never-real directory
+        // name means neither section resolves against a real file on disk
+        // regardless of which cwd is used.
+        const { cwd: _omitCwd, ...eventWithoutCwd } = writeEvent("", undefined);
+        void _omitCwd;
+        const event: HarnessEvent = { ...eventWithoutCwd, tool_name: "apply_patch", tool_input: {
+            patch:
+                "*** Begin Patch\n" +
+                "*** Add File: __tdd_gate_probe__/bad.ts\n" +
+                "not-a-plus-line\n" +
+                "*** Add File: __tdd_gate_probe__/probe-uncovered-xyz.ts\n" +
+                "+export function probe() { return 1; }\n" +
+                "*** End Patch",
+        } };
+        const rules = makeGuardRules();
+        rules.structural_checks.test_first_mode = "enforce";
+        rules.per_edit_coverage = { enabled: true, mode: "block", budget_ms: 25_000, languages: ["ts"], debt_mode: false };
+        const verdict = evaluateTddNewFileGateForEvent(event, rules, undefined);
+        // "bad.ts" has a body line with no "+" prefix, so its content cannot be
+        // reconstructed — it is skipped (never reaches evaluateTddNewFileGate).
+        // The second section still gets evaluated, blocks, and the loop returns
+        // immediately on that first block instead of visiting every section.
+        expect(verdict?.decision).toBe("block");
+        expect(verdict?.reason).toContain("probe-uncovered-xyz.ts");
+        expect(verdict?.reason).not.toContain("bad.ts");
+    });
     it("honors explicit Python enforcement regardless of other language suites", () => {
         const args = { filePath: "module.py", cwd: tmp, session: undefined, testFirstMode: "enforce" as const };
         const first = evaluateTddNewFileGate(args);

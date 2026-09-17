@@ -9,6 +9,7 @@ const removeAllowlistCommand = vi.fn();
 const listAllowlistCommand = vi.fn();
 const snapshotAllowlistCommand = vi.fn();
 const verifyAllowlistCommand = vi.fn();
+const proposeAllowlistCommand = vi.fn();
 
 vi.mock("../commands/allowlist.js", () => ({
 	addAllowlistCommand: (...args: unknown[]) => addAllowlistCommand(...args),
@@ -16,6 +17,10 @@ vi.mock("../commands/allowlist.js", () => ({
 	listAllowlistCommand: (...args: unknown[]) => listAllowlistCommand(...args),
 	snapshotAllowlistCommand: (...args: unknown[]) => snapshotAllowlistCommand(...args),
 	verifyAllowlistCommand: (...args: unknown[]) => verifyAllowlistCommand(...args),
+}));
+
+vi.mock("../commands/allowlist-propose.js", () => ({
+	proposeAllowlistCommand: (...args: unknown[]) => proposeAllowlistCommand(...args),
 }));
 
 function build(): Command {
@@ -260,6 +265,49 @@ describe("allowlist snapshot — action wiring", () => {
 		).rejects.toThrow(ExitError);
 		expect(stderrSpy).toHaveBeenCalledWith("error: --by <name> is required\n");
 		expect(snapshotAllowlistCommand).not.toHaveBeenCalled();
+	});
+});
+
+describe("allowlist propose — action wiring", () => {
+	// test-contract: public-api — `propose` maps the CLI's --package-version
+	// flag to the command's `version` field while still forwarding it under
+	// its own name, so both option-object shapes stay intact.
+	it("forwards ecosystem, package, and options with version mapped from --package-version", async () => {
+		const program = build();
+		await program.parseAsync(
+			[
+				"allowlist",
+				"propose",
+				"npm",
+				"left-pad",
+				"--package-version",
+				"1.3.0",
+				"--reason",
+				"needed for padding",
+				"--cwd",
+				"/p",
+				"--json",
+			],
+			{ from: "user" },
+		);
+		expect(proposeAllowlistCommand).toHaveBeenCalledWith("npm", "left-pad", {
+			packageVersion: "1.3.0",
+			reason: "needed for padding",
+			cwd: "/p",
+			json: true,
+			version: "1.3.0",
+		});
+	});
+
+	it("exits with an error and never calls the impl when --package-version is missing", async () => {
+		const program = build();
+		await expect(
+			program.parseAsync(
+				["allowlist", "propose", "npm", "left-pad", "--reason", "needed"],
+				{ from: "user" },
+			),
+		).rejects.toThrow();
+		expect(proposeAllowlistCommand).not.toHaveBeenCalled();
 	});
 });
 

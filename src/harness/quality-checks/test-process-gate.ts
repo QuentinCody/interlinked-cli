@@ -82,7 +82,9 @@ async function runBeforeDeadline(spec: TestProcessSpec, deadline: number, signal
     return runAdmittedTestProcess({ ...spec, timeoutMs: deadline - Date.now(), signal });
 }
 
-async function runAdmittedTestProcess(spec: TestProcessSpec): Promise<TestProcessOutcome> {
+/** Only reachable through `runBeforeDeadline`, which always threads a real
+ *  AbortSignal — so the signal is required here, not optional. */
+async function runAdmittedTestProcess(spec: TestProcessSpec & { signal: AbortSignal }): Promise<TestProcessOutcome> {
 	const resourceBudget = readResourceBudget();
 	if (!resourceBudget) return { kind: "deferred", reason: "unavailable" };
 	let result: Awaited<ReturnType<typeof runProcessAsync>>;
@@ -92,7 +94,7 @@ async function runAdmittedTestProcess(spec: TestProcessSpec): Promise<TestProces
 			timeout: spec.timeoutMs,
 			resourceBudget,
 			env: { NODE_OPTIONS: "--max-old-space-size=768", VITEST_MAX_WORKERS: "1", GOMAXPROCS: "2", UV_THREADPOOL_SIZE: "2" },
-			...(spec.signal ? { signal: spec.signal } : {}),
+			signal: spec.signal,
 		});
 	} catch {
 		// Invalid launch arguments can make node:child_process throw before it

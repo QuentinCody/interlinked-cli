@@ -8,7 +8,9 @@ import { describe, expect, it, vi } from "vitest";
 import { computeCyclomaticAst } from "../checks/cyclomatic-ast.js";
 import type { FunctionComplexityEntry } from "../checks/cyclomatic.js";
 import { computeCyclomaticPython } from "../checks/cyclomatic-python.js";
+import type { CoverageLanguage } from "../coverage-runner.js";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
+import { parsePythonFunctionCoverage } from "../coverage-python-functions.js";
 import type { HarnessDecision } from "../types.js";
 import {
 	type CrapInput,
@@ -69,6 +71,12 @@ describe("defaultCyclomaticFor", () => {
 
 	it("resolves python to the real radon-backed analyzer", () => {
 		expect(defaultCyclomaticFor("python")).toBe(computeCyclomaticPython);
+	});
+
+	it("returns null for a language outside the supported set (defensive default)", () => {
+		// SAFETY: exercising the switch's `default` arm, which the CoverageLanguage
+		// union (js|ts|python) makes unreachable through real callers — defensive code.
+		expect(defaultCyclomaticFor("go" as CoverageLanguage)).toBeNull();
 	});
 });
 
@@ -216,6 +224,59 @@ describe("decideCrap — per-line (coverage.py) shape", () => {
 		);
 		// 100% covered (empty uncovered-lines fallback) — low CRAP, no block.
 		expect(decision).toBeNull();
+	});
+});
+
+describe("decideCrap — Python function coverage gate (pythonFunctions present)", () => {
+	it("proceeds to per-line scoring once Python function coverage is fully measured (no issue)", () => {
+		const cov: PerFileCoverage = {
+			filePath: "src/a.py",
+			mtime: 0,
+			functions: [],
+			coveredLines: new Set([1]),
+			uncoveredLines: new Set([2]),
+			pythonFunctions: parsePythonFunctionCoverage({
+				big: { start_line: 1, executed_lines: [1], missing_lines: [2], excluded_lines: [] },
+			}),
+		};
+		const decision = decideCrap(
+			{
+				relPath: "src/a.py",
+				proposed: "def big():\n    return 1\n",
+				cov,
+				editedLines: undefined,
+				threshold: 1,
+				analyzer: () => [{ name: "big", line: 1, endLine: 2, cyclomatic: 10, language: "python" }],
+			},
+			failIfDegraded(),
+		);
+		// pythonFunctions carried no issue → fell through to the normal per-line score.
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("`big`");
+	});
+
+	it("fails open via onDegrade when Python function coverage cannot be matched to the touched function", () => {
+		const onDegrade = vi.fn(allowDegrade());
+		const cov: PerFileCoverage = {
+			filePath: "src/a.py",
+			mtime: 0,
+			functions: [],
+			pythonFunctions: parsePythonFunctionCoverage({}), // no native region for "big"
+		};
+		const decision = decideCrap(
+			{
+				relPath: "src/a.py",
+				proposed: "def big():\n    return 1\n",
+				cov,
+				editedLines: undefined,
+				threshold: 1,
+				analyzer: () => [{ name: "big", line: 1, endLine: 2, cyclomatic: 10, language: "python" }],
+			},
+			onDegrade,
+		);
+		expect(decision?.decision).toBe("allow");
+		expect(onDegrade).toHaveBeenCalledOnce();
+		expect(onDegrade.mock.calls[0]?.[1]).toContain("Python CRAP not measured");
 	});
 });
 

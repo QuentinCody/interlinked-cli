@@ -967,6 +967,34 @@ describe("captureDiffAwareBaseline", () => {
 		expect(session.assertion_counts.size).toBe(0);
 	});
 
+	it("does not re-resolve an already-absolute target path (absPath === target, so only one entry is seeded)", () => {
+		mExists.mockReturnValue(false);
+		const ctx = makeCtx();
+		const session = makeSession();
+		captureDiffAwareBaseline(ctx, ev({ tool_name: "Write" }), "/repo/src/abs.test.ts", session);
+		expect(session.assertion_counts.get("/repo/src/abs.test.ts")).toEqual({ blocks: 0, assertions: 0 });
+		// If absPath had been re-resolved it would still equal the input, but a
+		// SECOND `.set` call under the same key would still leave size 1 — the
+		// real signal is that `isAbsolute` short-circuited `resolve()`, which
+		// this test can't observe directly; size 1 is the closest behavioral
+		// pin available without spying on node:path.
+		expect(session.assertion_counts.size).toBe(1);
+	});
+
+	it("skips seeding when the session already has an assertion-count entry for this new test file", () => {
+		mExists.mockReturnValue(false);
+		const ctx = makeCtx();
+		const session = makeSession();
+		session.assertion_counts.set("src/a.test.ts", { blocks: 3, assertions: 5 });
+		captureDiffAwareBaseline(ctx, ev({ tool_name: "Write" }), "src/a.test.ts", session);
+		// The pre-existing entry is left untouched, and the resolved-absolute
+		// key is never seeded either — the early return happens before either
+		// `.set` call.
+		expect(session.assertion_counts.get("src/a.test.ts")).toEqual({ blocks: 3, assertions: 5 });
+		expect(session.assertion_counts.has("/repo/src/a.test.ts")).toBe(false);
+		expect(session.assertion_counts.size).toBe(1);
+	});
+
 	it("tolerates a missing tool_name (|| '' fallback) → not a file write", () => {
 		const ctx = makeCtx();
 		captureDiffAwareBaseline(ctx, ev({}), "src/a.ts");

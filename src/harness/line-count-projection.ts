@@ -42,10 +42,11 @@ function countOccurrences(haystack: string, needle: string): number {
 
 /** First-occurrence replacement WITHOUT `String.replace` so `$&`/`$1` in the
  *  replacement stay literal — Edit tool semantics, not regex substitution.
- *  Returns `text` unchanged when `oldStr` is absent. */
+ *  PRECONDITION: `oldStr` occurs in `text` — both callers check
+ *  `countOccurrences(...) > 0` on the same text first, so `indexOf` cannot
+ *  return -1 here. */
 function replaceFirst(text: string, oldStr: string, newStr: string): string {
 	const idx = text.indexOf(oldStr);
-	if (idx === -1) return text;
 	return text.slice(0, idx) + newStr + text.slice(idx + oldStr.length);
 }
 

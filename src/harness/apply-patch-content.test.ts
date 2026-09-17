@@ -118,4 +118,13 @@ describe("reconstructAfterContent", () => {
 	it("fails open (null) on an Add section containing a non-addition line", () => {
 		expect(reconstructAfterContent(add(["+ok", "-unexpected removal"]), "")).toBeNull();
 	});
+
+	it("fails open (null) when a later hunk is a pure insertion with no context", () => {
+		// First hunk has real context so the whole-body appendUnanchoredInsertion
+		// shortcut does not apply; the second hunk is addition-only (no "-" or
+		// " " lines), so its oldBlock is empty — ambiguous position, must bail.
+		const before = "line1\nold\nline3";
+		const section = update(["@@", " line1", "-old", "+new", "@@", "+onlyadded"]);
+		expect(reconstructAfterContent(section, before)).toBeNull();
+	});
 });

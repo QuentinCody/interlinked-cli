@@ -74,6 +74,13 @@ describe("hook CLI process boundary", () => {
         expect(result.stderr.mock.calls.flat().join(" ")).toContain("hook runtime failed: transport failed");
     });
 
+    it("short-circuits before touching the daemon on a Stop re-entry pass", async () => {
+        const result = await invoke(["--event", "Stop"], JSON.stringify({ cwd: root, stop_hook_active: true }));
+        expect(result.exit).toHaveBeenCalledWith(0);
+        expect(transport.call).not.toHaveBeenCalled();
+        expect(result.stdout).not.toHaveBeenCalled();
+    });
+
     it.each([undefined, "/missing-hook-cli-review-entry"])("is safe to import when argv does not identify an existing executable: %s", async invoked => {
         const runtime = Object.create(realProcess), exit = vi.fn();
         Object.defineProperties(runtime, { argv: { value: invoked ? [realProcess.execPath, invoked] : [realProcess.execPath] }, exit: { value: exit } });

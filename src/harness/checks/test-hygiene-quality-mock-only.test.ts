@@ -226,3 +226,26 @@ describe("classifyBlockExpects — an expect(...) call whose own parens never cl
 		expect(out).toEqual([{ isCallInteraction: false, negated: false }]);
 	});
 });
+
+describe("classifyBlockExpects — a matcher call whose OWN arguments never close", () => {
+	it("pinsArguments treats an unclosed toHaveBeenCalledWith(...) as unpinned (still a bare call assertion)", () => {
+		// Here the outer expect(mockFn) balances fine and the matcher chain
+		// resolves to "toHaveBeenCalledWith", but the matcher's own argument
+		// list runs off the end of the body with no closing paren. pinsArguments'
+		// findCallSpan call returns null, so it conservatively reports "no
+		// argument evidence" — the assertion still classifies as a bare
+		// call-interaction, not a value assertion.
+		const out = classifyBlockExpects("expect(mockFn).toHaveBeenCalledWith(a, b");
+		expect(out).toEqual([{ isCallInteraction: true, negated: false }]);
+	});
+
+	it("matcherHasZeroInteractionCount treats an unclosed toHaveBeenCalledTimes(...) as not a zero-count negation", () => {
+		// Same shape for the zero-interaction-count matcher family: the
+		// argument list for toHaveBeenCalledTimes never closes, so
+		// matcherHasZeroInteractionCount's own findCallSpan call returns null
+		// and it conservatively reports "not a zero count" rather than
+		// guessing at an unterminated argument.
+		const out = classifyBlockExpects("expect(mockFn).toHaveBeenCalledTimes(2");
+		expect(out).toEqual([{ isCallInteraction: true, negated: false }]);
+	});
+});

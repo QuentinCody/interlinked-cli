@@ -484,6 +484,40 @@ describe("targetForSection — unreadable source path (safeReadFile catch)", () 
 	});
 });
 
+describe("coverageTargetsFor / coverageEditPlan — tool_input absent entirely", () => {
+	it("resolves to no targets (and no throw) when the event carries no tool_input at all", () => {
+		const ev: HarnessEvent = {
+			hook_event: "PreToolUse",
+			session_id: "s",
+			agent_source: "claude",
+			tool_name: "Write",
+			timestamp: "2026-06-07T00:00:00.000Z",
+			cwd: root,
+		};
+		expect(coverageTargetsFor(ev, root, CFG)).toEqual([]);
+		const plan = coverageEditPlan(ev, root, CFG);
+		expect(plan.targets).toEqual([]);
+		expect(plan.isPatch).toBe(false);
+	});
+});
+
+describe("apply_patch Move — confinement of the SOURCE (pre-Move) path", () => {
+	it("skips a Move section whose SOURCE path escapes the project root, in both the target and the overlay", () => {
+		const ev = event("apply_patch", {
+			command: patch(
+				"*** Update File: ../../victim.ts",
+				"*** Move to: src/new.ts",
+				"@@",
+				"-x",
+				"+y",
+			),
+		});
+		expect(coverageTargetsFor(ev, root, CFG)).toEqual([]);
+		const plan = coverageEditPlan(ev, root, CFG);
+		expect(plan.overlayFiles.find((f) => f.relPath === "src/new.ts")).toBeUndefined();
+	});
+});
+
 describe("addedLineNumbers — LCS cell-budget fallback", () => {
 	it("marks every after-line as edited once before×after exceeds the LCS cell budget", () => {
 		// LCS_CELL_BUDGET is 4,000,000; ~2001 lines on each side clears it

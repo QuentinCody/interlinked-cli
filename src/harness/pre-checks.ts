@@ -95,8 +95,9 @@ export function checkSelfKill(command: string): PreCheckResult | null {
 	const killMatch = command.match(/^\s*kill\s+(\d+)\s*$/);
 	if (!killMatch) return null;
 
+	// `(\d+)` captures digits only, so parseInt never yields NaN here (an
+	// overlong digit string overflows to Infinity, which no PID set contains).
 	const targetPid = Number.parseInt(nonNull(killMatch[1]), 10);
-	if (Number.isNaN(targetPid)) return null;
 
 	// Check 1: Is it in our known protected set (harness + ancestors)?
 	const protected_ = protectedPids();

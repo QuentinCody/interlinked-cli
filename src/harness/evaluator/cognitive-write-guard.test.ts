@@ -122,6 +122,33 @@ describe("checkCognitiveComplexityWrite — flattening-plan hint", () => {
 		expect(out?.block).toContain("flatten:");
 	});
 
+	it("N: an anonymous default-export function blocks but carries no `↳ plan:` sub-line (the planner cannot locate it by name)", () => {
+		const file = join(tmp, "anon-default.ts");
+		const params = Array.from({ length: 8 }, (_, i) => `a${i + 1}: boolean`).join(", ");
+		let body = "return 1;";
+		for (let i = 8; i >= 1; i--) body = `if (a${i}) { ${body} }`;
+		const content = `export default function (${params}): number { ${body} return 0; }\n`;
+		const out = checkCognitiveComplexityWrite({ file_path: file, content }, tmp);
+		expect(out?.block).toContain("cognitive-complexity limit");
+		expect(out?.block).not.toContain("↳ plan:");
+	});
+
+	it("N: a string-literal-keyed or computed-name method blocks but carries no `↳ plan:` sub-line (the planner locates by identifier only)", () => {
+		const params = Array.from({ length: 8 }, (_, i) => `a${i + 1}: boolean`).join(", ");
+		let body = "return 1;";
+		for (let i = 8; i >= 1; i--) body = `if (a${i}) { ${body} }`;
+		const shapes = [
+			`export const o = { "deep"(${params}): number { ${body} return 0; } };\n`,
+			`export const o = { ["de" + "ep"](${params}): number { ${body} return 0; } };\n`,
+		];
+		expect.assertions(4);
+		for (const [i, content] of shapes.entries()) {
+			const out = checkCognitiveComplexityWrite({ file_path: join(tmp, `keyed-${i}.ts`), content }, tmp);
+			expect(out?.block).toContain("cognitive-complexity limit");
+			expect(out?.block).not.toContain("↳ plan:");
+		}
+	});
+
 	it("N: a held over-cap function is allowed, so it gets no plan at all", () => {
 		const file = join(tmp, "held.ts");
 		writeFileSync(file, nested("held", 8)); // already over the cap on disk
