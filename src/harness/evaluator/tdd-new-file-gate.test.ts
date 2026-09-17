@@ -36,10 +36,8 @@ function makeSession(writtenAbs: string[] = []): SessionTrajectory {
 beforeEach(() => {
 	tmp = mkdtempSync(join(tmpdir(), "tdd-gate-"));
 	mkdirSync(join(tmp, "src"), { recursive: true });
-	// The gate is now repo-profile aware. Seed one unrelated colocated test
-	// file so this shared fixture profiles as `testLayout: "colocated"` — the
-	// layout every historical expectation below was written against. (An empty
-	// tmpdir would profile as "none", which demotes the gate to warn-only.)
+	// Seed an unrelated colocated test for existing-suite pair-debt behavior.
+	// Empty-project enforcement has separate fixtures below.
 	// The marker matches no companion candidate of any file gated in these tests.
 	writeFileSync(join(tmp, "repo-shape.spec.ts"), "");
 	resetRepoProfileCache();
@@ -137,7 +135,7 @@ describe("evaluateTddNewFileGate — mode gating", () => {
 	// test-contract: behavior — balanced-mode ladder (2026-08-17): "warn" runs the
 	// same missing-companion detection but resolves allow+warning, never a block.
 	it("P: 'warn' mode surfaces the missing companion as an allow+warning", () => {
-		// Seed a test layout so the repo-profile demotion path is not what fires.
+		// Seed an existing test layout for the pair-debt path.
 		mkdirSync(join(tmp, "src"), { recursive: true });
 		writeFileSync(join(tmp, "src/other.test.ts"), "import { it } from 'vitest';\n");
 		const decision = evaluateTddNewFileGate({
@@ -603,8 +601,7 @@ describe("evaluateTddNewFileGateForEvent — debt-mode downgrade", () => {
 // Repo-profile conditional enforcement (portability, 2026-07-06)
 // ===========================================
 // Foreign-shaped repos: separate test trees get mirrored companion candidates;
-// repos with no tests at all get warn-only demotion. Colocated repos (every
-// fixture above) keep the historical behavior byte-for-byte.
+// empty projects still require the first companion under explicit enforcement.
 
 /** A fresh repo root per test so `getRepoProfile`'s memo never sees stale layout. */
 function makeRepo(prefix: string): string {

@@ -104,7 +104,8 @@ function packageJsonEntries(cwd: string, entries: Set<string>): void {
  *  carrying its own package.json or wrangler manifest (an embedded
  *  sub-project — its entry is invisible to this repo's import graph).
  *  Fail-soft: unreadable/missing package.json ⇒ conventional entries only. */
-function entryPoints(cwd: string, files: readonly string[]): Set<string> {
+/** Conventional + package.json entry points; shared with `jev doc-claims` so an entry file never reads as "unimported". */
+export function entryPoints(cwd: string, files: readonly string[]): Set<string> {
 	const entries = new Set<string>(["src/index.ts", "src/index.tsx"]);
 	try {
 		packageJsonEntries(cwd, entries);

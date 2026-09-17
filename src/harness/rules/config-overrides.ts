@@ -6,7 +6,7 @@ export type OptionalSectionKey = "plan_capture" | "git_session_scope_gate" | "ts
 	| "per_edit_coverage" | "per_edit_mutation" | "trajectory_shadow" | "scratchpad_guard"
 	| "spec_checks" | "edit_contract" | "verification_stop_checks" | "scratchpad_archive"
 	| "baseline_autofold" | "mutation_directed_strict_profile" | "commit_cadence"
-	| "diff_aware" | "project_wide_checks";
+	| "diff_aware" | "project_wide_checks" | "jev";
 
 /** Used only when an override supplies a section missing from the input config. */
 export const SECTION_DEFAULTS: { [K in OptionalSectionKey]: NonNullable<GuardRulesConfig[K]> } = {
@@ -26,6 +26,7 @@ export const SECTION_DEFAULTS: { [K in OptionalSectionKey]: NonNullable<GuardRul
 	commit_cadence: nonNull(DEFAULT_CONFIG.commit_cadence),
 	diff_aware: nonNull(DEFAULT_CONFIG.diff_aware),
 	project_wide_checks: nonNull(DEFAULT_CONFIG.project_wide_checks),
+	jev: DEFAULT_CONFIG.jev ?? { enabled: false },
 };
 
 type PartialSectionKey = OptionalSectionKey | "curl_mcp_detection" | "error_memory" | "structural_checks";

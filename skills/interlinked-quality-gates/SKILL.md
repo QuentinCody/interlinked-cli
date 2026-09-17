@@ -22,8 +22,12 @@ Python test-first guidance recognizes `test_<name>.py` and `<name>_test.py`, inc
 root, package and separate test directories. Discovery refreshes when directories or
 runner configuration change during a daemon session. These are naming hints, not proof
 of coverage: inspect custom collection layouts before creating redundant tests. The
-configured new-file policy now applies to JS/TS and Python; an empty repository still
-receives a warning rather than a strict missing-companion block. Python uses
+configured new-file policy applies to JS/TS and Python. Explicit
+`test_first_mode: "enforce"` requires a companion even in an empty repository;
+layout detection does not demote it. Create the first behavioral test before its
+implementation. Pair debt can sequence later source/test edits once a test layout
+exists; it cannot replace that first-test bootstrap. `"warn"` remains advisory.
+A companion filename alone is not evidence of a failing or passing test. Python uses
 `# interlinked-tdd: exempt` for the existing explicit exemption directive. This does not
 establish equivalent pre-execution TDD enforcement for arbitrary Bash writes.
 

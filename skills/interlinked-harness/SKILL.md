@@ -262,6 +262,12 @@ can correct them immediately; context-heavier suite review stays in PostToolUse.
 warning merely to land the edit—assert a precise observable behavior, or justify the actual public
 compatibility contract.
 
+With explicit `structural_checks.test_first_mode: "enforce"`, an empty repository
+does not exempt new JS/TS or Python source from companion-test requirements. Write
+the first meaningful test, observe its failure, then implement the behavior. Existing
+pair-debt workflow remains available after a suite exists; warning mode stays advisory.
+This creation gate does not itself prove that every later change followed red–green TDD.
+
 **Test-discrimination advisories** are `post` warnings and also run under
 `verify --all-checks`. They review fallback-only evidence, indistinguishable
 positive/negative expectations, unpinned spy arguments, wildcard observables,

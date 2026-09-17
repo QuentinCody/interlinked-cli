@@ -913,6 +913,29 @@ enable|status|disable` manages opt-in. Intake, review tooling, and the
 Worker live in the private `interlinked-cloud` repo; operator notes in
 `CLAUDE.local.md` (gitignored).
 
+## Jev-backed semantic checks (opt-in, added 2026-09-16)
+
+Three checks ask TypeSafe's Jev model (System One: typed probabilities, no
+text, ~200 ms, ~$0.00005/call) a question the deterministic registry cannot
+answer. They live under `src/harness/jev/` behind `jev.enabled` in
+`guard-rules.local.json` (default OFF) with `TYPESAFE_API_KEY` in
+`config.local.json`; every one is warn-only and fail-open, and NONE sits in
+the registry or `interlinked verify` — `feedback_harness_deterministic_only`
+still governs the check pipeline. Each module header carries its measured
+operating point (blind-labeled evals, k/n; run-book
+`scratch/CAMPAIGN-jev-checks.md`, intake `docs/external-pulse/typesafe-jev.md`).
+
+| Check | Surface | Question |
+|---|---|---|
+| `claim-evidence.ts` | Stop nudge `[interlinked:jev-claims]` (`server/lifecycle-stop-jev.ts`) | Is each claim in the final message backed by a tool call in this turn? |
+| `test-title-body.ts` | `interlinked jev test-titles <files>` | Does the test body test what its title claims? (the semantic half the retired `test_name_matcher_mismatch` lacked) |
+| `doc-claim-liveness.ts` | `interlinked jev doc-claims <files>` | Does a doc paragraph claim a module is live that nothing imports? |
+
+A Jev verdict is a scoring signal merged tighten-only, never a lone block: it
+cannot write a block reason, and its probabilities are calibrated per group,
+not per call. Re-measure before moving any threshold; the eval drivers and
+labeled datasets are under `scratch/2026-09-16-jev-checks/`.
+
 ## External-pulse intake
 
 Before "what can we do with X?" on a tool, paper, or repo found on the

@@ -358,6 +358,12 @@ also disables reuse and widens selection. No runtime values are persisted in rec
 Failed, interrupted, missing-report, all-skipped and empty runs never create passing receipts.
 Edits during execution trigger another plan; stale evidence cannot clear pending work.
 
+For Python, check prerequisites in the selected project interpreter after creating a
+venv. System pytest/coverage packages are not available in an ordinary isolated venv.
+`interlinked tests readiness python --json` reports that distinction; install approved
+test tools there rather than silently switching interpreters. Explicit test-first
+enforcement requires the first companion even when the repository starts without tests.
+
 Requests coalesce across nearby edits and identical in-flight subscribers. Cross-process
 leases serialize execution. A waiting process can consume its request's completed result
 after rechecking source, declared/requested inputs, environment and platform; exact-runtime

@@ -39,8 +39,8 @@ import type {
 	SessionTrajectory,
 } from "../types.js";
 
-/** The mode that blocks in repositories with a known test layout. See
- *  as intent; see `types.ts#GuardRulesConfig.structural_checks.test_first_mode`. */
+/** Explicit enforcement also requires the first companion in an empty project.
+ * See `types.ts#GuardRulesConfig.structural_checks.test_first_mode`. */
 const ENFORCE_MODE: "enforce" = "enforce";
 
 // Paths where a companion test isn't meaningful — skip the gate.

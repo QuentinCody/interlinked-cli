@@ -121,6 +121,10 @@ const LOCAL_PROBES = {
 		override: { scratchpad_guard: { code_write_mode: "warn" } },
 		changed: (c) => c.scratchpad_guard?.code_write_mode === "warn",
 	},
+	jev: {
+		override: { jev: { enabled: true } },
+		changed: (c) => c.jev?.enabled === true,
+	},
 	spec_checks: {
 		override: { spec_checks: { enabled: false } },
 		changed: (c) => c.spec_checks?.enabled === false,
@@ -279,6 +283,7 @@ const NOT_TEAM = {
 	per_edit_mutation: { why: "personal opt-in tier (runner endpoints are local config)", probe: { enabled: true } },
 	trajectory_shadow: { why: "personal tier", probe: { enabled: false } },
 	scratchpad_guard: { why: "personal softening tier", probe: { code_write_mode: "warn" } },
+	jev: { why: "personal opt-in tier (needs a per-dev API key)", probe: { enabled: true } },
 	spec_checks: { why: "personal tier", probe: { enabled: false } },
 	edit_contract: { why: "personal tier", probe: { stale_read: "off" } },
 	scratchpad_archive: { why: "personal tier", probe: { enabled: false } },

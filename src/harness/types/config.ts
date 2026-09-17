@@ -8,6 +8,7 @@ import type {
 	ProjectWideCheckConfig,
 	StructuralChecksConfig,
 } from "./config-structural.js";
+import type { JevConfig } from "../jev/types.js";
 import type { PerEditCoverageConfig } from "./config-per-edit-coverage-config.js";
 import type { VerificationStopChecksConfig } from "./config-verification-stop-checks-config.js";
 import type { ClassifierConfig } from "./policy.js";
@@ -227,6 +228,10 @@ export interface GuardRulesConfig {
 	 *  are always allowed; the mandatory tmp-secrets scan is separate and not
 	 *  governed by this mode. See `evaluator/scratchpad-write-guard.ts`. */
 	scratchpad_guard?: { code_write_mode?: "block" | "warn" | "off" };
+	/** Jev (TypeSafe System One) scoring signals — DEFAULT OFF. Personal tier:
+	 *  the key lives in config.local.json (`TYPESAFE_API_KEY`) and every
+	 *  consumer is warn-only + fail-open (`jev/client.ts`). */
+	jev?: JevConfig;
 	/** Cross-file spec fact ledger + drift warnings on markdown edits
 	 *  (docs/design/spec-audit-runtime-checks.md §3.2). Default on. */
 	spec_checks?: { enabled?: boolean };
