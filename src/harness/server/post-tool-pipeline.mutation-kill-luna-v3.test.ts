@@ -89,7 +89,9 @@ function event(over: Partial<HarnessEvent> = {}): HarnessEvent {
     };
 }
 
-function session() { return makeSessionFixture(); }
+// The once-per-session contract-review intro is pre-acknowledged: these pins
+// target the summary / guard contracts, not that intro line.
+function session() { const s = makeSessionFixture(); s.acknowledged_checks.add("contract-review:intro"); return s; }
 
 describe("post-tool pipeline contracts", () => {
     // test-contract: all supported check families retain their exact compact summary labels.

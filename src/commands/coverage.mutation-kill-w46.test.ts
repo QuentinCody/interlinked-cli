@@ -340,15 +340,17 @@ describe("coverageBaselineCommand", () => {
 
 	it("lists a saved baseline file with its lines/branches percentages", async () => {
 		// test-contract: public-api — the per-file row template
-		// (`lines=${pct}% branches=${pct}%`) exercises FileCoverageEntry
-		// rendering distinct from the empty-baseline branch.
+		// (`lines=… statements=… functions=… branches=…`, COVERAGE_METRICS order)
+		// exercises FileCoverageEntry rendering distinct from the empty-baseline branch.
 		writeIstanbulSummary(dir, { "src/a.ts": { lines: 90, branches: 80 } });
 		await coverageCheckCommand({ cwd: dir, updateBaseline: true });
 		logs = [];
 		coverageBaselineCommand({ cwd: dir });
 		const combined = logs.join("\n");
 		expect(combined).toContain("src/a.ts");
-		expect(combined).toMatch(/lines=90\.0% branches=80\.0%/);
+		expect(combined).toContain("lines=90.0%");
+		expect(combined).toContain("branches=80.0%");
+		expect(combined).toMatch(/lines=90\.0% statements=90\.0% functions=90\.0% branches=80\.0%/);
 		expect(combined).toContain("Updated");
 		expect(combined).not.toContain("Stryker was here");
 	});

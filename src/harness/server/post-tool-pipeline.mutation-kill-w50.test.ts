@@ -99,7 +99,9 @@ function event(over: Partial<HarnessEvent> = {}): HarnessEvent {
 	};
 }
 
-function session() { return makeSessionFixture(); }
+// The once-per-session contract-review intro is pre-acknowledged: these pins
+// target the failure-channel / scan guards, not that intro line.
+function session() { const s = makeSessionFixture(); s.acknowledged_checks.add("contract-review:intro"); return s; }
 
 beforeEach(() => {
 	mocks.scan.mockReset().mockResolvedValue({ warnings: [] });

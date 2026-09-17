@@ -890,22 +890,37 @@ describe("checkLargeFileLineCountWrite — fail-open + fallback paths", () => {
 		).toBeNull();
 	});
 
-	it("ignores malformed entries inside a MultiEdit edits array", () => {
+	it("fails open (unmeasured) when a MultiEdit edits array carries a malformed entry", () => {
+		// A malformed step makes the projected result unknowable, and a pre_block
+		// check never blocks on a guess — the projection is null, so no verdict.
 		const path = file("multi-mixed.ts");
 		writeFileSync(path, lines(10));
 		const result = checkLargeFileLineCountWrite(
 			{
 				file_path: path,
 				edits: [
-					null, // skipped (not an object)
-					"a string", // skipped (not an object)
-					{ old_string: 123, new_string: "x" }, // skipped (non-string fields)
-					{ replace_all: true, old_string: "const x = 1;", new_string: lines(300) }, // counts
+					null, // not an object → unmeasured
+					"a string", // not an object → unmeasured
+					{ old_string: 123, new_string: "x" }, // non-string fields → unmeasured
+					{ replace_all: true, old_string: "const x = 1;", new_string: lines(300) },
 				],
 			},
 			dir,
 		);
-		// Only the valid entry contributes; 10 matches × ~299 net lines → over cap.
+		expect(result).toBeNull();
+	});
+
+	it("blocks a well-formed replace_all MultiEdit that grows the file past the cap", () => {
+		const path = file("multi-valid.ts");
+		writeFileSync(path, lines(10));
+		const result = checkLargeFileLineCountWrite(
+			{
+				file_path: path,
+				edits: [{ replace_all: true, old_string: "const x = 1;", new_string: lines(300) }],
+			},
+			dir,
+		);
+		// 10 matches × ~299 net lines → over cap.
 		expect(result?.block).toContain("file-size");
 	});
 

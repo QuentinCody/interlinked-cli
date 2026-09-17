@@ -17,7 +17,8 @@ it("does not turn a deduplicated deferral into an all-clean summary", () => {
 
 it("delivers concrete readiness once during editing and never for docs", async () => {
     vi.mocked(testReadiness).mockResolvedValue({ status: "unavailable", interpreter: "/project/.venv/bin/python", missing: ["pytest"], reason: "missing", behavioralEvidence: "not-run", requiresApproval: [], install: { command: "/project/.venv/bin/python", args: ["-m", "pip", "install", "pytest==8.4.2"] } });
-    const session = { acknowledged_checks: new Set<string>() };
+    // Contract-review intro pre-acknowledged: this pin is readiness only.
+    const session = { acknowledged_checks: new Set<string>(["contract-review:intro"]) };
     const decision: HarnessDecision = { decision: "allow" };
     await appendTestReadinessGuidance({ cwd: "/project" }, session, ["notes.md"], decision);
     expect(testReadiness).not.toHaveBeenCalled();

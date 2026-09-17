@@ -130,7 +130,7 @@ describe("processApplyPatchSection", () => {
 		const spec = makeSpec({ grandfatherFor: () => gf });
 		const computeViolations: ComputeViolations = (_spec, before, after) => {
 			expect(before).toBe("");
-			expect(after).toBe("const x = 1;");
+			expect(after).toBe("const x = 1;\n"); // native Add File terminates every body line
 			return ["fn0: 25 > 20"];
 		};
 		const result = processApplyPatchSection(
