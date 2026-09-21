@@ -94,6 +94,22 @@ function registerReworkCommand(metrics: Command): void {
         });
 }
 
+function registerStaleReadmeCommand(metrics: Command): void {
+    metrics
+        .command("stale-readme")
+        .description(
+            "READMEs the code moved past — commits touching each README's directory since the README last changed (telemetry, never blocks)",
+        )
+        .option("--cwd <path>", "Project root (default: current directory)")
+        .option("--threshold <n>", "Commits since the README's last change before it is marked STALE (default: 10)")
+        .option("--json", "Machine-readable output")
+        .option("--short", "One-line summary")
+        .action(async (opts: OptionValues, command: Command) => {
+            const { metricsStaleReadmeCommand } = await import("../commands/metrics-stale-readme.js");
+            await metricsStaleReadmeCommand(parentAndChildOptions(opts, command));
+        });
+}
+
 function registerScoreCommand(metrics: Command): void {
     metrics
         .command("score")
@@ -128,6 +144,7 @@ export function registerMetricsCommands(program: Command): void {
     registerCouplingCommand(metrics);
     registerArchitectureCommand(metrics);
     registerReworkCommand(metrics);
+    registerStaleReadmeCommand(metrics);
     registerComplexityCommand(metrics);
     registerSplitPlanCommand(metrics);
     registerScoreCommand(metrics);

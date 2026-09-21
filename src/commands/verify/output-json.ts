@@ -15,8 +15,15 @@ import type { DecisionSurfaceRatchetResult } from "../../harness/quality-checks/
 import type { RegistryDriftFinding } from "../../harness/registry-parity.js";
 import type { Finding } from "../../harness/suggestion-scorer.js";
 import type { JsonObject } from "../../lib/json-types.js";
+import type { RulesFingerprint } from "../../lib/rules-fingerprint.js";
 import { summarizeTestQualitySections } from "./output-json-test-quality.js";
 import type { AuditResult, CodeQualityResults, DiagnosticResult } from "./tool-results-types.js";
+
+/**
+ * Shape tag for the `verify --json` object. Bump when a top-level key changes
+ * meaning or disappears; adding a key is backward-compatible and keeps it.
+ */
+export const VERIFY_JSON_SCHEMA = "interlinked.verify/1";
 
 /** Row shape we care about for section summarization. */
 interface FileKeyedRow {
@@ -63,6 +70,8 @@ interface OutputJsonArgs {
 	lockfileMultiplicity?: LockfileMultiplicityResult;
 	decisionSurfaceRatchet?: DecisionSurfaceRatchetResult;
 	structureSection?: JsonObject | undefined;
+	/** Which rules judged this run (`rules-fingerprint.ts`); absent → emitted as null. */
+	rules?: RulesFingerprint;
 }
 
 /**
@@ -340,5 +349,19 @@ export function outputJson(args: OutputJsonArgs): void {
 	if (structureSection) {
 		result.structure = structureSection;
 	}
-	process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+	process.stdout.write(serializeVerifyJson(result, args.rules));
+}
+
+/**
+ * Prepend the shape tag and the rules fingerprint so they are the first two
+ * keys a consumer sees. `rules` is null (never absent) when no fingerprint was
+ * computed, so "not computed" stays distinguishable from a pre-schema report.
+ */
+function serializeVerifyJson(result: JsonObject, rules: RulesFingerprint | undefined): string {
+	const tagged: JsonObject = {
+		schema_version: VERIFY_JSON_SCHEMA,
+		rules: rules ? { schema: rules.schema, rules_hash: rules.rules_hash, inputs: rules.inputs } : null,
+		...result,
+	};
+	return `${JSON.stringify(tagged, null, 2)}\n`;
 }

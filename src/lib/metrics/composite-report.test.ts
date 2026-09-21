@@ -18,6 +18,7 @@ it("collects every metric, explains weights and preserves explicit evidence gaps
     expect(report.rankingBlockers).toContain("mutation.survivors: missing");
     expect(explainCompositeMetric(report, "tokens").groups[0]?.weight).toBe(20);
     expect(explainCompositeMetric(report, "coverage.crap").groups).toEqual([]);
+    expect(report.rulesHash).toMatch(/^sha256:[0-9a-f]{64}$/);
 });
 
 it("never presents unsupported product source as completely measured", () => {

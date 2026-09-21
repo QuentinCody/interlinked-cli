@@ -30,6 +30,7 @@ import { existsSync, rmSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { errorMessage } from "../lib/error-message.js";
 import { nonNull } from "../lib/non-null.js";
+import { computeRulesFingerprint } from "../lib/rules-fingerprint.js";
 
 import { CheckEngine, type CheckResult, formatToolReport } from "../harness/check-engine/index.js";
 import { tryAcquireProjectHeavyProcessLease } from "../harness/project-heavy-process-lock.js";
@@ -480,6 +481,7 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 		lockfileMultiplicity: detectLockfileMultiplicity(cwd),
 		decisionSurfaceRatchet: computeDecisionSurfaceRatchet(cwd),
 		structureSection: opts.structure ? buildStructureJsonSection(cwd, opts) : undefined,
+		rules: computeRulesFingerprint(cwd),
 	});
 }
 

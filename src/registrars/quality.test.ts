@@ -26,6 +26,7 @@ const metricsCommand = vi.fn();
 const metricsCouplingCommand = vi.fn();
 const metricsArchCommand = vi.fn();
 const metricsReworkCommand = vi.fn();
+const metricsStaleReadmeCommand = vi.fn();
 const mutationCheckCommand = vi.fn();
 const mutationBaselineCommand = vi.fn();
 const mutationAcceptCommand = vi.fn();
@@ -83,6 +84,9 @@ vi.mock("../commands/metrics-arch.js", () => ({
 }));
 vi.mock("../commands/metrics-rework.js", () => ({
 	metricsReworkCommand: (...args: unknown[]) => metricsReworkCommand(...args),
+}));
+vi.mock("../commands/metrics-stale-readme.js", () => ({
+	metricsStaleReadmeCommand: (...args: unknown[]) => metricsStaleReadmeCommand(...args),
 }));
 vi.mock("../commands/mutation.js", () => ({
 	mutationCheckCommand: (...args: unknown[]) => mutationCheckCommand(...args),
@@ -841,6 +845,28 @@ describe("metrics rework — action wiring", () => {
 		rework.parent = null;
 		await rework.parseAsync(["--json"], { from: "user" });
 		expect(metricsReworkCommand).toHaveBeenCalledWith({ json: true });
+	});
+});
+
+describe("metrics stale-readme — action wiring", () => {
+	it("forwards options, merging parent-owned --cwd/--json", async () => {
+		const program = build();
+		await program.parseAsync(
+			["metrics", "stale-readme", "--cwd", "/m", "--threshold", "4", "--json"],
+			{ from: "user" },
+		);
+		expect(metricsStaleReadmeCommand).toHaveBeenCalledWith({ cwd: "/m", threshold: "4", json: true });
+	});
+
+	it("falls back to {} when the subcommand has no registered parent", async () => {
+		const program = build();
+		const cmd = nonNull(
+			sub(program, "metrics").commands.find((c) => c.name() === "stale-readme"),
+			"missing stale-readme subcommand",
+		);
+		cmd.parent = null;
+		await cmd.parseAsync(["--short"], { from: "user" });
+		expect(metricsStaleReadmeCommand).toHaveBeenCalledWith({ short: true });
 	});
 });
 

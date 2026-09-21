@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { computeRulesFingerprint } from "../rules-fingerprint.js";
 import { collectScoringSources, type SourceGap } from "./source-census.js";
 import { aggregateBurden, interpolateBurden, scoreProfileHash, STRUCTURE_PROFILE, type BurdenAggregate, type StructuralMetric } from "./score-profile.js";
 import { measureStructure, type MeasuredStructure, type StructureFunction } from "./structure.js";
@@ -15,6 +16,8 @@ export interface MetricsScoreReport {
     schemaVersion: 1;
     profile: typeof STRUCTURE_PROFILE;
     profileHash: string;
+    /** Repo-local rules the run was judged by (caps, guard rules, suppressions) — `rules-fingerprint.ts`. */
+    rulesHash: string;
     sourceHash: string;
     status: "measured" | "partial" | "unavailable";
     measurement: { modelCalls: 0; repositoryCodeExecuted: false; typescriptVersion: string | null; };
@@ -70,7 +73,8 @@ export function collectMetricsScoreReport(root: string): MetricsScoreReport {
     const typescriptVersion = files[0]?.typescriptVersion ?? null;
     const sourceHash = createHash("sha256").update(JSON.stringify(census.sources.map(source => [source.file, source.sha256]))).digest("hex");
     return {
-        schemaVersion: 1, profile: STRUCTURE_PROFILE, profileHash: scoreProfileHash(typescriptVersion), sourceHash,
+        schemaVersion: 1, profile: STRUCTURE_PROFILE, profileHash: scoreProfileHash(typescriptVersion),
+        rulesHash: computeRulesFingerprint(root).rules_hash, sourceHash,
         status: reportStatus(functions, census.notMeasured, census.discoveryIssues),
         measurement: { modelCalls: 0, repositoryCodeExecuted: false, typescriptVersion },
         structuralScore: functions.length ? metrics.reduce((sum, metric) => sum + metric.weight * (metric.aggregate?.score ?? 0), 0) : null,

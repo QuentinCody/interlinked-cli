@@ -2,8 +2,12 @@
 // output-json unit tests
 // ===========================================
 
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { outputJson } from "./output-json.js";
+import { computeRulesFingerprint } from "../../lib/rules-fingerprint.js";
+import { outputJson, VERIFY_JSON_SCHEMA } from "./output-json.js";
 import { type CodeQualityResults, emptyResults } from "./tool-results-types.js";
 
 // Delegates to the canonical `emptyResults()` so this fixture can never drift
@@ -63,6 +67,50 @@ describe("outputJson", () => {
 		expect(parsed.files_scanned).toBe(0);
 		expect(parsed.tsc.issues).toBe(0);
 		expect(parsed.biome.issues).toBe(0);
+	});
+
+	it("P: carries a schema version and the rules fingerprint when one is given, so two runs are comparable", () => {
+		const root = mkdtempSync(join(tmpdir(), "il-output-json-"));
+		mkdirSync(join(root, ".interlinked"));
+		const rules = computeRulesFingerprint(root);
+		rmSync(root, { recursive: true, force: true });
+		const out = captureStdout(() => {
+			outputJson({
+				tscResults: [],
+				linterResults: [],
+				linterName: "biome",
+				semgrepResults: [],
+				gitleaksResults: [],
+				auditResult: null,
+				cq: emptyCq(),
+				suggestions: null,
+				totalFiles: 0,
+				rules,
+			});
+		});
+		const parsed = JSON.parse(out);
+		expect(Object.keys(parsed).slice(0, 2)).toEqual(["schema_version", "rules"]);
+		expect(parsed.schema_version).toBe(VERIFY_JSON_SCHEMA);
+		expect(parsed.rules).toEqual(rules);
+	});
+
+	it("N: without a fingerprint the rules key is null, never absent — a consumer can tell 'not computed' from 'old shape'", () => {
+		const out = captureStdout(() => {
+			outputJson({
+				tscResults: [],
+				linterResults: [],
+				linterName: "biome",
+				semgrepResults: [],
+				gitleaksResults: [],
+				auditResult: null,
+				cq: emptyCq(),
+				suggestions: null,
+				totalFiles: 0,
+			});
+		});
+		const parsed = JSON.parse(out);
+		expect(parsed.schema_version).toBe(VERIFY_JSON_SCHEMA);
+		expect(parsed.rules).toBeNull();
 	});
 
 	it("serializes code_clones findings for JSON consumers", () => {

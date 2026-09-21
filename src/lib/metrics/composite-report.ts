@@ -9,9 +9,12 @@ import { executionEvidenceBlockers } from "./execution-evidence.js";
 import type { StoredEvidence } from "./evidence-types.js";
 import type { InventoryGap, MetricReading, QualityFinding, RepositoryInventory } from "./measurement-types.js";
 import { collectStaticMeasurements } from "./static-measurements.js";
+import { computeRulesFingerprint } from "../rules-fingerprint.js";
 
 export interface CompositeScoreReport extends CompositeResult {
     schemaVersion: 2; profile: typeof COMPOSITE_PROFILE; modelCalls: 0; registryHash: string;
+    /** Repo-local rules the run was judged by (caps, guard rules, suppressions) — `rules-fingerprint.ts`. */
+    rulesHash: string;
     sourceHash: string; inputHash: string; languages: string[]; structuralScore: number | null;
     scope: { eligibleFiles: number; measuredFiles: number; functions: number; notMeasured: InventoryGap[]; exclusions: RepositoryInventory["excluded"]; discoveryIssues: string[]; };
     metrics: MetricReading[]; findings: QualityFinding[]; deletionCandidates: DeletionCandidate[];
@@ -37,7 +40,7 @@ export function collectCompositeScoreReport(root: string): CompositeScoreReport 
     const composite = composeScore(metrics, blockers);
     if (analysis.gaps.length || inventory.issues.length) composite.range = { lower: 0, upper: 100 };
     return { schemaVersion: 2, ...composite, profile: COMPOSITE_PROFILE, modelCalls: 0, registryHash: catalog.registryHash,
-        sourceHash: inventory.sourceHash, inputHash: inventory.inputHash,
+        rulesHash: computeRulesFingerprint(root).rules_hash, sourceHash: inventory.sourceHash, inputHash: inventory.inputHash,
         languages: [...new Set(inventory.files.filter(file => file.role === "product").map(file => file.language ?? "unknown"))].sort(),
         structuralScore: composite.groups.find(group => group.id === "structure")?.score ?? null,
         scope: { eligibleFiles: inventory.files.filter(file => file.role === "product").length, measuredFiles: analysis.files.filter(file => file.input.role === "product").length,

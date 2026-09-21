@@ -863,6 +863,10 @@ Commands:
   rework [options]                    Churn age from git blame — share of
                                       changed lines whose previous version was
                                       written in the last --window days
+  stale-readme [options]              READMEs the code moved past — commits
+                                      touching each README's directory since
+                                      the README last changed (telemetry, never
+                                      blocks)
   complexity [options]                Complexity census: percentiles,
                                       histograms, top-N hotspots, per-file
                                       mass, and over-cap counts for cyclomatic

@@ -27,6 +27,15 @@ describe("metrics score", () => {
         expect(report.scope.measuredFiles).toBe(1);
     });
 
+    it("P: carries the rules fingerprint so two reports can be told apart when the caps changed between them", () => {
+        const root = fixture();
+        const before = buildMetricsScoreReport(root).rulesHash;
+        expect(before).toMatch(/^sha256:[0-9a-f]{64}$/);
+        mkdirSync(join(root, ".interlinked"));
+        writeFileSync(join(root, ".interlinked/metric-caps.json"), '{"version":1,"max_cyclomatic":12}');
+        expect(buildMetricsScoreReport(root).rulesHash).not.toBe(before);
+    });
+
     it("keeps invalid and unsupported product code visible", () => {
         const root = fixture();
         writeFileSync(join(root, "src/broken.ts"), "export function broken(");
