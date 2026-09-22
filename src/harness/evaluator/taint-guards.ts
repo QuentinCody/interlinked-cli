@@ -23,7 +23,7 @@ import {
 	classifyFileSensitivity,
 	formatTaintSources,
 	getStepBudgetWarning,
-	isNetworkCommand,
+	isOutboundNetworkCommand,
 	isStepLimitExceeded,
 	ratchetSensitivity,
 	SENSITIVITY_ORDER,
@@ -210,7 +210,7 @@ function checkTaintedNetworkBlock(
 ): TaintGuardsResult | null {
 	if (!isBash(toolName) || !shouldBlockNetwork(session, taint)) return null;
 	const cmd = readToolString(toolInput.command);
-	if (!isNetworkCommand(cmd)) return null;
+	if (!isOutboundNetworkCommand(cmd)) return null;
 	return {
 		kind: "block",
 		decision: {
@@ -235,7 +235,7 @@ function buildTaintedNetworkInternalEscalation(
 	if (!isBash(toolName) || shouldBlockNetwork(session, taint)) return null;
 	if (SENSITIVITY_ORDER[session.sensitivity_level] < SENSITIVITY_ORDER.Internal) return null;
 	const cmd = readToolString(toolInput.command);
-	if (!isNetworkCommand(cmd)) return null;
+	if (!isOutboundNetworkCommand(cmd)) return null;
 	return {
 		trigger: "tainted_network_internal",
 		summary: `Network command while session is tainted at ${session.sensitivity_level} level (tainted by: ${formatTaintSources(session)})`,

@@ -17,6 +17,7 @@
 // touched file — cmd-tier cost, never hook-tier.
 
 import { execFileSync } from "node:child_process";
+import { percentileRanks } from "../harness/percentile-rank.js";
 import { getOutputMode, output } from "../lib/output.js";
 
 export interface FileHunks {
@@ -200,10 +201,22 @@ function processCommitForRework(
 	}
 }
 
+/** Per-file rework with its rank among every measured file in this run (0–100, within this repository). */
+export interface RankedReworkCount extends ReworkCount {
+	percentile: number;
+}
+
+/** Rank every file with old-side lines by its rework share; files with no rework rank too (share 0). */
+export function rankReworkShares(byFile: ReadonlyMap<string, ReworkCount>): Map<string, RankedReworkCount> {
+	const entries = [...byFile.entries()].filter(([, c]) => c.total > 0);
+	const ranks = percentileRanks(entries.map(([, c]) => c.rework / c.total));
+	return new Map(entries.map(([file, c], i) => [file, { ...c, percentile: ranks[i] ?? 0 }]));
+}
+
 interface ReworkTotals {
 	commits: CommitHeader[];
 	overall: ReworkCount;
-	top: Array<[string, ReworkCount]>;
+	top: Array<[string, RankedReworkCount]>;
 	pct: number;
 	skippedBulk: number;
 	skippedBlame: number;
@@ -226,7 +239,7 @@ function computeReworkTotals(
 		processCommitForRework(cwd, commit, maxCommitFiles, windowDays, acc);
 	}
 	const pct = acc.overall.total === 0 ? 0 : (acc.overall.rework / acc.overall.total) * 100;
-	const top = [...acc.byFile.entries()]
+	const top = [...rankReworkShares(acc.byFile).entries()]
 		.filter(([, c]) => c.rework > 0)
 		.sort((a, b) => b[1].rework - a[1].rework)
 		.slice(0, 10);
@@ -259,7 +272,9 @@ function buildReworkOutputHandlers(
 			];
 			for (const [file, c] of top) {
 				const p = c.total === 0 ? 0 : (c.rework / c.total) * 100;
-				lines.push(`  ${String(c.rework).padStart(5)} rework lines (${p.toFixed(0).padStart(3)}%)  ${file}`);
+				lines.push(
+					`  ${String(c.rework).padStart(5)} rework lines (${p.toFixed(0).padStart(3)}%) ${`p${c.percentile}`.padStart(4)}  ${file}`,
+				);
 			}
 			return lines.join("\n");
 		},

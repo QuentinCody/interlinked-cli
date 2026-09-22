@@ -694,7 +694,8 @@ Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline 
 | `interlinked caps ratchet <cyclomatic\|cognitive> --to <n> [--dry-run]` | Tighten a per-function cap AND regenerate the grandfather ledger (`function-complexity-baseline.json`) for everything over it. Only writer of the ledger; `caps set` delegates here when a section exists. |
 | `interlinked caps status` | Ledger burn-down per metric: cap, entries remaining, top offenders, delta vs the previous snapshot. |
 | `interlinked caps propose` | Data-driven cap proposals from a live census: percentile ladder and the count each candidate cap would grandfather. |
-| `interlinked metrics complexity [--metric <m>] [--top <n>]` | Complexity census: percentiles, histograms, hotspots, per-file mass, over-cap counts. |
+| `interlinked metrics complexity [--metric <m>] [--top <n>] [--churn-days <n>]` | Complexity census: within-repo ranks, histograms, per-file mass, churn hotspots (90 days by default), directory line-count Gini, over-cap counts. |
+| `interlinked metrics jit [ref] [--staged] [--message <text>] [--calibrate <n>] [--cwd <path>] [--json\|--short]` | Ordinal commit-risk score and rank against recent first-parent commits (default 200); defaults to HEAD. `--message` classifies the staged commit's purpose. |
 | `interlinked metrics diagnostics [--profile js-ts\|python] [--cwd <path>] [--json\|--short]` | Explicit verbosity/erosion census, line overlap and absolute contributors; separate language profiles, diagnostic only. |
 | `interlinked metrics diagnostics compare <before> <after> [--json]` | Validate snapshot identity, scope and totals; incompatible overall deltas are withheld with nonzero exit, dilution remains visible. |
 | `interlinked metrics score [--profile structure-v1] [--cwd <path>] [--json\|--short]` | Explained composite and individual burdens, explicit evidence bounds and ranking eligibility; legacy structure profile remains selectable. |
@@ -724,6 +725,29 @@ Coverage readers validate nested report data before using it in ratchets. Partia
 entries may omit a metric; a present metric must have the expected numeric fields. Malformed
 entries are excluded rather than trusted through a type assertion. Missing or rejected data
 does not establish coverage, and must not be described as a clean measurement.
+
+### Within-repository ranks and commit-risk nudges
+
+Complexity rows and file mass now include `pct`; coupling pairs and rework rows include
+`percentile`. Ranks are the rounded percentage of the measured population strictly below
+the value, so ties share a rank. They are computed before the displayed top-N slice; coupling
+uses pairs surviving its filters, and rework ranks all files with measured old-side lines.
+These are within-repository comparisons, not cross-project quality grades.
+
+`metrics complexity` additionally reports hotspots as file cyclomatic mass times changed
+lines in the `--churn-days` window. First-parent history is bounded to 2,000 commits and
+commits touching more than 30 files are excluded from churn. Directory spread measures
+line-count Gini among direct children, with at least three files. These reports are advisory;
+an empty hotspot section can mean no usable history rather than no risk.
+
+`metrics jit` reports size, diffusion, history, experience and purpose contributions to a
+static versioned score. It is ordinal, never a defect probability. Calibration uses the
+repository's recent first-parent history (up to 365 days / 2,000 commits); no population
+means an unranked result. A missing commit, empty staged diff or unavailable Git causes
+the command to exit nonzero. The commit-time `[interlinked:jit][heuristic]` nudge inspects
+the current staged diff and warns at p90 or above. It never blocks and remains silent when
+measurement is unavailable. For `git commit -a` or commands that construct the index later,
+the staged snapshot is advisory context, not a measurement of the eventual commit.
 
 ### Function-token inventory
 

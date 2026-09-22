@@ -115,6 +115,7 @@ observed invocation and native enforcement are separate evidence.
 | Blocked by a **line-cap / function-token / coverage / complexity / CRAP / mutation** ratchet; configuring report, per-edit, or durable `mutation cloud` work; operating the mutation journal; "can't lower a baseline"; `adopt`; automatic obligation or manual marker debt; **dead code** (`deadcode` scan + `--categorize` deletion-safety buckets, per-edit `dead_code_action`) | **interlinked-quality-gates** |
 | Finding, reviewing, recording, or auditing opportunities to delete, replace, defer, or shrink code; `simplify …`; simplification coverage/evidence/deep handoff | **interlinked-simplification** |
 | `metrics score`, catalog/explain/compare/corpus, behavioral receipts, gate reach, incremental coverage, or syntax-token counter migrations | **interlinked-quality-gates** |
+| `metrics jit`, commit-time `[interlinked:jit]` warnings, within-repo percentile ranks, complexity churn hotspots or directory spread | **interlinked-quality-gates** |
 | Installing a local embedding model; building, inspecting, searching, or repairing the optional function-vector index | **interlinked-semantic-index** |
 | An `npm/pip/cargo/…` install or manifest edit was blocked; the package **allowlist** | **interlinked-supply-chain** |
 | Spec/doc facts, drift, invariants, review **findings**, `doctest`; `[interlinked:spec-*]` | **interlinked-spec-audit** |

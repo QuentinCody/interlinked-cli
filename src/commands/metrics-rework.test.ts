@@ -372,7 +372,7 @@ describe("metricsReworkCommand — measured against a real repo", () => {
 			skipped_blame_files: 0,
 			overall: { rework: 2, total: 5, pct: 40 },
 		});
-		expect(res.top_files).toEqual([
+		expect(res.top_files).toMatchObject([
 			{ file: "src/b.ts", rework: 1, total: 2 },
 			{ file: "src/a.ts", rework: 1, total: 3 },
 		]);
@@ -388,8 +388,9 @@ describe("metricsReworkCommand — measured against a real repo", () => {
 		// `rework > 0`, and per-file `total` is a sum of `lineTimes.length` values
 		// each ≥ its own rework contribution, so rework > 0 ⇒ total > 0. No test
 		// can reach the 0 arm; it is unreachable, not merely untested.)
-		expect(out).toContain("      1 rework lines ( 50%)  src/b.ts");
-		expect(out).toContain("      1 rework lines ( 33%)  src/a.ts");
+		// pN = rank of the file's rework share among every file with old-side lines in this run.
+		expect(out).toContain("      1 rework lines ( 50%)  p50  src/b.ts");
+		expect(out).toContain("      1 rework lines ( 33%)   p0  src/a.ts");
 	});
 
 	// test-contract: public-api — renders a one-line summary in --short mode
@@ -419,7 +420,7 @@ describe("metricsReworkCommand — measured against a real repo", () => {
 			commits_scanned: 5,
 			overall: { rework: 5, total: 5, pct: 100 },
 		});
-		expect(res.top_files).toEqual([
+		expect(res.top_files).toMatchObject([
 			{ file: "src/a.ts", rework: 3, total: 3 },
 			{ file: "src/b.ts", rework: 2, total: 2 },
 		]);
@@ -432,7 +433,7 @@ describe("metricsReworkCommand — measured against a real repo", () => {
 			commits_scanned: 1,
 			overall: { rework: 1, total: 1, pct: 100 },
 		});
-		expect(res.top_files).toEqual([{ file: "src/b.ts", rework: 1, total: 1 }]);
+		expect(res.top_files).toMatchObject([{ file: "src/b.ts", rework: 1, total: 1 }]);
 	});
 
 	// test-contract: invariant — skips commits touching more than --max-commit-files entirely
@@ -494,7 +495,7 @@ describe("metricsReworkCommand — non-ASCII paths", () => {
 			skipped_bulk_commits: 0,
 			overall: { rework: 1, total: 1, pct: 100 },
 		});
-		expect(res.top_files).toEqual([{ file: "src/ascii.ts", rework: 1, total: 1 }]);
+		expect(res.top_files).toMatchObject([{ file: "src/ascii.ts", rework: 1, total: 1 }]);
 		// … and the sole casualty is the non-ASCII path: `git blame` is handed the
 		// literal `"src/\320\274\320\276\320\264\321\203\320\273\321\214.ts"` and
 		// answers `fatal: no such path`, which blameTimesFor swallows as a skip.
@@ -517,7 +518,7 @@ describe("metricsReworkCommand — non-ASCII paths", () => {
 		try {
 			const res = await runReworkJson({ cwd: unicodeRepo });
 			expect(res.skipped_blame_files).toBe(0);
-			expect(res.top_files).toEqual([
+			expect(res.top_files).toMatchObject([
 				{ file: "src/ascii.ts", rework: 1, total: 1 },
 				{ file: CYRILLIC_FILE, rework: 1, total: 1 },
 			]);
@@ -539,7 +540,7 @@ describe("metricsReworkCommand — degenerate repositories", () => {
 			skipped_blame_files: 0,
 			overall: { rework: 0, total: 0, pct: 0 },
 		});
-		expect(res.top_files).toEqual([]);
+		expect(res.top_files).toMatchObject([]);
 	});
 
 	// test-contract: public-api — renders the zero-denominator report without a per-file section
@@ -895,7 +896,7 @@ describe("metricsReworkCommand — synthetic git, full mock", () => {
 		);
 		const { out } = await runRework({ cwd: "/fake", json: true }, cmd);
 		const res = parseWire(JSON.parse(out), wireObject({ "top_files": wireArray(wireObject({ "file": wireString })), "overall": wireObject({ "total": wireNumber }) }), "test JSON value");
-		expect(res.top_files).toEqual([{ file: "srcdist/decoy.ts", rework: 1, total: 1 }]);
+		expect(res.top_files).toMatchObject([{ file: "srcdist/decoy.ts", rework: 1, total: 1 }]);
 		expect(res.overall.total).toBe(1);
 	});
 

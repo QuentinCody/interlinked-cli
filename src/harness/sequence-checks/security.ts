@@ -8,11 +8,11 @@
 //   - download_then_execute (§3.2, pre_block)
 //   - same_command_thrice_no_observe (§3.9, pre_warn)
 
-import { isNetworkCommand } from "../taint-tracker.js";
+import { isOutboundNetworkCommand } from "../taint-tracker.js";
 import { CONFIDENTIAL_LEVELS, getCommand, isBashCandidate } from "./candidate-helpers.js";
 import type { SequenceDetector } from "./types.js";
 
-/** Test if the candidate Bash command targets localhost / loopback. */
+/** Localhost mention heuristic for the development-server nudge below. */
 const LOCALHOST_RE = /\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0|::1)\b/;
 
 // ============================================================
@@ -32,8 +32,7 @@ export const secretReadThenNetworkCall: SequenceDetector = {
 		if (!isBashCandidate(candidate.tool_name)) return [];
 		const cmd = getCommand(candidate.tool_input);
 		if (!cmd) return [];
-		if (!isNetworkCommand(cmd)) return [];
-		if (LOCALHOST_RE.test(cmd)) return [];
+		if (!isOutboundNetworkCommand(cmd)) return [];
 		if (!CONFIDENTIAL_LEVELS.has(trajectory.sensitivity_level)) return [];
 		const sources = trajectory.taint_sources
 			.filter((s) => CONFIDENTIAL_LEVELS.has(s.level))

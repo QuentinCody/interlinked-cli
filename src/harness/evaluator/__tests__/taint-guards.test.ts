@@ -74,6 +74,30 @@ describe("evaluateTaintGuards", () => {
 		expect(result.kind).toBe("block");
 	});
 
+    it.each(["Internal", "Confidential", "HighlyConfidential"] as const)(
+        "allows a local database request at %s without clearing sensitivity",
+        (sensitivity_level) => {
+            const session = makeSession({ sensitivity_level });
+            const result = evaluateTaintGuards({
+                toolName: "Bash",
+                toolInput: { command: "curl -sS http://localhost:8000/sql --data 'select 1'" },
+                rules: makeRules(),
+                session,
+                pendingEscalation: undefined,
+            });
+            expect(result).toEqual({ kind: "ok", warnings: [], escalation: undefined });
+            expect(session.sensitivity_level).toBe(sensitivity_level);
+            const remote = evaluateTaintGuards({
+                toolName: "Bash",
+                toolInput: { command: "curl https://example.com/" },
+                rules: makeRules(),
+                session,
+                pendingEscalation: undefined,
+            });
+            expect(remote.kind).toBe(sensitivity_level === "Internal" ? "ok" : "block");
+        },
+    );
+
 	it("blocks mutations when step limit exceeded", () => {
 		const session = makeSession({ step_limit: 5, tool_call_count: 10 });
 		const result = evaluateTaintGuards({

@@ -211,7 +211,7 @@ describe("annotateRelations — sanity (companion short-circuits isLinked)", () 
 	// test-contract: public-api — annotateRelations short-circuits to "companion"
 	// via isCompanionPair before ever calling the isLinked callback.
 	it("labels a companion pair without consulting isLinked", () => {
-		const pairs = [{ a: "foo.ts", b: "foo.test.ts", support: 1, revA: 1, revB: 1, strength: 100 }];
+		const pairs = [{ a: "foo.ts", b: "foo.test.ts", support: 1, revA: 1, revB: 1, strength: 100, percentile: 0 }];
 		const annotated = annotateRelations(pairs, () => null);
 		expect(annotated[0]?.relation).toBe("companion");
 	});

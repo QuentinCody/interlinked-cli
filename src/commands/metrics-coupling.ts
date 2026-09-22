@@ -12,6 +12,7 @@
 // failing the command.
 
 import { execFileSync } from "node:child_process";
+import { percentileRanks } from "../harness/percentile-rank.js";
 import { basename, dirname, join } from "node:path";
 import { ProjectGraph } from "../harness/project-graph.js";
 import { getOutputMode, output } from "../lib/output.js";
@@ -39,6 +40,8 @@ export interface CouplingPair {
 	revB: number;
 	/** support / mean(revA, revB), as a rounded percentage. */
 	strength: number;
+	/** Rank of `strength` among every pair this run kept (0–100; within this repository only). */
+	percentile: number;
 }
 
 export type CouplingRelation = "companion" | "linked" | "hidden" | "unknown";
@@ -102,7 +105,7 @@ export function computeCoupling(commits: CommitFiles[], opts: CouplingOptions): 
 	// pairs onto one support count.
 	const pairSupport = new Map<string, Map<string, number>>();
 	for (const commit of commits) accumulateCommitCoupling(commit, opts, revs, pairSupport);
-	const pairs: CouplingPair[] = [];
+	const kept: Omit<CouplingPair, "percentile">[] = [];
 	for (const [a, row] of pairSupport) {
 		const revA = revs.get(a) ?? 0;
 		for (const [b, support] of row) {
@@ -112,9 +115,12 @@ export function computeCoupling(commits: CommitFiles[], opts: CouplingOptions): 
 			const revB = revs.get(b) ?? 0;
 			const strength = Math.round((support / ((revA + revB) / 2)) * 100);
 			if (strength < opts.minStrength) continue;
-			pairs.push({ a, b, support, revA, revB, strength });
+			kept.push({ a, b, support, revA, revB, strength });
 		}
 	}
+	// Ranked against every pair that survived the filters — the whole run, never the top-N slice.
+	const ranks = percentileRanks(kept.map((p) => p.strength));
+	const pairs: CouplingPair[] = kept.map((p, i) => ({ ...p, percentile: ranks[i] ?? 0 }));
 	pairs.sort(
 		(x, y) => y.strength - x.strength || y.support - x.support || x.a.localeCompare(y.a),
 	);
@@ -206,13 +212,14 @@ function renderTable(pairs: AnnotatedCouplingPair[], since: string, scanned: num
 	const lines: string[] = [];
 	lines.push(`Change coupling — ${scanned} commits since ${since}`);
 	lines.push("");
-	lines.push("  str%  n   revs      relation   pair");
+	lines.push("  str%  pct  n   revs      relation   pair");
 	for (const p of pairs) {
 		const str = String(p.strength).padStart(4);
+		const pct = `p${p.percentile}`.padStart(4);
 		const n = String(p.support).padStart(3);
 		const revs = `${p.revA}/${p.revB}`.padEnd(9);
 		const rel = p.relation.padEnd(10);
-		lines.push(`  ${str}  ${n} ${revs} ${rel} ${p.a} ↔ ${p.b}`);
+		lines.push(`  ${str} ${pct}  ${n} ${revs} ${rel} ${p.a} ↔ ${p.b}`);
 	}
 	const hidden = pairs.filter((p) => p.relation === "hidden").length;
 	lines.push("");

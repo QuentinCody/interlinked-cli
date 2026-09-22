@@ -149,12 +149,32 @@ newline continues the same command and retains its interactive restrictions. A n
      call itself — the Bash command text, or the content you are writing — and must name the
      detector id **exactly**. The call then runs and the harness logs
      `[interlinked:sequence-deferred]` with your reason. These detectors latch on session
-     state, so without the marker one confidential read can block every later network call.
+     state, so without the marker one confidential read can block later outbound network calls.
+
 5. **When NOT to suppress:** `[proven]` findings (tsc/biome/gitleaks/semgrep actually ran) and
    any destructive/security **guard-rule** block. Suppression directives affect **checks**, not
    **rules** — you cannot `// interlinked-ignore` a `git push --force` block. If a *rule* is
    wrong for your repo, the fix is config (below), not a comment. Don't add
 	`@ts-ignore`/`biome-ignore` to silence a `[proven]` check — that trips `suppressions-unjustified`.
+
+**Loopback requests after a sensitive read.** The sensitivity guard and
+`secret_read_then_network_call` share destination-aware classification. Explicit HTTP(S)
+curl requests to `localhost`, IPv4 loopback (`127.0.0.0/8`), or IPv6 loopback (`::1`)
+are exempt, including ordinary request/data/header flags. Simple nc/ncat/netcat loopback
+connections are also exempt. Wget requires `--max-redirect=0` and a supported simple
+invocation. Each network command and destination must qualify: a local request never
+exempts another remote request in the same shell command. Sensitivity remains unchanged.
+LAN/private addresses, unknown destinations/options, shell expansions, curl redirect flags,
+explicit proxies, alternate resolution and config-file options retain guarding. Explicit
+environment assignments selecting proxies or client configuration also retain guarding.
+This is a static command classifier; it does not inspect ambient client configuration or
+prove what a local service does with received data. Other guards continue to apply.
+
+**Commit-risk nudge.** On a real Bash `git commit`, `[interlinked:jit][heuristic]` warns
+when the currently staged diff ranks at p90 or above against recent commits in this repo.
+It is advisory, never blocks, and does not replace subsequent commit gates. Inspect it with
+`interlinked metrics jit --staged --message '<planned subject>'`; see
+**interlinked-quality-gates** for calibration, interpretation and snapshot limits.
 
 An agent must not create a Git worktree to route around shared-workspace policy. Use the
 current workspace. If isolation is genuinely required, ask a human operator to provision an

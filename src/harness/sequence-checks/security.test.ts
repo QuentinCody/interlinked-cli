@@ -57,6 +57,17 @@ describe("secret_read_then_network_call", () => {
 		expect(secretReadThenNetworkCall.fn(session, candidate)).toEqual([]);
 	});
 
+    it.each([
+        "curl http://localhost/ && curl https://example.com/",
+        "curl https://example.com/localhost",
+        "curl http://localhost.example.com/",
+        "curl -L http://localhost/",
+    ])("does not exempt remote destinations or redirects: %s", (command) => {
+        const { session } = makeTrajectoryAtConfidential();
+        const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command } });
+        expect(secretReadThenNetworkCall.fn(session, candidate)).toHaveLength(1);
+    });
+
 	it("does not fire when sensitivity is only Public", () => {
 		const { session } = buildTrajectoryFixture([
 			{ tool_name: "Read", tool_input: { file_path: "src/foo.ts" } },

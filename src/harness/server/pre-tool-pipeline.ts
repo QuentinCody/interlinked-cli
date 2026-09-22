@@ -22,6 +22,7 @@ import { readToolString } from "../evaluator/tool-input-values.js";
 import { readSharedConfig } from "../../lib/config.js";
 import { isCoverageSuiteCommand, noteCoverageSuiteRunStart } from "../coverage-discharge.js";
 import { runCommitBaselineGate } from "../evaluator/commit-baseline-gate.js";
+import { runCommitJitGate } from "../evaluator/commit-jit-gate.js";
 import { runCommitFunctionTokenGate } from "../evaluator/commit-function-token-gate.js";
 import { runCommitLaunderingGate } from "../evaluator/commit-laundering-gate.js";
 import { evaluatePreToolUse, extractPermissionPattern } from "../evaluator.js";
@@ -216,6 +217,7 @@ async function runCommitQualityGates({
 }: CommitGateInput): Promise<HarnessDecision | null> {
 	const baselineDecision = runCommitBaselineGate(event, preDecision);
 	if (baselineDecision) return baselineDecision;
+	runCommitJitGate(event, preDecision); // warn-only: mutates warnings, never short-circuits
 	const tokenDecision = runCommitFunctionTokenGate(event, preDecision);
 	if (tokenDecision) return tokenDecision;
 	const launderingDecision = runCommitLaunderingGate(event, session, { nowMs: now() });

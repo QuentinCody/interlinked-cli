@@ -82,6 +82,9 @@ cloud/
 # Third-party reference repos cloned for design/research only — never committed.
 reference-repos/
 
+# Local evaluations; existing tracked fixtures remain versioned.
+/evals/
+
 # Vitest integration-test fixtures — created/destroyed by tests, should
 # never surface in git status or VS Code SCM.
 #

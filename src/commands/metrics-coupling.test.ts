@@ -121,6 +121,16 @@ describe("computeCoupling", () => {
 		).toEqual(["src/a.ts+src/b.ts"]);
 	});
 
+	it("ranks each pair's strength against every pair the run kept, never against the top-N slice", () => {
+		const pairs = computeCoupling(parseNameOnlyLog(LOG), { minSupport: 1, maxCommitFiles: 30, minStrength: 0 });
+		const strengths = pairs.map((p) => p.strength);
+		for (const p of pairs) {
+			const below = strengths.filter((s) => s < p.strength).length;
+			expect(p.percentile).toBe(Math.round((100 * below) / strengths.length));
+		}
+		expect(Math.min(...pairs.map((p) => p.percentile))).toBe(0);
+	});
+
 	it("ignores bulk commits over maxCommitFiles entirely", () => {
 		const bulk = `big\t1700000600\n${Array.from({ length: 31 }, (_, i) => `src/f${i}.ts`).join("\n")}\n`;
 		const pairs = computeCoupling(parseNameOnlyLog(bulk), {
@@ -150,7 +160,7 @@ describe("computeCoupling", () => {
 			minStrength: 0,
 		});
 		expect(pairs).toEqual([
-			{ a: "src/a.ts", b: "src/b.ts", support: 1, revA: 1, revB: 1, strength: 100 },
+			{ a: "src/a.ts", b: "src/b.ts", support: 1, revA: 1, revB: 1, strength: 100, percentile: 0 },
 		]);
 	});
 
@@ -185,7 +195,7 @@ describe("computeCoupling", () => {
 		// weird has 3 revs, c has 2, together 2 → 2 / 2.5 = 80%. The old encoding
 		// reported a="a", b="b", revA=revB=2 (the fallback) and a bogus 100%.
 		expect(pairs).toEqual([
-			{ a: weird, b: "c", support: 2, revA: 3, revB: 2, strength: 80 },
+			{ a: weird, b: "c", support: 2, revA: 3, revB: 2, strength: 80, percentile: 0 },
 		]);
 	});
 
@@ -226,7 +236,7 @@ describe("isCompanionPair", () => {
 });
 
 describe("annotateRelations", () => {
-	const base = { support: 3, revA: 3, revB: 3, strength: 100 };
+	const base = { support: 3, revA: 3, revB: 3, strength: 100, percentile: 0 };
 	it("labels companions by name before consulting the graph", () => {
 		const [p] = annotateRelations(
 			[{ a: "src/foo.test.ts", b: "src/foo.ts", ...base }],
@@ -449,8 +459,9 @@ describe("metricsCouplingCommand — JSON output", () => {
 		// else → support == revA == revB == 5, a clean 100%. iota/theta is the
 		// asymmetric one: theta also changed alone 5 times, so revB is 10 and the
 		// strength is 5 / ((5 + 10) / 2) = 67% — a value support/revA (100),
-		// support/revB (50), min and max all disagree with.
-		expect(payload.pairs).toEqual([
+		// support/revB (50), min and max all disagree with. (toMatchObject: the
+		// within-run `percentile` rank is pinned by the rendering test, not here.)
+		expect(payload.pairs).toMatchObject([
 			{
 				a: "docs/notes.md",
 				b: "src/zeta.ts",
@@ -634,14 +645,15 @@ describe("metricsCouplingCommand — human-readable rendering", () => {
 		const lines = text.split("\n");
 		expect(lines[0]).toBe(`Change coupling — ${TOTAL_COMMITS} commits since 90 days ago`);
 		expect(lines[1]).toBe("");
-		expect(lines[2]).toBe("  str%  n   revs      relation   pair");
+		expect(lines[2]).toBe("  str%  pct  n   revs      relation   pair");
+		// pct = rank of strength among the six kept pairs: five at 100 sit above one (p17); the 67 sits above none (p0).
 		expect(tableRows(text)).toEqual([
-			"   100    5 5/5       unknown    docs/notes.md ↔ src/zeta.ts",
-			"   100    5 5/5       linked     src/alpha.ts ↔ src/beta.ts",
-			"   100    5 5/5       hidden     src/delta.ts ↔ src/gamma.ts",
-			"   100    5 5/5       companion  src/epsilon.test.ts ↔ src/epsilon.ts",
-			"   100    5 5/5       unknown    src/eta.ts ↔ src/zz-notes.txt",
-			"    67    5 5/10      linked     src/iota.ts ↔ src/theta.ts",
+			"   100  p17    5 5/5       unknown    docs/notes.md ↔ src/zeta.ts",
+			"   100  p17    5 5/5       linked     src/alpha.ts ↔ src/beta.ts",
+			"   100  p17    5 5/5       hidden     src/delta.ts ↔ src/gamma.ts",
+			"   100  p17    5 5/5       companion  src/epsilon.test.ts ↔ src/epsilon.ts",
+			"   100  p17    5 5/5       unknown    src/eta.ts ↔ src/zz-notes.txt",
+			"    67   p0    5 5/10      linked     src/iota.ts ↔ src/theta.ts",
 		]);
 		expect(lines[lines.length - 1]).toBe(
 			"6 pairs (1 hidden — co-change with no import edge either way).",
@@ -704,12 +716,12 @@ describe("metricsCouplingCommand — import-graph fallback", () => {
 		// If the catch instead returned `() => true`, delta/gamma and eta/zz-notes
 		// would read "linked", not "unknown", failing this exact assertion.
 		expect(tableRows(text)).toEqual([
-			"   100    5 5/5       unknown    docs/notes.md ↔ src/zeta.ts",
-			"   100    5 5/5       unknown    src/alpha.ts ↔ src/beta.ts",
-			"   100    5 5/5       unknown    src/delta.ts ↔ src/gamma.ts",
-			"   100    5 5/5       companion  src/epsilon.test.ts ↔ src/epsilon.ts",
-			"   100    5 5/5       unknown    src/eta.ts ↔ src/zz-notes.txt",
-			"    67    5 5/10      unknown    src/iota.ts ↔ src/theta.ts",
+			"   100  p17    5 5/5       unknown    docs/notes.md ↔ src/zeta.ts",
+			"   100  p17    5 5/5       unknown    src/alpha.ts ↔ src/beta.ts",
+			"   100  p17    5 5/5       unknown    src/delta.ts ↔ src/gamma.ts",
+			"   100  p17    5 5/5       companion  src/epsilon.test.ts ↔ src/epsilon.ts",
+			"   100  p17    5 5/5       unknown    src/eta.ts ↔ src/zz-notes.txt",
+			"    67   p0    5 5/10      unknown    src/iota.ts ↔ src/theta.ts",
 		]);
 		expect(text.endsWith("6 pairs (0 hidden — co-change with no import edge either way).")).toBe(
 			true,

@@ -51,6 +51,7 @@ function registerComplexityCommand(metrics: Command): void {
         .option("--cwd <path>", "Project root (default: current directory)")
         .option("--top <n>", "Hotspots per metric and files by mass (default: 20)")
         .option("--metric <name>", "cyclomatic | cognitive | lines | all (default: all)")
+        .option("--churn-days <n>", "Hotspot window: ΣCC × lines changed in the last n days (default: 90)")
         .option("--json", "Machine-readable output")
         .option("--short", "One-line summary")
         .action(async (opts: OptionValues, command: Command) => {
@@ -110,6 +111,24 @@ function registerStaleReadmeCommand(metrics: Command): void {
         });
 }
 
+function registerJitCommand(metrics: Command): void {
+    metrics
+        .command("jit [ref]")
+        .description(
+            "Just-in-time commit risk (Kamei 2013): score one commit or the staged diff and rank it against the repo's own recent commits",
+        )
+        .option("--staged", "Score the staged diff instead of a commit")
+        .option("--message <text>", "Commit message for --staged (purpose classification)")
+        .option("--calibrate <n>", "Population size: newest first-parent commits to rank against (default: 200)")
+        .option("--cwd <path>", "Project root (default: current directory)")
+        .option("--json", "Machine-readable output")
+        .option("--short", "One-line summary")
+        .action(async (ref: string | undefined, opts: OptionValues, command: Command) => {
+            const { metricsJitCommand } = await import("../commands/metrics-jit.js");
+            metricsJitCommand({ ...parentAndChildOptions(opts, command), ref });
+        });
+}
+
 function registerScoreCommand(metrics: Command): void {
     metrics
         .command("score")
@@ -148,5 +167,6 @@ export function registerMetricsCommands(program: Command): void {
     registerComplexityCommand(metrics);
     registerSplitPlanCommand(metrics);
     registerScoreCommand(metrics);
+    registerJitCommand(metrics);
     registerMetricsAnalysisCommands(metrics);
 }

@@ -8,6 +8,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	CENSUS_METRICS,
+	type FileRow,
+	giniCoefficient,
+	perDirectorySpread,
 	type CensusSource,
 	collectCensusRows,
 	countOver,
@@ -166,14 +169,15 @@ describe("perFileMass", () => {
 		const rows = collectCensusRows(SOURCES, "/repo");
 		if (rows === null) throw new Error("analyzer unavailable");
 		expect(perFileMass(rows.cyclomatic, rows.cognitive)).toEqual([
-			{ file: "src/branchy.ts", cc: 8, cog: 8, fns: 2, density: 4 },
-			{ file: "src/simple.ts", cc: 1, cog: 0, fns: 1, density: 1 },
+			// pct = rank of ΣCC among the two files in this run.
+			{ file: "src/branchy.ts", cc: 8, cog: 8, fns: 2, density: 4, pct: 50 },
+			{ file: "src/simple.ts", cc: 1, cog: 0, fns: 1, density: 1, pct: 0 },
 		]);
 	});
 
 	it("N1: a file with cognitive rows but no cyclomatic rows has density 0, not NaN", () => {
 		expect(perFileMass([], [{ file: "x.ts", name: "f", line: 1, value: 4 }])).toEqual([
-			{ file: "x.ts", cc: 0, cog: 4, fns: 0, density: 0 },
+			{ file: "x.ts", cc: 0, cog: 4, fns: 0, density: 0, pct: 0 },
 		]);
 	});
 });
@@ -191,5 +195,57 @@ describe("proposeCaps", () => {
 	it("N1: an empty tree proposes zeros rather than throwing", () => {
 		const p = proposeCaps({ files: 0, cyclomatic: [], cognitive: [], lines: [] });
 		expect(p.lines).toEqual({ n: 0, p90: 0, p95: 0 });
+	});
+});
+
+describe("giniCoefficient", () => {
+	it("P1: equal sizes give 0", () => {
+		expect(giniCoefficient([100, 100, 100, 100])).toBe(0);
+	});
+
+	it("P2: one file holding almost every line approaches 1 − 1/n", () => {
+		// Gini = (2·Σ rank·y)/(n·Σy) − (n+1)/n; for [0,0,0,1000] → 2·4000/4000 − 5/4 = 0.75
+		expect(giniCoefficient([0, 0, 0, 1000])).toBeCloseTo(0.75, 10);
+	});
+
+	it("P3: is order-independent (sorts internally)", () => {
+		expect(giniCoefficient([300, 10, 50])).toBeCloseTo(giniCoefficient([10, 50, 300]), 12);
+	});
+
+	it("N1: fewer than two values or an all-zero sample yield 0, never NaN", () => {
+		expect(giniCoefficient([])).toBe(0);
+		expect(giniCoefficient([42])).toBe(0);
+		expect(giniCoefficient([0, 0])).toBe(0);
+	});
+});
+
+describe("perDirectorySpread", () => {
+	const LINES: FileRow[] = [
+		{ file: "src/a/one.ts", value: 100 },
+		{ file: "src/a/two.ts", value: 100 },
+		{ file: "src/a/three.ts", value: 100 },
+		{ file: "src/b/whale.ts", value: 480 },
+		{ file: "src/b/x.ts", value: 10 },
+		{ file: "src/b/y.ts", value: 10 },
+		{ file: "src/c/lone.ts", value: 50 },
+		{ file: "top.ts", value: 20 },
+	];
+
+	it("P1: one row per directory with ≥ minFiles files, gini desc, uniform dir at 0", () => {
+		const rows = perDirectorySpread(LINES, 3);
+		expect(rows.map((r) => r.dir)).toEqual(["src/b", "src/a"]);
+		expect(rows[0]).toEqual({ dir: "src/b", files: 3, lines: 500, gini: expect.closeTo(0.627, 3) });
+		expect(rows[1]).toEqual({ dir: "src/a", files: 3, lines: 300, gini: 0 });
+	});
+
+	it("P2: root-level files aggregate under '.' and the direct parent only (no ancestor roll-up)", () => {
+		const rows = perDirectorySpread(LINES, 1);
+		expect(rows.find((r) => r.dir === ".")).toEqual({ dir: ".", files: 1, lines: 20, gini: 0 });
+		expect(rows.find((r) => r.dir === "src")).toBeUndefined();
+	});
+
+	it("N1: directories under minFiles are omitted — a 1-file Gini is noise, not a number", () => {
+		expect(perDirectorySpread(LINES, 3).some((r) => r.dir === "src/c")).toBe(false);
+		expect(perDirectorySpread([], 1)).toEqual([]);
 	});
 });

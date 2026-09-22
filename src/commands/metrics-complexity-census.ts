@@ -14,6 +14,7 @@
 import { computeCognitiveAst } from "../harness/checks/cognitive-ast.js";
 import { computeCyclomaticAst } from "../harness/checks/cyclomatic-ast.js";
 import { countLines, isCappableFile } from "../harness/large-file-policy.js";
+import { percentileRanks } from "../harness/percentile-rank.js";
 
 /** The three census metrics, in report order. */
 export const CENSUS_METRICS = ["cyclomatic", "cognitive", "lines"] as const;
@@ -63,6 +64,38 @@ export interface FileMass {
 	cog: number;
 	fns: number;
 	density: number;
+	/** Rank of `cc` among every measured file in this run (0–100; within this repository only). */
+	pct: number;
+}
+
+/** Lines changed in the churn window, per file. */
+export interface ChurnWindow {
+	lines: number;
+	commits: number;
+}
+
+/** Tornhill hotspot: complexity that is also changing. `score` = ΣCC × changed lines. */
+export interface FileHotspot {
+	file: string;
+	cc: number;
+	churn_lines: number;
+	commits: number;
+	score: number;
+	/** Rank of `score` among every file with churn in this run (0–100; within this repository only). */
+	pct: number;
+}
+
+/** Files with both complexity and churn, ranked by ΣCC × changed lines. */
+export function fileHotspots(mass: readonly FileMass[], churn: ReadonlyMap<string, ChurnWindow>): FileHotspot[] {
+	const rows = mass.flatMap((m) => {
+		const c = churn.get(m.file);
+		if (!c || c.lines <= 0 || m.cc <= 0) return [];
+		return [{ file: m.file, cc: m.cc, churn_lines: c.lines, commits: c.commits, score: m.cc * c.lines }];
+	});
+	const ranks = percentileRanks(rows.map((r) => r.score));
+	return rows
+		.map((r, i) => ({ ...r, pct: ranks[i] ?? 0 }))
+		.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
 }
 
 export interface CensusRows {
@@ -164,7 +197,7 @@ export function perFileMass(cyclo: readonly FunctionRow[], cognitive: readonly F
 	const entry = (file: string): FileMass => {
 		let e = byFile.get(file);
 		if (!e) {
-			e = { file, cc: 0, cog: 0, fns: 0, density: 0 };
+			e = { file, cc: 0, cog: 0, fns: 0, density: 0, pct: 0 };
 			byFile.set(file, e);
 		}
 		return e;
@@ -175,8 +208,13 @@ export function perFileMass(cyclo: readonly FunctionRow[], cognitive: readonly F
 		e.fns += 1;
 	}
 	for (const r of cognitive) entry(r.file).cog += r.value;
-	for (const e of byFile.values()) e.density = e.fns === 0 ? 0 : e.cc / e.fns;
-	return [...byFile.values()].sort((a, b) => b.cc - a.cc || a.file.localeCompare(b.file));
+	const all = [...byFile.values()];
+	const ranks = percentileRanks(all.map((e) => e.cc));
+	all.forEach((e, i) => {
+		e.density = e.fns === 0 ? 0 : e.cc / e.fns;
+		e.pct = ranks[i] ?? 0;
+	});
+	return all.sort((a, b) => b.cc - a.cc || a.file.localeCompare(b.file));
 }
 
 interface MeasuredFunction {
@@ -236,4 +274,61 @@ export function proposeCaps(rows: CensusRows): Record<CensusMetric, CapProposal>
 		cognitive: propose(rows.cognitive.map((r) => r.value)),
 		lines: propose(rows.lines.map((r) => r.value)),
 	};
+}
+
+// ---- directory spread (valknut intake, spike 2) ---------------------------------
+
+/**
+ * Gini coefficient of a sample: 0 when every value is equal, → 1 − 1/n when one
+ * value holds everything. Standard rank form over the ascending sample:
+ * G = (2·Σᵢ i·yᵢ) / (n·Σy) − (n+1)/n. Fewer than two values, or a zero total,
+ * yields 0 rather than NaN — such a sample has no spread to measure.
+ */
+export function giniCoefficient(values: readonly number[]): number {
+	const sorted = [...values].sort((a, b) => a - b);
+	const n = sorted.length;
+	const total = sorted.reduce((s, v) => s + v, 0);
+	if (n < 2 || total === 0) return 0;
+	let weighted = 0;
+	for (let i = 0; i < n; i++) weighted += (i + 1) * (sorted[i] ?? 0);
+	return Math.max(0, (2 * weighted) / (n * total) - (n + 1) / n);
+}
+
+/** Line-count spread across the files DIRECTLY inside one directory. */
+export interface DirectorySpread {
+	/** Repo-relative POSIX directory; `.` for root-level files. */
+	dir: string;
+	files: number;
+	lines: number;
+	gini: number;
+}
+
+/** POSIX dirname of a repo-relative path; `.` when the file sits at the root. */
+function parentDir(file: string): string {
+	const idx = file.lastIndexOf("/");
+	return idx === -1 ? "." : file.slice(0, idx);
+}
+
+/**
+ * Per-directory Gini of file line counts, direct children only (no ancestor
+ * roll-up: a directory's number describes the files it holds, not its subtree).
+ * Directories with fewer than `minFiles` files are omitted — a 1- or 2-file
+ * Gini is noise. Telemetry only: never gated (the line cap already blocks the
+ * tail); its use is to show whether a split campaign made a directory more
+ * uniform. Sorted by gini desc, then dir.
+ */
+export function perDirectorySpread(lines: readonly FileRow[], minFiles: number): DirectorySpread[] {
+	const byDir = new Map<string, number[]>();
+	for (const r of lines) {
+		const dir = parentDir(r.file);
+		const bucket = byDir.get(dir);
+		if (bucket) bucket.push(r.value);
+		else byDir.set(dir, [r.value]);
+	}
+	const out: DirectorySpread[] = [];
+	for (const [dir, values] of byDir) {
+		if (values.length < minFiles) continue;
+		out.push({ dir, files: values.length, lines: values.reduce((s, v) => s + v, 0), gini: giniCoefficient(values) });
+	}
+	return out.sort((a, b) => b.gini - a.gini || a.dir.localeCompare(b.dir));
 }

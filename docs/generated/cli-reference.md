@@ -53,6 +53,7 @@ Commands:
   index                                      Manage the trigram search index for grep acceleration
   init [options]                             One-command onboarding: detect clients, configure, login, verify
   install-hooks [options]                    Install agent hooks for detected runners (adapter-based, manifest-driven)
+  jev                                        Opt-in semantic checks via TypeSafe Jev (advisory; needs jev.enabled + TYPESAFE_API_KEY)
   lint                                       Discover and adopt existing lint configurations as Interlinked checks and debt gates
   login [options]                            Authenticate with the server (opens browser)
   logout [options]                           Clear authentication credentials (preserves other config)
@@ -880,6 +881,10 @@ Commands:
   score [options]                     Explained 0–100 quality burden with
                                       explicit evidence completeness; no model
                                       calls
+  jit [options] [ref]                 Just-in-time commit risk (Kamei 2013):
+                                      score one commit or the staged diff and
+                                      rank it against the repo's own recent
+                                      commits
   diagnostics [options]               Explained verbosity and erosion census;
                                       advisory evidence, no quality verdict
   gates [options]                     Show disabled gates, actual coverage
@@ -966,12 +971,14 @@ Complexity census: percentiles, histograms, top-N hotspots, per-file mass, and
 over-cap counts for cyclomatic / cognitive / lines
 
 Options:
-  --cwd <path>     Project root (default: current directory)
-  --top <n>        Hotspots per metric and files by mass (default: 20)
-  --metric <name>  cyclomatic | cognitive | lines | all (default: all)
-  --json           Machine-readable output
-  --short          One-line summary
-  -h, --help       display help for command
+  --cwd <path>      Project root (default: current directory)
+  --top <n>         Hotspots per metric and files by mass (default: 20)
+  --metric <name>   cyclomatic | cognitive | lines | all (default: all)
+  --churn-days <n>  Hotspot window: ΣCC × lines changed in the last n days
+                    (default: 90)
+  --json            Machine-readable output
+  --short           One-line summary
+  -h, --help        display help for command
 ```
 
 ### metrics split-plan

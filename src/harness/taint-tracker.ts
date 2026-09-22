@@ -6,6 +6,7 @@
 // Outbound network commands are blocked when sensitivity reaches threshold.
 
 import { nonNull } from "../lib/non-null.js";
+import { isLoopbackNetworkCommand } from "./network-loopback.js";
 import { shellSplit, splitSegments, stripLeadingPrefix } from "./shell-structure.js";
 import type {
 	SensitivityLevel,
@@ -123,6 +124,23 @@ export function isNetworkCommand(command: string): boolean {
 		if (sub && tokens[1] !== undefined && sub.has(tokens[1].toLowerCase())) return true;
 	}
 	return false;
+}
+
+/** Network guard classification: exempt understood loopback invocations only.
+ * Each shell segment is checked independently, so one local request cannot
+ * exempt a later remote request. Dynamic shell text retains the guard. */
+export function isOutboundNetworkCommand(command: string): boolean {
+    for (const segment of splitSegments(command)) {
+        if (!isNetworkCommand(segment)) continue;
+        if (/[$`\\]/.test(segment)) return true;
+        const rawTokens = shellSplit(segment);
+        const tokens = stripLeadingPrefix(rawTokens);
+        const prefixes = rawTokens.slice(0, rawTokens.length - tokens.length);
+        if (prefixes.some((token) => /^(?:https?_proxy|all_proxy|CURL_HOME|HOME|XDG_CONFIG_HOME|WGETRC)=/i.test(token))) return true;
+        const head = commandHead(tokens[0] ?? "");
+        if (!isLoopbackNetworkCommand(head, tokens.slice(1))) return true;
+    }
+    return false;
 }
 
 // ===========================================

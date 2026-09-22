@@ -17,8 +17,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getGitSourceFiles } from "../harness/checks/export-ripple.js";
 import { DEFAULT_MAX_COGNITIVE } from "../harness/checks/cognitive-ast.js";
+import { DEFAULT_MAX_COMMIT_FILES, loadHistory } from "../harness/jit-commit-inputs.js";
 import { loadLargeFileBaseline } from "../harness/large-file-policy.js";
 import { resolveMetricCaps } from "../harness/metric-caps.js";
+import { percentileRanks } from "../harness/percentile-rank.js";
 import { getOutputMode, output } from "../lib/output.js";
 import {
 	CENSUS_METRICS,
@@ -26,21 +28,31 @@ import {
 	type CensusMetric,
 	type CensusRows,
 	type CensusSource,
+	type ChurnWindow,
 	collectCensusRows,
 	countOver,
+	type DirectorySpread,
 	type Distribution,
+	type FileHotspot,
 	type FileMass,
 	type FileRow,
 	type FunctionRow,
+	fileHotspots,
 	HISTOGRAM_BANDS,
 	type HistogramBand,
 	histogram,
 	isCensusMetric,
+	perDirectorySpread,
 	perFileMass,
 	proposeCaps,
 	summarize,
 	topN,
 } from "./metrics-complexity-census.js";
+
+/** A census row with its rank among every row of the same metric in this run (0–100; within this repository). */
+export type RankedRow<T> = T & { pct: number };
+
+export const DEFAULT_CHURN_DAYS = 90;
 
 // The four report types below are public API: they are the `--json` contract
 // of `metrics complexity` and the shape `buildComplexityReport` hands to
@@ -62,7 +74,7 @@ export interface MetricReport {
 	over_cap: number;
 	/** The advisory (warn-early) threshold, where one exists — cognitive only. */
 	advisory: { threshold: number; over: number } | null;
-	top: FunctionRow[] | FileRow[];
+	top: RankedRow<FunctionRow>[] | RankedRow<FileRow>[];
 }
 
 export interface ComplexityReport {
@@ -73,9 +85,23 @@ export interface ComplexityReport {
 	caps: CensusCaps;
 	metrics: MetricReport[];
 	files_by_mass: FileMass[];
+	/** Per-directory Gini of file line counts (direct children, ≥ DIRECTORY_MIN_FILES). Telemetry, never gated. */
+	directories: DirectorySpread[];
+	/** Tornhill hotspots: ΣCC × lines changed in the last `churn_days`. Empty when no file has churn. */
+	hotspots: FileHotspot[];
+	churn_days: number;
+}
+
+export interface ReportOptions {
+	/** Per-file churn over the window; absent or empty → no hotspot section. */
+	churn?: ReadonlyMap<string, ChurnWindow>;
+	churnDays?: number;
 }
 
 const DEFAULT_TOP = 20;
+
+/** Floor below which a directory's Gini is noise and the row is omitted. */
+export const DIRECTORY_MIN_FILES = 3;
 
 const METRIC_LABEL: Record<CensusMetric, string> = {
 	cyclomatic: "Cyclomatic per function",
@@ -93,6 +119,8 @@ export function parseMetricSelection(raw: string | undefined): CensusMetric[] | 
 function metricReport(rows: CensusRows, metric: CensusMetric, caps: CensusCaps, top: number): MetricReport {
 	const metricRows: FunctionRow[] | FileRow[] = rows[metric];
 	const values = metricRows.map((r) => r.value);
+	const ranks = percentileRanks(values);
+	const ranked = metricRows.map((r, i) => ({ ...r, pct: ranks[i] ?? 0 }));
 	const cap = caps[metric];
 	return {
 		metric,
@@ -104,7 +132,7 @@ function metricReport(rows: CensusRows, metric: CensusMetric, caps: CensusCaps, 
 			metric === "cognitive"
 				? { threshold: DEFAULT_MAX_COGNITIVE, over: countOver(values, DEFAULT_MAX_COGNITIVE) }
 				: null,
-		top: topN(metricRows, top),
+		top: topN(ranked, top),
 	};
 }
 
@@ -114,15 +142,45 @@ export function buildComplexityReport(
 	caps: CensusCaps,
 	selection: readonly CensusMetric[],
 	top: number,
+	options: ReportOptions = {},
 ): ComplexityReport {
+	const mass = perFileMass(rows.cyclomatic, rows.cognitive);
 	return {
 		files: rows.files,
 		functions: rows.cyclomatic.length,
 		top,
 		caps,
 		metrics: selection.map((m) => metricReport(rows, m, caps, top)),
-		files_by_mass: perFileMass(rows.cyclomatic, rows.cognitive).slice(0, top),
+		files_by_mass: mass.slice(0, top),
+		directories: perDirectorySpread(rows.lines, DIRECTORY_MIN_FILES).slice(0, top),
+		hotspots: fileHotspots(mass, options.churn ?? new Map()).slice(0, top),
+		churn_days: options.churnDays ?? DEFAULT_CHURN_DAYS,
 	};
+}
+
+/**
+ * Lines changed per file over the last `days` (first-parent, bulk commits over
+ * DEFAULT_MAX_COMMIT_FILES skipped, same as `metrics coupling`). Empty when git
+ * is unavailable — the hotspot section then simply does not print.
+ */
+export function loadChurn(cwd: string, days: number): Map<string, ChurnWindow> {
+	const churn = new Map<string, ChurnWindow>();
+	let history: ReturnType<typeof loadHistory>;
+	try {
+		history = loadHistory(cwd, { longWindowDays: days });
+	} catch {
+		return churn;
+	}
+	for (const commit of history) {
+		if (commit.files.length > DEFAULT_MAX_COMMIT_FILES) continue;
+		for (const f of commit.files) {
+			const c = churn.get(f.file) ?? { lines: 0, commits: 0 };
+			c.lines += f.added + f.deleted;
+			c.commits += 1;
+			churn.set(f.file, c);
+		}
+	}
+	return churn;
 }
 
 // ---- rendering ---------------------------------------------------------------
@@ -148,9 +206,17 @@ function isFunctionRow(row: FunctionRow | FileRow): row is FunctionRow {
 	return "name" in row;
 }
 
-function renderTopRow(row: FunctionRow | FileRow): string {
-	if (isFunctionRow(row)) return `  ${String(row.value).padStart(3)}  ${row.file}:${row.line}  ${row.name}`;
-	return `  ${String(row.value).padStart(4)}  ${row.file}`;
+function renderTopRow(row: RankedRow<FunctionRow> | RankedRow<FileRow>): string {
+	const pct = `p${row.pct}`.padStart(4);
+	if (isFunctionRow(row)) return `  ${String(row.value).padStart(3)} ${pct}  ${row.file}:${row.line}  ${row.name}`;
+	return `  ${String(row.value).padStart(4)} ${pct}  ${row.file}`;
+}
+
+function renderHotspotRow(h: FileHotspot): string {
+	return (
+		`  ${String(h.score).padStart(7)} ${`p${h.pct}`.padStart(4)}  ${String(h.cc).padStart(4)} × ` +
+		`${String(h.churn_lines).padStart(5)} lines / ${String(h.commits).padStart(3)} commits  ${h.file}`
+	);
 }
 
 function renderMetricSection(m: MetricReport, top: number): string[] {
@@ -167,9 +233,13 @@ function renderMetricSection(m: MetricReport, top: number): string[] {
 
 function renderMassRow(e: FileMass): string {
 	return (
-		`  ${String(e.cc).padStart(4)} / ${String(e.cog).padStart(4)} / ${String(e.fns).padStart(3)} / ` +
+		`  ${`p${e.pct}`.padStart(4)} ${String(e.cc).padStart(4)} / ${String(e.cog).padStart(4)} / ${String(e.fns).padStart(3)} / ` +
 		`${e.density.toFixed(1).padStart(4)}  ${e.file}`
 	);
+}
+
+function renderSpreadRow(d: DirectorySpread): string {
+	return `  ${String(d.files).padStart(3)} / ${String(d.lines).padStart(6)} / ${d.gini.toFixed(3)}  ${d.dir}`;
 }
 
 /** The census-style text report (normal / full modes). */
@@ -177,8 +247,22 @@ export function renderComplexityReport(report: ComplexityReport): string {
 	const lines: string[] = [`Complexity census — ${report.files} files, ${report.functions} functions`];
 	for (const m of report.metrics) lines.push(...renderMetricSection(m, report.top));
 	if (report.metrics.length > 0) {
-		lines.push("", `== Top ${report.top} files by cyclomatic mass (ΣCC / Σcognitive / fns / density)`);
+		lines.push("", `== Top ${report.top} files by cyclomatic mass (ΣCC / Σcognitive / fns / density); pct = ΣCC rank within this repo`);
 		lines.push(...report.files_by_mass.map(renderMassRow));
+	}
+	if (report.hotspots.length > 0) {
+		lines.push(
+			"",
+			`== Top ${report.top} hotspots (ΣCC × lines changed in ${report.churn_days}d; pct = rank among files with churn)`,
+		);
+		lines.push(...report.hotspots.map(renderHotspotRow));
+	}
+	if (report.directories.length > 0) {
+		lines.push(
+			"",
+			`== Top ${report.top} directories by line-count spread (files / lines / gini; ≥${DIRECTORY_MIN_FILES} files, telemetry only)`,
+		);
+		lines.push(...report.directories.map(renderSpreadRow));
 	}
 	return lines.join("\n");
 }
@@ -220,6 +304,8 @@ interface CensusDeps {
 	/** Repo-relative source paths to measure (default: git-visible sources). */
 	listFiles?: (cwd: string) => string[];
 	analyzers?: CensusAnalyzers;
+	/** Per-file churn over `days` (default: `loadChurn` over git). */
+	churn?: (cwd: string, days: number) => ReadonlyMap<string, ChurnWindow>;
 }
 
 /** null when the path vanished between listing and reading, or is not a file. */
@@ -269,14 +355,22 @@ interface MetricsComplexityOpts {
 	cwd?: string;
 	top?: string;
 	metric?: string;
+	churnDays?: string;
 	json?: boolean;
 	short?: boolean;
 	full?: boolean;
 }
 
+/** Absent or blank → fallback (`Number("")` is 0, which silently meant "--top 0" before 2026-09-21). */
+function parseNonNegativeInt(raw: string | undefined, fallback: number): number {
+	const text = (raw ?? "").trim();
+	if (text === "") return fallback;
+	const n = Number(text);
+	return Number.isFinite(n) && Number.isInteger(n) && n >= 0 ? n : fallback;
+}
+
 function parseTop(raw: string | undefined): number {
-	const n = Number((raw ?? "").trim());
-	return Number.isFinite(n) && Number.isInteger(n) && n >= 0 ? n : DEFAULT_TOP;
+	return parseNonNegativeInt(raw, DEFAULT_TOP);
 }
 
 /** Public API — wired by `interlinked metrics complexity` in registrars/metrics.ts. */
@@ -293,7 +387,9 @@ export async function metricsComplexityCommand(
 	}
 	const rows = runCensus(cwd, deps);
 	if (rows === null) return;
-	const report = buildComplexityReport(rows, resolveCensusCaps(cwd), selection, parseTop(opts.top));
+	const churnDays = parseNonNegativeInt(opts.churnDays, DEFAULT_CHURN_DAYS);
+	const churn = (deps.churn ?? loadChurn)(cwd, churnDays);
+	const report = buildComplexityReport(rows, resolveCensusCaps(cwd), selection, parseTop(opts.top), { churn, churnDays });
 	output(getOutputMode(opts), report, {
 		json: () => report,
 		short: () => renderShortSummary(report),

@@ -23,6 +23,7 @@ import { collectCensusRows } from "./metrics-complexity-census.js";
 import {
 	buildComplexityReport,
 	capsProposeAction,
+	DIRECTORY_MIN_FILES,
 	metricsComplexityCommand,
 	parseMetricSelection,
 	renderCapProposals,
@@ -95,18 +96,59 @@ describe("buildComplexityReport", () => {
 		expect(cog?.over_cap).toBe(1);
 		expect(cog?.advisory).toEqual({ threshold: DEFAULT_MAX_COGNITIVE, over: 0 });
 		expect(lines?.over_cap).toBe(1);
-		expect(lines?.top[0]).toEqual({ file: "src/branchy.ts", value: 15 });
+		expect(lines?.top[0]).toEqual({ file: "src/branchy.ts", value: 15, pct: 50 });
 	});
 
 	it("P2: top-N is ranked by value and capped at --top", () => {
 		const report = buildComplexityReport(FIXTURE_ROWS, TIGHT_CAPS, ["cyclomatic"], 1);
-		expect(report.metrics[0]?.top).toEqual([{ file: "src/branchy.ts", name: "branchy", line: 1, value: 6 }]);
-		expect(report.files_by_mass[0]).toEqual({ file: "src/branchy.ts", cc: 8, cog: 8, fns: 2, density: 4 });
+		// pct ranks within the run: branchy (6) is above 2 of 3 functions; its file's ΣCC is above 1 of 2 files.
+		expect(report.metrics[0]?.top).toEqual([{ file: "src/branchy.ts", name: "branchy", line: 1, value: 6, pct: 67 }]);
+		expect(report.files_by_mass[0]).toEqual({ file: "src/branchy.ts", cc: 8, cog: 8, fns: 2, density: 4, pct: 50 });
+	});
+
+	it("P4: hotspots multiply a file's ΣCC by its churn and rank among files with churn", () => {
+		const churn = new Map([
+			["src/branchy.ts", { lines: 10, commits: 2 }],
+			["src/simple.ts", { lines: 100, commits: 5 }],
+		]);
+		const report = buildComplexityReport(FIXTURE_ROWS, TIGHT_CAPS, ["cyclomatic"], 20, { churn, churnDays: 30 });
+		expect(report.churn_days).toBe(30);
+		expect(report.hotspots).toEqual([
+			{ file: "src/simple.ts", cc: 1, churn_lines: 100, commits: 5, score: 100, pct: 50 },
+			{ file: "src/branchy.ts", cc: 8, churn_lines: 10, commits: 2, score: 80, pct: 0 },
+		]);
+	});
+
+	it("N3: with no churn the hotspot list is empty and the window still defaults to 90 days", () => {
+		const report = buildComplexityReport(FIXTURE_ROWS, TIGHT_CAPS, ["cyclomatic"], 20);
+		expect(report.hotspots).toEqual([]);
+		expect(report.churn_days).toBe(90);
 	});
 
 	it("N1: an unselected metric is absent from the report", () => {
 		const report = buildComplexityReport(FIXTURE_ROWS, TIGHT_CAPS, ["lines"], 20);
 		expect(report.metrics.map((m) => m.metric)).toEqual(["lines"]);
+	});
+
+	it("P3: directories with ≥ DIRECTORY_MIN_FILES files get a Gini row, capped at --top", () => {
+		const rows = {
+			...FIXTURE_ROWS,
+			lines: [
+				...FIXTURE_ROWS.lines,
+				{ file: "src/third.ts", value: 300 },
+				{ file: "lib/a.ts", value: 7 },
+				{ file: "lib/b.ts", value: 7 },
+				{ file: "lib/c.ts", value: 7 },
+			],
+		};
+		const report = buildComplexityReport(rows, TIGHT_CAPS, ["lines"], 1);
+		expect(DIRECTORY_MIN_FILES).toBe(3);
+		// src/ holds 4 + 15 + 300 lines: G = 2·(4+30+900)/(3·319) − 4/3 = 0.6186
+		expect(report.directories).toEqual([{ dir: "src", files: 3, lines: 319, gini: expect.closeTo(0.6186, 3) }]);
+	});
+
+	it("N2: a 2-file directory yields no spread row — the fixture's src/ is below the floor", () => {
+		expect(buildComplexityReport(FIXTURE_ROWS, TIGHT_CAPS, ["lines"], 20).directories).toEqual([]);
 	});
 });
 
@@ -130,6 +172,32 @@ describe("renderComplexityReport", () => {
 		expect(renderShortSummary(report)).toBe(
 			"2 files, 3 functions; over cap: cyclomatic 1/3 (>5), cognitive 1/3 (>6), lines 1/2 (>10)",
 		);
+	});
+
+	it("P3: the directory-spread section prints files / lines / gini per directory", () => {
+		const rows = { ...FIXTURE_ROWS, lines: [...FIXTURE_ROWS.lines, { file: "src/third.ts", value: 300 }] };
+		const text = renderComplexityReport(buildComplexityReport(rows, TIGHT_CAPS, ["lines"], 20));
+		expect(text).toContain(
+			"== Top 20 directories by line-count spread (files / lines / gini; ≥3 files, telemetry only)",
+		);
+		expect(text).toContain("    3 /    319 / 0.619  src");
+	});
+
+	it("N2: no directory reaches the floor → the spread section is omitted, not printed empty", () => {
+		const text = renderComplexityReport(buildComplexityReport(FIXTURE_ROWS, TIGHT_CAPS, ["lines"], 20));
+		expect(text).not.toContain("directories by line-count spread");
+		expect(text).not.toContain("hotspots");
+	});
+
+	it("P4: the hotspot section prints score, rank, the ΣCC × lines product, and the window", () => {
+		const churn = new Map([["src/branchy.ts", { lines: 10, commits: 2 }]]);
+		const text = renderComplexityReport(
+			buildComplexityReport(FIXTURE_ROWS, TIGHT_CAPS, ["cyclomatic"], 20, { churn, churnDays: 30 }),
+		);
+		expect(text).toContain("== Top 20 hotspots (ΣCC × lines changed in 30d; pct = rank among files with churn)");
+		expect(text).toContain("       80   p0     8 ×    10 lines /   2 commits  src/branchy.ts");
+		expect(text).toContain("  p50    8 /    8 /   2 /  4.0  src/branchy.ts");
+		expect(text).toContain("6  p67  src/branchy.ts:1  branchy");
 	});
 
 	it("N1: rendering a report with no metrics selected still prints the totals line", () => {
@@ -216,6 +284,14 @@ describe("metricsComplexityCommand", () => {
 		expect(text).toContain("== Top 1 cognitive");
 		expect(text).toContain("src/branchy.ts:1  branchy");
 		expect(text).not.toContain("arrow");
+	});
+
+	it("P4: with no --top and no --churn-days the report uses the defaults, not zero", async () => {
+		logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+		const churn = () => new Map([["src/branchy.ts", { lines: 10, commits: 2 }]]);
+		await metricsComplexityCommand({ cwd: root, json: true }, { listFiles: listFixture, churn });
+		const parsed: unknown = JSON.parse(logged());
+		expect(parsed).toMatchObject({ top: 20, churn_days: 90, hotspots: [{ file: "src/branchy.ts", score: 80 }] });
 	});
 
 	it("P3: --short prints the one-line summary", async () => {
