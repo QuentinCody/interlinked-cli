@@ -1,13 +1,14 @@
 import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
 import { metricsComplexityCommand } from "../commands/metrics-complexity.js";
+import { metricsJitCommand } from "../commands/metrics-jit.js";
 import { metricsScoreCommand } from "../commands/metrics-score.js";
 import { metricsDiagnosticsCommand } from "../commands/metrics-diagnostics.js";
 import { metricsDiagnosticsCompareCommand } from "../commands/metrics-diagnostics-compare.js";
 import { metricsSplitPlanCommand } from "../commands/metrics-split-plan.js";
 import { registerMetricsCommands } from "./metrics.js";
 
-// Only the three subcommands under test are mocked — `metrics.ts`'s own bare
+// Only the subcommands under test are mocked — `metrics.ts`'s own bare
 // action and the coupling/arch/rework siblings are untouched by these tests.
 vi.mock("../commands/metrics-complexity.js", () => ({
 	metricsComplexityCommand: vi.fn().mockResolvedValue(undefined),
@@ -18,10 +19,29 @@ vi.mock("../commands/metrics-split-plan.js", () => ({
 vi.mock("../commands/metrics-score.js", () => ({
 	metricsScoreCommand: vi.fn(),
 }));
+vi.mock("../commands/metrics-jit.js", () => ({ metricsJitCommand: vi.fn() }));
 vi.mock("../commands/metrics-diagnostics.js", () => ({ metricsDiagnosticsCommand: vi.fn() }));
 vi.mock("../commands/metrics-diagnostics-compare.js", () => ({ metricsDiagnosticsCompareCommand: vi.fn() }));
 
 describe("registerMetricsCommands", () => {
+    it("routes commit risk with a ref, calibration size, and inherited scope", async () => {
+        vi.mocked(metricsJitCommand).mockClear();
+        const program = new Command();
+        registerMetricsCommands(program);
+        await program.parseAsync(["node", "interlinked", "metrics", "--cwd", "/parent/root", "jit", "HEAD~1", "--calibrate", "25", "--json"]);
+        expect(metricsJitCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            cwd: "/parent/root", ref: "HEAD~1", calibrate: "25", json: true,
+        }));
+    });
+    it("routes staged commit risk with its message and no ref", async () => {
+        vi.mocked(metricsJitCommand).mockClear();
+        const program = new Command();
+        registerMetricsCommands(program);
+        await program.parseAsync(["node", "interlinked", "metrics", "jit", "--staged", "--message", "fix: handle loopback", "--short"]);
+        expect(metricsJitCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            ref: undefined, staged: true, message: "fix: handle loopback", short: true,
+        }));
+    });
     it("routes saved diagnostic comparison without performing a census", async () => {
         const program = new Command();
         registerMetricsCommands(program);
