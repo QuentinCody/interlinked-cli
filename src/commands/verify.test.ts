@@ -450,8 +450,10 @@ describe("verifyCommand — dispatch", () => {
 		isGitUrlMock.mockReturnValue(true);
 		await verifyCommand({ target: "https://github.com/o/r", json: true });
 		expect(cloneRepoMock).toHaveBeenCalledWith("https://github.com/o/r", { branch: undefined });
-		// remote path scans the clone dir, not via the local stat() branch
-		expect(statSyncMock).not.toHaveBeenCalled();
+		// The URL is never treated as a local path. Rule fingerprinting may stat
+		// configuration files while the verifier scans the cloned repository.
+		expect(statSyncMock).not.toHaveBeenCalledWith("https://github.com/o/r");
+		expect(discoverFilesMock).toHaveBeenCalledWith("/clone/dir");
 	});
 
 	it("errors with the remote-repo hint when a local target does not exist", async () => {

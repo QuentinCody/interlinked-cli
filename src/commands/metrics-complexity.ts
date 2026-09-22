@@ -15,6 +15,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { nonNull } from "../lib/non-null.js";
 import { getGitSourceFiles } from "../harness/checks/export-ripple.js";
 import { DEFAULT_MAX_COGNITIVE } from "../harness/checks/cognitive-ast.js";
 import { DEFAULT_MAX_COMMIT_FILES, loadHistory } from "../harness/jit-commit-inputs.js";
@@ -120,7 +121,7 @@ function metricReport(rows: CensusRows, metric: CensusMetric, caps: CensusCaps, 
 	const metricRows: FunctionRow[] | FileRow[] = rows[metric];
 	const values = metricRows.map((r) => r.value);
 	const ranks = percentileRanks(values);
-	const ranked = metricRows.map((r, i) => ({ ...r, pct: ranks[i] ?? 0 }));
+	const ranked = metricRows.map((r, i) => ({ ...r, pct: nonNull(ranks[i]) }));
 	const cap = caps[metric];
 	return {
 		metric,

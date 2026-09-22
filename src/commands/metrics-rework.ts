@@ -19,6 +19,7 @@
 import { execFileSync } from "node:child_process";
 import { percentileRanks } from "../harness/percentile-rank.js";
 import { getOutputMode, output } from "../lib/output.js";
+import { nonNull } from "../lib/non-null.js";
 
 export interface FileHunks {
 	/** OLD path (blame runs against the parent commit). */
@@ -210,7 +211,7 @@ export interface RankedReworkCount extends ReworkCount {
 export function rankReworkShares(byFile: ReadonlyMap<string, ReworkCount>): Map<string, RankedReworkCount> {
 	const entries = [...byFile.entries()].filter(([, c]) => c.total > 0);
 	const ranks = percentileRanks(entries.map(([, c]) => c.rework / c.total));
-	return new Map(entries.map(([file, c], i) => [file, { ...c, percentile: ranks[i] ?? 0 }]));
+	return new Map(entries.map(([file, c], i) => [file, { ...c, percentile: nonNull(ranks[i]) }]));
 }
 
 interface ReworkTotals {

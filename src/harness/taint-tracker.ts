@@ -137,7 +137,7 @@ export function isOutboundNetworkCommand(command: string): boolean {
         const tokens = stripLeadingPrefix(rawTokens);
         const prefixes = rawTokens.slice(0, rawTokens.length - tokens.length);
         if (prefixes.some((token) => /^(?:https?_proxy|all_proxy|CURL_HOME|HOME|XDG_CONFIG_HOME|WGETRC)=/i.test(token))) return true;
-        const head = commandHead(tokens[0] ?? "");
+        const head = commandHead(nonNull(tokens[0]));
         if (!isLoopbackNetworkCommand(head, tokens.slice(1))) return true;
     }
     return false;

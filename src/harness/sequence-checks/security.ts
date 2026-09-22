@@ -9,6 +9,7 @@
 //   - same_command_thrice_no_observe (§3.9, pre_warn)
 
 import { isOutboundNetworkCommand } from "../taint-tracker.js";
+import { nonNull } from "../../lib/non-null.js";
 import { CONFIDENTIAL_LEVELS, getCommand, isBashCandidate } from "./candidate-helpers.js";
 import type { SequenceDetector } from "./types.js";
 
@@ -110,8 +111,8 @@ export const downloadThenExecute: SequenceDetector = {
 		for (const prior of recent) {
 			const m = DOWNLOAD_RE.exec(prior);
 			if (!m) continue;
-			const downloadedPath = m[1] ?? m[2];
-			if (!downloadedPath) continue;
+			// A DOWNLOAD_RE match always captures a nonempty -o or > target.
+			const downloadedPath = nonNull(m[1] ?? m[2]);
 			if (NON_ARTIFACT_SINKS.has(downloadedPath)) continue;
 			if (executedPath === downloadedPath || executedPath.endsWith(downloadedPath)) {
 				return [

@@ -16,6 +16,7 @@ import { percentileRanks } from "../harness/percentile-rank.js";
 import { basename, dirname, join } from "node:path";
 import { ProjectGraph } from "../harness/project-graph.js";
 import { getOutputMode, output } from "../lib/output.js";
+import { nonNull } from "../lib/non-null.js";
 
 export interface CommitFiles {
 	sha: string;
@@ -120,7 +121,7 @@ export function computeCoupling(commits: CommitFiles[], opts: CouplingOptions): 
 	}
 	// Ranked against every pair that survived the filters — the whole run, never the top-N slice.
 	const ranks = percentileRanks(kept.map((p) => p.strength));
-	const pairs: CouplingPair[] = kept.map((p, i) => ({ ...p, percentile: ranks[i] ?? 0 }));
+	const pairs: CouplingPair[] = kept.map((p, i) => ({ ...p, percentile: nonNull(ranks[i]) }));
 	pairs.sort(
 		(x, y) => y.strength - x.strength || y.support - x.support || x.a.localeCompare(y.a),
 	);

