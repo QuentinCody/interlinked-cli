@@ -9,6 +9,7 @@ const ZERO = "0".repeat(40);
 const TARGET = "src/well0.ts";
 const COMMIT_DATE = "2026-01-01T00:00:00Z";
 const FILES = Array.from({ length: 20 }, (_, index) => `src/well${index}.ts`);
+const E2E_SCRIPTS = { "build:e2e": "echo E2E_BUILD_GATE", "test:e2e:coverage": "echo E2E_TEST_GATE" };
 
 describe("pre-push coverage integration", () => {
     let root: string;
@@ -41,6 +42,7 @@ describe("pre-push coverage integration", () => {
         write("scripts/ci-packaging.sh", "echo PACKAGE_GATE\n");
         write(".gitignore", "coverage/\n.interlinked/\ncaptured.json\nnode_modules\n");
         write("package.json", JSON.stringify({ name: "gate-fixture", scripts: {
+            ...E2E_SCRIPTS,
             "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE", test: "node scripts/coverage-fixture.cjs",
         } }));
         write("scripts/coverage-fixture.cjs", `
@@ -69,6 +71,10 @@ fs.writeFileSync("coverage/coverage-summary.json", JSON.stringify(Object.fromEnt
         // above are stubs. The committed wrapper also works in its clean export.
         write("dist/index.js", `
 const { spawnSync } = require("node:child_process");
+if (process.argv.includes("--lane")) {
+    console.log("E2E_RATCHET_GATE " + process.argv.slice(2).join(" "));
+    process.exit(process.env.COVERAGE_E2E_FAIL === "1" ? 1 : 0);
+}
 require("node:fs").writeFileSync(process.env.COVERAGE_CAPTURE, JSON.stringify(process.argv.slice(2)));
 const result = spawnSync(process.execPath, [${JSON.stringify(join(REPO, "dist/index.js"))}, ...process.argv.slice(2)], { encoding: "utf8" });
 process.stdout.write(result.stdout || "");
@@ -142,6 +148,9 @@ process.exitCode = result.status ?? 1;
         const passing = run(updates);
         expect(passing.status).toBe(0);
         expect(passing.output).toContain("1 measured file(s)");
+        expect(passing.output).toContain("E2E_BUILD_GATE");
+        expect(passing.output).toContain("E2E_TEST_GATE");
+        expect(passing.output).toContain("E2E_RATCHET_GATE coverage check --lane e2e --strict --require-measured --report coverage-e2e/coverage-summary.json");
         report(false, true);
         expect(run(updates).status).toBe(1);
     });
@@ -155,6 +164,16 @@ process.exitCode = result.status ?? 1;
         expect(result.status).toBe(0);
         expect(capturedScope()).toEqual([TARGET]);
         expect(result.output).toContain("1 measured file(s)");
+    });
+
+    it("blocks a passing base lane when the e2e ratchet fails", () => {
+        const sha = codeCommit();
+        measurement.COVERAGE_E2E_FAIL = "1";
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status).toBe(1);
+        expect(result.output).toContain("1 measured file(s)");
+        expect(result.output).toContain("E2E_RATCHET_GATE");
+        expect(result.output).not.toContain(`typecheck + tests pass for ${sha}`);
     });
 
     it.each([ZERO, "f".repeat(40)])("covers the full tree when the remote base is %s", old => {
@@ -258,6 +277,7 @@ process.exitCode = result.status ?? 1;
 
     it("uses native dynamic coverage exclusions instead of requiring retained out-of-scope baseline entries", () => {
         write("package.json", JSON.stringify({ scripts: {
+            ...E2E_SCRIPTS,
             "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE",
             test: `node "${join(REPO, "node_modules/vitest/vitest.mjs")}" run`,
         } }));
@@ -277,6 +297,7 @@ process.exitCode = result.status ?? 1;
 
     it("measures each pushed revision with real Vitest instead of reusing the working-tree report", () => {
         write("package.json", JSON.stringify({ scripts: {
+            ...E2E_SCRIPTS,
             "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE",
             test: `node "${join(REPO, "node_modules/vitest/vitest.mjs")}" run`,
         } }));
@@ -306,6 +327,7 @@ process.exitCode = result.status ?? 1;
         mkdirSync(join(root, "zz-changes"));
         for (let index = 0; index < 1000; index++) write(`zz-changes/${index}-${"x".repeat(160)}.txt`, "change\n");
         write("package.json", JSON.stringify({ scripts: {
+            ...E2E_SCRIPTS,
             "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE", test: "node scripts/coverage-fixture.cjs",
         } }));
         const sha = commit("large code and package range");
