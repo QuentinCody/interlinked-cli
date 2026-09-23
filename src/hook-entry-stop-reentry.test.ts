@@ -52,11 +52,11 @@ describe("isStopHookReentry — negative (must not mute)", () => {
 });
 
 describe("wiring — the guard actually short-circuits the entry point", () => {
-	it("mainFromStdin consults the guard before running the hook", () => {
+	it("runHookEntry records suppression before contacting the daemon", () => {
 		// Source-text pin, same convention as the Stop-rescan wiring test: a
 		// refactor that keeps the helper but drops the call reintroduces the loop
 		// with every unit test still green.
 		const source = readFileSync(new URL("./hook-entry.ts", import.meta.url), "utf-8");
-		expect(source).toMatch(/if \(isStopHookReentry\(nativeEventName, nativeJson\)\)\s*\{\s*recordSuppressedStop\([^;]+;\s*process\.exit\(0\);/);
+		expect(source).toMatch(/if \(isStopHookReentry\(opts.nativeEventName, opts.nativeJson\)\)\s*\{\s*recordSuppressedStop\([^;]+;\s*recordTransport\("suppressed"\);\s*return \{ exit_code: 0, fell_back: false \};/);
 	});
 });

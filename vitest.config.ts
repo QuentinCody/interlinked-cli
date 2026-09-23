@@ -1,9 +1,12 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
+
+export const E2E_EXCLUDE = "**/*.e2e.test.ts";
 
 export default defineConfig({
     test: {
         globals: true,
         environment: "node",
+        exclude: [...configDefaults.exclude, E2E_EXCLUDE],
         // `scripts/**` is included because seven sibling *.test.mjs files
         // already existed there and NONE of them ran — the glob stopped at
         // `src/`, so 33 passing assertions covering the build/codegen scripts

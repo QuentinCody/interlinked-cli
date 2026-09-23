@@ -8,6 +8,7 @@
 // orchestrator still calls them in the same order).
 
 import { readFileSync } from "node:fs";
+import { formatE2eObligationWarning } from "../e2e-obligation-stop-check.js";
 import { checkDeadOnArrival } from "../dead-on-arrival.js";
 import { formatDebtEvasionStopLine } from "../debt-evasion.js";
 import { checkFixtureLeaks } from "../fixture-leak.js";
@@ -62,6 +63,7 @@ export function buildVerificationStopWarnings(
 	if (!vsc?.enabled) return [];
 	const verificationObserved = session.verification_observed ?? new Set<string>();
 	const warnings: string[] = [];
+	pushIfNotNull(warnings, formatE2eObligationWarning({ cwd: event.cwd ?? process.cwd(), files: session.files_written, lanes: session.test_lanes_run ?? [] }));
 	const unverifiedCode = vsc.warn_unverified_code
 		? checkUnverifiedCode(ctx, session, verificationObserved)
 		: null;

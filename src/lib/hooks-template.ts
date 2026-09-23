@@ -521,6 +521,7 @@ function exactDaemonCommand(harnessEvent) {
 }
 
 function tryHealHarness(harnessEvent = null) {
+    if (process.env.INTERLINKED_NO_SELF_HEAL === "1") return { status: "self-heal-disabled", attempted: false };
     if (harnessEvent && exactDaemonCommand(harnessEvent)) {
         return { status: "operator-command", attempted: false };
     }
@@ -549,7 +550,27 @@ function tryHealHarness(harnessEvent = null) {
  * Timeout varies: PreToolUse/PermissionRequest gates are fast (500ms), while
  * PostToolUse allows time for quality checks (15s).
  */
-function evaluateViaHarness(harnessEvent) {
+const transportEventId = randomUUID();
+function recordHookTransport(harnessEvent, outcome) {
+    try {
+        mkdirSync(DATA_DIR, { recursive: true });
+        appendFileSync(join(DATA_DIR, "hook-transport.jsonl"), JSON.stringify({
+            schema: 1, event_id: transportEventId, session_id: String(harnessEvent.session_id || ""),
+            native_event: harnessEvent.hook_event, hook_pid: process.pid,
+            socket_path: HARNESS_SOCK_PATH, protocol: "raw", outcome,
+        }) + "\\n");
+    } catch (_err) { void 0; /* diagnostics cannot change the decision */ }
+}
+
+async function evaluateViaHarness(harnessEvent) {
+    harnessEvent.event_id = transportEventId;
+    const result = await callHarnessSocket(harnessEvent);
+    const valid = result && (result.decision === "allow" || result.decision === "block" || result.decision === "ask");
+    recordHookTransport(harnessEvent, valid ? "daemon" : "cold");
+    return valid ? result : null;
+}
+
+function callHarnessSocket(harnessEvent) {
     const isPreTool = harnessEvent.hook_event === "PreToolUse"
         || harnessEvent.hook_event === "BeforeTool"
         || harnessEvent.hook_event === "PermissionRequest";
@@ -1055,6 +1076,12 @@ async function main(rawInput) {
     }
     updateTerminalHookContext(detectedClient, hookEvent);
     writeHookRuntimeReceipt(detectedClient, hookEvent);
+    event.event_id = transportEventId;
+    if ((hookEvent === "Stop" || hookEvent === "SubagentStop")
+        && (rawInput.stop_hook_active === true || rawInput.stopHookActive === true)) {
+        recordHookTransport({ hook_event: hookEvent, session_id: sessionId }, "suppressed");
+        process.exit(0);
+    }
 
     // Attach common fields available on all Claude Code events
     if (rawInput.cwd) event.cwd = rawInput.cwd;
@@ -1143,6 +1170,13 @@ ${PROVIDER_RESPONSES_CHUNK}
         || hookEvent === "PermissionRequest";
     const isPostTool = hookEvent === "PostToolUse" || hookEvent === "AfterTool" || hookEvent === "PostToolUseFailure";
     const isUserPrompt = hookEvent === "UserPromptSubmit" || hookEvent === "BeforeAgent";
+    if (!isPreTool && !isPostTool && !isUserPrompt) {
+        const lifecycleDecision = await evaluateViaHarness({
+            ...event, hook_event: hookEvent, session_id: sessionId, agent_source: detectedClient,
+            agent_name: agentName, cwd: rawInput.cwd || process.cwd(), timestamp: new Date().toISOString(),
+        });
+        for (const warning of lifecycleDecision?.warnings || []) process.stderr.write(warning + "\\n");
+    }
     let guardDecision = null;
 	let coldRecoveryResult = null;
 	if (!existsSync(HARNESS_SOCK_PATH) && hookEvent !== "SessionStart") {

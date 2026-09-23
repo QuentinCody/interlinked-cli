@@ -6,7 +6,9 @@ import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const transport = vi.hoisted(() => ({ call: vi.fn() }));
-vi.mock("./hook-entry-transport.js", () => ({ discoverSocket: () => null, callHookDaemon: transport.call }));
+vi.mock("./hook-entry-transport.js", async (importOriginal) => ({
+    ...await importOriginal<typeof import("./hook-entry-transport.js")>(), discoverSocket: () => null, callHookDaemon: transport.call,
+}));
 
 const realProcess = process;
 const entry = fileURLToPath(new URL("./hook-entry.ts", import.meta.url));

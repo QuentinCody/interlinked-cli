@@ -1,4 +1,4 @@
-import { configDefaults, defineConfig } from "vitest/config";
+import { defineConfig } from "vitest/config";
 import baseConfig from "./vitest.config";
 
 // Unit lane — everything EXCEPT the integration lane (`*.integration.test.ts`,
@@ -18,7 +18,7 @@ export default defineConfig({
 	test: {
 		...baseConfig.test,
 		exclude: [
-			...configDefaults.exclude,
+			...(baseConfig.test?.exclude ?? []),
 			"**/*.integration.test.ts",
 			// recurrence.test.ts was quarantined here 2026-07 as an unexplained
 			// "collection hang on the ubuntu runner". ROOT CAUSE FOUND 2026-07-29:

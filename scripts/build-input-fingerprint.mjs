@@ -48,9 +48,10 @@ function buildInputFiles(root) {
 }
 
 /** Public build seam: fingerprint every product source, bundled skill, and build recipe input. */
-export function fingerprintBuildInputs(projectRoot) {
+export function fingerprintBuildInputs(projectRoot, { mode = "standard" } = {}) {
     const root = resolve(projectRoot);
     const hash = createHash("sha256");
+    hash.update(`mode:${mode}\0`);
     for (const rel of buildInputFiles(root)) {
         const content = readFileSync(join(root, rel));
         hash.update(rel.split(sep).join("/"));

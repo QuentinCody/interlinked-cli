@@ -873,8 +873,8 @@
 	}
 
 	/** Open a new file group; returns the grid the cells append into. */
-	function testGroup(file) {
-		const label = file || "…";
+	function testGroup(file, lane) {
+		const label = "[" + (lane || "lane unknown (older event)") + "] " + (file || "…");
 		if (T.group && T.group.file === label) return T.group.grid;
 		const head = document.createElement("div");
 		head.className = "tfile";
@@ -894,7 +894,7 @@
 			const cell = document.createElement("div");
 			cell.className = "tcell " + status + (ev.ms >= SLOW_MS ? " slow" : "");
 			cell.title = (ev.name || "test") + (typeof ev.ms === "number" ? "  ·  " + ev.ms + "ms" : "");
-			testGroup(ev.file).appendChild(cell);
+			testGroup(ev.file, ev.lane).appendChild(cell);
 			T.cells++;
 		}
 		if (status === "fail") addFailureRow(ev);

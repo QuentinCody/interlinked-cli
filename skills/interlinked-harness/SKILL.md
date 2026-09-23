@@ -379,6 +379,15 @@ Config lives in `.interlinked/guard-rules.json` (team) + `.interlinked/guard-rul
   forces a full reload.
 
 ## The cold fallback (daemon outage degrades; deterministic gates stay closed)
+
+Hook invocations record their transport outcome in
+`.interlinked/hook-transport.jsonl`: `daemon` means a valid daemon response,
+`cold` means fallback, and `suppressed` means intentional repeated-Stop
+suppression. Correlate `event_id`, `session_id`, `native_event`, `hook_pid`,
+`socket_path` and `protocol`. The hook PID identifies the receipt writer;
+verify daemon PID ownership separately. Daemon activity rows carry
+`writer: "daemon"`; the generated hook also writes activity, so an unmarked
+activity row is not proof of daemon handling.
 If the configured daemon socket is unreachable — including a **zombie** with a live process but
 dead listener — every ordinary hook phase enters a cross-process, single-flight recovery path.
 Daemon absence alone does **not** blanket-block safe reads, diagnostics, or repair work. The

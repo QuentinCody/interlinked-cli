@@ -36,7 +36,7 @@ beforeEach(() => {
 describe("registerCoverageCommands — positive (must fire)", () => {
 	it("P1: registers check (default), metrics, and baseline under `coverage`", () => {
 		const names = coverage(build()).commands.map((c) => c.name()).sort();
-		expect(names).toEqual(["baseline", "check", "metrics"]);
+		expect(names).toEqual(["baseline", "check", "metrics", "move", "retire", "status"]);
 	});
 
 	it("P2: `coverage metrics` forwards every documented option to coverageMetricsCommand", async () => {

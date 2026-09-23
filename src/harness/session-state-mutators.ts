@@ -12,6 +12,7 @@
 
 import { resolve as resolvePath } from "node:path";
 import { nonNull } from "../lib/non-null.js";
+import { testLaneOf } from "../lib/test-lane.js";
 import { recordFileView } from "./read-provenance.js";
 import { captureGitBaseline } from "./session-git-baseline.js";
 import {
@@ -343,6 +344,7 @@ export function trackCommand(session: SessionTrajectory, event: HarnessEvent): v
  */
 function trackTestCommand(session: SessionTrajectory, command: string): void {
 	if (!isTestRunnerCommand(command)) return;
+	session.test_lanes_run = [...new Set([...(session.test_lanes_run ?? []), testLaneOf(command)])];
 	if (!session.test_commands_run) session.test_commands_run = [];
 	const text =
 		command.length > TEST_COMMAND_TEXT_CAP ? command.slice(0, TEST_COMMAND_TEXT_CAP) : command;

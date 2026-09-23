@@ -7,10 +7,26 @@ import type { HarnessDecision } from "./harness/types.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
 import { findRepoRoot } from "./hook-entry-project.js";
 import { nonNull } from "./lib/non-null.js";
+import { resolveHookDataDir } from "./hook-entry-event.js";
+import { writeHookTransportReceipt, type HookTransportReceipt } from "./lib/hook-transport-receipt.js";
 
 const HOOK_PROTOCOL_RAW = "raw";
 const HOOK_PROTOCOL_FRAMED = "framed";
 type HookProtocol = typeof HOOK_PROTOCOL_RAW | typeof HOOK_PROTOCOL_FRAMED;
+
+export function createTransportRecorder(event: UnifiedHookEvent, env: NodeJS.ProcessEnv, socketPath: string | null): (outcome: HookTransportReceipt["outcome"]) => void {
+	const dataDir = resolveHookDataDir(event.context.cwd, socketPath);
+	return (outcome: HookTransportReceipt["outcome"]): void => writeHookTransportReceipt(dataDir, {
+		schema: 1,
+		event_id: event.event_id,
+		session_id: event.session_id,
+		native_event: event.runner_native_event,
+		hook_pid: process.pid,
+		socket_path: socketPath,
+		protocol: resolveHookProtocol(socketPath ?? "", env),
+		outcome,
+	});
+}
 
 export type HookDaemonCallResult =
 	| { ok: true; decision: HarnessDecision }

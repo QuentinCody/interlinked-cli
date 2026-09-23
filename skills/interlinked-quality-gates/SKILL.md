@@ -59,6 +59,42 @@ Do not tailor implementations or test selection to hidden benchmark cases.
 
 ## The gates you bump into at edit time
 
+### E2E coverage water-line
+
+In the Interlinked CLI repository, run `npm run build:e2e`, then
+`npm run test:e2e:coverage`, then
+`node dist/index.js coverage check --lane e2e --strict --require-measured`.
+`interlinked coverage status` shows quality coverage lanes; it is distinct from
+`interlinked harness coverage status`, which describes filesystem observations.
+
+The e2e lane reads only `coverage-e2e/coverage-summary.json` by default. Its
+adjacent `run.json` must bind a passing child-process run to the current build,
+test inputs, inventory and report. Missing, partial, stale or malformed evidence
+fails. The full inventory includes zeroes for unexecuted code. Generated-hook
+strings are checked behaviorally and excluded from line metrics.
+
+Create an absent `.interlinked/coverage-e2e-baseline.json` only with
+`coverage check --lane e2e --init-baseline`. It refuses an existing file.
+`--update-baseline` saves only after every check passes; failure preserves the
+baseline bytes. All four percentages, touched-file share and weighted line
+coverage have zero tolerance. `--changed-files` conflicts with `--lane e2e`.
+`coverage baseline --lane e2e` displays the baseline, including line counts.
+
+Deleted code carries no obligation; surviving files retain their floors.
+A deletion plus a new boundary path is UNRESOLVED until the author records
+`coverage move --lane e2e <old> <new>` or `coverage retire --lane e2e <old>`.
+Retire refuses surviving executable boundaries. Moves preserve entries; use
+repeatable `--map A=B --map B=C` for atomic chains. A destination must meet its
+transferred, pre-write and base floors. If a move cannot meet them, collect
+coverage and use `coverage check --lane e2e --map A=B --map B=C --update-baseline`
+to apply mapping and measured values in one locked transaction.
+
+Local comparisons use HEAD. CI supplies `--base <sha>`: the PR merge base or
+the push's previous revision. Missing history, new-ref zero SHAs and force pushes
+fail closed. `INTERLINKED_PRE_PUSH_SKIP_E2E=1` records an explicit skipped e2e
+row; CI still runs. Intent and effect guards also check CLI writes; they judge
+values and tree evidence without trusting a writer's identity.
+
 Behavioral contracts complement metric gates: `tests contracts inspect|run` separates
 expectation provenance, configured acceptance, execution failures and unavailable evidence.
 Exact example/expectation conflicts require reconciliation; a citation without an exact

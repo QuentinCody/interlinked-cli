@@ -358,7 +358,8 @@ const CLI_COMMAND_SUBCOMMANDS: Record<string, string[]> = {
 	guard: ["install", "check", "status", "uninstall"],
 	git: ["context", "link-checkpoint"],
 	reminder: ["add", "list", "remove"],
-	coverage: ["check", "baseline"],
+	coverage: ["check", "baseline", "metrics", "move", "retire", "status"],
+    e2e: ["scaffold"],
 	mutation: ["check", "baseline"],
 	completions: ["bash", "zsh", "fish"],
 };
@@ -381,6 +382,8 @@ function generateCliReference(): string {
 		"verify",
 		"lint",
 		"metrics",
+        "coverage",
+        "e2e",
         "simplify",
         "tests",
         "allowlist",

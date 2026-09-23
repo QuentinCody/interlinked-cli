@@ -42,7 +42,7 @@ import {
 	resolveHookAdapter,
 	resolveHookDataDir,
 } from "./hook-entry-event.js";
-import { callHookDaemon, discoverSocket } from "./hook-entry-transport.js";
+import { callHookDaemon, createTransportRecorder, discoverSocket } from "./hook-entry-transport.js";
 import { writeLastCheckArtifact, writeNoHarnessArtifact } from "./lib/last-check-writer.js";
 import {
 	acknowledgeSynchronousPostToolResult,
@@ -133,7 +133,6 @@ export async function runHookEntry(opts: HookEntryOptions): Promise<HookEntryRes
 	// needs a fallback to `opts.cwd`/`process.cwd()` here.
 	const gateCwd = event.context.cwd;
 	recordAdapterExecution(adapter, event, gateCwd);
-	maybeSelfHealOnStop(event, gateCwd, opts.env);
 	// Discover the socket in the SAME project the daemon gate keys on (the event's
 	// cwd), not the hook process's cwd: a client that launches the hook binary
 	// from outside the repo would otherwise miss the healthy daemon under the
@@ -141,11 +140,19 @@ export async function runHookEntry(opts: HookEntryOptions): Promise<HookEntryRes
 	// (finding 2026-06).
 	const socketPath = opts.socketPath ?? discoverSocket(gateCwd, event.session_id);
 	const dataDir = resolveHookDataDir(gateCwd, socketPath);
+	const recordTransport = createTransportRecorder(event, opts.env, socketPath);
+	if (isStopHookReentry(opts.nativeEventName, opts.nativeJson)) {
+		recordSuppressedStop(dataDir, opts.runner, opts.nativeEventName);
+		recordTransport("suppressed");
+		return { exit_code: 0, fell_back: false };
+	}
+	maybeSelfHealOnStop(event, gateCwd, opts.env);
 	const lateWarnings =
 		event.phase === "pre-tool" && dataDir
 			? drainLatePostToolWarnings(dataDir, event.session_id)
 			: [];
 	if (!socketPath) {
+		recordTransport("cold");
 		// No daemon available at all — cold fallback (which itself fails closed
 		// when a daemon was running here and crashed; see encodeColdFallback).
 		const cold = await encodeColdFallback(
@@ -166,6 +173,7 @@ export async function runHookEntry(opts: HookEntryOptions): Promise<HookEntryRes
 	const callStartMs = Date.now();
 	const result = await callHookDaemon({ socketPath, method, event, timeoutMs, env: opts.env });
 	if (result.ok) {
+		recordTransport("daemon");
 		decision = result.decision;
 		// A served RPC proves the daemon is healthy, so every earlier failed
 		// self-heal is history: clear the supervisor's backoff ladder. Without
@@ -173,6 +181,7 @@ export async function runHookEntry(opts: HookEntryOptions): Promise<HookEntryRes
 		// the NEXT real outage's first heal by up to a minute.
 		resetSupervisorBackoff(dirname(dirname(socketPath)));
 	} else {
+		recordTransport("cold");
 		writeNoHarnessArtifact(dirname(socketPath), event, Date.now() - callStartMs);
 		return encodeColdFallback(
 			adapter,
@@ -230,7 +239,7 @@ export function isStopHookReentry(eventName: string, nativeJson: unknown): boole
  *  discards the result — extracted so `runHookEntry` gains a single
  *  unconditional call (no branch) rather than an inline `if`, keeping it
  *  under the cyclomatic cap. `isStopHookReentry` already filtered the
- *  re-entry pass upstream in `mainFromStdin`, so a genuine Stop reaches this
+ *  re-entry pass upstream in `runHookEntry`, so a genuine Stop reaches this
  *  at most once. Purely observational: never changes the hook decision. */
 function maybeSelfHealOnStop(
 	event: UnifiedHookEvent,
@@ -254,10 +263,6 @@ async function mainFromStdin(): Promise<void> {
 	const nativeJson = await readStdinJson();
 	const nativeEventName = argOrEnv("--event") ?? process.env.INTERLINKED_EVENT ?? "PreToolUse";
 	const runner = argOrEnv("--runner") ?? process.env.INTERLINKED_RUNNER;
-    if (isStopHookReentry(nativeEventName, nativeJson)) {
-        recordSuppressedStop(resolveHookDataDir(process.cwd(), null), runner, nativeEventName);
-        process.exit(0);
-    }
 	const socketPath = argOrEnv("--socket") ?? process.env.INTERLINKED_SOCKET;
 	const result = await runHookEntry({
 		nativeEventName,

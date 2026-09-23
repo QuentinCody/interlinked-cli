@@ -54,6 +54,14 @@ const caseOf = (name: string, state: string, over: Record<string, unknown> = {})
 });
 
 describe("InterlinkedVizReporter", () => {
+    it.each(["unit", "integration", "e2e", "base"])("labels the %s lane from Vitest's resolved Vite config", (lane) => {
+        const { reporter, events } = harness();
+        const configFile = lane === "base" ? "/proj/vitest.config.ts" : `/proj/vitest.${lane}.config.ts`;
+        reporter.onInit({ vite: { config: { configFile } } });
+        reporter.onTestRunStart();
+        reporter.onTestRunEnd();
+        expect(events.map((event) => event.lane)).toEqual([lane, lane]);
+    });
 	it("emits run_start, per-case events, and a run_end tally in order", () => {
 		const { events, reporter, tick } = harness();
 		reporter.onTestRunStart();
@@ -108,7 +116,7 @@ describe("InterlinkedVizReporter", () => {
 	it("emits file_start without a file when the module id is missing", () => {
 		const { events, reporter } = harness();
 		reporter.onTestModuleStart(undefined);
-		expect(events[0]).toEqual({ ts: expect.any(String), run_id: expect.any(String), kind: "file_start" });
+		expect(events[0]).toEqual({ ts: expect.any(String), run_id: expect.any(String), lane: "unknown", kind: "file_start" });
 	});
 
 	it("survives a throwing sink rather than failing the host suite", () => {

@@ -197,6 +197,7 @@ export function mapEventToActivityRecord(
 	const keys = projectKeys(cwd);
 	const rec: LocalActivityEvent = {
 		schema_version: 5,
+		writer: "daemon",
 		ts: event.timestamp,
 		agent: event.agent_name ?? event.agent_source,
 		workspace_key: keys.workspace,
@@ -236,6 +237,7 @@ export function mapLifecycleEventToActivityRecord(
 	const persistedPrompt = decision?.redacted_prompt ?? event.prompt ?? "";
 	const rec: LocalActivityEvent = {
 		schema_version: 5,
+		writer: "daemon",
 		ts: event.timestamp,
 		agent: event.agent_name ?? event.agent_source,
 		workspace_key: keys.workspace,
@@ -355,6 +357,7 @@ function buildGuardBaseRecord(
 ): LocalActivityEvent {
 	return {
 		schema_version: 5,
+		writer: "daemon",
 		ts: event.timestamp,
 		agent: event.agent_name ?? event.agent_source,
 		workspace_key: keys.workspace,
@@ -375,6 +378,7 @@ function buildGuardBaseRecord(
 }
 
 function applyGuardOptionalFields(rec: LocalActivityEvent, event: HarnessEvent, decision: HarnessDecision): void {
+	if (event.event_id) rec.event_id = event.event_id;
 	if (event.tool_use_id) rec.tool_use_id = event.tool_use_id;
 	Object.assign(rec, eventAttributionFields(event));
 	if (event.seq !== undefined) rec.seq = event.seq;

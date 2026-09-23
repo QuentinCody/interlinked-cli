@@ -7,6 +7,25 @@
 
 import type { Command, OptionValues } from "commander";
 
+function collectMapping(value: string, previous: string[] = []): string[] { return [...previous, value]; }
+
+function registerE2eIdentity(coverage: Command): void {
+	coverage.command("move [old] [new]").description("Record an e2e boundary move, preserving every floor")
+		.option("--lane <name>", "Required: e2e").option("--map <old=new>", "Atomic mapping; repeat for a chain or swap", collectMapping)
+		.option("--base <ref>", "Comparison base (default: HEAD)").option("--cwd <path>", "Project root").option("--json", "Machine-readable output")
+		.action(async (old: string | undefined, next: string | undefined, opts: OptionValues) => {
+			const { coverageE2eIdentityCommand } = await import("../commands/coverage-e2e.js");
+			await coverageE2eIdentityCommand(opts, { old, next });
+		});
+	coverage.command("retire <path>").description("Retire an e2e floor whose boundary file is gone or erased")
+		.option("--lane <name>", "Required: e2e").option("--base <ref>", "Comparison base (default: HEAD)")
+		.option("--cwd <path>", "Project root").option("--json", "Machine-readable output")
+		.action(async (path: string, opts: OptionValues) => {
+			const { coverageE2eIdentityCommand } = await import("../commands/coverage-e2e.js");
+			await coverageE2eIdentityCommand(opts, { retire: path });
+		});
+}
+
 export function registerCoverageCommands(program: Command): void {
 	// NOTE: the parent description below is pinned verbatim by a single-line
 	// assertion in quality.mutation-kill.test.ts, and GATE 2 of
@@ -17,6 +36,13 @@ export function registerCoverageCommands(program: Command): void {
 	const coverageCmd = program
 		.command("coverage")
 		.description("Per-file coverage ratchet — fails on any file whose coverage drops");
+	registerE2eIdentity(coverageCmd);
+    coverageCmd.command("status").description("Show quality coverage baselines by lane (distinct from harness filesystem coverage)")
+        .option("--cwd <path>", "Project root").option("--json", "Machine-readable output")
+        .action(async (opts: OptionValues) => {
+            const { coverageLaneStatusCommand } = await import("../commands/coverage-e2e.js");
+            coverageLaneStatusCommand(opts);
+        });
 
 	// Flag parity is a pinned contract (coverage-flag-parity.test.ts): every
 	// option registered here must map to an `opts.<key>` that
@@ -42,6 +68,11 @@ export function registerCoverageCommands(program: Command): void {
 			"Comma-separated repo-relative paths; only report drops for these files",
 		)
 		.option("--update-baseline", "Persist the current coverage as the new baseline")
+		.option("--lane <name>", "Named coverage lane: e2e (isolated strict policy)")
+		.option("--init-baseline", "Initialize an absent e2e baseline from a passing measured run")
+		.option("--require-measured", "Fail on a partial or unmeasured report")
+		.option("--base <ref>", "E2e comparison base (default: HEAD; CI supplies its event base)")
+		.option("--map <old=new>", "Apply a mapping in the measured e2e transaction; repeatable", collectMapping)
 		.option("--strict", "exit non-zero on any per-file drop (default: advisory)")
 		.option("--cwd <path>", "Project root (default: current directory)")
 		.option("--json", "Machine-readable output")
@@ -72,8 +103,10 @@ export function registerCoverageCommands(program: Command): void {
 	coverageCmd
 		.command("baseline")
 		.description("Show the current coverage baseline")
+		.option("--lane <name>", "Named coverage lane: e2e")
+		.option("--cwd <path>", "Project root")
 		.option("--json", "Machine-readable output")
-		.action(async (opts: { json?: boolean }) => {
+		.action(async (opts: { json?: boolean; cwd?: string; lane?: string }) => {
 			const { coverageBaselineCommand } = await import("../commands/coverage.js");
 			coverageBaselineCommand(opts);
 		});

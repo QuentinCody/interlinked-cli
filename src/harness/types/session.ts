@@ -44,6 +44,8 @@ export interface SessionTrajectory {
 	 *  `characterize-campaign-target.ts::hasTestSignalFor`. Optional so a
 	 *  session hydrated from a pre-fix snapshot reads as `[]`. */
 	test_commands_run?: string[];
+	/** Distinct lanes observed in this session, retained beyond the command ring. */
+	test_lanes_run?: string[];
 	/** Track curl-to-localhost frequency per port */
 	curl_localhost_count: Record<number, number>;
 	last_checkpoint_at?: string;

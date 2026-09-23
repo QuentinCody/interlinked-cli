@@ -49,6 +49,7 @@ const LOOSE = '{"version":1,"max_cyclomatic":999,"crap_threshold":25}';
 const TIGHTER = '{"version":1,"max_cyclomatic":18,"crap_threshold":25}';
 const BASELINE_RELS = [
 	".interlinked/coverage-baseline.json",
+	".interlinked/coverage-e2e-baseline.json",
 	".interlinked/coverage-edit-baseline.json",
 	".interlinked/mutation-baseline.json",
 	".interlinked/mutation-manifest.json",

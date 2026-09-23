@@ -152,6 +152,20 @@ run_gate() {
     '; then return 1; fi
         fi
     fi
+    if [ "${INTERLINKED_PRE_PUSH_SKIP_E2E:-0}" = "1" ]; then
+        echo "[interlinked:e2e] skipped; CI remains authoritative."
+        node - "$source_root" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const directory = path.join(process.argv[2], ".interlinked");
+fs.mkdirSync(directory, { recursive: true });
+fs.appendFileSync(path.join(directory, "test-events.jsonl"), JSON.stringify({ ts: new Date().toISOString(), kind: "run_end", run_id: `pre-push-skip-${process.pid}-${Date.now()}`, lane: "e2e", status: "skip", skipped: 1, label: "[interlinked:e2e] skipped" }) + "\n");
+NODE
+    else
+        (cd "$gate_dir" && bounded npm run build:e2e) || return 1
+        (cd "$gate_dir" && CI=1 bounded npm run test:e2e:coverage) || return 1
+        (cd "$gate_dir" && bounded node dist/index.js coverage check --lane e2e --strict --require-measured --report coverage-e2e/coverage-summary.json) || return 1
+    fi
     if [ "$pkg_touched" -eq 1 ]; then
         (cd "$gate_dir" && bounded bash scripts/ci-packaging.sh) || return 1
     fi

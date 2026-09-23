@@ -74,11 +74,13 @@ function runCommand(command, args, cwd) {
     throw new Error(`${basename(command)} failed (${detail})`);
 }
 
-function buildStage(root, stage) {
+function buildStage(root, stage, mode) {
     const tsup = join(root, "node_modules", ".bin", "tsup");
     runCommand(
         tsup,
-        [...ENTRY_POINTS, "--format", "esm", "--dts", "--clean", "--out-dir", stage],
+        [...ENTRY_POINTS, ...(mode === "e2e" ? ["src/harness/agent-io/store.ts", "src/harness/break-glass.ts"] : []),
+            "--format", "esm", "--dts", "--clean", "--out-dir", stage,
+            ...(mode === "e2e" ? ["--sourcemap", "--metafile", "--no-splitting"] : [])],
         root,
     );
     fixDistDts(stage);
@@ -179,9 +181,10 @@ async function runBuildWhileLeased({
 // Deliberately exported for the focused failure-injection regression suite.
 export async function buildAtomically({
     root = process.cwd(),
-    populateStage = buildStage,
+    mode = "standard",
+    populateStage = (root, stage) => buildStage(root, stage, mode),
     validateStage = validateDistribution,
-    fingerprintInputs = fingerprintBuildInputs,
+    fingerprintInputs = (root) => fingerprintBuildInputs(root, { mode }),
     publishStage = publishRuntimeSafe,
     beforePublishFile = () => {},
     leaseOptions = {},

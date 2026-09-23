@@ -26,6 +26,8 @@ import { detectFunctionComplexityBaseline, detectSiblingBaseline, isSiblingBasel
 import { type BaselineKind, baselineKind } from "./baseline-kind.js";
 import { detectLintBaselineGaming } from "./lint-baseline-integrity.js";
 import { baselineKeyFor, COVERAGE_METRICS } from "../coverage-metric-names.js";
+import { detectE2eBaselineGaming, type E2eGuardContext } from "./e2e-baseline-integrity.js";
+import { resolveE2eBase } from "../e2e-store.js";
 
 export interface BaselineGamingFinding {
 	file: string;
@@ -375,8 +377,10 @@ export function detectBaselineGaming(
 	beforeText: string,
 	afterText: string,
 	sourceExists?: (rel: string) => boolean,
+	e2eContext?: E2eGuardContext,
 ): BaselineGamingFinding[] {
 	const kind = baselineKind(filePath);
+	if (kind === "coverage-e2e") return detectE2eBaselineGaming(filePath, beforeText, afterText, e2eContext);
 	// The disposition ledger (not a water-line) rides its sibling detector.
 	if (!kind) return detectSiblingBaseline(filePath, beforeText, afterText);
 	if (!beforeText) return [];
@@ -400,6 +404,7 @@ interface BaselineComparison {
 function compareBaseline(input: BaselineComparison): BaselineGamingFinding[] {
     const { kind, filePath, beforeText, afterText, before, after, exists } = input;
 	switch (kind) {
+		case "coverage-e2e": throw new Error("E2e baseline needs its repository context");
 		case "coverage":
 			return detectRisingMetricMap(filePath, asObj(asObj(before).files), asObj(asObj(after).files), COVERAGE_METRICS.map(baselineKeyFor), "coverage", exists);
 		case "mutation":
@@ -449,13 +454,17 @@ export function evaluateBaselineIntegrityForEvent(
 
 	const getDisk = deps.getDisk ?? readDiskContent;
 	const before = getDisk(filePath, event.cwd);
+	if (before === null && kind === "coverage-e2e") return {
+		decision: "block", rule_id: "baseline_integrity_gate", severity: "high", category: "config",
+		reason: "Create the e2e baseline from a measured passing run: interlinked coverage check --lane e2e --init-baseline",
+	};
 	// Absent baseline: creating it isn't loosening — except the complexity ledger (ledgerCreationBlock).
 	if (before === null) return kind === "function-complexity" ? ledgerCreationBlock(filePath) : null;
 
 	const proposed = reconstructProposedBaseline(before, toolInput);
 	if (proposed === null) return null;
 
-	const findings = detectBaselineGaming(filePath, before, proposed);
+	const findings = detectBaselineGaming(filePath, before, proposed, undefined, { root: event.cwd ?? process.cwd(), base: resolveE2eBase() });
 	if (findings.length === 0) return null;
 
 	const messages = findings.map((f) => `[${f.rule}] ${f.message}`).join("\n  ");

@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import {
 	type FileMutationProcessIdentity,
 	readFileMutationProcessIdentity,
@@ -456,7 +457,19 @@ export async function withAsyncFileMutationLock<T>(
     action: () => Promise<T>,
     options: FileMutationLockOptions = { waitMs: 0 },
 ): Promise<T> {
-    const lease = acquireFileMutationLock(path, options);
+    const lease = await acquireAsyncFileMutationLock(path, options);
     try { return await action(); }
     finally { releaseOwnedLock(lease); }
+}
+
+async function acquireAsyncFileMutationLock(path: string, options: FileMutationLockOptions): Promise<FileMutationLease> {
+    const { clock, waitMs, retryMs } = resolveLockTimings(options);
+    const deadline = clock() + waitMs;
+    for (;;) {
+        try { return acquireFileMutationLock(path, { ...options, waitMs: 0 }); }
+        catch (error) {
+            if (!(error instanceof FileMutationLockTimeoutError) || clock() >= deadline) throw error;
+            await delay(retryMs);
+        }
+    }
 }

@@ -16,6 +16,7 @@ import { isJsonObject, type JsonObject } from "../json-types.js";
 import { readRecentLines } from "../local-activity-collection.js";
 import { nonNull } from "../non-null.js";
 import { createJsonlTailer } from "./event-stream.js";
+import type { TestLane } from "../test-lane.js";
 
 /** Terminal verdict of a single test case. Closed domain — renderers switch on it. */
 export type TestStatus = "pass" | "fail" | "skip" | "todo";
@@ -25,6 +26,7 @@ export interface TestEvent {
 	ts: string;
 	kind: "run_start" | "file_start" | "test" | "run_end";
 	run_id: string;
+	lane?: TestLane;
 	/** Human label for the run (the command, or the runner name). */
 	label?: string;
 	/** Test file, repo-relative when the producer can resolve it. */
@@ -129,6 +131,7 @@ export function mapTestLine(line: string): TestEvent | null {
 	// SAFETY: guarded by the KINDS membership check above.
 	const ev: TestEvent = { ts, kind: kind as TestEvent["kind"], run_id: runId };
 	copyStrings(ev, r);
+	if (r.lane === "unit" || r.lane === "integration" || r.lane === "e2e" || r.lane === "base" || r.lane === "unknown") ev.lane = r.lane;
 	copyNumbers(ev, r);
 	const status = asStatus(str(r, "status"));
 	if (status) ev.status = status;

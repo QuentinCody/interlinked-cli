@@ -16,9 +16,10 @@ import {
 } from "./water-line-files.js";
 
 describe("WATER_LINE_FILES — the canonical guard set", () => {
-	it("pins the exact ten stems, in order", () => {
+	it("pins the canonical baseline stems, in order", () => {
 		expect([...WATER_LINE_FILES]).toEqual([
 			"coverage-baseline",
+			"coverage-e2e-baseline",
 			"coverage-edit-baseline",
 			"mutation-baseline",
 			"mutation-manifest",

@@ -234,6 +234,11 @@ describe("registerQualityCommands — command + option descriptions (mutation-ki
 				"Path to one coverage report (LCOV .info or istanbul JSON). Default: merge every discovered coverage report",
 			"--changed-files": "Comma-separated repo-relative paths; only report drops for these files",
 			"--update-baseline": "Persist the current coverage as the new baseline",
+			"--lane": "Named coverage lane: e2e (isolated strict policy)",
+			"--init-baseline": "Initialize an absent e2e baseline from a passing measured run",
+			"--require-measured": "Fail on a partial or unmeasured report",
+			"--base": "E2e comparison base (default: HEAD; CI supplies its event base)",
+			"--map": "Apply a mapping in the measured e2e transaction; repeatable",
 			"--strict": "exit non-zero on any per-file drop (default: advisory)",
 			"--cwd": "Project root (default: current directory)",
 			"--json": "Machine-readable output",
@@ -244,7 +249,7 @@ describe("registerQualityCommands — command + option descriptions (mutation-ki
 	it("coverage > baseline", () => {
 		const cmd = child(top(build(), "coverage"), "baseline");
 		expect(cmd.description()).toBe("Show the current coverage baseline");
-		expect(optionDescriptions(cmd)).toEqual({ "--json": "Machine-readable output" });
+		expect(optionDescriptions(cmd)).toEqual({ "--json": "Machine-readable output", "--lane": "Named coverage lane: e2e", "--cwd": "Project root" });
 	});
 
 	// test-contract: public-api — metrics parent exposes its documented command and option help text

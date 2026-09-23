@@ -1,9 +1,10 @@
 import { type WaterLineStem, waterLineStem } from "./water-line-files.js";
 
-export type BaselineKind = "coverage" | "coverage-edit" | "mutation" | "large-files" | "untested-files" | "metric-caps" | "mutation-manifest" | "skipped-tests" | "check-evidence" | "function-complexity" | "lint";
+export type BaselineKind = "coverage" | "coverage-e2e" | "coverage-edit" | "mutation" | "large-files" | "untested-files" | "metric-caps" | "mutation-manifest" | "skipped-tests" | "check-evidence" | "function-complexity" | "lint";
 
 const KIND_MAP: Record<WaterLineStem, BaselineKind> = {
     "coverage-baseline": "coverage",
+    "coverage-e2e-baseline": "coverage-e2e",
     "coverage-edit-baseline": "coverage-edit",
     "mutation-baseline": "mutation",
     "large-files-baseline": "large-files",

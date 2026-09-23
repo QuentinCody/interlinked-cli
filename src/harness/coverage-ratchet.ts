@@ -16,7 +16,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { isJsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import type { CoverageRatchetConfig } from "./check-policy.js";
 import type { CoverageMetricName } from "./coverage-metric-names.js";
 import { compareFileEntry, type FileComparison, gatedCoverageMetrics } from "./coverage-ratchet-compare.js";
@@ -73,6 +73,8 @@ export interface CoverageMetric {
  * statements) records nothing for it rather than a fake 0.
  */
 export interface CoverageBaselineFileEntry {
+	lines_total?: number;
+	lines_covered?: number;
 	lines_pct: number;
 	branches_pct: number;
 	statements_pct?: number;
@@ -145,6 +147,13 @@ export function emptyBaseline(): CoverageBaseline {
  * partially-written entry must not reset the whole ratchet. This is the
  * READ side only; `saveBaseline`'s write shape is unchanged.
  */
+function copyOptionalCoverageFields(entry: CoverageBaselineFileEntry, stats: JsonObject): void {
+	for (const key of ["statements_pct", "functions_pct", "lines_total", "lines_covered"] as const) {
+		const value = stats[key];
+		if (typeof value === "number") entry[key] = value;
+	}
+}
+
 function parseCoverageBaseline(value: unknown): CoverageBaseline | null {
 	if (!isJsonObject(value)) return null;
 	if (value.version !== 1) return null;
@@ -152,13 +161,12 @@ function parseCoverageBaseline(value: unknown): CoverageBaseline | null {
 	const files: Record<string, CoverageBaselineFileEntry> = {};
 	for (const [file, stats] of Object.entries(value.files)) {
 		if (!isJsonObject(stats)) continue;
-		const { lines_pct, branches_pct, statements_pct, functions_pct } = stats;
+		const { lines_pct, branches_pct } = stats;
 		if (typeof lines_pct !== "number" || typeof branches_pct !== "number") continue;
 		const entry: CoverageBaselineFileEntry = { lines_pct, branches_pct };
 		// The two newer metrics are optional on disk (pre-2026-09-16 baselines
 		// lack them); a non-numeric value is dropped, not coerced.
-		if (typeof statements_pct === "number") entry.statements_pct = statements_pct;
-		if (typeof functions_pct === "number") entry.functions_pct = functions_pct;
+		copyOptionalCoverageFields(entry, stats);
 		files[file] = entry;
 	}
 	const updatedAt = typeof value.updated_at === "string" ? value.updated_at : new Date(0).toISOString();

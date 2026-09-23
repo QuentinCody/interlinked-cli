@@ -38,6 +38,7 @@ Commands:
   disable [options]                          Stand the harness down for this project (recorded); --uninstall to remove hooks + config
   doctest [options]                          Run doctest-tagged (```bash doctest) code blocks in docs and verify they exit 0
   doctor [options]                           Diagnose issues (local + server checks)
+  e2e                                        End-to-end tests for hook and daemon boundaries
   enable [options]                           Install hooks + create .interlinked/ config
   env [options]                              Show supported environment variables and their current values
   experience                                 Agent-readable trajectory export + analysis (trajectory-v1 interop / trajectory-ix.v1 annotated)
@@ -1289,6 +1290,174 @@ Options:
 ```
 
 ## Simplify
+## Coverage
+
+```
+Usage: interlinked coverage [options] [command]
+
+Per-file coverage ratchet — fails on any file whose coverage drops
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  move [options] [old] [new]  Record an e2e boundary move, preserving every
+                              floor
+  retire [options] <path>     Retire an e2e floor whose boundary file is gone
+                              or erased
+  status [options]            Show quality coverage baselines by lane (distinct
+                              from harness filesystem coverage)
+  check [options]             Compare current coverage against the baseline.
+                              Per-file drops are ADVISORY (exit 0) unless
+                              --strict is passed
+  metrics [options]           Per-metric distribution (lines / statements /
+                              functions / branches) over the merged coverage
+                              report: measured, at 100%, under a threshold,
+                              p50/p90, lowest files
+  baseline [options]          Show the current coverage baseline
+  help [command]              display help for command
+```
+
+### coverage check
+
+```
+Usage: interlinked coverage check [options]
+
+Compare current coverage against the baseline. Per-file drops are ADVISORY
+(exit 0) unless --strict is passed
+
+Options:
+  --report <path>         Path to one coverage report (LCOV .info or istanbul
+                          JSON). Default: merge every discovered coverage
+                          report
+  --changed-files <list>  Comma-separated repo-relative paths; only report
+                          drops for these files
+  --update-baseline       Persist the current coverage as the new baseline
+  --lane <name>           Named coverage lane: e2e (isolated strict policy)
+  --init-baseline         Initialize an absent e2e baseline from a passing
+                          measured run
+  --require-measured      Fail on a partial or unmeasured report
+  --base <ref>            E2e comparison base (default: HEAD; CI supplies its
+                          event base)
+  --map <old=new>         Apply a mapping in the measured e2e transaction;
+                          repeatable
+  --strict                exit non-zero on any per-file drop (default:
+                          advisory)
+  --cwd <path>            Project root (default: current directory)
+  --json                  Machine-readable output
+  -h, --help              display help for command
+```
+
+### coverage baseline
+
+```
+Usage: interlinked coverage baseline [options]
+
+Show the current coverage baseline
+
+Options:
+  --lane <name>  Named coverage lane: e2e
+  --cwd <path>   Project root
+  --json         Machine-readable output
+  -h, --help     display help for command
+```
+
+### coverage metrics
+
+```
+Usage: interlinked coverage metrics [options]
+
+Per-metric distribution (lines / statements / functions / branches) over the
+merged coverage report: measured, at 100%, under a threshold, p50/p90, lowest
+files
+
+Options:
+  --report <path>  Path to one coverage report (LCOV .info or istanbul JSON).
+                   Default: merge every discovered report
+  --metric <name>  Only this metric: lines | statements | functions | branches
+  --under <pct>    Threshold for the "under N%" count (default 90)
+  --top <n>        How many lowest files to list per metric (default 10)
+  --cwd <path>     Project root (default: current directory)
+  --json           Machine-readable output
+  -h, --help       display help for command
+```
+
+### coverage move
+
+```
+Usage: interlinked coverage move [options] [old] [new]
+
+Record an e2e boundary move, preserving every floor
+
+Options:
+  --lane <name>    Required: e2e
+  --map <old=new>  Atomic mapping; repeat for a chain or swap
+  --base <ref>     Comparison base (default: HEAD)
+  --cwd <path>     Project root
+  --json           Machine-readable output
+  -h, --help       display help for command
+```
+
+### coverage retire
+
+```
+Usage: interlinked coverage retire [options] <path>
+
+Retire an e2e floor whose boundary file is gone or erased
+
+Options:
+  --lane <name>  Required: e2e
+  --base <ref>   Comparison base (default: HEAD)
+  --cwd <path>   Project root
+  --json         Machine-readable output
+  -h, --help     display help for command
+```
+
+### coverage status
+
+```
+Usage: interlinked coverage status [options]
+
+Show quality coverage baselines by lane (distinct from harness filesystem
+coverage)
+
+Options:
+  --cwd <path>  Project root
+  --json        Machine-readable output
+  -h, --help    display help for command
+```
+
+## E2e
+
+```
+Usage: interlinked e2e [options] [command]
+
+End-to-end tests for hook and daemon boundaries
+
+Options:
+  -h, --help                 display help for command
+
+Commands:
+  scaffold [options] <name>  Create a fixture-backed e2e test with a failing
+                             contract assertion
+  help [command]             display help for command
+```
+
+### e2e scaffold
+
+```
+Usage: interlinked e2e scaffold [options] <name>
+
+Create a fixture-backed e2e test with a failing contract assertion
+
+Options:
+  --event <event>  PreToolUse, PostToolUse or Stop (default: "PreToolUse")
+  --tool <tool>    Native tool name (default: "Edit")
+  --cwd <path>     Project root
+  --dry-run        Print the test without writing it
+  -h, --help       display help for command
+```
+
 
 ```
 Usage: interlinked simplify [options] [command]

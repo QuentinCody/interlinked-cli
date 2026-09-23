@@ -45,6 +45,7 @@ import { c, header, kvLine } from "../lib/formatter.js";
 import { nonNull } from "../lib/non-null.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 import { reportMtimeMs } from "../lib/report-mtime.js";
+import { coverageE2eBaselineCommand, coverageE2eCheckCommand } from "./coverage-e2e.js";
 
 /** The istanbul/v8 fallbacks for a JS run that hasn't emitted lcov. The LCOV
  *  candidates come from `lcovReportPaths()` (canonical + per-language). */
@@ -56,6 +57,11 @@ function defaultReportPaths(): string[] {
 }
 
 interface CoverageCheckOptions {
+	lane?: string;
+	base?: string;
+	map?: string[];
+	initBaseline?: boolean;
+	requireMeasured?: boolean;
 	report?: string;
 	updateBaseline?: boolean;
 	changedFiles?: string;
@@ -65,11 +71,13 @@ interface CoverageCheckOptions {
 }
 
 export async function coverageCheckCommand(opts: CoverageCheckOptions): Promise<void> {
+	if (opts.lane !== undefined) return coverageE2eCheckCommand(opts);
 	const mode = getOutputMode(opts);
 	const cwd = resolve(opts.cwd || process.cwd());
 	const configDir = getConfigDir(cwd);
 
 	try {
+		if (opts.initBaseline || opts.map || opts.base) throw new Error("--init-baseline, --map and --base require --lane e2e");
 		runCoverageCheck(mode, cwd, configDir, opts);
 	} catch (err) {
 		outputError(mode, err instanceof Error ? err.message : String(err));
@@ -141,22 +149,24 @@ function runCoverageCheck(
 		);
 	}
 
-	// A partial report can never fail the run: there is nothing measurable
-	// to regress against. Fail to UNMEASURED, never to REGRESSED.
-	if (!result.partialReport?.partial) {
-		const hasErrors = result.findings.some((f) => f.severity === "error");
-		const hasWarnings = result.findings.length > 0;
-		if (hasErrors || (opts.strict && hasWarnings)) {
-			process.exitCode = 1;
-		}
+	applyCoverageExitPolicy(result, opts);
+}
+
+function applyCoverageExitPolicy(result: CoverageRatchetResult, opts: CoverageCheckOptions): void {
+	if (result.partialReport?.partial) {
+		if (opts.requireMeasured) process.exitCode = 1;
+		return;
 	}
+	const hasErrors = result.findings.some((finding) => finding.severity === "error");
+	if (hasErrors || (opts.strict && result.findings.length > 0)) process.exitCode = 1;
 }
 
 /**
  * Show the current baseline so users can see what's being ratcheted
  * against, and spot files with lower-than-expected baselines.
  */
-export function coverageBaselineCommand(opts: { cwd?: string; json?: boolean }): void {
+export function coverageBaselineCommand(opts: { cwd?: string; json?: boolean; lane?: string }): void {
+	if (opts.lane !== undefined) return coverageE2eBaselineCommand(opts);
 	const mode = getOutputMode(opts);
 	const cwd = resolve(opts.cwd || process.cwd());
 	const configDir = getConfigDir(cwd);

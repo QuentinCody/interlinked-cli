@@ -43,6 +43,7 @@ import {
 import { dirname, join } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
 import { detectBaselineGaming } from "./baseline-integrity-gate.js";
+import { resolveE2eBase } from "../e2e-store.js";
 import { WATER_LINE_PATHS } from "./water-line-files.js";
 
 /** Water-line files, repo-relative — the shared guard set (water-line-files.ts). */
@@ -116,6 +117,7 @@ export function captureBaselines(root: string): BaselineSnapshot {
 export function detectBaselineLoosening(
 	before: BaselineSnapshot,
 	after: BaselineSnapshot,
+	root?: string,
 ): BaselineLoosening[] {
 	const out: BaselineLoosening[] = [];
 	for (const rel of BASELINE_FILES) {
@@ -135,7 +137,8 @@ export function detectBaselineLoosening(
 		// The detector takes RAW TEXT (it parses internally) and reports
 		// `message` — same pure function the intent gate uses, so both arms
 		// agree on what "looser" means by construction.
-		const findings = detectBaselineGaming(rel, beforeText, afterText);
+		const context = root ? { root, base: resolveE2eBase() } : undefined;
+		const findings = detectBaselineGaming(rel, beforeText, afterText, undefined, context);
 		if (findings.length === 0) continue;
 		out.push({ file: rel, beforeText, afterText, details: findings.map((f) => f.message) });
 	}
@@ -310,7 +313,7 @@ export function consumeBaselineSnapshot(key: string, root: string): string | nul
 	const before = snapshots.get(key);
 	snapshots.delete(key);
 	if (!before) return null;
-	const loosenings = detectBaselineLoosening(before, captureBaselines(root));
+	const loosenings = detectBaselineLoosening(before, captureBaselines(root), root);
 	if (loosenings.length === 0) return null;
 	writeUndoRecord(root, key, loosenings);
 	return buildLooseningWarning(key, loosenings);

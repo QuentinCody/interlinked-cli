@@ -331,10 +331,10 @@ duplicated policy numbers drift, which is a class this repo's own
 | `src/harness/regex-trigrams.ts` | Regex → trigram decomposition, rg command parsing |
 | `src/harness/grep-accelerator.ts` | PreToolUse grep acceleration: index query + block-and-answer |
 | `src/harness/large-file-policy.ts` | Per-file line cap: threshold, `isCappableFile` predicate, baseline loader, ratchet verdict |
-| `src/harness/mutation/` | Per-edit mutation gate (spec `docs/design/per-edit-cloud-mutation-testing.md`): stable mutant identity, `mutation-manifest.json` + receipts, survivor-diff invariant, ChangeSet overlays, cloud runner client. Config `per_edit_mutation` (default off; `budget_ms` caps the runner round-trip). Engine scaffolding: root `stryker.conf.json` (MUST ignore `.interlinked/` — Stryker's tree-copy crashes on the harness socket) + `vitest.stryker.config.ts`. Probe: `npx tsx .interlinked/e2e-mutation-gate.mts`. The older per-file score ratchet (`mutation-gate.ts`, `interlinked mutation check`) is a separate, coarser system. |
+| `src/harness/mutation/` | Per-edit mutation gate (spec `docs/design/per-edit-cloud-mutation-testing.md`): stable mutant identity, `mutation-manifest.json` + receipts, survivor-diff invariant, ChangeSet overlays, cloud runner client. Config `per_edit_mutation` (default off; `budget_ms` caps the runner round-trip). Engine scaffolding: root `stryker.conf.json` (MUST ignore `.interlinked/` — Stryker's tree-copy crashes on the harness socket) + `vitest.stryker.config.ts`. Live engine test: `npm run test:integration -- gate-live`. The older per-file score ratchet (`mutation-gate.ts`, `interlinked mutation check`) is a separate, coarser system. |
 | `src/harness/shadow/protocol/` | Public client contract and local reference implementation for remote shadow execution: strict parsers, byte grammars, overlays, changeset identity, provenance, and binding comparison. Cross-repository fixtures and schema metadata live in `protocol/shadow-v1/`; see its README for the public/private boundary and vendor workflow. After changing contract source or corpus data, regenerate the digest with `npx tsx scripts/gen-shadow-contract-digest.mts`; use `--check` to verify freshness. Regenerate schemas with `npx tsx scripts/gen-shadow-schema.mts` when contract shapes change. |
 | `src/harness/check-inventory.ts` | **Single source of truth for "how many checks."** `getCheckInventory()` derives per-family counts (inline `CHECK_REGISTRY` / sequence / structural / tool-quality / suggestion / behavioral — disjoint) live from each registry; pinned by `check-inventory.test.ts`; surfaced by `interlinked harness checks`. `GENERIC_CHECK_META` is the doc-view of a subset of the inline family, NOT a count — never sum it. Guard rules (`BUILTIN_RULES`) are a separate primitive, pinned by docs-freshness. |
-| `src/harness/evaluator/complexity-pulse.ts` | Ambient per-edit cyclomatic telemetry: the strict gate's observer stashes its already-paid before/after parses at PreToolUse; PostToolUse emits one `[interlinked:cyclomatic]` line per edited code file (ΣCC + max + per-fn Δ; absolutes on stash miss). Same population as the gate (cappable files). Live probe: `node .interlinked/e2e-pulse-probe.mjs` (flip `per_edit_coverage` off first or expect overlay-run latency). |
+| `src/harness/evaluator/complexity-pulse.ts` | Ambient per-edit cyclomatic telemetry: the strict gate's observer stashes its already-paid before/after parses at PreToolUse; PostToolUse emits one `[interlinked:cyclomatic]` line per edited code file (ΣCC + max + per-fn Δ; absolutes on stash miss). Same population as the gate (cappable files). Isolated hook test: `npm run build:e2e && npm run test:e2e -- pulse`. |
 | `src/harness/agent-metrics.ts` | Per-subagent cost + activity, summed off the agent's OWN transcript (2026-08-08): tokens (input/output/cache read/creation), models, per-tool call counts, `tool_use_ids`, turn counts, duration, thinking-block counts. The stop payload carries NO usage (0/1507 measured), so this is the only capture point. `tool_use_ids` is the attribution key — a subagent's tool calls reach the guard under the PARENT session id with no agent marker, so joining activity.jsonl rows back to their agent requires this list. |
 | `src/harness/server/agent-event-context.ts` | Label + metrics resolution for one agent event. `SubagentStart` carries `agent_type`, `SubagentStop` usually does not (1439/1507 unlabeled), so the daemon remembers the start label and re-attaches it; `agent_type_source` records payload-vs-remembered. Empty-string labels normalize to null. |
 | `src/harness/background-task-log.ts` | Background-agent roster capture (2026-08-08, found by the census): Stop/SubagentStop carry `background_tasks: [{id,type,status,description,agent_type}]`. A background agent fires NO per-agent hook — its result reaches the parent over a queue notification — so this array is the only report that it exists. One row per observed STATE CHANGE to `.interlinked/background-tasks.jsonl`; honors `dry_run`. |
@@ -1192,22 +1192,21 @@ echo '{"hook_event":"PreToolUse","session_id":"t","agent_source":"claude","tool_
 # Expected: {"decision":"block","reason":"BLOCKED: Recursive deletion..."}
 ```
 
-## Graph-prediction probes (checked-in regression harnesses)
+## E2E lane
 
-Five end-to-end probes under `.interlinked/` exercise the full
-predict/reveal/reconcile flow against the live daemon. Use them to
-verify the system still works after any harness change. All five are
-re-runnable, create + clean their own tmp fixtures, use unique session
-ids; the first four require a running daemon, the cold-fallback probe
-deliberately points at a non-existent socket to exercise fail-closed.
+`npm run build:e2e && npm run test:e2e` exercises real hook processes and
+isolated raw/framed/dual daemons through `src/e2e/fixture.ts`. Fixtures opt into
+graph prediction explicitly and require a fresh daemon transport receipt plus
+PID ownership. `src/harness/e2e-boundary.ts` defines which product files incur
+the advisory Stop obligation. Run the lane from the editing session.
 
-```bash
-node .interlinked/e2e-protocol-probe.mjs    # core block→write→reveal flow (11 assertions)
-node .interlinked/e2e-protocol-suite.mjs    # 6 cases × 3 modes (16 assertions)
-node .interlinked/e2e-stability.mjs         # 5000-event burst, p99 + RSS budget
-node .interlinked/e2e-hook-script.mjs       # dist/hook-entry.js → Claude Code envelope
-node .interlinked/e2e-cold-fallback.mjs     # daemon unreachable → fail-closed gate fires (18 assertions)
-```
+Use `interlinked e2e scaffold <name>` to start a test; replace its deliberate
+failure with a behavioral assertion. `npm run test:e2e:coverage` measures child
+V8 coverage after the source-mapped build. Compare with
+`node dist/index.js coverage check --lane e2e --strict --require-measured`.
+`E2E_STABILITY=1 npm run test:e2e` includes the 5,000-event stress case.
+The real Stryker library probe lives in
+`src/harness/mutation/gate-live.integration.test.ts`; daemon mutation
+availability is covered in `src/e2e/mutation-gate.e2e.test.ts`.
 
-See `docs/design/graph-prediction-verification-status.md` for what each
-probe pins, plus the deployed-config snapshot.
+See `docs/e2e-testing.md` for collection, baseline transactions and diagnostics.

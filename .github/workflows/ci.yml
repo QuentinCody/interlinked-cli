@@ -104,6 +104,33 @@ jobs:
       - name: Test (integration lane)
         run: npm run test:integration
 
+  e2e:
+    name: e2e (Linux / Node 22)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci
+      - name: Install ripgrep (CI/dev environment parity)
+        run: sudo apt-get update -q && sudo apt-get install -y -q ripgrep
+      - name: Resolve e2e comparison base
+        run: node scripts/e2e-ci-base.mjs
+      - name: Build e2e coverage artifacts
+        run: npm run build:e2e
+      - name: Test (e2e lane with child coverage)
+        run: npm run test:e2e:coverage
+      - name: Strict e2e coverage ratchet
+        run: node dist/index.js coverage check --lane e2e --strict --require-measured --base "$E2E_BASE" --report coverage-e2e/coverage-summary.json
+
   package:
     name: package (Linux / Node 22)
     runs-on: ubuntu-latest

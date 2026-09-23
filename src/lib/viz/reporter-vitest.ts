@@ -17,6 +17,7 @@
 //   reporters: ["default", "interlinked-cli/viz-reporter"]
 
 import { relative } from "node:path";
+import { laneFromConfig, type TestLane } from "../test-lane.js";
 import { appendTestEvent, type TestEvent, type TestStatus, testEventsPath, trimError } from "./test-events.js";
 
 /** The slice of a vitest `TestCase` this reporter reads. All optional by design. */
@@ -87,6 +88,12 @@ export class InterlinkedVizReporter {
 	private runId = newRunId();
 	private tally = { passed: 0, failed: 0, skipped: 0 };
 	private startedAt = 0;
+	private lane: TestLane = "unknown";
+
+	onInit(context: { vite?: { config?: { configFile?: string | false } } }): void {
+		const config = context.vite?.config?.configFile;
+		this.lane = laneFromConfig(typeof config === "string" ? config : undefined);
+	}
 
 	constructor(opts: ReporterOptions = {}) {
 		this.root = opts.root ?? process.cwd();
@@ -98,7 +105,7 @@ export class InterlinkedVizReporter {
 	/** Append one event, swallowing any sink failure. */
 	private emit(ev: Omit<TestEvent, "ts" | "run_id">): void {
 		try {
-			this.write(this.feedPath, { ts: this.now().toISOString(), run_id: this.runId, ...ev });
+			this.write(this.feedPath, { ts: this.now().toISOString(), run_id: this.runId, lane: this.lane, ...ev });
 		} catch (err) {
 			void err; /* observability must never fail the host suite */
 		}

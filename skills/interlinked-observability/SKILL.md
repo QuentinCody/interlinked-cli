@@ -458,7 +458,7 @@ byte-identical and only an explicit opt-in emits the feed — that is how interl
 `vitest.config.ts` wires it: `INTERLINKED_VIZ=1 npx vitest run`. Any equivalent conditional
 works; nothing about the lens requires that variable name. The feed schema
 (`.interlinked/test-events.jsonl`) is runner-agnostic — `{kind: run_start|file_start|test|run_end,
-run_id, file?, name?, status?, ms?, error?}` — so a pytest/cargo adapter writes the same lines
+run_id, lane?, file?, name?, status?, ms?, error?}` — so a pytest/cargo adapter writes the same lines
 and the lens renders unchanged. Every feed degrades to an honest empty state when its file is
 absent; nothing about the dashboard is repo-specific.
 
@@ -470,6 +470,14 @@ interlinked logs -f --type tool_use_error # tail only failing tool calls, live
 interlinked logs --type guard_block --since 1h   # what the guard blocked
 interlinked recurrence list --kind harness_caught --top 10   # recurring mistakes
 interlinked status --full                # per-session tools + files + tokens
+The Interlinked CLI e2e config always registers the reporter; `test:e2e` also
+sets `INTERLINKED_VIZ=1`. The TESTS lens groups files by `unit`, `integration`,
+`e2e`, `base` or `unknown` lane. A bare Vitest run is `base`; old rows without
+a lane remain `unknown`. Repository test rows are run evidence. Fixture
+ledgers are assertion subjects and do not establish which coding session ran
+the tests. The Stop nudge attributes e2e invocations through that session's
+observed Bash commands instead.
+
 interlinked impact --base HEAD --full    # scoped observed facts + explicit claim boundary
 interlinked viz snapshot                 # one-line dependency-graph summary
 interlinked sync --dry-run               # safe: pending count, no send

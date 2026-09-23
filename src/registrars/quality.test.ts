@@ -170,7 +170,7 @@ describe("registerQualityCommands — structure", () => {
 			["accept", "baseline", "doctor", "init", "scan", "status"].sort(),
 		);
 		expect(sub(program, "coverage").commands.map((c) => c.name()).sort()).toEqual(
-			["baseline", "check", "metrics"].sort(),
+			["baseline", "check", "metrics", "move", "retire", "status"].sort(),
 		);
 		// `accept` (2026-07-29) is the audited equivalent-mutant annotation for the
 		// LIVE per-edit manifest — the escape the gate's block message promises.
@@ -275,9 +275,9 @@ describe("registerQualityCommands — structure", () => {
 		// `--changed-files` / `--cwd` were read but never registered, so
 		// commander refused `--strict` outright. See coverage-flag-parity.test.ts.
 		expect(optsOf(cov, "check")).toEqual(
-			["--changed-files", "--cwd", "--json", "--report", "--strict", "--update-baseline"].sort(),
+			["--base", "--changed-files", "--cwd", "--init-baseline", "--json", "--lane", "--map", "--report", "--require-measured", "--strict", "--update-baseline"].sort(),
 		);
-		expect(optsOf(cov, "baseline")).toEqual(["--json"]);
+		expect(optsOf(cov, "baseline")).toEqual(["--cwd", "--json", "--lane"]);
 		expect(optsOf(mut, "check")).toEqual(
 			["--baseline", "--json", "--report", "--update-baseline"].sort(),
 		);

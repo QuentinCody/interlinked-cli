@@ -63,6 +63,8 @@ export interface LocalActivityEvent {
 	seq?: number;
 	/** Delivery id from the framed unified path, when one existed. */
 	event_id?: string;
+	/** Present only on records written by the daemon. */
+	writer?: "daemon";
 	error?: unknown;
 	is_interrupt?: boolean;
 	cwd?: string;

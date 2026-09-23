@@ -1,0 +1,1342 @@
+{
+  "version": 1,
+  "updated_at": "2026-09-23T00:13:32.387Z",
+  "files": {
+    "src/commands/scanner.ts": {
+      "lines_pct": 0.66,
+      "branches_pct": 0,
+      "statements_pct": 0.57,
+      "functions_pct": 0,
+      "lines_total": 150,
+      "lines_covered": 1
+    },
+    "src/commands/scratch.ts": {
+      "lines_pct": 1.72,
+      "branches_pct": 0,
+      "statements_pct": 1.58,
+      "functions_pct": 0,
+      "lines_total": 58,
+      "lines_covered": 1
+    },
+    "src/commands/verify/verify-summary.ts": {
+      "lines_pct": 0.81,
+      "branches_pct": 0,
+      "statements_pct": 0.72,
+      "functions_pct": 0,
+      "lines_total": 123,
+      "lines_covered": 1
+    },
+    "src/harness/adapters/adapter-tool-class.ts": {
+      "lines_pct": 75,
+      "branches_pct": 0,
+      "statements_pct": 75,
+      "functions_pct": 66.66,
+      "lines_total": 4,
+      "lines_covered": 3
+    },
+    "src/harness/adapters/additional-client-capabilities.ts": {
+      "lines_pct": 100,
+      "branches_pct": 100,
+      "statements_pct": 100,
+      "functions_pct": 100,
+      "lines_total": 4,
+      "lines_covered": 4
+    },
+    "src/harness/adapters/additional-client-decisions.ts": {
+      "lines_pct": 2.56,
+      "branches_pct": 0,
+      "statements_pct": 1.69,
+      "functions_pct": 12.5,
+      "lines_total": 39,
+      "lines_covered": 1
+    },
+    "src/harness/adapters/additional-client-input.ts": {
+      "lines_pct": 3.57,
+      "branches_pct": 0,
+      "statements_pct": 3.03,
+      "functions_pct": 20,
+      "lines_total": 28,
+      "lines_covered": 1
+    },
+    "src/harness/adapters/additional-clients.ts": {
+      "lines_pct": 37.5,
+      "branches_pct": 0,
+      "statements_pct": 35,
+      "functions_pct": 18.18,
+      "lines_total": 32,
+      "lines_covered": 12
+    },
+    "src/harness/adapters/catalog-controls.ts": {
+      "lines_pct": 100,
+      "branches_pct": 100,
+      "statements_pct": 100,
+      "functions_pct": 100,
+      "lines_total": 9,
+      "lines_covered": 9
+    },
+    "src/harness/adapters/claude-code.ts": {
+      "lines_pct": 53.42,
+      "branches_pct": 37.07,
+      "statements_pct": 54.76,
+      "functions_pct": 55.55,
+      "lines_total": 73,
+      "lines_covered": 39
+    },
+    "src/harness/adapters/claude-extended-decisions.ts": {
+      "lines_pct": 60,
+      "branches_pct": 28.57,
+      "statements_pct": 48.71,
+      "functions_pct": 66.66,
+      "lines_total": 25,
+      "lines_covered": 15
+    },
+    "src/harness/adapters/codex.ts": {
+      "lines_pct": 26.53,
+      "branches_pct": 1.38,
+      "statements_pct": 36.84,
+      "functions_pct": 9.52,
+      "lines_total": 98,
+      "lines_covered": 26
+    },
+    "src/harness/adapters/copilot-cli.ts": {
+      "lines_pct": 36,
+      "branches_pct": 5.55,
+      "statements_pct": 34.48,
+      "functions_pct": 25,
+      "lines_total": 25,
+      "lines_covered": 9
+    },
+    "src/harness/adapters/cowork.ts": {
+      "lines_pct": 30.43,
+      "branches_pct": 21.62,
+      "statements_pct": 33.33,
+      "functions_pct": 20,
+      "lines_total": 23,
+      "lines_covered": 7
+    },
+    "src/harness/adapters/cursor-actions.ts": {
+      "lines_pct": 10.63,
+      "branches_pct": 0,
+      "statements_pct": 13.79,
+      "functions_pct": 7.69,
+      "lines_total": 47,
+      "lines_covered": 5
+    },
+    "src/harness/adapters/cursor.ts": {
+      "lines_pct": 25.75,
+      "branches_pct": 1.96,
+      "statements_pct": 32.87,
+      "functions_pct": 13.33,
+      "lines_total": 66,
+      "lines_covered": 17
+    },
+    "src/harness/adapters/ecosystem-catalog.ts": {
+      "lines_pct": 50,
+      "branches_pct": 100,
+      "statements_pct": 33.33,
+      "functions_pct": 0,
+      "lines_total": 2,
+      "lines_covered": 1
+    },
+    "src/harness/adapters/gemini-cli.ts": {
+      "lines_pct": 47.05,
+      "branches_pct": 10,
+      "statements_pct": 50,
+      "functions_pct": 33.33,
+      "lines_total": 17,
+      "lines_covered": 8
+    },
+    "src/harness/adapters/hook-command.ts": {
+      "lines_pct": 24,
+      "branches_pct": 0,
+      "statements_pct": 34.48,
+      "functions_pct": 11.11,
+      "lines_total": 25,
+      "lines_covered": 6
+    },
+    "src/harness/adapters/hook-contract.ts": {
+      "lines_pct": 100,
+      "branches_pct": 65,
+      "statements_pct": 92.85,
+      "functions_pct": 83.33,
+      "lines_total": 10,
+      "lines_covered": 10
+    },
+    "src/harness/adapters/hook-observation.ts": {
+      "lines_pct": 23.07,
+      "branches_pct": 4.76,
+      "statements_pct": 17.64,
+      "functions_pct": 40,
+      "lines_total": 13,
+      "lines_covered": 3
+    },
+    "src/harness/adapters/index.ts": {
+      "lines_pct": 81.25,
+      "branches_pct": 44.44,
+      "statements_pct": 73.68,
+      "functions_pct": 80,
+      "lines_total": 16,
+      "lines_covered": 13
+    },
+    "src/harness/adapters/normalization.ts": {
+      "lines_pct": 84.37,
+      "branches_pct": 66.05,
+      "statements_pct": 70.78,
+      "functions_pct": 88.23,
+      "lines_total": 64,
+      "lines_covered": 54
+    },
+    "src/harness/adapters/opencode.ts": {
+      "lines_pct": 70.58,
+      "branches_pct": 11.11,
+      "statements_pct": 78.26,
+      "functions_pct": 28.57,
+      "lines_total": 17,
+      "lines_covered": 12
+    },
+    "src/harness/adapters/pi.ts": {
+      "lines_pct": 72.22,
+      "branches_pct": 11.11,
+      "statements_pct": 80,
+      "functions_pct": 28.57,
+      "lines_total": 18,
+      "lines_covered": 13
+    },
+    "src/harness/adapters/provider-bridge-source.ts": {
+      "lines_pct": 50,
+      "branches_pct": 0,
+      "statements_pct": 59.09,
+      "functions_pct": 25,
+      "lines_total": 16,
+      "lines_covered": 8
+    },
+    "src/harness/adapters/provider-capabilities.ts": {
+      "lines_pct": 95,
+      "branches_pct": 90.47,
+      "statements_pct": 96.66,
+      "functions_pct": 100,
+      "lines_total": 20,
+      "lines_covered": 19
+    },
+    "src/harness/adapters/provider-decisions.ts": {
+      "lines_pct": 7.69,
+      "branches_pct": 0,
+      "statements_pct": 10.52,
+      "functions_pct": 14.28,
+      "lines_total": 39,
+      "lines_covered": 3
+    },
+    "src/harness/agent-io/store.ts": {
+      "lines_pct": 0,
+      "branches_pct": 0,
+      "statements_pct": 0,
+      "functions_pct": 0,
+      "lines_total": 40,
+      "lines_covered": 0
+    },
+    "src/harness/assertion-waiver-log.ts": {
+      "lines_pct": 6.38,
+      "branches_pct": 0,
+      "statements_pct": 4.91,
+      "functions_pct": 0,
+      "lines_total": 47,
+      "lines_covered": 3
+    },
+    "src/harness/background-task-log.ts": {
+      "lines_pct": 15.78,
+      "branches_pct": 16.27,
+      "statements_pct": 15.71,
+      "functions_pct": 42.85,
+      "lines_total": 57,
+      "lines_covered": 9
+    },
+    "src/harness/baseline-autofold.ts": {
+      "lines_pct": 7.4,
+      "branches_pct": 0,
+      "statements_pct": 6.55,
+      "functions_pct": 0,
+      "lines_total": 54,
+      "lines_covered": 4
+    },
+    "src/harness/break-glass.ts": {
+      "lines_pct": 4.08,
+      "branches_pct": 0,
+      "statements_pct": 3.33,
+      "functions_pct": 0,
+      "lines_total": 49,
+      "lines_covered": 2
+    },
+    "src/harness/coverage-obligation-ledger.ts": {
+      "lines_pct": 9.72,
+      "branches_pct": 1.47,
+      "statements_pct": 9.09,
+      "functions_pct": 9.09,
+      "lines_total": 72,
+      "lines_covered": 7
+    },
+    "src/harness/crap-telemetry.ts": {
+      "lines_pct": 11.11,
+      "branches_pct": 0,
+      "statements_pct": 8.33,
+      "functions_pct": 0,
+      "lines_total": 9,
+      "lines_covered": 1
+    },
+    "src/harness/daemon-client.ts": {
+      "lines_pct": 85.71,
+      "branches_pct": 52.17,
+      "statements_pct": 73.01,
+      "functions_pct": 68.42,
+      "lines_total": 49,
+      "lines_covered": 42
+    },
+    "src/harness/daemon-ledger.ts": {
+      "lines_pct": 56.75,
+      "branches_pct": 30,
+      "statements_pct": 62.22,
+      "functions_pct": 66.66,
+      "lines_total": 37,
+      "lines_covered": 21
+    },
+    "src/harness/ephemeral-write-log.ts": {
+      "lines_pct": 100,
+      "branches_pct": 82.35,
+      "statements_pct": 85.71,
+      "functions_pct": 100,
+      "lines_total": 17,
+      "lines_covered": 17
+    },
+    "src/harness/error-history.ts": {
+      "lines_pct": 14.84,
+      "branches_pct": 3.77,
+      "statements_pct": 13.29,
+      "functions_pct": 28.57,
+      "lines_total": 128,
+      "lines_covered": 19
+    },
+    "src/harness/evaluator/post-tool.ts": {
+      "lines_pct": 64.41,
+      "branches_pct": 46.38,
+      "statements_pct": 60,
+      "functions_pct": 80,
+      "lines_total": 163,
+      "lines_covered": 105
+    },
+    "src/harness/evaluator/pre-tool.ts": {
+      "lines_pct": 95.45,
+      "branches_pct": 50,
+      "statements_pct": 91.66,
+      "functions_pct": 97.43,
+      "lines_total": 66,
+      "lines_covered": 63
+    },
+    "src/harness/failure-record.ts": {
+      "lines_pct": 4.34,
+      "branches_pct": 0,
+      "statements_pct": 4.16,
+      "functions_pct": 0,
+      "lines_total": 23,
+      "lines_covered": 1
+    },
+    "src/harness/findings/corpus.ts": {
+      "lines_pct": 28.78,
+      "branches_pct": 13.63,
+      "statements_pct": 30.76,
+      "functions_pct": 27.77,
+      "lines_total": 66,
+      "lines_covered": 19
+    },
+    "src/harness/findings/simplification-record.ts": {
+      "lines_pct": 1.2,
+      "branches_pct": 0,
+      "statements_pct": 1,
+      "functions_pct": 0,
+      "lines_total": 83,
+      "lines_covered": 1
+    },
+    "src/harness/gate-reach-collect.ts": {
+      "lines_pct": 72.72,
+      "branches_pct": 55.88,
+      "statements_pct": 65.04,
+      "functions_pct": 81.25,
+      "lines_total": 99,
+      "lines_covered": 72
+    },
+    "src/harness/graph-prediction-cache.ts": {
+      "lines_pct": 93.54,
+      "branches_pct": 92.59,
+      "statements_pct": 88.57,
+      "functions_pct": 100,
+      "lines_total": 31,
+      "lines_covered": 29
+    },
+    "src/harness/latency-log.ts": {
+      "lines_pct": 84.61,
+      "branches_pct": 94.11,
+      "statements_pct": 85.71,
+      "functions_pct": 100,
+      "lines_total": 13,
+      "lines_covered": 11
+    },
+    "src/harness/legacy-client.ts": {
+      "lines_pct": 56.74,
+      "branches_pct": 41.83,
+      "statements_pct": 53.3,
+      "functions_pct": 72.41,
+      "lines_total": 178,
+      "lines_covered": 101
+    },
+    "src/harness/mutation/manifest.ts": {
+      "lines_pct": 10.67,
+      "branches_pct": 1.05,
+      "statements_pct": 10.92,
+      "functions_pct": 13.63,
+      "lines_total": 103,
+      "lines_covered": 11
+    },
+    "src/harness/mutation/mutation-cloud-v3-finding-delivery.ts": {
+      "lines_pct": 12.06,
+      "branches_pct": 0,
+      "statements_pct": 9.65,
+      "functions_pct": 0,
+      "lines_total": 116,
+      "lines_covered": 14
+    },
+    "src/harness/mutation/run-log.ts": {
+      "lines_pct": 14.28,
+      "branches_pct": 0,
+      "statements_pct": 12.5,
+      "functions_pct": 0,
+      "lines_total": 7,
+      "lines_covered": 1
+    },
+    "src/harness/obligation-ledger-io.ts": {
+      "lines_pct": 5.4,
+      "branches_pct": 0,
+      "statements_pct": 4.34,
+      "functions_pct": 0,
+      "lines_total": 37,
+      "lines_covered": 2
+    },
+    "src/harness/plan-capture.ts": {
+      "lines_pct": 10.56,
+      "branches_pct": 3.06,
+      "statements_pct": 8.66,
+      "functions_pct": 7.14,
+      "lines_total": 123,
+      "lines_covered": 13
+    },
+    "src/harness/policy-classifier.ts": {
+      "lines_pct": 2.77,
+      "branches_pct": 0,
+      "statements_pct": 2.54,
+      "functions_pct": 0,
+      "lines_total": 108,
+      "lines_covered": 3
+    },
+    "src/harness/replay/eval-ledger.ts": {
+      "lines_pct": 1.58,
+      "branches_pct": 0,
+      "statements_pct": 1.08,
+      "functions_pct": 0,
+      "lines_total": 63,
+      "lines_covered": 1
+    },
+    "src/harness/replay/inference-store.ts": {
+      "lines_pct": 2.38,
+      "branches_pct": 0,
+      "statements_pct": 1.69,
+      "functions_pct": 0,
+      "lines_total": 42,
+      "lines_covered": 1
+    },
+    "src/harness/replay/state-archive.ts": {
+      "lines_pct": 5.88,
+      "branches_pct": 0,
+      "statements_pct": 4.68,
+      "functions_pct": 0,
+      "lines_total": 51,
+      "lines_covered": 3
+    },
+    "src/harness/replay/tree-snapshot.ts": {
+      "lines_pct": 10.44,
+      "branches_pct": 10.44,
+      "statements_pct": 10.97,
+      "functions_pct": 18.18,
+      "lines_total": 67,
+      "lines_covered": 7
+    },
+    "src/harness/server.ts": {
+      "lines_pct": 80.72,
+      "branches_pct": 40,
+      "statements_pct": 78.4,
+      "functions_pct": 84.21,
+      "lines_total": 83,
+      "lines_covered": 67
+    },
+    "src/harness/server/activity-writer.ts": {
+      "lines_pct": 89.68,
+      "branches_pct": 67.93,
+      "statements_pct": 79.51,
+      "functions_pct": 100,
+      "lines_total": 126,
+      "lines_covered": 113
+    },
+    "src/harness/server/agent-event-capture.ts": {
+      "lines_pct": 7.4,
+      "branches_pct": 0,
+      "statements_pct": 6.12,
+      "functions_pct": 0,
+      "lines_total": 81,
+      "lines_covered": 6
+    },
+    "src/harness/server/agent-event-context.ts": {
+      "lines_pct": 13.63,
+      "branches_pct": 0,
+      "statements_pct": 10.34,
+      "functions_pct": 0,
+      "lines_total": 22,
+      "lines_covered": 3
+    },
+    "src/harness/server/anti-stomp.ts": {
+      "lines_pct": 5.55,
+      "branches_pct": 0,
+      "statements_pct": 4.7,
+      "functions_pct": 5.88,
+      "lines_total": 72,
+      "lines_covered": 4
+    },
+    "src/harness/server/cli-args.ts": {
+      "lines_pct": 75,
+      "branches_pct": 77.77,
+      "statements_pct": 80,
+      "functions_pct": 100,
+      "lines_total": 4,
+      "lines_covered": 3
+    },
+    "src/harness/server/collection-writer.ts": {
+      "lines_pct": 93.33,
+      "branches_pct": 60.71,
+      "statements_pct": 93.33,
+      "functions_pct": 100,
+      "lines_total": 15,
+      "lines_covered": 14
+    },
+    "src/harness/server/crash-resilience.ts": {
+      "lines_pct": 30,
+      "branches_pct": 11.11,
+      "statements_pct": 25,
+      "functions_pct": 20,
+      "lines_total": 10,
+      "lines_covered": 3
+    },
+    "src/harness/server/daemon-timers.ts": {
+      "lines_pct": 30.88,
+      "branches_pct": 15,
+      "statements_pct": 30.26,
+      "functions_pct": 16.66,
+      "lines_total": 68,
+      "lines_covered": 21
+    },
+    "src/harness/server/deletion-hygiene-diff.ts": {
+      "lines_pct": 100,
+      "branches_pct": 100,
+      "statements_pct": 100,
+      "functions_pct": 100,
+      "lines_total": 3,
+      "lines_covered": 3
+    },
+    "src/harness/server/edit-line-derivation.ts": {
+      "lines_pct": 75,
+      "branches_pct": 55.17,
+      "statements_pct": 70.17,
+      "functions_pct": 83.33,
+      "lines_total": 44,
+      "lines_covered": 33
+    },
+    "src/harness/server/fuzz-targets.ts": {
+      "lines_pct": 6.66,
+      "branches_pct": 0,
+      "statements_pct": 6.06,
+      "functions_pct": 0,
+      "lines_total": 30,
+      "lines_covered": 2
+    },
+    "src/harness/server/guard-telemetry-enrichment.ts": {
+      "lines_pct": 72.72,
+      "branches_pct": 55.55,
+      "statements_pct": 70.37,
+      "functions_pct": 80,
+      "lines_total": 22,
+      "lines_covered": 16
+    },
+    "src/harness/server/hook-coverage-loop.ts": {
+      "lines_pct": 82.35,
+      "branches_pct": 50,
+      "statements_pct": 72.72,
+      "functions_pct": 100,
+      "lines_total": 17,
+      "lines_covered": 14
+    },
+    "src/harness/server/hook-coverage.ts": {
+      "lines_pct": 69.23,
+      "branches_pct": 52.17,
+      "statements_pct": 69.38,
+      "functions_pct": 63.63,
+      "lines_total": 39,
+      "lines_covered": 27
+    },
+    "src/harness/server/idle-shrink.ts": {
+      "lines_pct": 16.66,
+      "branches_pct": 100,
+      "statements_pct": 16.66,
+      "functions_pct": 50,
+      "lines_total": 6,
+      "lines_covered": 1
+    },
+    "src/harness/server/incumbent-check.ts": {
+      "lines_pct": 34.48,
+      "branches_pct": 26.47,
+      "statements_pct": 29.41,
+      "functions_pct": 50,
+      "lines_total": 29,
+      "lines_covered": 10
+    },
+    "src/harness/server/latency-record.ts": {
+      "lines_pct": 85.71,
+      "branches_pct": 77.77,
+      "statements_pct": 87.5,
+      "functions_pct": 100,
+      "lines_total": 7,
+      "lines_covered": 6
+    },
+    "src/harness/server/lifecycle-events-handlers.ts": {
+      "lines_pct": 4.25,
+      "branches_pct": 0,
+      "statements_pct": 3.84,
+      "functions_pct": 0,
+      "lines_total": 47,
+      "lines_covered": 2
+    },
+    "src/harness/server/lifecycle-events.ts": {
+      "lines_pct": 48.71,
+      "branches_pct": 38.66,
+      "statements_pct": 46.45,
+      "functions_pct": 50,
+      "lines_total": 117,
+      "lines_covered": 57
+    },
+    "src/harness/server/lifecycle-persist.ts": {
+      "lines_pct": 88.46,
+      "branches_pct": 58.33,
+      "statements_pct": 85.18,
+      "functions_pct": 100,
+      "lines_total": 26,
+      "lines_covered": 23
+    },
+    "src/harness/server/lifecycle-session-start.ts": {
+      "lines_pct": 0,
+      "branches_pct": 0,
+      "statements_pct": 0,
+      "functions_pct": 0,
+      "lines_total": 29,
+      "lines_covered": 0
+    },
+    "src/harness/server/lifecycle-stop-warnings-code-file-verification.ts": {
+      "lines_pct": 88.31,
+      "branches_pct": 72.22,
+      "statements_pct": 85.39,
+      "functions_pct": 87.5,
+      "lines_total": 77,
+      "lines_covered": 68
+    },
+    "src/harness/server/lifecycle-stop-warnings-tdd-cycle-checks.ts": {
+      "lines_pct": 66.66,
+      "branches_pct": 38.23,
+      "statements_pct": 67.34,
+      "functions_pct": 87.5,
+      "lines_total": 42,
+      "lines_covered": 28
+    },
+    "src/harness/server/lifecycle-stop-warnings.ts": {
+      "lines_pct": 85.71,
+      "branches_pct": 60.86,
+      "statements_pct": 80.76,
+      "functions_pct": 100,
+      "lines_total": 21,
+      "lines_covered": 18
+    },
+    "src/harness/server/post-tool-file-checks-phases-quality.ts": {
+      "lines_pct": 79.27,
+      "branches_pct": 69.3,
+      "statements_pct": 80,
+      "functions_pct": 90.9,
+      "lines_total": 111,
+      "lines_covered": 88
+    },
+    "src/harness/server/post-tool-file-checks-phases.ts": {
+      "lines_pct": 73.91,
+      "branches_pct": 52.11,
+      "statements_pct": 69.69,
+      "functions_pct": 100,
+      "lines_total": 92,
+      "lines_covered": 68
+    },
+    "src/harness/server/post-tool-file-checks-structural.ts": {
+      "lines_pct": 0,
+      "branches_pct": 0,
+      "statements_pct": 0,
+      "functions_pct": 0,
+      "lines_total": 94,
+      "lines_covered": 0
+    },
+    "src/harness/server/post-tool-file-checks.ts": {
+      "lines_pct": 76.38,
+      "branches_pct": 61.81,
+      "statements_pct": 75.67,
+      "functions_pct": 100,
+      "lines_total": 72,
+      "lines_covered": 55
+    },
+    "src/harness/server/post-tool-flake-phase.ts": {
+      "lines_pct": 6.25,
+      "branches_pct": 2.85,
+      "statements_pct": 7.5,
+      "functions_pct": 25,
+      "lines_total": 32,
+      "lines_covered": 2
+    },
+    "src/harness/server/post-tool-mutation-harvest.ts": {
+      "lines_pct": 22.5,
+      "branches_pct": 10.52,
+      "statements_pct": 20,
+      "functions_pct": 11.11,
+      "lines_total": 40,
+      "lines_covered": 9
+    },
+    "src/harness/server/post-tool-pipeline-paths.ts": {
+      "lines_pct": 78.26,
+      "branches_pct": 73.33,
+      "statements_pct": 72.41,
+      "functions_pct": 75,
+      "lines_total": 23,
+      "lines_covered": 18
+    },
+    "src/harness/server/post-tool-pipeline-spool.ts": {
+      "lines_pct": 78.94,
+      "branches_pct": 64.28,
+      "statements_pct": 69.56,
+      "functions_pct": 100,
+      "lines_total": 19,
+      "lines_covered": 15
+    },
+    "src/harness/server/post-tool-pipeline-tail.ts": {
+      "lines_pct": 64.7,
+      "branches_pct": 55.17,
+      "statements_pct": 61.53,
+      "functions_pct": 90.9,
+      "lines_total": 51,
+      "lines_covered": 33
+    },
+    "src/harness/server/post-tool-pipeline-tracking.ts": {
+      "lines_pct": 58.02,
+      "branches_pct": 43.56,
+      "statements_pct": 52.29,
+      "functions_pct": 75,
+      "lines_total": 81,
+      "lines_covered": 47
+    },
+    "src/harness/server/post-tool-pipeline.ts": {
+      "lines_pct": 81.52,
+      "branches_pct": 58.92,
+      "statements_pct": 79,
+      "functions_pct": 100,
+      "lines_total": 92,
+      "lines_covered": 75
+    },
+    "src/harness/server/post-tool-project-wide-sweep.ts": {
+      "lines_pct": 67.64,
+      "branches_pct": 62.85,
+      "statements_pct": 66.66,
+      "functions_pct": 57.14,
+      "lines_total": 34,
+      "lines_covered": 23
+    },
+    "src/harness/server/post-tool-source-scope.ts": {
+      "lines_pct": 44.44,
+      "branches_pct": 35.89,
+      "statements_pct": 40.32,
+      "functions_pct": 46.15,
+      "lines_total": 45,
+      "lines_covered": 20
+    },
+    "src/harness/server/post-tool-warning-spool.ts": {
+      "lines_pct": 92.1,
+      "branches_pct": 70.96,
+      "statements_pct": 88.37,
+      "functions_pct": 100,
+      "lines_total": 38,
+      "lines_covered": 35
+    },
+    "src/harness/server/pre-tool-coverage-gates.ts": {
+      "lines_pct": 46.07,
+      "branches_pct": 39.25,
+      "statements_pct": 48.76,
+      "functions_pct": 44.44,
+      "lines_total": 102,
+      "lines_covered": 47
+    },
+    "src/harness/server/pre-tool-pipeline-content-scan.ts": {
+      "lines_pct": 30.18,
+      "branches_pct": 25.58,
+      "statements_pct": 29.09,
+      "functions_pct": 66.66,
+      "lines_total": 53,
+      "lines_covered": 16
+    },
+    "src/harness/server/pre-tool-pipeline-integrations.ts": {
+      "lines_pct": 21.42,
+      "branches_pct": 28.57,
+      "statements_pct": 21.42,
+      "functions_pct": 100,
+      "lines_total": 42,
+      "lines_covered": 9
+    },
+    "src/harness/server/pre-tool-pipeline-search.ts": {
+      "lines_pct": 26.22,
+      "branches_pct": 22.78,
+      "statements_pct": 25,
+      "functions_pct": 57.14,
+      "lines_total": 61,
+      "lines_covered": 16
+    },
+    "src/harness/server/pre-tool-pipeline-stages.ts": {
+      "lines_pct": 17.5,
+      "branches_pct": 22.22,
+      "statements_pct": 17.58,
+      "functions_pct": 20,
+      "lines_total": 80,
+      "lines_covered": 14
+    },
+    "src/harness/server/pre-tool-pipeline.ts": {
+      "lines_pct": 81.01,
+      "branches_pct": 62.5,
+      "statements_pct": 75.55,
+      "functions_pct": 83.33,
+      "lines_total": 79,
+      "lines_covered": 64
+    },
+    "src/harness/server/pre-tool-project-git-gate.ts": {
+      "lines_pct": 10.41,
+      "branches_pct": 17.39,
+      "statements_pct": 11.86,
+      "functions_pct": 7.69,
+      "lines_total": 48,
+      "lines_covered": 5
+    },
+    "src/harness/server/protocol-status.ts": {
+      "lines_pct": 68,
+      "branches_pct": 36,
+      "statements_pct": 71.42,
+      "functions_pct": 83.33,
+      "lines_total": 25,
+      "lines_covered": 17
+    },
+    "src/harness/server/registry-parity-phase.ts": {
+      "lines_pct": 23.8,
+      "branches_pct": 25,
+      "statements_pct": 22.22,
+      "functions_pct": 20,
+      "lines_total": 21,
+      "lines_covered": 5
+    },
+    "src/harness/server/review-reconcile-phase.ts": {
+      "lines_pct": 62.16,
+      "branches_pct": 29.03,
+      "statements_pct": 55.05,
+      "functions_pct": 52.94,
+      "lines_total": 74,
+      "lines_covered": 46
+    },
+    "src/harness/server/runtime-context.ts": {
+      "lines_pct": 45.45,
+      "branches_pct": 22.22,
+      "statements_pct": 38.46,
+      "functions_pct": 33.33,
+      "lines_total": 22,
+      "lines_covered": 10
+    },
+    "src/harness/server/server-cli-bootstrap.ts": {
+      "lines_pct": 80.76,
+      "branches_pct": 53.84,
+      "statements_pct": 72.41,
+      "functions_pct": 60,
+      "lines_total": 26,
+      "lines_covered": 21
+    },
+    "src/harness/server/server-daemon-activation.ts": {
+      "lines_pct": 65.3,
+      "branches_pct": 46.87,
+      "statements_pct": 66,
+      "functions_pct": 46.15,
+      "lines_total": 98,
+      "lines_covered": 64
+    },
+    "src/harness/server/server-daemon-state.ts": {
+      "lines_pct": 76.92,
+      "branches_pct": 66.66,
+      "statements_pct": 74.07,
+      "functions_pct": 80,
+      "lines_total": 26,
+      "lines_covered": 20
+    },
+    "src/harness/server/session-end-batch.ts": {
+      "lines_pct": 4.76,
+      "branches_pct": 0,
+      "statements_pct": 4.44,
+      "functions_pct": 0,
+      "lines_total": 42,
+      "lines_covered": 2
+    },
+    "src/harness/server/session-end-evidence.ts": {
+      "lines_pct": 0,
+      "branches_pct": 0,
+      "statements_pct": 0,
+      "functions_pct": 0,
+      "lines_total": 13,
+      "lines_covered": 0
+    },
+    "src/harness/server/session-end-heavy-jobs.ts": {
+      "lines_pct": 8.33,
+      "branches_pct": 0,
+      "statements_pct": 6.97,
+      "functions_pct": 0,
+      "lines_total": 36,
+      "lines_covered": 3
+    },
+    "src/harness/server/session-start-heavy-reports.ts": {
+      "lines_pct": 2.4,
+      "branches_pct": 0,
+      "statements_pct": 2.08,
+      "functions_pct": 0,
+      "lines_total": 83,
+      "lines_covered": 2
+    },
+    "src/harness/server/shell-sandbox-policy.ts": {
+      "lines_pct": 41.89,
+      "branches_pct": 36.48,
+      "statements_pct": 40.69,
+      "functions_pct": 62.5,
+      "lines_total": 74,
+      "lines_covered": 31
+    },
+    "src/harness/server/socket-framing.ts": {
+      "lines_pct": 73.68,
+      "branches_pct": 37.5,
+      "statements_pct": 75,
+      "functions_pct": 50,
+      "lines_total": 19,
+      "lines_covered": 14
+    },
+    "src/harness/server/socket-lifecycle.ts": {
+      "lines_pct": 36.36,
+      "branches_pct": 33.33,
+      "statements_pct": 36.36,
+      "functions_pct": 66.66,
+      "lines_total": 11,
+      "lines_covered": 4
+    },
+    "src/harness/server/spec-drift-capture.ts": {
+      "lines_pct": 100,
+      "branches_pct": 25,
+      "statements_pct": 50,
+      "functions_pct": 16.66,
+      "lines_total": 5,
+      "lines_covered": 5
+    },
+    "src/harness/server/spec-ledger-phase.ts": {
+      "lines_pct": 48,
+      "branches_pct": 30.95,
+      "statements_pct": 46.03,
+      "functions_pct": 54.54,
+      "lines_total": 50,
+      "lines_covered": 24
+    },
+    "src/harness/server/startup-guard.ts": {
+      "lines_pct": 57.5,
+      "branches_pct": 55.55,
+      "statements_pct": 57.77,
+      "functions_pct": 45.45,
+      "lines_total": 40,
+      "lines_covered": 23
+    },
+    "src/harness/server/status-writers.ts": {
+      "lines_pct": 80,
+      "branches_pct": 100,
+      "statements_pct": 80,
+      "functions_pct": 80,
+      "lines_total": 10,
+      "lines_covered": 8
+    },
+    "src/harness/server/stop-nudge-throttle.ts": {
+      "lines_pct": 82.75,
+      "branches_pct": 50,
+      "statements_pct": 74.28,
+      "functions_pct": 75,
+      "lines_total": 29,
+      "lines_covered": 24
+    },
+    "src/harness/server/suggestion-checks.ts": {
+      "lines_pct": 78.26,
+      "branches_pct": 50,
+      "statements_pct": 78.26,
+      "functions_pct": 33.33,
+      "lines_total": 23,
+      "lines_covered": 18
+    },
+    "src/harness/server/trajectory-shadow.ts": {
+      "lines_pct": 89.74,
+      "branches_pct": 80.39,
+      "statements_pct": 81.48,
+      "functions_pct": 100,
+      "lines_total": 39,
+      "lines_covered": 35
+    },
+    "src/harness/session-paths.ts": {
+      "lines_pct": 36.95,
+      "branches_pct": 15.21,
+      "statements_pct": 37.14,
+      "functions_pct": 54.16,
+      "lines_total": 92,
+      "lines_covered": 34
+    },
+    "src/harness/spec/reconciliation.ts": {
+      "lines_pct": 17.02,
+      "branches_pct": 1.75,
+      "statements_pct": 17.18,
+      "functions_pct": 25,
+      "lines_total": 47,
+      "lines_covered": 8
+    },
+    "src/harness/startup-lock.ts": {
+      "lines_pct": 17.64,
+      "branches_pct": 5.88,
+      "statements_pct": 19.09,
+      "functions_pct": 22.22,
+      "lines_total": 85,
+      "lines_covered": 15
+    },
+    "src/harness/stop-digest-state.ts": {
+      "lines_pct": 77.21,
+      "branches_pct": 62.68,
+      "statements_pct": 68.75,
+      "functions_pct": 77.77,
+      "lines_total": 79,
+      "lines_covered": 61
+    },
+    "src/harness/telemetry-spool.ts": {
+      "lines_pct": 1.28,
+      "branches_pct": 0,
+      "statements_pct": 1.08,
+      "functions_pct": 0,
+      "lines_total": 78,
+      "lines_covered": 1
+    },
+    "src/harness/timeline-writer.ts": {
+      "lines_pct": 10.66,
+      "branches_pct": 0,
+      "statements_pct": 9.09,
+      "functions_pct": 0,
+      "lines_total": 75,
+      "lines_covered": 8
+    },
+    "src/hook-entry-cold-gates.ts": {
+      "lines_pct": 85.24,
+      "branches_pct": 48.61,
+      "statements_pct": 66.66,
+      "functions_pct": 87.5,
+      "lines_total": 61,
+      "lines_covered": 52
+    },
+    "src/hook-entry-daemon-gate.ts": {
+      "lines_pct": 84.78,
+      "branches_pct": 55.55,
+      "statements_pct": 75.86,
+      "functions_pct": 100,
+      "lines_total": 46,
+      "lines_covered": 39
+    },
+    "src/hook-entry-daemon-probe.ts": {
+      "lines_pct": 100,
+      "branches_pct": 84.61,
+      "statements_pct": 91.66,
+      "functions_pct": 100,
+      "lines_total": 9,
+      "lines_covered": 9
+    },
+    "src/hook-entry-daemon-self-heal.ts": {
+      "lines_pct": 13.51,
+      "branches_pct": 17.64,
+      "statements_pct": 12.82,
+      "functions_pct": 14.28,
+      "lines_total": 37,
+      "lines_covered": 5
+    },
+    "src/hook-entry-deadlines.ts": {
+      "lines_pct": 90.47,
+      "branches_pct": 61.11,
+      "statements_pct": 81.48,
+      "functions_pct": 100,
+      "lines_total": 21,
+      "lines_covered": 19
+    },
+    "src/hook-entry-event.ts": {
+      "lines_pct": 76.92,
+      "branches_pct": 40,
+      "statements_pct": 75,
+      "functions_pct": 100,
+      "lines_total": 13,
+      "lines_covered": 10
+    },
+    "src/hook-entry-project.ts": {
+      "lines_pct": 44.44,
+      "branches_pct": 25,
+      "statements_pct": 45.45,
+      "functions_pct": 100,
+      "lines_total": 9,
+      "lines_covered": 4
+    },
+    "src/hook-entry-stop-self-heal.ts": {
+      "lines_pct": 73.33,
+      "branches_pct": 42.85,
+      "statements_pct": 60,
+      "functions_pct": 50,
+      "lines_total": 15,
+      "lines_covered": 11
+    },
+    "src/hook-entry-translation.ts": {
+      "lines_pct": 90,
+      "branches_pct": 68.91,
+      "statements_pct": 77.19,
+      "functions_pct": 91.66,
+      "lines_total": 40,
+      "lines_covered": 36
+    },
+    "src/hook-entry-transport.ts": {
+      "lines_pct": 53.84,
+      "branches_pct": 30.76,
+      "statements_pct": 51.06,
+      "functions_pct": 66.66,
+      "lines_total": 39,
+      "lines_covered": 21
+    },
+    "src/hook-entry.ts": {
+      "lines_pct": 79.03,
+      "branches_pct": 62.5,
+      "statements_pct": 76.25,
+      "functions_pct": 83.33,
+      "lines_total": 124,
+      "lines_covered": 98
+    },
+    "src/lib/audit-chain.ts": {
+      "lines_pct": 34.11,
+      "branches_pct": 25,
+      "statements_pct": 33,
+      "functions_pct": 40,
+      "lines_total": 85,
+      "lines_covered": 29
+    },
+    "src/lib/collection/writer.ts": {
+      "lines_pct": 87.5,
+      "branches_pct": 50,
+      "statements_pct": 87.5,
+      "functions_pct": 100,
+      "lines_total": 16,
+      "lines_covered": 14
+    },
+    "src/lib/cowork/receipts.ts": {
+      "lines_pct": 7.14,
+      "branches_pct": 0,
+      "statements_pct": 4.76,
+      "functions_pct": 0,
+      "lines_total": 14,
+      "lines_covered": 1
+    },
+    "src/lib/data/capture.ts": {
+      "lines_pct": 83.78,
+      "branches_pct": 70.58,
+      "statements_pct": 77.27,
+      "functions_pct": 100,
+      "lines_total": 37,
+      "lines_covered": 31
+    },
+    "src/lib/file-mutation-lock.ts": {
+      "lines_pct": 45.16,
+      "branches_pct": 30.2,
+      "statements_pct": 41.75,
+      "functions_pct": 63.63,
+      "lines_total": 155,
+      "lines_covered": 70
+    },
+    "src/lib/file-suffix-replacement.ts": {
+      "lines_pct": 11.11,
+      "branches_pct": 0,
+      "statements_pct": 9.61,
+      "functions_pct": 8.33,
+      "lines_total": 45,
+      "lines_covered": 5
+    },
+    "src/lib/guard-state.ts": {
+      "lines_pct": 16.27,
+      "branches_pct": 7.79,
+      "statements_pct": 15.68,
+      "functions_pct": 37.5,
+      "lines_total": 43,
+      "lines_covered": 7
+    },
+    "src/lib/hook-installers-claude.ts": {
+      "lines_pct": 17.24,
+      "branches_pct": 0,
+      "statements_pct": 14.7,
+      "functions_pct": 16.66,
+      "lines_total": 29,
+      "lines_covered": 5
+    },
+    "src/lib/hook-installers-codex.ts": {
+      "lines_pct": 66.66,
+      "branches_pct": 100,
+      "statements_pct": 66.66,
+      "functions_pct": 33.33,
+      "lines_total": 6,
+      "lines_covered": 4
+    },
+    "src/lib/hook-installers-copilot.ts": {
+      "lines_pct": 12.9,
+      "branches_pct": 0,
+      "statements_pct": 11.11,
+      "functions_pct": 14.28,
+      "lines_total": 31,
+      "lines_covered": 4
+    },
+    "src/lib/hook-installers-cursor.ts": {
+      "lines_pct": 8,
+      "branches_pct": 0,
+      "statements_pct": 6.55,
+      "functions_pct": 10,
+      "lines_total": 50,
+      "lines_covered": 4
+    },
+    "src/lib/hook-installers-gemini.ts": {
+      "lines_pct": 60,
+      "branches_pct": 100,
+      "statements_pct": 60,
+      "functions_pct": 33.33,
+      "lines_total": 5,
+      "lines_covered": 3
+    },
+    "src/lib/hook-installers-shared.ts": {
+      "lines_pct": 10.2,
+      "branches_pct": 0,
+      "statements_pct": 8.77,
+      "functions_pct": 11.11,
+      "lines_total": 49,
+      "lines_covered": 5
+    },
+    "src/lib/hook-installers-statusline.ts": {
+      "lines_pct": 15.68,
+      "branches_pct": 0,
+      "statements_pct": 15.09,
+      "functions_pct": 20,
+      "lines_total": 51,
+      "lines_covered": 8
+    },
+    "src/lib/hook-installers.ts": {
+      "lines_pct": 100,
+      "branches_pct": 100,
+      "statements_pct": 100,
+      "functions_pct": 100,
+      "lines_total": 8,
+      "lines_covered": 8
+    },
+    "src/lib/hook-transport-receipt.ts": {
+      "lines_pct": 100,
+      "branches_pct": 50,
+      "statements_pct": 80,
+      "functions_pct": 100,
+      "lines_total": 4,
+      "lines_covered": 4
+    },
+    "src/lib/hooks.ts": {
+      "lines_pct": 16.5,
+      "branches_pct": 0,
+      "statements_pct": 14.78,
+      "functions_pct": 4.76,
+      "lines_total": 103,
+      "lines_covered": 17
+    },
+    "src/lib/local-activity-sync.ts": {
+      "lines_pct": 7.92,
+      "branches_pct": 0,
+      "statements_pct": 7.1,
+      "functions_pct": 3.84,
+      "lines_total": 164,
+      "lines_covered": 13
+    },
+    "src/lib/local-activity.ts": {
+      "lines_pct": 18.44,
+      "branches_pct": 2.35,
+      "statements_pct": 16.96,
+      "functions_pct": 14.28,
+      "lines_total": 103,
+      "lines_covered": 19
+    },
+    "src/lib/manual-debt-marker-record.ts": {
+      "lines_pct": 1.26,
+      "branches_pct": 0,
+      "statements_pct": 1.07,
+      "functions_pct": 0,
+      "lines_total": 79,
+      "lines_covered": 1
+    },
+    "src/lib/mcp-recorder/writer.ts": {
+      "lines_pct": 13.15,
+      "branches_pct": 0,
+      "statements_pct": 13.15,
+      "functions_pct": 14.28,
+      "lines_total": 38,
+      "lines_covered": 5
+    },
+    "src/lib/metrics/evidence-run.ts": {
+      "lines_pct": 2.08,
+      "branches_pct": 0,
+      "statements_pct": 1.81,
+      "functions_pct": 0,
+      "lines_total": 48,
+      "lines_covered": 1
+    },
+    "src/lib/metrics/execution-journal.ts": {
+      "lines_pct": 7.69,
+      "branches_pct": 0,
+      "statements_pct": 5,
+      "functions_pct": 0,
+      "lines_total": 26,
+      "lines_covered": 2
+    },
+    "src/lib/settings-validator.ts": {
+      "lines_pct": 34.95,
+      "branches_pct": 21.11,
+      "statements_pct": 32.07,
+      "functions_pct": 47.05,
+      "lines_total": 123,
+      "lines_covered": 43
+    },
+    "src/lib/viz/test-events.ts": {
+      "lines_pct": 15.9,
+      "branches_pct": 0,
+      "statements_pct": 13.2,
+      "functions_pct": 10,
+      "lines_total": 44,
+      "lines_covered": 7
+    }
+  }
+}

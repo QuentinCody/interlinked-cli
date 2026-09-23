@@ -22,6 +22,7 @@
 /** Canonical water-line stems (basename without the `.json` extension). */
 export const WATER_LINE_FILES = [
 	"coverage-baseline",
+	"coverage-e2e-baseline",
 	"coverage-edit-baseline",
 	"mutation-baseline",
 	"mutation-manifest",

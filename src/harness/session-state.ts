@@ -4,6 +4,12 @@
 
 import { resolve as resolvePath } from "node:path";
 import type { JsonObject } from "../lib/json-types.js";
+import { testLaneOf } from "../lib/test-lane.js";
+
+function readTestHistory(snapshot: JsonObject): Pick<SessionTrajectory, "test_commands_run" | "test_lanes_run"> {
+	const commands = readStringArray(snapshot.test_commands_run);
+	return { test_commands_run: commands, test_lanes_run: [...new Set([...readStringArray(snapshot.test_lanes_run), ...commands.map(testLaneOf)])] };
+}
 
 // `captureGitBaseline` lives in its own module (session-git-baseline.ts) to
 // keep this file under the per-file line cap; re-exported below so existing
@@ -272,6 +278,7 @@ export class SessionTracker {
 			files_written: [...s.files_written],
 			commands_run: s.commands_run,
 			test_commands_run: s.test_commands_run ?? [],
+			test_lanes_run: s.test_lanes_run ?? [],
 			tool_sequence: s.tool_sequence,
 			curl_localhost_count: s.curl_localhost_count,
 			taint_sources: s.taint_sources,
@@ -321,7 +328,7 @@ export class SessionTracker {
 			files_read: readStringSet(snapshot.files_read),
 			files_written: readStringSet(snapshot.files_written),
 			commands_run: readStringArray(snapshot.commands_run),
-			test_commands_run: readStringArray(snapshot.test_commands_run),
+			...readTestHistory(snapshot),
 			tool_sequence: readStringArray(snapshot.tool_sequence),
 			curl_localhost_count: readNumberRecord(snapshot.curl_localhost_count),
 			taint_sources: readTaintSources(snapshot.taint_sources),

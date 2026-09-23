@@ -57,6 +57,10 @@ type CiStep = {
 );
 
 const CI_STEPS: readonly CiStep[] = [
+    { name: "Resolve e2e comparison base", mirror: "skip", reason: "CI event base differs from the local HEAD contract; tested by e2e-ci-base.test.mjs" },
+    { name: "Build e2e coverage artifacts", mirror: "pre-push", command: "npm run build:e2e" },
+    { name: "Test (e2e lane with child coverage)", mirror: "pre-push", command: "npm run test:e2e:coverage" },
+    { name: "Strict e2e coverage ratchet", mirror: "pre-push", command: "coverage check --lane e2e --strict --require-measured" },
 	{ name: "Checkout", mirror: "skip", reason: "git checkout — runner setup, not a check" },
 	{
 		name: "Setup Node.js 22",
@@ -244,7 +248,10 @@ describe("pre-push hook exit-status behavior", () => {
 		execFileSync("mkdir", ["-p", join(work, "scripts", "git-hooks")]);
 		copyFileSync(PRE_PUSH_HOOK, join(work, "scripts", "git-hooks", "pre-push"));
 		chmodSync(join(work, "scripts", "git-hooks", "pre-push"), 0o755);
-		symlinkSync(join(REPO_ROOT, "scripts/run-resource-bounded.ts"), join(work, "scripts/run-resource-bounded.ts"));
+		// Admission has its own resource-command tests. This fixture checks
+		// hook exit propagation with stub gates regardless of host pressure.
+		writeFileSync(join(work, "scripts/run-resource-bounded.ts"),
+			'import { spawnSync } from "node:child_process";\nconst [file, ...args] = process.argv.slice(2);\nprocess.exitCode = spawnSync(file, args, { stdio: "inherit" }).status ?? 75;\n');
 		symlinkSync(join(REPO_ROOT, "node_modules"), join(work, "node_modules"));
 		// interlinked: defer write_without_mkdir -- git init above creates work synchronously before this write.
 		writeFileSync(join(work, ".gitignore"), "node_modules\n");
@@ -286,6 +293,7 @@ describe("pre-push hook exit-status behavior", () => {
 		const r = spawnSync("git", ["push", "origin", "HEAD:refs/heads/main"], {
 			cwd: work,
 			encoding: "utf-8",
+            env: { ...process.env, INTERLINKED_PRE_PUSH_SKIP_E2E: "1" },
 		});
 		return { status: r.status ?? -1, output: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 	};
@@ -300,6 +308,9 @@ describe("pre-push hook exit-status behavior", () => {
 
 		expect(output).toContain("typecheck + tests pass");
 		expect(status).toBe(0);
+        expect(output).toContain("[interlinked:e2e] skipped");
+        const skip = JSON.parse(readFileSync(join(work, ".interlinked/test-events.jsonl"), "utf8").trim().split("\n").at(-1) ?? "{}");
+        expect(skip).toMatchObject({ lane: "e2e", status: "skip", skipped: 1 });
 		// Push actually landed.
 		expect(git(work, "rev-parse", "origin/main")).toBe(before);
 	});
