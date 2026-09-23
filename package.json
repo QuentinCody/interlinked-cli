@@ -84,6 +84,7 @@
         "build:e2e": "node scripts/build-atomic-cli.mjs --e2e",
         "test:e2e:coverage": "node scripts/e2e-run.mjs",
         "test:watch": "vitest",
+        "lint:anti-slop": "oxlint --config oxlint.anti-slop.json --format=json src",
         "test:coverage": "vitest run --coverage --testTimeout=120000",
         "bench": "vitest bench --run bench/",
         "docs": "node --import tsx scripts/generate-docs.ts",
@@ -111,6 +112,7 @@
     },
     "devDependencies": {
         "@biomejs/biome": "2.4.13",
+        "@oxlint/plugins": "1.85.0",
         "@stryker-mutator/core": "^9.6.1",
         "@stryker-mutator/vitest-runner": "^9.6.1",
         "@types/node": "20.19.33",
@@ -118,6 +120,7 @@
         "ajv": "8.18.0",
         "eslint": "10.9.1",
         "fast-check": "4.7.0",
+        "oxlint": "1.85.0",
         "tsup": "8.5.1",
         "tsx": "4.21.0",
         "typescript-eslint": "8.69.0",

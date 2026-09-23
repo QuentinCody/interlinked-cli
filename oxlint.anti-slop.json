@@ -1,0 +1,10 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "categories": { "correctness": "off" },
+    "jsPlugins": [{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" }],
+    "ignorePatterns": ["**/node_modules/**", "tools/**", "scratch/**", "dist/**", "coverage/**"],
+    "rules": {
+        "anti-slop/no-reduce-accumulator-copy": "warn",
+        "anti-slop/no-widen-then-assert": "warn"
+    }
+}

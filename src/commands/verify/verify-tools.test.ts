@@ -357,15 +357,25 @@ describe("streamExternalTools — single available tool (spinner fast path)", ()
 // =========================================================================
 
 describe("streamExternalTools — parseToolOutput status short-circuits", () => {
-	it("status 0 on a non-tsc tool short-circuits to [] without calling the parser", async () => {
-		// oxlint alone, exit 0 -> parseToolOutput returns [] before parser.
-		runnerScript.oxlint = { output: "{}", status: 0 };
-		parserReturn = [result({ file: "should-not.ts" })];
+	it("reports Oxlint warning-only diagnostics even when the analyzer exits zero", async () => {
+		const output = JSON.stringify({ diagnostics: [{ filename: "warning.ts", severity: "warning", message: "Review this assertion" }] });
+		runnerScript.oxlint = { output, status: 0 };
+		parserReturn = [result({ tool: "oxlint", file: "warning.ts", message: "Review this assertion", severity: "warning" })];
+		const { out, summary, flagged } = await run({ available: ["oxlint"], skip: ["sca", "dep-audit"] });
+		expect(parseOxlintJson).toHaveBeenCalledWith(output);
+		expect(out).not.toContain("no issues");
+		expect(summary).toEqual([expect.objectContaining({ label: "1 oxlint issues", count: 1 })]);
+		expect(flagged.has("warning.ts")).toBe(true);
+	});
+
+	it("reports clean only after parsing an empty successful Oxlint report", async () => {
+		runnerScript.oxlint = { output: '{"diagnostics":[]}', status: 0 };
+		parserReturn = [];
 		const { out, summary } = await run({
 			available: ["oxlint"],
 			skip: ["sca", "dep-audit"],
 		});
-		expect(parseOxlintJson).not.toHaveBeenCalled();
+		expect(parseOxlintJson).toHaveBeenCalledWith('{"diagnostics":[]}');
 		expect(out).toContain("no issues");
 		expect(summary).toEqual([]);
 	});

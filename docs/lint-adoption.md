@@ -118,6 +118,35 @@ interlinked lint import --config oxlint=tools/strict.json --cadence audit --writ
 
 `--config tool=file` is repeatable. `--scope` requires it; paths are relative to the
 selected project. `--cadence hook|audit` changes all profiles in that import plan.
+Add `--only-selected` to adopt only explicit `--config`/`--eslint-config` selections
+while retaining every already-adopted profile. In that mode, `--cadence` applies
+only to the explicit selections; unrelated existing profiles keep their cadence.
+It requires at least one explicit config and leaves newly discovered unselected
+linters as review items. Without the flag, discovery/adoption behaves as before.
+
+For this repository's focused, advisory anti-slop audit:
+
+```bash
+interlinked lint import --only-selected --config oxlint=oxlint.anti-slop.json --scope src --cadence audit
+interlinked lint import --only-selected --config oxlint=oxlint.anti-slop.json --scope src --cadence audit --write --baseline
+interlinked verify --only lint-import --all-checks
+```
+
+The focused profile enables only non-spread accumulator copying and widening
+followed by assertion. Ordinary verification and hooks skip its audit cadence.
+`lint check` explicitly gates new imported findings; Oxlint's `warn` severity does
+not disable that debt gate. No module-mocking ban or new native ratchet is added.
+`npm run lint:anti-slop` emits raw JSON without applying Interlinked's baseline.
+`oxlint.anti-slop-research.json` is a separate explicit census of all 18 generic
+rules, not an adoption profile: `oxlint --config oxlint.anti-slop-research.json
+--format=json src`. Its large report can exceed the imported runner's 10 MiB
+capture limit; preserve raw output to a file for census, and never treat truncated
+output as clean. Neither configuration loads Effect rules or changes `.oxlintrc.json`.
+
+Vendored provenance and license hashes live in `tools/oxlint/anti-slop/UPSTREAM.json`.
+The real-engine integration test covers supported findings, legitimate negatives,
+audit cadence, baseline retirement/reintroduction, and transitive source drift.
+
 Literal native command arguments preserve targets, rule selections, exclusions and
 supported build flags. Unknown options, substitutions, shell setup and automatic
 fix commands remain review items. The adapter owns the structured reporter.

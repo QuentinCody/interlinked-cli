@@ -19,6 +19,40 @@ function put(root: string, file: string, content = "export default [];\n"): void
 afterEach(() => { for (const root of directories.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("explicit ESLint import profiles", () => {
+    it("imports only explicit configs on request and leaves discovered profiles for review", () => {
+        const root = project();
+        put(root, ".oxlintrc.json", "{}");
+        put(root, "eslint.config.mjs");
+        put(root, "eslint.other.config.mjs");
+        put(root, "oxlint.audit.json", "{}");
+        put(root, ".interlinked/lint-adapters.json", JSON.stringify({ version: 1, adapters: [] }));
+        mkdirSync(join(root, "src"));
+        const plan = prepareLintImport(root, { config: ["oxlint=oxlint.audit.json"], scope: "src", cadence: "audit", onlySelected: true });
+        expect(plan.policy.entries).toEqual([{ tool: "oxlint", scope: "src", config: "oxlint.audit.json", sources: ["oxlint.audit.json"], cadence: "audit" }]);
+        expect(plan.review.map((source) => source.file)).toContain("eslint.config.mjs");
+        expect(() => checkLintSources(root, plan.policy)).not.toThrow();
+        expect(() => prepareLintImport(root, { onlySelected: true })).toThrow("requires --config or --eslint-config");
+        expect(existsSync(join(root, LINT_POLICY_PATH))).toBe(false);
+        put(root, ".interlinked/lint-adapters.json", JSON.stringify({ version: 1, adapters: [], changed: true }));
+        expect(() => checkLintSources(root, plan.policy)).toThrow("configuration changed");
+    });
+
+    it("retains adopted scopes and their cadence when selectively adding an audit profile", () => {
+        const root = project();
+        put(root, ".oxlintrc.json", "{}");
+        const previous = prepareLintImport(root, { cadence: "hook" }).policy;
+        writeLintJson(root, LINT_POLICY_PATH, previous);
+        put(root, "eslint.config.mjs");
+        put(root, "tools/custom.mjs");
+        const next = prepareLintImport(root, { eslintConfig: ["tools/custom.mjs"], cadence: "audit", onlySelected: true }).policy;
+        expect(next.entries).toEqual([
+            expect.objectContaining({ tool: "oxlint", scope: ".", cadence: "hook" }),
+            expect.objectContaining({ tool: "eslint", config: "tools/custom.mjs", cadence: "audit" }),
+        ]);
+        expect(() => checkLintSources(root, next)).not.toThrow();
+        expect(loadLintPolicy(root)).toEqual(previous);
+    });
+
     it("previews arbitrary names without execution and automatically discovers named audit profiles", () => {
         const root = project();
         put(root, ".oxlintrc.json", "{}");

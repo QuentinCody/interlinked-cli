@@ -4,7 +4,11 @@
       "id": "repo-scratch-is-write-only",
       "enabled": true,
       "trigger": "PreToolUse",
-      "tool_match": ["Bash", "Shell", "run_command"],
+      "tool_match": [
+        "Bash",
+        "Shell",
+        "run_command"
+      ],
       "action": "block",
       "patterns": [
         {
@@ -46,5 +50,10 @@
   },
   "diff_aware": {
     "enabled": true
+  },
+  "quality_checks": {
+    "lint_import": {
+      "enabled": true
+    }
   }
 }

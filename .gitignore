@@ -225,6 +225,8 @@ scratch/*
 # update required.
 .interlinked/*
 !.interlinked/guard-rules.json
+!.interlinked/lint-import.json
+!.interlinked/lint-baseline.json
 !.interlinked/structure.json
 !.interlinked/registry-parity.json
 !.interlinked/large-files-baseline.json

@@ -808,6 +808,8 @@ Options:
                               (default: [])
   --scope <directory>         Working directory for --config selections
                               (default: .)
+  --only-selected             Add only explicit configs, retaining existing
+                              profiles; cadence applies only to selections
   --cadence <cadence>         Set imported profiles to hook or audit cadence
   --timeout <ms>              Total analyzer batch budget, up to 300000 ms
                               (default: "30000")

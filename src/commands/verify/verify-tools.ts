@@ -215,6 +215,15 @@ async function buildToolParsers(cwd: string): Promise<{
 	};
 }
 
+function parseToolOutput(tool: ToolSpec, output: string, status: number | null, parsers: Record<string, (output: string) => CheckResult[]>): CheckResult[] {
+	if (tool.id === "gitleaks" && status === 1 && (output.includes("FTL") || output.includes("no such file"))) return [];
+	if ((tool.id === "semgrep" || tool.id === "knip") && status === 2) return [];
+	// Oxlint exits successfully for warning-only reports; parse their diagnostics.
+	if (status === 0 && tool.id !== "tsc" && tool.id !== "oxlint") return [];
+	const parser = parsers[tool.id];
+	return parser ? parser(output) : [];
+}
+
 export async function streamExternalTools(args: StreamExternalToolsArgs): Promise<void> {
 	const { engine, cwd, opts, skipChecks, summary, allFlaggedFiles, details } = args;
 	const { toolParsers, parseNpmAuditJson } = await buildToolParsers(cwd);
@@ -302,20 +311,6 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 		}
 	}
 
-	function parseToolOutput(tool: ToolSpec, output: string, status: number | null): CheckResult[] {
-		if (
-			tool.id === "gitleaks" &&
-			status === 1 &&
-			(output.includes("FTL") || output.includes("no such file"))
-		) {
-			return [];
-		}
-		if ((tool.id === "semgrep" || tool.id === "knip") && status === 2) return [];
-		if (status === 0 && tool.id !== "tsc") return [];
-		const parser = toolParsers[tool.id];
-		return parser ? parser(output) : [];
-	}
-
 	if (toolCount <= 1 && availableTools.length === 1 && !runDepAudit) {
 		const tool = nonNull(availableTools[0]);
 		const rawResults = await runToolWithSpinner({
@@ -323,7 +318,7 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 			cmd: tool.cmd,
 			cwd,
 			timeoutMs: tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
-			parseOutput: (output, status) => parseToolOutput(tool, output, status),
+			parseOutput: (output, status) => parseToolOutput(tool, output, status, toolParsers),
 		});
 		displayToolResult(tool, rawResults);
 		return;
@@ -353,7 +348,7 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 				cmd: tool.cmd,
 				cwd,
 				timeoutMs: tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
-				parseOutput: (output, status) => parseToolOutput(tool, output, status),
+				parseOutput: (output, status) => parseToolOutput(tool, output, status, toolParsers),
 			}).then((rawResults) => {
 				process.stderr.write("\r\x1b[K");
 				displayToolResult(tool, rawResults);

@@ -52,12 +52,12 @@ function sourceApplies(source: LintSource, entry: LintImportEntry): boolean {
     return source.kind === "ignore" ? scopesOverlap(source, entry) : withinScope(source.scope, entry.scope);
 }
 
-export function planLintImport(inventory: LintInventory, configured: LintImportEntry[] = []): { policy: LintImportPolicy; review: LintSource[] } {
+export function planLintImport(inventory: LintInventory, configured: LintImportEntry[] = [], options: { onlyConfigured?: boolean } = {}): { policy: LintImportPolicy; review: LintSource[] } {
     const groups = new Map(configured.map((entry) => [lintEntryKey(entry), entry]));
     const review: LintSource[] = [];
     for (const source of inventory.sources) {
         if (configured.some((entry) => entry.tool === source.tool && entry.sources.includes(source.file))) continue;
-        if (!supportsLintImport(source.tool) || !canonicalSource(source)) {
+        if (options.onlyConfigured || !supportsLintImport(source.tool) || !canonicalSource(source)) {
             review.push(source);
             continue;
         }

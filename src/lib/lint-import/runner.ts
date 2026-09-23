@@ -83,11 +83,14 @@ async function measureEntry(root: string, entry: LintImportEntry, timeoutMs: num
 
 /** One bounded batch; callers own project admission. No shell, installs, or automatic fixes. */
 export async function measureImportedLint(root: string, policy: LintImportPolicy, options: { timeoutMs?: number; now?: () => number; cadence?: "hook" | "audit" | "all" } = {}): Promise<LintMeasurement[]> {
+    const entries = entriesForCadence(policy, options.cadence);
+    // An audit-only policy does no discovery, hashing or analyzer work on hooks.
+    if (entries.length === 0) return [];
     checkLintSources(root, policy);
     const now = options.now ?? performance.now.bind(performance);
     const deadline = now() + (options.timeoutMs ?? 30_000);
     const results: EntryMeasurement[] = [];
-    for (const entry of entriesForCadence(policy, options.cadence)) {
+    for (const entry of entries) {
         const remaining = deadline - now();
         if (remaining <= 0) {
             results.push({ measurement: unavailable(entry, "Lint batch budget exhausted; no verdict") });

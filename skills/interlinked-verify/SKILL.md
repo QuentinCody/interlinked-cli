@@ -489,6 +489,15 @@ Named `eslint.<name>.config.*` profiles are automatic audit candidates; inspect 
 inferred package scope. General repeatable `--config tool=file` and optional `--scope`
 select arbitrary configs for any adapter supporting an explicit config flag.
 `--cadence hook|audit` sets cadence for all profiles in the import plan.
+Use `--only-selected` with `--config` or `--eslint-config` when adding an isolated
+profile: new automatic/inferred linters remain review items, all previously adopted
+profiles remain, and `--cadence` changes only the explicit selections. Without that
+flag, import still includes supported discovered profiles. Preview before adoption.
+For this repo's focused anti-slop audit, select `--config oxlint=oxlint.anti-slop.json
+--scope src --cadence audit --only-selected`, then `--write --baseline`. This enables
+two complementary rules through the existing lint runner/baseline, not new native
+checks. The separate all-18 research config is an explicit census only; its report
+can exceed the runner's 10 MiB capture bound. Never promote a rule solely for zero hits.
 Each config/scope/target/flag profile has its own
 ratchet identity; re-import retains selected profiles without repeating flags.
 

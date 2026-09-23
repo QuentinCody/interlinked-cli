@@ -85,6 +85,20 @@
         "approved_by": "claude-session-2026-09-01",
         "reason": "tseslint-types verify tool row: typed rule set + parser (peer of eslint)",
         "license": "MIT"
+      },
+      "oxlint": {
+        "approved_at": "2026-09-22T16:46:26.329Z",
+        "approved_by": "qcody",
+        "reason": "User-authorized anti-slop audit integration; Oxlint plugin host",
+        "version_range": "1.85.0",
+        "license": "MIT"
+      },
+      "@oxlint/plugins": {
+        "approved_at": "2026-09-22T16:46:51.929Z",
+        "approved_by": "qcody",
+        "reason": "User-authorized anti-slop audit integration; matching plugin runtime",
+        "version_range": "1.85.0",
+        "license": "MIT"
       }
     },
     "pypi": {},
