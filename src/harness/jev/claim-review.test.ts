@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { JevClient } from "../jev/client.js";
+import { JevClient } from "./client.js";
 import type { HarnessEvent } from "../types.js";
-import { buildJevClaimWarning } from "./lifecycle-stop-jev.js";
+import { buildJevClaimWarning } from "./claim-review.js";
 
 let dir = "";
 beforeEach(() => {

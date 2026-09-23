@@ -300,9 +300,6 @@ export function mergeLocalOverrides(
 	// on day one.
 	mergeOptionalSection(config, local, "scratchpad_guard");
 	mergeOptionalSection(config, local, "spec_checks");
-	// Jev scoring signals (default OFF) — a per-dev opt-in that needs a personal
-	// API key, so it is local-only by construction; classified at introduction.
-	mergeOptionalSection(config, local, "jev");
 	// Edit-contract checks (LG-3/LG-4 warn/measure tiers) — classified at
 	// introduction so `{"edit_contract": {"stale_read": "off"}}` in
 	// guard-rules.local.json works on day one.

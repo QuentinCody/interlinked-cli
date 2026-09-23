@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JevClient } from "../harness/jev/client.js";
-import { jevDocClaimsAction, jevTestTitlesAction, resolveImportersIn } from "./jev.js";
+import { jevClaimsAction, jevDocClaimsAction, jevTestTitlesAction, resolveImportersIn } from "./jev.js";
 
 let dir = "";
 const out: string[] = [];
@@ -52,7 +52,7 @@ describe("jevTestTitlesAction", () => {
 	it("N1: with Jev disabled (no client) it explains and exits 2 without scanning", async () => {
 		const code = await jevTestTitlesAction([join(dir, "x.test.ts")], { client: null });
 		expect(code).toBe(2);
-		expect(err.join("")).toContain("jev.enabled");
+		expect(err.join("")).toContain("TYPESAFE_API_KEY");
 	});
 	it("N2: a clean file prints a summary line and no findings", async () => {
 		const file = join(dir, "y.test.ts");
@@ -60,6 +60,27 @@ describe("jevTestTitlesAction", () => {
 		await jevTestTitlesAction([file], { client: noulClient(0.95, "match") });
 		expect(out.join("")).not.toContain("[interlinked:jev-test-title]");
 		expect(out.join("")).toContain("0 finding");
+	});
+});
+
+describe("jevClaimsAction", () => {
+	it("evaluates saved claims only through an explicit internal invocation", async () => {
+		const finalFile = join(dir, "final.txt");
+		const transcript = join(dir, "transcript.jsonl");
+		writeFileSync(finalFile, "All fourteen tests passed in this run.");
+		writeFileSync(transcript, JSON.stringify({
+			type: "assistant", message: { content: [
+				{ type: "tool_use", id: "t1", name: "Bash", input: { command: "npm test" } },
+			] },
+		}) + "\n");
+		const client = noulClient(0.9);
+		expect(await jevClaimsAction(finalFile, transcript, { client, json: true })).toBe(0);
+		expect(client.spend().calls).toBe(1);
+		expect(JSON.parse(out.join(""))).toMatchObject({ findings: [] });
+	});
+	it("requires an internal client before reading saved evidence", async () => {
+		expect(await jevClaimsAction("missing.txt", "missing.jsonl", { client: null })).toBe(2);
+		expect(err.join("")).toContain("TYPESAFE_API_KEY");
 	});
 });
 

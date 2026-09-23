@@ -36,6 +36,12 @@ If you're an agent working in a repo with a `.interlinked/` directory, you are b
 it. This skill orients you and points to the right focused skill.
 
 ## The three surfaces
+
+Jev semantic review is internal research only. The public Interlinked CLI has no
+`jev` command, and its harness never invokes Jev at Stop. Legacy `jev` guard
+settings do not enable it. Internal evaluation belongs to the source-checkout
+runner documented in `docs/internal/jev.md`; it is not a customer BYOK feature.
+
 | Surface | Role |
 |---|---|
 | **Interlinked CLI** (`interlinked …`) | Local hooks, guard, quality checks, activity capture, diagnostics. |

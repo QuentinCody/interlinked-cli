@@ -57,7 +57,6 @@ import {
 	handleSubagentStop,
 } from "./lifecycle-events-handlers.js";
 import * as lifecyclePersist from "./lifecycle-persist.js";
-import { buildJevClaimWarning, jevClientFor } from "./lifecycle-stop-jev.js";
 import {
 	autoStripSessionStartPermissions,
 	refreshFilePriorityOnSessionStart,
@@ -282,10 +281,6 @@ async function handleStop(
 		turnWarnings.push(w);
 	}
 	turnWarnings.push(...residueWarnings);
-	// Jev claim-vs-evidence nudge (opt-in `jev.enabled`; warn-only, fail-open,
-	// one call per Stop). See lifecycle-stop-jev.ts + jev/claim-evidence.ts.
-	const jevClaimWarning = await buildJevClaimWarning(jevClientFor(ctx.rules), event);
-	if (jevClaimWarning !== null) turnWarnings.push(jevClaimWarning);
 	// Plan-drift reflection (PB&J item #6) — compare session.declared_plan
 	// against the actual tool_sequence; advisory-only, never blocks.
 	const driftReport = detectPlanDrift(session);

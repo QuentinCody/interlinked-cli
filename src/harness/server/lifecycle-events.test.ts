@@ -118,14 +118,6 @@ vi.mock("./lifecycle-stop-warnings.js", () => ({
 	buildStaleBaselineNudge: vi.fn(() => null),
 	buildVerificationStopWarnings: vi.fn(() => []),
 }));
-// Real implementation everywhere (jev stays off by default in every fixture
-// here, so `buildJevClaimWarning` already resolves null on its own) — made
-// overridable so one test can force the "found an unbacked claim" branch
-// without standing up a real Jev client + transcript file.
-vi.mock("./lifecycle-stop-jev.js", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("./lifecycle-stop-jev.js")>();
-	return { ...actual, buildJevClaimWarning: vi.fn(actual.buildJevClaimWarning) };
-});
 // Partial mock: keep the REAL sanitizeSessionId for every test (the
 // real-collaborator suites and the happy-path trajectory write rely on its
 // genuine charset whitelisting), but make it overridable so the
@@ -325,7 +317,6 @@ import {
 	runSessionEndResourcePlan,
 } from "./session-end-batch.js";
 import { runSessionEndHeavyJobs } from "./session-end-heavy-jobs.js";
-import { buildJevClaimWarning } from "./lifecycle-stop-jev.js";
 import { suppressRepeatedNudges } from "./stop-nudge-throttle.js";
 import { peekTrajectoryState, trajectoryShadowWarnings } from "./trajectory-shadow.js";
 
@@ -357,7 +348,6 @@ const mRunSessionEndJobs = vi.mocked(runSessionEndJobs);
 const mRunSessionEndResourcePlan = vi.mocked(runSessionEndResourcePlan);
 const mRunSessionEndHeavyJobs = vi.mocked(runSessionEndHeavyJobs);
 const mSuppressRepeatedNudges = vi.mocked(suppressRepeatedNudges);
-const mBuildJevClaimWarning = vi.mocked(buildJevClaimWarning);
 
 const bLog: string[] = [];
 const bLogAlways: string[] = [];
@@ -1235,17 +1225,7 @@ describe("Stop handler — branch coverage", () => {
 		expect((ctx.autoCoordStates).has("s1")).toBe(false);
 	});
 
-	it("appends the Jev claim-evidence nudge to the Stop warnings when one is found", async () => {
-		mBuildJevClaimWarning.mockResolvedValueOnce("[interlinked:jev-claims] unbacked claim: X");
-		const out = await stop(bCtx());
-		expect(out?.warnings).toEqual(
-			expect.arrayContaining(["[interlinked:jev-claims] unbacked claim: X"]),
-		);
-	});
-
-	it("omits the Jev claim-evidence nudge when none is found (default: jev disabled)", async () => {
-		// No override — the real `buildJevClaimWarning` runs; `jev.enabled` is off
-		// in every fixture here, so it resolves null and nothing is appended.
+	it("keeps internal Jev review out of public Stop warnings", async () => {
 		const out = await stop(bCtx());
 		expect((out?.warnings ?? []).some((w) => w.includes("jev-claims"))).toBe(false);
 	});

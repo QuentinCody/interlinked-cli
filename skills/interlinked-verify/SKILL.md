@@ -84,6 +84,11 @@ agent's run, a terminal run, and unit-only evidence do not satisfy it. The viz
 feed labels base, unit, integration, e2e and unknown lanes separately.
 `E2E_STABILITY=1 npm run test:e2e` adds the 5,000-event stress case.
 
+Jev evaluations are internal experiments, separate from public verification and
+Stop hooks. Do not recommend `interlinked jev` or `jev.enabled` to users.
+For authorized internal evaluations, see `docs/internal/jev.md`. The runner
+sends selected evidence to TypeSafe; its findings are advisory, not gate evidence.
+
 - You want to verify a batch of edits before declaring done.
 - A `pre_block` check blocked an edit (see also **interlinked-harness** for how blocks read).
 - You're landing a cross-file refactor and hitting transient `tsc` errors.

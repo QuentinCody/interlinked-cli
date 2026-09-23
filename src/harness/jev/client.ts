@@ -4,8 +4,8 @@
 // error, malformed body, spend ceiling) resolves to `null` so callers degrade
 // to "not measured" — a Jev verdict is a SCORING signal merged tighten-only,
 // never a gate (docs/external-pulse/typesafe-jev.md §3b). The spend ledger is
-// per client instance: the daemon holds one per process, so `max_spend_usd`
-// bounds a session, not an install.
+// per client instance: the internal runner creates a client per action, so
+// `max_spend_usd` bounds that action, not an install. No public hook calls Jev.
 
 import { resolveApiKey } from "../policy-classifier.js";
 import type { JevAnswer, JevConfig, JevEntry, JevQuestion, JevResponse } from "./types.js";

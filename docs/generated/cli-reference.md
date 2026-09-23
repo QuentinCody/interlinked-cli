@@ -54,7 +54,6 @@ Commands:
   index                                      Manage the trigram search index for grep acceleration
   init [options]                             One-command onboarding: detect clients, configure, login, verify
   install-hooks [options]                    Install agent hooks for detected runners (adapter-based, manifest-driven)
-  jev                                        Opt-in semantic checks via TypeSafe Jev (advisory; needs jev.enabled + TYPESAFE_API_KEY)
   lint                                       Discover and adopt existing lint configurations as Interlinked checks and debt gates
   login [options]                            Authenticate with the server (opens browser)
   logout [options]                           Clear authentication credentials (preserves other config)

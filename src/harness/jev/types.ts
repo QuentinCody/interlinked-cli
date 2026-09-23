@@ -60,7 +60,7 @@ export interface JevResponse {
 	usage: { input_tokens: number; output_tokens: number };
 }
 
-/** `jev` block in `.interlinked/config.local.json` (personal tier; default OFF). */
+/** Internal evaluation options; not part of public harness configuration. */
 export interface JevConfig {
 	/** Master switch. Nothing calls Jev while false. */
 	enabled?: boolean;

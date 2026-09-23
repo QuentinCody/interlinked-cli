@@ -1,20 +1,13 @@
-// `interlinked jev test-titles <files…>` / `interlinked jev doc-claims <files…>`
-//
-// On-demand surfaces for the two Jev (TypeSafe System One) checks that judge
-// a SEMANTIC question the deterministic registry cannot: does a test body
-// test its title, and does a doc claim a module is live that nothing imports.
-// Both are advisory and opt-in (`jev.enabled` + `TYPESAFE_API_KEY` in
-// config.local.json); neither runs on the hook path or inside `verify`
-// (per feedback_harness_deterministic_only). Findings carry `[heuristic]`.
-// Measurements live in the module headers under src/harness/jev/.
+// Internal evaluation actions, invoked only by scripts/internal/jev.mjs.
+// Not registered in the public CLI or invoked by the harness.
 
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { createJevClient, type JevClient } from "../harness/jev/client.js";
+import { buildJevClaimWarning } from "../harness/jev/claim-review.js";
 import { formatDocClaimFindings, type ImporterResolver, scoreDocClaims } from "../harness/jev/doc-claim-liveness.js";
 import { formatTitleBodyFindings, scoreTestTitles } from "../harness/jev/test-title-body.js";
 import { ProjectGraph } from "../harness/project-graph.js";
-import { loadRules } from "../harness/rules-loader.js";
 import { entryPoints } from "./deadcode.js";
 
 const EXIT_OK = 0;
@@ -28,14 +21,14 @@ export interface JevCommandOptions {
 	json?: boolean;
 }
 
-function resolveClient(opts: JevCommandOptions, cwd: string): JevClient | null {
+function resolveClient(opts: JevCommandOptions): JevClient | null {
 	if (opts.client !== undefined) return opts.client;
-	return createJevClient(loadRules(cwd).jev);
+	return createJevClient({ enabled: true });
 }
 
 function explainDisabled(): number {
 	process.stderr.write(
-		"Jev is not enabled. Set `jev.enabled: true` in .interlinked/guard-rules.local.json and put TYPESAFE_API_KEY in .interlinked/config.local.json (or the environment).\n",
+		"Internal Jev evaluation requires TYPESAFE_API_KEY in the environment or .interlinked/config.local.json.\n",
 	);
 	return EXIT_UNAVAILABLE;
 }
@@ -47,7 +40,7 @@ function relPath(cwd: string, file: string): string {
 /** Score every it()/test() block in the given test files; print flagged ones. */
 export async function jevTestTitlesAction(files: string[], opts: JevCommandOptions = {}): Promise<number> {
 	const cwd = opts.cwd ?? process.cwd();
-	const client = resolveClient(opts, cwd);
+	const client = resolveClient(opts);
 	if (!client) return explainDisabled();
 	const lines: string[] = [];
 	let blocksSeen = 0;
@@ -85,7 +78,7 @@ export function resolveImportersIn(cwd: string): ImporterResolver {
 /** Score every path-naming paragraph in the given markdown files; print live claims the import graph does not back. */
 export async function jevDocClaimsAction(files: string[], opts: JevCommandOptions = {}): Promise<number> {
 	const cwd = opts.cwd ?? process.cwd();
-	const client = resolveClient(opts, cwd);
+	const client = resolveClient(opts);
 	if (!client) return explainDisabled();
 	const resolve = resolveImportersIn(cwd);
 	const lines: string[] = [];
@@ -105,4 +98,17 @@ function emit(lines: string[], summary: string, opts: JevCommandOptions): void {
 	}
 	for (const l of lines) process.stdout.write(`${l}\n`);
 	process.stdout.write(`${summary}\n`);
+}
+
+/** Explicit internal evaluation of a saved final message and Claude transcript. */
+export async function jevClaimsAction(finalFile: string, transcript: string, opts: JevCommandOptions = {}): Promise<number> {
+	const client = resolveClient(opts);
+	if (!client) return explainDisabled();
+	const warning = await buildJevClaimWarning(client, {
+		last_assistant_message: readFileSync(finalFile, "utf-8"),
+		transcript_path: transcript,
+	});
+	const lines = warning ? [warning] : [];
+	emit(lines, `jev claims: ${lines.length} warning(s); spend $${client.spend().usd.toFixed(4)}`, opts);
+	return client.spend().failures > 0 ? EXIT_UNAVAILABLE : EXIT_OK;
 }

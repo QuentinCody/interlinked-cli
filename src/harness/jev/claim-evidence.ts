@@ -1,10 +1,8 @@
 // Jev check A — are the agent's end-of-turn CLAIMS backed by this turn's EVIDENCE?
 //
-// The Stop hooks can count verifier runs; they cannot tell whether "all tests
-// pass" in the final message is backed by a test run in this turn. The daemon
-// has what nobody else has: the tool calls, their results, and the final text.
-// Jev judges each claim sentence against that evidence in ONE call per Stop.
-// Warn-only, behind `jev.enabled`, fail-open; never blocks.
+// Internal evaluation of saved final messages against transcript evidence.
+// Jev judges each claim sentence in one request. Public Stop hooks do not
+// invoke this evaluator. Advisory and fail-open; never blocks.
 //
 // MEASURED (2026-09-16, scratch/2026-09-16-jev-checks/CAMPAIGN + a2v2-scores):
 //   50 real turns / 329 claims from 37 transcripts, blind-labeled by two
