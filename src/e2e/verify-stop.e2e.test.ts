@@ -58,6 +58,20 @@ describe("Stop verification and session attribution", () => {
         expect(await stop(prose)).not.toContain("no tsc / test / lint / build invocation observed");
     });
 
+    it("reports repeated implementations at Stop without repeating unchanged advice", async () => {
+        const session = `${fixture.sessionPrefix}-repeated`;
+        const body = `(state) { const next = structuredClone(state); const job = next.job; job.status = "done"; job.token = null; job.expiry = null; return next; }`;
+        await write(session, "src/handlers.ts", `export function ack${body}\nexport function retry${body.replace('"done"', '"pending"')}\n`);
+        const first = await stop(session);
+        expect(first).toContain("similar implementations");
+        expect(first).toContain("ack");
+        expect(first).toContain("retry");
+        const next = await fixture.hook({ sessionId: session, event: "Stop" });
+        fixture.assertServed(next);
+        expect(next.code).toBe(0);
+        expect(next.stdout + next.stderr).not.toContain("similar implementations");
+    });
+
     it("MUST-FIRE: boundary and adapter edits need this session's e2e lane", async () => {
         const a = `${fixture.sessionPrefix}-boundary`;
         const b = `${fixture.sessionPrefix}-adapter`;
