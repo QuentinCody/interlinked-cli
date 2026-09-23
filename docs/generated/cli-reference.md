@@ -1289,7 +1289,6 @@ Options:
   -h, --help      display help for command
 ```
 
-## Simplify
 ## Coverage
 
 ```
@@ -1458,6 +1457,7 @@ Options:
   -h, --help       display help for command
 ```
 
+## Simplify
 
 ```
 Usage: interlinked simplify [options] [command]

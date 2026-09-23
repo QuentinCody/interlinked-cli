@@ -462,14 +462,6 @@ run_id, lane?, file?, name?, status?, ms?, error?}` — so a pytest/cargo adapte
 and the lens renders unchanged. Every feed degrades to an honest empty state when its file is
 absent; nothing about the dashboard is repo-specific.
 
-## Common workflows
-```bash
-interlinked status                       # sessions + last events + sync/server health
-interlinked explain --since 30m          # narrative timeline of the window
-interlinked logs -f --type tool_use_error # tail only failing tool calls, live
-interlinked logs --type guard_block --since 1h   # what the guard blocked
-interlinked recurrence list --kind harness_caught --top 10   # recurring mistakes
-interlinked status --full                # per-session tools + files + tokens
 The Interlinked CLI e2e config always registers the reporter; `test:e2e` also
 sets `INTERLINKED_VIZ=1`. The TESTS lens groups files by `unit`, `integration`,
 `e2e`, `base` or `unknown` lane. A bare Vitest run is `base`; old rows without
@@ -478,6 +470,14 @@ ledgers are assertion subjects and do not establish which coding session ran
 the tests. The Stop nudge attributes e2e invocations through that session's
 observed Bash commands instead.
 
+## Common workflows
+```bash
+interlinked status                       # sessions + last events + sync/server health
+interlinked explain --since 30m          # narrative timeline of the window
+interlinked logs -f --type tool_use_error # tail only failing tool calls, live
+interlinked logs --type guard_block --since 1h   # what the guard blocked
+interlinked recurrence list --kind harness_caught --top 10   # recurring mistakes
+interlinked status --full                # per-session tools + files + tokens
 interlinked impact --base HEAD --full    # scoped observed facts + explicit claim boundary
 interlinked viz snapshot                 # one-line dependency-graph summary
 interlinked sync --dry-run               # safe: pending count, no send

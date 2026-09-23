@@ -94,6 +94,12 @@ A **block reason is always surfaced.** Allow-time warnings are surfaced but easy
 
 ## Which skill to load for what
 
+Route `coverage check --lane e2e`, e2e evidence refusals and
+`coverage-e2e-baseline.json` to **interlinked-quality-gates**. Route
+`e2e scaffold` and `[interlinked:e2e-obligation]` to **interlinked-verify**.
+Transport receipt diagnostics (`hook-transport.jsonl`) belong to
+**interlinked-harness**.
+
 For the experimental uploaded Cowork plugin, use **interlinked-cowork** and
 `interlinked cowork capabilities --json`. Cowork cloud hooks execute away from the
 host daemon. Native crash/timeout behavior can fail open; the coding-client claims
@@ -105,12 +111,6 @@ external write, use **interlinked-verify**. A declared hook, an installed entry,
 observed invocation and native enforcement are separate evidence.
 
 | Situation | Load |
-Route `coverage check --lane e2e`, e2e evidence refusals and
-`coverage-e2e-baseline.json` to **interlinked-quality-gates**. Route
-`e2e scaffold` and `[interlinked:e2e-obligation]` to **interlinked-verify**.
-Transport receipt diagnostics (`hook-transport.jsonl`) belong to
-**interlinked-harness**.
-
 |---|---|
 | Installing / enabling Interlinked, connecting a coding client/hook, daemon down or **zombie**, `doctor` fails, config/mode | **interlinked-setup** |
 | A Bash command or edit was **BLOCKED**; a sandbox/effect-residue warning; a `[interlinked:*]` warning; suppressions | **interlinked-harness** |

@@ -139,11 +139,11 @@ scripts/*
 !scripts/build-atomic-cli.mjs
 !scripts/build-atomic.test.mjs
 !scripts/build-input-fingerprint.mjs
+!scripts/e2e-*.mjs
+!scripts/e2e-*.d.mts
 !scripts/build-lease.mjs
 !scripts/build-publish.mjs
 # Git hook installer + the hooks themselves ship with the repo so every
-!scripts/e2e-*.mjs
-!scripts/e2e-*.d.mts
 # contributor gets the pre-push test gate (see scripts/git-hooks/pre-push).
 # Note: the parent ignore is `scripts/*` (not `scripts/`) so these re-
 # includes actually take effect — gitignore can't re-include children of
@@ -339,12 +339,12 @@ docs/investigation-*.md
 docs/structure-validation-prompt.md
 docs/test-quality-harness-plan.md
 .interlinked/hook-runtime.json
+!.interlinked/coverage-e2e-baseline.json
 .interlinked/semantic.local.json
 
 # Wrangler dev secrets (per-Worker; ADMIN_TOKEN for the landing waitlist export)
 .dev.vars
 
-!.interlinked/coverage-e2e-baseline.json
 # SlopCodeBench qualification tooling (2026-09-16): private for now — it pairs
 # with the gitignored docs/plans qualification records. Kept on disk and
 # searchable (see .ignore); the committed evals/fixtures + evals/lib stay tracked.

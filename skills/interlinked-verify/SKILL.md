@@ -63,6 +63,27 @@ Route evidence receipts, incremental coverage setup and deletion trials to
 **interlinked-quality-gates**.
 
 ## Load this when
+
+### E2E lane for Interlinked CLI boundary edits
+
+When editing a hook entry, adapter, daemon, installer, generated hook, or ledger
+writer identified by `src/harness/e2e-boundary.ts`, add or run a fixture-backed
+test: `npm run build:e2e && npm run test:e2e`. Fixtures own their cwd, sockets,
+daemon PID and ledgers. Daemon assertions require a fresh transport receipt
+with `outcome: "daemon"`, plus PID ownership; cold fallback is a separate case.
+
+`interlinked e2e scaffold <name> --event PreToolUse --tool Edit` creates
+`src/e2e/<name>.e2e.test.ts`. `--dry-run` prints it. Replace the deliberate
+failure with the required behavior and add MUST-NOT-FIRE cases.
+`npm run test:e2e:coverage` collects child coverage after `build:e2e`.
+Route ratchet refusals to **interlinked-quality-gates**.
+
+The advisory `[interlinked:e2e-obligation]` Stop warning credits only commands
+observed in the current session. Run the lane from that session; another
+agent's run, a terminal run, and unit-only evidence do not satisfy it. The viz
+feed labels base, unit, integration, e2e and unknown lanes separately.
+`E2E_STABILITY=1 npm run test:e2e` adds the 5,000-event stress case.
+
 - You want to verify a batch of edits before declaring done.
 - A `pre_block` check blocked an edit (see also **interlinked-harness** for how blocks read).
 - You're landing a cross-file refactor and hitting transient `tsc` errors.
@@ -86,27 +107,6 @@ selected runners and records per-case receipts under `.interlinked/contract-runs
 
 Process cases use a disposable workspace containing declared inputs and already installed
 tooling. This is not an OS sandbox. External state is unsealed, so historical passes are
-
-### E2E lane for Interlinked CLI boundary edits
-
-When editing a hook entry, adapter, daemon, installer, generated hook, or ledger
-writer identified by `src/harness/e2e-boundary.ts`, add or run a fixture-backed
-test: `npm run build:e2e && npm run test:e2e`. Fixtures own their cwd, sockets,
-daemon PID and ledgers. Daemon assertions require a fresh transport receipt
-with `outcome: "daemon"`, plus PID ownership; cold fallback is a separate case.
-
-`interlinked e2e scaffold <name> --event PreToolUse --tool Edit` creates
-`src/e2e/<name>.e2e.test.ts`. `--dry-run` prints it. Replace the deliberate
-failure with the required behavior and add MUST-NOT-FIRE cases.
-`npm run test:e2e:coverage` collects child coverage after `build:e2e`.
-Route ratchet refusals to **interlinked-quality-gates**.
-
-The advisory `[interlinked:e2e-obligation]` Stop warning credits only commands
-observed in the current session. Run the lane from that session; another
-agent's run, a terminal run, and unit-only evidence do not satisfy it. The viz
-feed labels base, unit, integration, e2e and unknown lanes separately.
-`E2E_STABILITY=1 npm run test:e2e` adds the 5,000-event stress case.
-
 not reused as current verdicts. HTTP cases use a literal loopback HTTP URL, GET/POST,
 no redirects, and exact text/JSON/status/header expectations. Comparisons do not normalize
 string values. Missing tooling, stale inputs, conflicting citations and budget exhaustion
