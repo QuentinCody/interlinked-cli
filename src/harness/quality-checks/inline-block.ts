@@ -290,6 +290,8 @@ function checkAgentSafetyBlock(ctx: InlineBlockContext): QualityCheckResult[] {
 
 	const out: QualityCheckResult[] = [];
 	for (const check of agentSafetyChecks) {
+        // Group once after the whole observed changeset; Stop and verify still use the registry.
+        if (check.name === "repeated_implementation") continue;
 		const matches =
 			check.name === "code_clones" &&
 			ctx.diffAware?.enabled !== false &&

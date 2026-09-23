@@ -76,7 +76,8 @@ interface FingerprintableFinding {
  * flagged line must not make it read as newly-appeared at the next Stop.
  */
 export function fingerprintFinding(f: FingerprintableFinding): string {
-	return `${f.file} ${f.checkId} ${f.text.replace(/\s+/g, " ").trim()}`;
+    const text = f.checkId === "repeated_implementation" ? f.text.replace(/@L\d+/g, "@L") : f.text;
+	return `${f.file} ${f.checkId} ${text.replace(/\s+/g, " ").trim()}`;
 }
 
 function emptyState(): StopDigestState {

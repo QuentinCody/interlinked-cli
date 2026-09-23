@@ -13,6 +13,7 @@
 // …) becomes `ctx.rules`, `ctx.trigramIndex`, ….
 
 import { runPostToolScan } from "../content-scanner/post-scan.js";
+import { appendRepeatedImplementationAdvice } from "../repeated-implementation-advice.js";
 import { evaluatePostToolUse } from "../evaluator.js";
 import { runFailureChannels } from "../failure-channels.js";
 import type { ToolBreakdownEntry } from "../quality-checks.js";
@@ -224,6 +225,7 @@ async function runFileChecks(
 	}
 	// Phase mark — covers behavioral-checks + the recurrence log appender.
 	acc.markPhase("recurrence_aggregate");
+    acc.allCheckResults.push(...appendRepeatedImplementationAdvice(ctx.cwd, pathsToCheck, session, postDecision, event.dry_run));
 }
 
 async function runPostToolPipelineInner(

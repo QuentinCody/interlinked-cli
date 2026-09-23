@@ -81,6 +81,13 @@ export const coreSections: readonly SectionSpec[] = [
         passLabel: "no Python simplification findings reported",
         color: "33",
     },
+    {
+        label: "repeated implementation review",
+        key: "repeatedImplementation",
+        noun: "AST-matched implementation groups or unavailable analysis",
+        passLabel: "no repeated implementation findings reported",
+        color: "33",
+    },
 	{
 		label: "circular imports",
 		key: "circularImports",

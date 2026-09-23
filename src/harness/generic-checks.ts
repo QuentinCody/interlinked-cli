@@ -138,6 +138,7 @@ export {
 } from "./checks/demo-data.js";
 // ---- dry (Jaccard code-clone detector) ----
 export { checkCodeClones } from "./checks/dry-check.js";
+export { checkRepeatedImplementation } from "./checks/repeated-implementation.js";
 // ---- error-handling ----
 export {
 	checkBareCatchBlock,

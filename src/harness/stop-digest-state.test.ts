@@ -33,6 +33,11 @@ afterEach(() => {
 });
 
 describe("fingerprintFinding — positive (must fire)", () => {
+    it("keeps repeated implementation identity across location shifts, but not changed differences", () => {
+        const row = { file: "q.py", checkId: "repeated_implementation", text: "ack@L10 retry@L22 done pending" };
+        expect(fingerprintFinding({ ...row, text: "ack@L20 retry@L32 done pending" })).toBe(fingerprintFinding(row));
+        expect(fingerprintFinding({ ...row, text: "ack@L20 retry@L32 done failed" })).not.toBe(fingerprintFinding(row));
+    });
 	it("P1: gives two findings differing only in whitespace the same identity", () => {
 		const a = fingerprintFinding({ file: "a.ts", checkId: "eval_usage", text: "eval( x )" });
 		const b = fingerprintFinding({ file: "a.ts", checkId: "eval_usage", text: "eval(  x  )" });

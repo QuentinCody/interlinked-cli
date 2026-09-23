@@ -6,6 +6,14 @@ description: "Investigate agent activity and JSONL/gzip evidence. Load for data 
 
 # interlinked-observability — inspect what agents did
 
+`repeated_implementation` check results retain each current AST-matched group with
+a `group=<sha256>` detail identity, even when unchanged agent-facing warnings are
+suppressed. Compare these identities rather than line numbers across formatting edits.
+Post-tool suppression is session-local and resets with the daemon; Stop uses its
+existing digest state. NOT CHECKED means missing analysis, not zero clones. Findings
+are review candidates, not proven defects or evidence that an extraction helped.
+
+
 `hook-reentry.jsonl` records Stop/SubagentStop re-entry suppressed before daemon evaluation.
 Translation receipts now include advisory context representation as well as denials and
 rewrites. Operator-only Stop diagnostics are not model-context delivery. Audit native

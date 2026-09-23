@@ -25,6 +25,7 @@ const EXPECTED_KEY_ORDER = [
 	"extractedHelperDuplicate",
 	"singleUseTrivialHelper",
     "pythonSimplification",
+    "repeatedImplementation",
 	"circularImports",
 	"untestedInversePair",
 	"untestedIdempotent",

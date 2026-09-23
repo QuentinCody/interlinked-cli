@@ -59,6 +59,7 @@ export interface CodeQualityResults {
 	/** Private, single-call-site, <=3-statement helpers with an uninformative name. */
 	singleUseTrivialHelper: CodeQualityIssue[];
     pythonSimplification: CodeQualityIssue[];
+    repeatedImplementation: CodeQualityIssue[];
 	circularImports: CodeQualityIssue[];
 	untestedInversePair: CodeQualityIssue[];
 	untestedIdempotent: CodeQualityIssue[];

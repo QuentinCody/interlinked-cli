@@ -5,6 +5,11 @@ description: "Overview and router for the Interlinked CLI — a local guard, qua
 
 # interlinked — overview & skill router
 
+For repeated implementation advice (`repeated_implementation`), load
+**interlinked-verify**. This is an advisory AST comparison for Python and JS/TS,
+reported after a changeset and in the Stop/verification review. It is not a hard gate.
+
+
 Use **interlinked-verify** for `tests contracts import|inspect|run`: portable executable
 examples, expected-value provenance and retained previous expectations. Use
 **interlinked-spec-audit** for preparing explicit documentation examples. Contract

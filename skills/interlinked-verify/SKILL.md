@@ -5,6 +5,29 @@ description: "Run `interlinked verify`, understand the PostToolUse quality check
 
 # interlinked-verify — check your work & land edits through the gates
 
+## Repeated implementation advisory
+
+`repeated_implementation` compares same-file Python and JS/TS function bodies by
+AST structure, with a minimum of five statements. Tests, generated files, small
+delegates and functions containing nested implementations are excluded. This is
+conservative structural matching, not proof that two contracts are equivalent.
+It names the matching functions and source lines, shows literal values, and suggests
+a shared operation when the contracts match. Do not compress lines or automatically
+extract helpers to satisfy it. Preserve correctness and independently evolving behavior.
+
+The daemon reports new or changed groups once per session after all files in the
+observed tool changeset have landed. Unchanged groups remain in structured check
+results. Stop rescans current touched files through the existing digest and repeat-Stop
+filter; `verify --all-checks` reports the full advisory inventory. Default verify skips
+this check. It never blocks an edit or Stop and never creates a completion obligation.
+A daemon restart can repeat advice. Separate tool calls are separate observed changesets.
+
+Python uses an isolated, bounded `python3` AST parser and does not execute candidate
+code. Missing parsers, invalid syntax and oversized detector input return NOT CHECKED,
+not a clean duplication verdict. Initial scope is whole functions within one file;
+cross-file matching and arbitrary repeated sub-blocks are not covered by this check.
+
+
 On the first authored edit per language/session without a detected test layout,
 PostToolUse probes Python/JS/TS/Rust/Go runner readiness and supplies setup/test guidance.
 It does not install packages or hard-block absent tests. Inspect custom layouts before

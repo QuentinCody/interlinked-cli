@@ -232,6 +232,7 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// being a genuine refactor opportunity. Advisory until the FP rate is
 	// measured against a broader codebase.
 	"code_clones",
+    "repeated_implementation", // AST similarity is a review prompt, not proof of unnecessary code.
 	// Default-export hygiene: cold-reader/grep clarity signal, but default
 	// exports are idiomatic in React/Vue component files and many build
 	// configs the filename-matching heuristic can't enumerate. Advisory

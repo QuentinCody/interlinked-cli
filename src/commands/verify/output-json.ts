@@ -51,6 +51,7 @@ function summarizeSupplementalChecks(cq: CodeQualityResults): JsonObject {
         json_validity: summarizeWithDetails(cq.jsonValidity),
         html_duplicate_id: summarizeWithDetails(cq.htmlDuplicateId),
         python_simplification: summarizeWithDetails(cq.pythonSimplification),
+        repeated_implementation: summarizeWithDetails(cq.repeatedImplementation),
     };
 }
 

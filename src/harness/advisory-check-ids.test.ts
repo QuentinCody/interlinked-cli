@@ -10,6 +10,13 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_ADVISORY_SKIPS } from "../commands/verify/advisory.js";
+import { CHECK_REGISTRY } from "./check-registry/index.js";
+
+it("keeps repeated implementation advice nonblocking and outside default verification", () => {
+    expect(CHECK_REGISTRY.find(row => row.id === "repeated_implementation"))
+        .toMatchObject({ phase: "post", severity: "warning", determinism: "heuristic" });
+    expect(DEFAULT_ADVISORY_SKIPS.has("repeated_implementation")).toBe(true);
+});
 import { ADVISORY_CHECK_IDS, isAdvisoryCheckId } from "./advisory-check-ids.js";
 import { checkRegistryParity, loadRegistryParityConfig } from "./registry-parity.js";
 
