@@ -4,4 +4,5 @@
 // html_duplicate_id is a heuristic PostToolUse warning. Its lexical scope is
 // documented; it stays advisory in metrics and contributes no quality score.
 // python_simplification adds bounded advisory evidence; it has no scoring authority.
-export const REVIEWED_REGISTRY_HASH = "ceb07a838765e339c15427713b8cc0ad90581f26096370f8ff64219c67c4b4ba";
+// repeated_implementation is heuristic, advisory, and excluded from quality scoring.
+export const REVIEWED_REGISTRY_HASH = "7514a058d65259a325374d2db7d174b89310d2f03cdf74b88f5819981643bae9";

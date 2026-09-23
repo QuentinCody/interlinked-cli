@@ -18,7 +18,7 @@ const handlers = pythonHandler("ack", "done") + pythonHandler("retry", "pending"
 const jsBody = `(state) { const next = clone(state); const job = next.job; job.status = "done"; job.token = null; job.expiry = null; return next; }`;
 
 describe("checkRepeatedImplementation", () => {
-    it("groups the three Python handlers once and exposes their differing status values", () => {
+    it("MUST-FIRE: groups the three Python handlers once and exposes their differing status values", () => {
         const findings = checkRepeatedImplementation(handlers, "queue.py");
         expect(findings).toHaveLength(1);
         expect(findings[0]?.text).toContain("3 similar implementations");
@@ -36,7 +36,7 @@ describe("checkRepeatedImplementation", () => {
         expect(compact).toHaveLength(1);
         expect(checkRepeatedImplementation(content.replaceAll(";", ";\n"), "queue.ts")[0]?.fingerprint).toBe(compact[0]?.fingerprint);
     });
-    it("does not equate different call targets or control flow", () => {
+    it("MUST-NOT-FIRE: does not equate different call targets or control flow", () => {
         expect(checkRepeatedImplementation(pythonHandler("ack", "done") + pythonHandler("other", "done").replace("validate_lease", "authorize_user"), "queue.py")).toEqual([]);
         expect(checkRepeatedImplementation(`function a${jsBody}\nfunction b${jsBody.replace("clone(state)", "deleteState(state)")}`, "queue.ts")).toEqual([]);
     });

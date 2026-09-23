@@ -7,7 +7,7 @@
 
 import { checkSingleUseTrivialHelper } from "../../harness/checks/over-extraction.js";
 import { checkPythonSimplification } from "../../harness/checks/python-simplification.js";
-import { checkRepeatedImplementation } from "../../harness/checks/repeated-implementation.js";
+import { checkRepeatedImplementation } from "../../harness/generic-checks.js";
 import type { FileCheckContext } from "./file-checks-shared.js";
 import { toIssues } from "./file-checks-shared.js";
 

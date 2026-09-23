@@ -201,6 +201,7 @@ describe("DEFAULT_ADVISORY_SKIPS", () => {
 				"comment_claims_validation_missing",
 				"catch_and_log",
 				"code_clones",
+				"repeated_implementation",
 				// cognitive-complexity metric (history-relational-metrics Phase 1, 2026-07-24)
 				"cognitive_complexity",
 				"complexity",
