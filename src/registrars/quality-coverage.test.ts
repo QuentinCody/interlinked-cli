@@ -5,6 +5,13 @@ import { registerCoverageCommands } from "./quality-coverage.js";
 const coverageCheckCommand = vi.fn();
 const coverageBaselineCommand = vi.fn();
 const coverageMetricsCommand = vi.fn();
+const coverageE2eIdentityCommand = vi.fn();
+const coverageLaneStatusCommand = vi.fn();
+
+vi.mock("../commands/coverage-e2e.js", () => ({
+    coverageE2eIdentityCommand: (...args: unknown[]) => coverageE2eIdentityCommand(...args),
+    coverageLaneStatusCommand: (...args: unknown[]) => coverageLaneStatusCommand(...args),
+}));
 
 vi.mock("../commands/coverage.js", () => ({
 	coverageCheckCommand: (...args: unknown[]) => coverageCheckCommand(...args),
@@ -31,9 +38,25 @@ beforeEach(() => {
 	coverageCheckCommand.mockReset();
 	coverageBaselineCommand.mockReset();
 	coverageMetricsCommand.mockReset();
+    coverageE2eIdentityCommand.mockReset();
+    coverageLaneStatusCommand.mockReset();
 });
 
 describe("registerCoverageCommands — positive (must fire)", () => {
+    it("forwards e2e moves, repeated mappings, retirements and lane status", async () => {
+        await build().parseAsync(["coverage", "move", "old.ts", "new.ts", "--lane", "e2e", "--map", "A=B", "--map", "C=D", "--base", "origin/main"], { from: "user" });
+        expect(coverageE2eIdentityCommand).toHaveBeenLastCalledWith({ lane: "e2e", map: ["A=B", "C=D"], base: "origin/main" }, { old: "old.ts", next: "new.ts" });
+        await build().parseAsync(["coverage", "retire", "removed.ts", "--lane", "e2e"], { from: "user" });
+        expect(coverageE2eIdentityCommand).toHaveBeenLastCalledWith({ lane: "e2e" }, { retire: "removed.ts" });
+        await build().parseAsync(["coverage", "status", "--cwd", "/repo", "--json"], { from: "user" });
+        expect(coverageLaneStatusCommand).toHaveBeenCalledWith({ cwd: "/repo", json: true });
+    });
+    it("forwards e2e check mappings and baseline selection", async () => {
+        await build().parseAsync(["coverage", "check", "--lane", "e2e", "--map", "A=B", "--map", "C=D", "--require-measured"], { from: "user" });
+        expect(coverageCheckCommand).toHaveBeenCalledWith({ lane: "e2e", map: ["A=B", "C=D"], requireMeasured: true });
+        await build().parseAsync(["coverage", "baseline", "--lane", "e2e"], { from: "user" });
+        expect(coverageBaselineCommand).toHaveBeenCalledWith({ lane: "e2e" });
+    });
 	it("P1: registers check (default), metrics, and baseline under `coverage`", () => {
 		const names = coverage(build()).commands.map((c) => c.name()).sort();
 		expect(names).toEqual(["baseline", "check", "metrics", "move", "retire", "status"]);

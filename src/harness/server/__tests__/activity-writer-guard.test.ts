@@ -26,6 +26,10 @@ function dec(partial: Partial<HarnessDecision> = {}): HarnessDecision {
 }
 
 describe("mapDecisionToGuardRecord -- guard telemetry mapping", () => {
+	it("correlates daemon guard decisions with transport receipts by event id", () => {
+		const record = mapDecisionToGuardRecord(ev({ event_id: "transport-event-1" }), dec({ decision: "block" }), "/repo");
+		expect(record).toMatchObject({ event_id: "transport-event-1", writer: "daemon", type: "guard_block" });
+	});
 	it("maps a block decision to a guard_block record carrying the guard fields", () => {
 		const rec = mapDecisionToGuardRecord(
 			ev({ tool_name: "Edit", tool_use_id: "tu_9" }),

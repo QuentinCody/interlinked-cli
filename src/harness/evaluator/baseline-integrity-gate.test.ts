@@ -515,6 +515,25 @@ function mkEvent(toolInput: Record<string, unknown>, cwd?: string): HarnessEvent
 }
 
 describe("evaluateBaselineIntegrityForEvent", () => {
+	it("ignores events without file input and permits an absent ordinary baseline", () => {
+		const { tool_input: _input, ...event } = mkEvent({});
+		expect(evaluateBaselineIntegrityForEvent(event)).toBeNull();
+		expect(evaluateBaselineIntegrityForEvent(mkEvent({ path: COV, content: "{}" }), { getDisk: () => null })).toBeNull();
+	});
+	it("requires measured initialization of a new e2e baseline", () => {
+		const decision = evaluateBaselineIntegrityForEvent(mkEvent({ file_path: "/repo/.interlinked/coverage-e2e-baseline.json", content: "{}" }), { getDisk: () => null });
+		expect(decision).toMatchObject({ decision: "block", rule_id: "baseline_integrity_gate" });
+		expect(decision?.reason).toContain("--lane e2e --init-baseline");
+	});
+	it("routes existing e2e baselines through their fail-closed integrity validator", () => {
+		const file = "/repo/.interlinked/coverage-e2e-baseline.json";
+		expect(detectBaselineGaming(file, "{}", "{}")).toEqual([
+			expect.objectContaining({ rule: "coverage-e2e-loosening", message: expect.stringContaining("repository root") }),
+		]);
+		const decision = evaluateBaselineIntegrityForEvent(mkEvent({ file_path: file, content: "{}" }, "/repo"), { getDisk: () => "{}" });
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("coverage-e2e-loosening");
+	});
 	const lower = JSON.stringify({ files: { "src/a.ts": { lines_pct: 10 } } });
 	const head = JSON.stringify({ files: { "src/a.ts": { lines_pct: 90 } } });
 	const deps = { getDisk: () => head };

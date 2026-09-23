@@ -42,6 +42,10 @@ it("seeds the test feed in chronological order while skipping a corrupt neighbor
 	expect(seeded).toEqual([older, newer]);
 });
 
+it("seeds an empty feed when no test events have been recorded", () => {
+	expect(seedRecentTestEvents(testEventsPath(dir), 3)).toEqual([]);
+});
+
 describe("trimError", () => {
 	it("keeps a short single line verbatim", () => {
 		expect(trimError("expected 1 to be 2")).toBe("expected 1 to be 2");
@@ -77,6 +81,12 @@ describe("appendTestEvent", () => {
 });
 
 describe("mapTestLine", () => {
+	it.each(["unit", "integration", "e2e", "base", "unknown"] as const)("preserves the %s test lane", (lane) => {
+		expect(mapTestLine(JSON.stringify(ev({ lane })))).toEqual(ev({ lane }));
+	});
+	it("drops an unsupported lane while retaining the event", () => {
+		expect(mapTestLine(JSON.stringify({ ...ev(), lane: "unsupported" }))).toEqual(ev());
+	});
 	it("parses a full test event", () => {
 		const line = JSON.stringify(ev({ file: "a.test.ts", name: "works", status: "pass", ms: 12 }));
 		expect(mapTestLine(line)).toEqual({

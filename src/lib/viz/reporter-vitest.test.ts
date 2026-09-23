@@ -54,6 +54,12 @@ const caseOf = (name: string, state: string, over: Record<string, unknown> = {})
 });
 
 describe("InterlinkedVizReporter", () => {
+    it.each([{}, { vite: {} }, { vite: { config: {} } }, { vite: { config: { configFile: false as const } } }])("keeps the lane unknown when no config was observed", (context) => {
+        const { reporter, events } = harness();
+        reporter.onInit(context);
+        reporter.onTestRunStart();
+        expect(events[0]).toMatchObject({ kind: "run_start", lane: "unknown" });
+    });
     it.each(["unit", "integration", "e2e", "base"])("labels the %s lane from Vitest's resolved Vite config", (lane) => {
         const { reporter, events } = harness();
         const configFile = lane === "base" ? "/proj/vitest.config.ts" : `/proj/vitest.${lane}.config.ts`;

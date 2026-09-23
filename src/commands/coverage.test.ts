@@ -92,6 +92,18 @@ describe("coverageCheckCommand", () => {
 		expect(io.mocks().exitCode).toBe(1);
 		expect(io.mocks().stderr).toContain("No coverage report found");
 	});
+	it.each([{ initBaseline: true }, { map: ["old=new"] }, { base: "HEAD" }])("rejects e2e-only options without a named lane: %j", async (options) => {
+		await coverageCheckCommand({ cwd: tmp, ...options });
+		expect(io.mocks().exitCode).toBe(1);
+		expect(io.mocks().stderr).toContain("require --lane e2e");
+	});
+	it("routes named checks and baselines through e2e lane validation", async () => {
+		await coverageCheckCommand({ cwd: tmp, lane: "unit" });
+		expect(io.mocks().exitCode).toBe(1);
+		expect(io.mocks().stderr).toContain("only named coverage lane is e2e");
+		coverageBaselineCommand({ cwd: tmp, lane: "unit" });
+		expect(io.mocks().stderr.match(/only named coverage lane is e2e/g)).toHaveLength(2);
+	});
 
 	it("surfaces language-specific LCOV-generation guidance when no report exists", async () => {
 		// Mark the temp project as Python so the guidance is tailored to it.
@@ -533,6 +545,13 @@ describe("coverageCheckCommand — partial-report handling", () => {
 		writeScopedSummary();
 		await coverageCheckCommand({ cwd: tmp, strict: true });
 		expect(io.mocks().exitCode).toBeFalsy();
+	});
+	it("fails an unmeasured report when --require-measured is explicit", async () => {
+		writeWellCoveredBaseline();
+		writeScopedSummary();
+		await coverageCheckCommand({ cwd: tmp, requireMeasured: true, json: true });
+		expect(io.mocks().exitCode).toBe(1);
+		expect(JSON.parse(io.mocks().stdout)).toMatchObject({ findings: [], partialReport: { partial: true } });
 	});
 
 	it("--update-baseline does NOT persist a partial report — the baseline file is untouched", async () => {

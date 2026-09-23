@@ -392,7 +392,7 @@ export function detectBaselineGaming(
 }
 
 interface BaselineComparison {
-    kind: BaselineKind;
+    kind: Exclude<BaselineKind, "coverage-e2e">;
     filePath: string;
     beforeText: string;
     afterText: string;
@@ -404,7 +404,6 @@ interface BaselineComparison {
 function compareBaseline(input: BaselineComparison): BaselineGamingFinding[] {
     const { kind, filePath, beforeText, afterText, before, after, exists } = input;
 	switch (kind) {
-		case "coverage-e2e": throw new Error("E2e baseline needs its repository context");
 		case "coverage":
 			return detectRisingMetricMap(filePath, asObj(asObj(before).files), asObj(asObj(after).files), COVERAGE_METRICS.map(baselineKeyFor), "coverage", exists);
 		case "mutation":
