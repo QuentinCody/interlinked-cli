@@ -1,0 +1,55 @@
+name: e2e-release-matrix
+
+# Plan 31 Unit G: the supported-language release matrix for project e2e
+# enforcement. Every row must have its toolchain PROVISIONED here (cargo,
+# Chromium for the playwright route); a gap on this runner is a release gap,
+# so the job fails on gaps as well as on contradictions.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+  push:
+    paths:
+      - "src/harness/project-e2e/**"
+      - "src/harness/contracts/**"
+      - "scripts/e2e-release-matrix.mts"
+      - ".github/workflows/e2e-release-matrix.yml"
+
+jobs:
+  matrix:
+    name: release matrix (Linux / Node 22 / Python 3 / Rust stable / Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run build
+      - name: Provision the pinned Playwright package and Chromium (never installed by the engine itself, PE-24)
+        run: |
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps chromium
+      - name: Run the release matrix
+        run: node --import tsx scripts/e2e-release-matrix.mts --out release-matrix/e2e-release-matrix.md
+      - name: Fail on any gap (a missing toolchain on the qualification runner is a release gap)
+        run: |
+          node -e '
+            const rows = JSON.parse(require("node:fs").readFileSync(".interlinked/test-runs/e2e/release-matrix.json", "utf8")).rows;
+            const gaps = rows.filter(row => row.toolchainPresent !== "yes");
+            if (gaps.length) { console.error("release gaps:", gaps.map(row => row.route)); process.exit(1); }
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-release-matrix
+          path: |
+            release-matrix/
+            .interlinked/test-runs/e2e/release-matrix.json

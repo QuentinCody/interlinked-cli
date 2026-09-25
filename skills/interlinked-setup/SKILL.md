@@ -448,6 +448,15 @@ runner is ready.
 
 ## Diagnosing problems
 
+Project E2E `interlinked tests e2e doctor` retains report version 1 and adds optional
+`evaluation: "not-evaluated"` and `prerequisites` fields to dependent checks. A ledger
+failure leaves receipt validation unevaluated; unresolved contract references prevent
+complete acceptance/toolchain success. Known missing preparation tools can still fail
+independently. POSIX command inspection checks regular executable files under the runner's
+PATH/cwd. A same-suite artifact expected after preparation is a warning, not verified
+availability; preparation commands never receive that exemption. Runtime placeholders or
+unsupported platform lookup stay unverified. The doctor does not execute preparation.
+
 ### Hook capability inventory and experimental clients
 
 `interlinked harness capabilities --json` includes the sourced ecosystem catalog,
@@ -668,6 +677,7 @@ interlinked logout [--all]
 - `--json` support is per-command; unknown flags error. `doctor` takes only `--fix`/`--json`.
 
 ## Related skills
+- **interlinked-verify** — project e2e adoption after enable: `interlinked tests e2e discover --out report.json`, review, `tests e2e adopt --from report.json` (advisory unless `--mode required`), `tests e2e doctor`. Discovery proposes; it never accepts inferred behavior.
 - **interlinked-harness** — what the guard blocks and how to respond when a tool call is refused.
 - **interlinked-observability** — inspect the activity the hooks capture (`status`, `activity`, `logs`).
 - **interlinked-coordination** — the optional server-backed side (tasks, messages, workspaces).

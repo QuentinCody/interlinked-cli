@@ -10,10 +10,27 @@ function stringMap(value: unknown, nonempty = false): void {
     if (nonempty && !Object.keys(object(value)).length) throw new Error("Empty map is not an observation");
     if (!Object.values(object(value)).every(item => typeof item === "string")) throw new Error("Expected string values");
 }
+const SERVICE_ID = /^[a-zA-Z0-9_.-]{1,64}$/;
+/** Service-bound (Unit D1): the request path is joined onto the OWNED service the e2e supervisor started; no url may coexist. */
+function validateServiceHttp(value: Record<string, unknown>): void {
+    if (typeof value.service !== "string" || !SERVICE_ID.test(value.service) || value.url !== undefined) throw new Error("A service-bound HTTP runner names an owned service id and no url");
+    if (typeof value.path !== "string" || !value.path.startsWith("/") || value.path.startsWith("//") || value.path.includes("\0")) throw new Error("A service-bound HTTP runner needs an absolute request path");
+}
 function validateHttp(value: Record<string, unknown>): void {
-    if (typeof value.url !== "string" || !["GET", "POST"].includes(String(value.method)) || (value.body !== undefined && typeof value.body !== "string")) throw new Error("Invalid HTTP runner");
+    if (!["GET", "POST"].includes(String(value.method)) || (value.body !== undefined && typeof value.body !== "string")) throw new Error("Invalid HTTP runner");
+    if (value.service !== undefined) { validateServiceHttp(value); return; }
+    if (typeof value.url !== "string" || value.path !== undefined) throw new Error("Invalid HTTP runner");
     const url = new URL(value.url);
     if (url.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password) throw new Error("HTTP contracts require a literal loopback http URL without credentials");
+}
+/** Workflow steps exist only for service-bound HTTP cases: a restart of an unowned responder proves nothing. */
+function validateSteps(value: unknown, runner: Record<string, unknown>): void {
+    if (!Array.isArray(value) || value.length > 8) throw new Error("A contract case takes at most 8 workflow steps");
+    if (runner.kind !== "http" || runner.service === undefined) throw new Error("Workflow steps require a service-bound HTTP runner");
+    for (const step of value) {
+        const row = object(step);
+        if (row.kind !== "restart" || typeof row.service !== "string" || !SERVICE_ID.test(row.service)) throw new Error("Unsupported workflow step; use { kind: \"restart\", service }");
+    }
 }
 function validateRunner(value: Record<string, unknown>, expect: Record<string, unknown>, inputs: string[]): void {
     if (value.kind === "process") {
@@ -42,6 +59,7 @@ function validateCase(value: unknown): ContractCase {
     if (!strings(row.inputs) || row.inputs.length > 128 || new Set(row.inputs).size !== row.inputs.length) throw new Error("Contract inputs need at most 128 distinct literal paths");
     validateRunner(object(row.runner), expect, row.inputs);
     validateExpectation(expect);
+    if (row.steps !== undefined) validateSteps(row.steps, object(row.runner));
     if (row.replaces !== undefined) {
         const replacement = object(row.replaces);
         if (typeof replacement.id !== "string" || typeof replacement.reason !== "string" || !replacement.reason.trim()) throw new Error("Replacement needs an id and rationale");

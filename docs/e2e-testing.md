@@ -1,4 +1,13 @@
-# E2E testing
+# E2E testing (Interlinked's own self-test lane)
+
+This lane is Interlinked's **self-test**: it verifies Interlinked's hook and
+daemon boundaries and applies only inside the Interlinked checkout (its
+boundary list, the `[interlinked:e2e-obligation]` Stop reminder and
+`interlinked e2e scaffold` are confined there). A host project's e2e
+enforcement is the project policy documented in
+[`project-e2e.md`](./project-e2e.md) (`interlinked tests e2e …`). The
+coverage commands below read Interlinked's own source inventory and are not
+applied to another codebase.
 
 The e2e lane runs built hook processes against a fresh daemon and temporary git
 repository. It never needs the developer's daemon. Base/unit/integration runs

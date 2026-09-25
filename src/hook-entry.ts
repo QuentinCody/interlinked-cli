@@ -28,6 +28,7 @@ import {
 	coldLargeFileBlockReason,
 	coldMergeConflictBlockReason,
 	coldPackageInstallBlockReason,
+	coldProjectE2eStopNotice,
 } from "./hook-entry-cold-gates.js";
 import {
 	attemptDaemonSelfHealDetailed,
@@ -406,7 +407,7 @@ async function encodeColdFallback(
 	const fallbackNotice = `[interlinked] ${reason}; evaluator skipped${recoveryAttemptNotice(recoveryAttempt)}\n`;
 	const functionTokenNotice = isCodeEditEvent(event)
 		? "[interlinked:function-tokens:not-measured] function-token enforcement requires the running harness daemon and an exact language adapter; this cold-fallback edit was not measured\n"
-		: "";
+		: coldProjectE2eStopNotice(event);
 	return {
 		stdout: output.stdout,
 		stderr: output.stderr

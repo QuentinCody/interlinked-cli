@@ -107,7 +107,18 @@ A **block reason is always surfaced.** Allow-time warnings are surfaced but easy
 
 Route `coverage check --lane e2e`, e2e evidence refusals and
 `coverage-e2e-baseline.json` to **interlinked-quality-gates**. Route
-`e2e scaffold` and `[interlinked:e2e-obligation]` to **interlinked-verify**.
+`e2e scaffold` and `[interlinked:e2e-obligation]` (both confined to the
+Interlinked checkout itself — a host repository never sees them) to
+**interlinked-verify**.
+Route project e2e policy (`.interlinked/e2e-policy.json`), `tests e2e
+status|plan|run|check|qualify|scaffold`, the adoption workflow `tests e2e
+discover|surfaces|adopt|doctor`, the completion gates `tests e2e check
+--staged|--revision|--base|--gate`, `tests e2e gate install|status|uninstall`,
+`tests e2e ci`, `tests e2e policy replace`, `POLICY_WEAKENED`,
+`CI_RECEIPT_NOT_FRESH`, `tests e2e expectations …`,
+`[interlinked:e2e]` and `[interlinked:e2e-quality]` lines to **interlinked-verify**: a scenario obligation clears only through a
+supervised `tests e2e run` receipt for the current input generation, never
+through a unit run, a green console line or a copied report.
 Transport receipt diagnostics (`hook-transport.jsonl`) belong to
 **interlinked-harness**.
 

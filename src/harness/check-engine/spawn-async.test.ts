@@ -45,7 +45,7 @@ describe("runProcessAsync", () => {
     it("forwards inherited output without buffering it and preserves the command's failure", async () => {
         const args = ["--eval", 'process.stdout.write("supervised stdout\\n"); process.stderr.write("supervised stderr\\n"); process.exitCode = 7;'];
         const result = await runProcessAsync(process.execPath, args, { timeout: 5000, inheritOutput: true });
-        expect(result).toEqual({ code: 7, stdout: "", stderr: "", timedOut: false, killed: false });
+        expect(result).toEqual({ code: 7, stdout: "", stderr: "", timedOut: false, killed: false, pid: expect.any(Number) });
         // Pin the OS boundary too: discarding output would also produce empty captures.
         expect(spawn).toHaveBeenCalledWith(process.execPath, args, expect.objectContaining({ stdio: "inherit" }));
     });

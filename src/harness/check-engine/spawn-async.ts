@@ -70,6 +70,8 @@ export interface RunProcessResult {
 	/** True iff we sent SIGTERM/SIGKILL ourselves. */
 	killed: boolean;
     resourceReason?: string;
+    /** The spawned process id, when the process started (runtime-observation identity, plan 31 §7.4). */
+    pid?: number;
 }
 
 type RunProcessResolver = (result: RunProcessResult) => void;
@@ -175,6 +177,7 @@ class SpawnedProcessRun {
 		if (this.stdoutTruncated) result.stdoutTruncated = true;
 		if (this.stderrTruncated) result.stderrTruncated = true;
         if (this.resourceReason) result.resourceReason = this.resourceReason;
+        if (this.child.pid !== undefined) result.pid = this.child.pid;
 		this.resolve(result);
 	}
 

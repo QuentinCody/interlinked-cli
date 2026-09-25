@@ -42,6 +42,7 @@ server/workspace variants.
 | [`../README.md`](../README.md) | Value proposition, full quick start, day-to-day commands |
 | [`harness.md`](./harness.md) | Harness architecture: guard evaluation, reservations, quality checks |
 | [`command-reference.md`](./command-reference.md) | Command-family overview and links to the exact reference |
+| [`project-e2e.md`](./project-e2e.md) | Behavioral e2e enforcement for your project: policy, `tests e2e …`, git hooks, CI, recovery |
 | [`generated/cli-reference.md`](./generated/cli-reference.md) | Exact command and option surface, generated from the live CLI registry |
 | [`generated/`](./generated/) | Auto-generated guard, quality, structural, configuration, and metric references |
 

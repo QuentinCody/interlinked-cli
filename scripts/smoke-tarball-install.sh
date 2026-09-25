@@ -48,4 +48,12 @@ printf '{"session_id":"smoke","cwd":"%s","tool_name":"Read","tool_input":{"file_
 mkdir -p src
 "$INTERLINKED" write src/smoke.ts --stdin --json <<< 'export const smoke: number = 1;' >/dev/null
 
+# Project e2e surface (plan 31 Unit F2): a git-initialized host built from the
+# TypeScript CLI fixture (copied as data), driven through the installed bin only —
+# doctor, check, a supervised run, check --staged / --revision, and the PE-35
+# unstaged-edit inversion. The host never touches the Interlinked source tree.
+HOST_DIR="$(mktemp -d)"
+trap 'cleanup; rm -rf "$HOST_DIR"' EXIT
+node "$REPO_ROOT/scripts/smoke-tarball-e2e.mjs" "$SMOKE_DIR/node_modules/.bin/interlinked" "$REPO_ROOT/src/harness/project-e2e/__fixtures__/ts-cli" "$HOST_DIR"
+
 echo "✓ tarball install smoke passed"

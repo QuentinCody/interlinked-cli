@@ -71,6 +71,8 @@ interface OutputJsonArgs {
 	lockfileMultiplicity?: LockfileMultiplicityResult;
 	decisionSurfaceRatchet?: DecisionSurfaceRatchetResult;
 	structureSection?: JsonObject | undefined;
+	/** F6: the project e2e verdict (`verify/project-e2e-section.ts`); absent → `{status: "unconfigured"}`. */
+	projectE2e?: JsonObject;
 	/** Which rules judged this run (`rules-fingerprint.ts`); absent → emitted as null. */
 	rules?: RulesFingerprint;
 }
@@ -350,7 +352,7 @@ export function outputJson(args: OutputJsonArgs): void {
 	if (structureSection) {
 		result.structure = structureSection;
 	}
-	process.stdout.write(serializeVerifyJson(result, args.rules));
+	process.stdout.write(serializeVerifyJson(result, args));
 }
 
 /**
@@ -358,11 +360,13 @@ export function outputJson(args: OutputJsonArgs): void {
  * keys a consumer sees. `rules` is null (never absent) when no fingerprint was
  * computed, so "not computed" stays distinguishable from a pre-schema report.
  */
-function serializeVerifyJson(result: JsonObject, rules: RulesFingerprint | undefined): string {
+function serializeVerifyJson(result: JsonObject, { rules, projectE2e }: Pick<OutputJsonArgs, "rules" | "projectE2e">): string {
 	const tagged: JsonObject = {
 		schema_version: VERIFY_JSON_SCHEMA,
 		rules: rules ? { schema: rules.schema, rules_hash: rules.rules_hash, inputs: rules.inputs } : null,
 		...result,
+		// F6: the project e2e verdict (`verify/project-e2e-section.ts`); absent policy ⇒ unconfigured.
+		project_e2e: projectE2e ?? { status: "unconfigured" },
 	};
 	return `${JSON.stringify(tagged, null, 2)}\n`;
 }

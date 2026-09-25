@@ -99,6 +99,12 @@
         "reason": "User-authorized anti-slop audit integration; matching plugin runtime",
         "version_range": "1.85.0",
         "license": "MIT"
+      },
+      "@playwright/test": {
+        "approved_at": "2026-09-25T14:38:47.481Z",
+        "approved_by": "qcody",
+        "reason": "plan 31 live browser controls (chromium 1217 cached = 1.59.x)",
+        "license": "Apache-2.0"
       }
     },
     "pypi": {},

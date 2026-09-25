@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { isInterlinkedCheckout } from "../harness/e2e-boundary.js";
 import { getOutputMode, outputError } from "../lib/output.js";
 
-interface ScaffoldOptions { cwd?: string; event?: string; tool?: string; dryRun?: boolean; json?: boolean }
+interface ScaffoldOptions { cwd?: string; event?: string; tool?: string; dryRun?: boolean; json?: boolean; /** Plan 31 §15: write the Interlinked-private fixture test outside the Interlinked checkout anyway (a developer preset). */ developerPreset?: boolean }
+const HOST_REPO_GUIDANCE = "this scaffold writes an Interlinked-private fixture test (src/e2e/fixture.ts) and belongs to the Interlinked checkout only; in a host repository use `interlinked tests e2e scaffold <name>` (project-aware, policy-driven), or pass --developer-preset to write the private preset anyway";
 
 function scaffoldContent(name: string, event: string, tool: string): string {
     const input = tool === "Bash" ? '{ command: "pwd" }' : '{ file_path: "README.md" }';
@@ -29,7 +31,9 @@ export function scaffoldE2e(name: string, options: ScaffoldOptions): { path: str
     assert(/^[a-z][a-z0-9-]*$/.test(name), "Scaffold name must be lowercase kebab-case");
     const event = options.event ?? "PreToolUse";
     assert(["PreToolUse", "PostToolUse", "Stop"].includes(event), "Unsupported scaffold event");
-    const path = resolve(options.cwd ?? process.cwd(), "src/e2e", `${name}.e2e.test.ts`);
+    const cwd = options.cwd ?? process.cwd();
+    assert(options.developerPreset || isInterlinkedCheckout(cwd), HOST_REPO_GUIDANCE);
+    const path = resolve(cwd, "src/e2e", `${name}.e2e.test.ts`);
     const content = scaffoldContent(name, event, options.tool ?? "Edit");
     if (!options.dryRun) {
         mkdirSync(dirname(path), { recursive: true });

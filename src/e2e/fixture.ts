@@ -261,7 +261,8 @@ export async function createFixture(options: { protocol?: Protocol | "dual"; rul
     const built = Math.min(statSync(join(PROJECT_ROOT, "dist/harness/server.js")).mtimeMs, statSync(join(PROJECT_ROOT, "dist/hook-entry.js")).mtimeMs);
     const stale = sourceFiles(PROJECT_ROOT).filter(isProductSource).find((path) => statSync(join(PROJECT_ROOT, path)).mtimeMs > built);
     assert(!stale, `Stale dist (${stale}); run npm run build before test:e2e`);
-    const fixture = new E2eFixture(realpathSync(mkdtempSync(join(tmpdir(), "e2e-"))), options.protocol ?? "dual", options.rules);
+    const fixtureTempDir = process.platform === "darwin" ? "/tmp" : tmpdir();
+    const fixture = new E2eFixture(realpathSync(mkdtempSync(join(fixtureTempDir, "e2e-"))), options.protocol ?? "dual", options.rules);
     try { await fixture.ready(); return fixture; }
     catch (error) { await fixture.close(); throw error; }
 }

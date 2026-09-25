@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,7 +6,16 @@ import { scaffoldE2e } from "./e2e.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
-function root() { const path = mkdtempSync(join(tmpdir(), "scaffold-e2e-")); roots.push(path); return path; }
+function root(name = "interlinked-cli") { const path = mkdtempSync(join(tmpdir(), "scaffold-e2e-")); roots.push(path); writeFileSync(join(path, "package.json"), JSON.stringify({ name })); return path; }
+describe("e2e scaffold — plan 31 §15 confinement", () => {
+    it("refuses in a host repository with a pointer to the project-aware scaffold, and writes only with --developer-preset", () => {
+        const cwd = root("some-app");
+        expect(() => scaffoldE2e("stop-policy", { cwd, dryRun: true })).toThrow(/interlinked tests e2e scaffold/);
+        expect(existsSync(join(cwd, "src/e2e"))).toBe(false);
+        const preset = scaffoldE2e("stop-policy", { cwd, developerPreset: true });
+        expect(existsSync(preset.path)).toBe(true);
+    });
+});
 describe("e2e scaffold", () => {
     it("wires the fixture and leaves an explicit failing behavioral assertion", () => {
         const cwd = root();

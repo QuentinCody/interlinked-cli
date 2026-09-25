@@ -20,6 +20,7 @@ working from a locally built checkout.
 | Team/workspace onboarding | `interlinked init` |
 | Inspect local health and recent activity | `interlinked status` / `interlinked doctor` |
 | Run the on-demand quality audit | `interlinked verify` |
+| Hold edits to behavioral e2e evidence (policy, supervised runs, git hooks, CI) | `interlinked tests e2e …` — see [`project-e2e.md`](./project-e2e.md) |
 | Inspect or operate the local daemon | `interlinked harness` |
 
 Bare `interlinked` is the recommended human first run: it presents the local

@@ -1,0 +1,5 @@
+# Orders CLI (Python) requirements
+
+R1. `orders_cli.py add <name>` persists the order so a later invocation can read it back.
+R2. `orders_cli.py add <name>` prints the created order as JSON with `ok: true`.
+R3. `orders_cli.py add` without a name fails with exit code 2 and writes nothing.

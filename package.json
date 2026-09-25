@@ -83,6 +83,8 @@
         "test:e2e": "INTERLINKED_VIZ=1 vitest run --config vitest.e2e.config.ts",
         "build:e2e": "node scripts/build-atomic-cli.mjs --e2e",
         "test:e2e:coverage": "node scripts/e2e-run.mjs",
+        "e2e:matrix": "node --import tsx scripts/e2e-release-matrix.mts",
+        "e2e:dogfood": "node --import tsx scripts/e2e-dogfood.mts",
         "test:watch": "vitest",
         "lint:anti-slop": "oxlint --config oxlint.anti-slop.json --format=json src",
         "test:coverage": "vitest run --coverage --testTimeout=120000",

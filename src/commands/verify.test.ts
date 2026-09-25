@@ -170,6 +170,19 @@ vi.mock("./verify/structure.js", () => ({
 	runStructureVerify: runStructureVerifyMock,
 }));
 
+// --- verify/project-e2e-section (F6) ----------------------------------------
+// The mocked `existsSync` above answers true for every path, which would make the
+// real section believe the cwd declares a policy; this file pins verify's own flow.
+const unconfiguredE2e = { status: "unconfigured", failed: false, lines: [], json: { status: "unconfigured" } };
+vi.mock("./verify/project-e2e-section.js", () => ({
+	projectE2eSection: vi.fn(() => unconfiguredE2e),
+	streamTailSections: vi.fn(async (cwd: string, opts: { structure?: boolean }) => {
+		if (opts.structure) {
+			await runStructureVerifyMock(cwd, opts);
+		}
+	}),
+}));
+
 // --- verify/tool-results ---------------------------------------------------
 const checkProjectSetupMock = vi.fn<(cwd: string) => unknown[]>(() => []);
 const clearCodeQualityResultsMock = vi.fn<(r: unknown) => void>();

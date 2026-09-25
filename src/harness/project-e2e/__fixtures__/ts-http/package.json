@@ -1,0 +1,7 @@
+{
+  "name": "orders-http-fixture",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": { "build": "node build.mjs", "start": "node dist/server.js --port 3000" }
+}

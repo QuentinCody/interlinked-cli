@@ -15,6 +15,7 @@ import type { WorkspaceChangeSet } from "./workspace-effects.js";
 const NON_WATER_LINE_CONTROL_PATHS = [
     ".interlinked/behavioral-contracts.json",
     ".interlinked/contract-policy.json",
+    ".interlinked/e2e-policy.json",
 	".interlinked/check-policy.json",
 	".interlinked/check-policy.local.json",
 	".interlinked/config.json",

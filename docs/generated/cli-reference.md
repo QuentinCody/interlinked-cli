@@ -38,7 +38,7 @@ Commands:
   disable [options]                          Stand the harness down for this project (recorded); --uninstall to remove hooks + config
   doctest [options]                          Run doctest-tagged (```bash doctest) code blocks in docs and verify they exit 0
   doctor [options]                           Diagnose issues (local + server checks)
-  e2e                                        End-to-end tests for hook and daemon boundaries
+  e2e                                        Interlinked's OWN hook/daemon boundary tests (self-test lane); host projects use `interlinked tests e2e`
   enable [options]                           Install hooks + create .interlinked/ config
   env [options]                              Show supported environment variables and their current values
   experience                                 Agent-readable trajectory export + analysis (trajectory-v1 interop / trajectory-ix.v1 annotated)
@@ -1432,14 +1432,16 @@ Options:
 ```
 Usage: interlinked e2e [options] [command]
 
-End-to-end tests for hook and daemon boundaries
+Interlinked's OWN hook/daemon boundary tests (self-test lane); host projects
+use `interlinked tests e2e`
 
 Options:
   -h, --help                 display help for command
 
 Commands:
   scaffold [options] <name>  Create a fixture-backed e2e test with a failing
-                             contract assertion
+                             contract assertion (Interlinked checkout only;
+                             developer preset elsewhere)
   help [command]             display help for command
 ```
 
@@ -1448,14 +1450,18 @@ Commands:
 ```
 Usage: interlinked e2e scaffold [options] <name>
 
-Create a fixture-backed e2e test with a failing contract assertion
+Create a fixture-backed e2e test with a failing contract assertion (Interlinked
+checkout only; developer preset elsewhere)
 
 Options:
-  --event <event>  PreToolUse, PostToolUse or Stop (default: "PreToolUse")
-  --tool <tool>    Native tool name (default: "Edit")
-  --cwd <path>     Project root
-  --dry-run        Print the test without writing it
-  -h, --help       display help for command
+  --event <event>     PreToolUse, PostToolUse or Stop (default: "PreToolUse")
+  --tool <tool>       Native tool name (default: "Edit")
+  --cwd <path>        Project root
+  --dry-run           Print the test without writing it
+  --developer-preset  Write the Interlinked-private preset outside the
+                      Interlinked checkout (never emitted into a host project
+                      by default)
+  -h, --help          display help for command
 ```
 
 ## Simplify
@@ -1566,6 +1572,9 @@ Options:
 Commands:
   contracts                       Inspect provenance or explicitly execute
                                   portable behavioral contracts
+  e2e                             Project-aware end-to-end scenarios: declared
+                                  policy, supervised runs, receipts and one
+                                  qualification verdict
   review [options] [paths...]     Review changed source, behavioral obligations
                                   and bounded simplification candidates without
                                   running tests

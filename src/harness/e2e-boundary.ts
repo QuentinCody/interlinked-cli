@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 /** Append writers outside the transport/server families. Census test pins growth. */
 export const LEDGER_WRITERS = [
     "src/commands/scanner.ts", "src/commands/scratch.ts", "src/commands/verify/verify-summary.ts",
@@ -8,7 +11,7 @@ export const LEDGER_WRITERS = [
     "src/harness/findings/simplification-record.ts", "src/harness/gate-reach-collect.ts", "src/harness/graph-prediction-cache.ts",
     "src/harness/latency-log.ts", "src/harness/mutation/manifest.ts", "src/harness/mutation/mutation-cloud-v3-finding-delivery.ts",
     "src/harness/mutation/run-log.ts", "src/harness/obligation-ledger-io.ts", "src/harness/plan-capture.ts",
-    "src/harness/policy-classifier.ts", "src/harness/replay/eval-ledger.ts", "src/harness/replay/inference-store.ts",
+    "src/harness/policy-classifier.ts", "src/harness/project-e2e/ledger.ts", "src/harness/project-e2e/policy-changes.ts", "src/harness/project-e2e/requests.ts", "src/harness/project-e2e/stability.ts","src/harness/replay/eval-ledger.ts", "src/harness/replay/inference-store.ts",
     "src/harness/replay/state-archive.ts", "src/harness/replay/tree-snapshot.ts", "src/harness/spec/reconciliation.ts",
     "src/harness/stop-digest-state.ts", "src/harness/telemetry-spool.ts", "src/harness/timeline-writer.ts",
     "src/lib/audit-chain.ts", "src/lib/collection/writer.ts", "src/lib/cowork/receipts.ts", "src/lib/data/capture.ts",
@@ -29,6 +32,19 @@ export function isProductSource(path: string): boolean {
 
 export function isGeneratedHookSource(path: string): boolean {
     return path === "src/lib/hooks-template.ts" || path.startsWith("src/lib/hook-template-chunks/");
+}
+
+/**
+ * Plan 31 §15: the boundary list below is Interlinked's OWN self-test policy. It applies only inside the Interlinked
+ * checkout (package name `interlinked-cli`); in any other repository the project e2e policy is the only e2e obligation.
+ */
+export function isInterlinkedCheckout(cwd: string): boolean {
+    try {
+        const parsed: unknown = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+        return typeof parsed === "object" && parsed !== null && "name" in parsed && parsed.name === "interlinked-cli";
+    } catch {
+        return false; // no manifest or an unreadable one: not this checkout
+    }
 }
 
 export function isBoundaryFile(file: string): boolean {

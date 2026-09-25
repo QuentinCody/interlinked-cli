@@ -44,6 +44,7 @@ import {
 	type RegistryDriftFinding,
 	runRegistryParityCheck,
 } from "../harness/registry-parity.js";
+import { projectE2eSection, streamTailSections } from "./verify/project-e2e-section.js";
 import type { Finding } from "../harness/suggestion-scorer.js";
 import {
 	addSuppressions,
@@ -361,9 +362,7 @@ async function runVerifyWithHeavyProcessLease(cwd: string, opts: VerifyOpts): Pr
 		streamSuggestionsSummary(files, cwd);
 	}
 
-	if (opts.structure) {
-		await runStructureVerify(cwd, opts);
-	}
+	await streamTailSections(cwd, opts);
 
 	const tally = summarizeFlaggedFiles(cwd, files, allFlaggedFiles);
 	process.stderr.write(`\n  ${tally.flaggedFiles} / ${tally.totalFiles} files flagged`);
@@ -464,6 +463,8 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 	const setupIssues = checkProjectSetup(cwd);
 	const registryDrift = safeRegistryParity(cwd);
 	const suggestions = batchSuggestions({ opts, files, cwd });
+	const projectE2e = projectE2eSection(cwd);
+	if (projectE2e.failed) process.exitCode = 1;
 
 	outputJson({
 		tscResults,
@@ -481,6 +482,7 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 		lockfileMultiplicity: detectLockfileMultiplicity(cwd),
 		decisionSurfaceRatchet: computeDecisionSurfaceRatchet(cwd),
 		structureSection: opts.structure ? buildStructureJsonSection(cwd, opts) : undefined,
+		projectE2e: projectE2e.json,
 		rules: computeRulesFingerprint(cwd),
 	});
 }

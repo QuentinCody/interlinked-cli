@@ -57,6 +57,15 @@ function resolveColdCwd(event: UnifiedHookEvent): string {
  *  its own; here they are this module's real `node:fs` / `node:path` imports. */
 const COLD_WRITE_DEPS: ColdWriteDeps = { existsSync, statSync, join: joinPath };
 
+/** Cold Stop notice for project e2e (plan 31 Unit F6): with the daemon down the
+ *  obligations are NOT CHECKED — the absence of a reminder is never a pass. One
+ *  line, only when a policy exists and only on Stop; no evaluation runs here. */
+export function coldProjectE2eStopNotice(event: UnifiedHookEvent): string {
+	if (event.phase !== "stop" && event.phase !== "subagent-stop") return "";
+	if (!existsSync(joinPath(resolveColdCwd(event), ".interlinked", "e2e-policy.json"))) return "";
+	return "[interlinked:e2e] daemon unreachable: project e2e obligations NOT CHECKED at this Stop (no reminder is not a pass); verify with: interlinked tests e2e check\n";
+}
+
 /** Cold fail-closed gate for the graph-prediction protocol. Runs the SAME
  *  `checkGraphShardWrite` the generated .mjs hook runs inline (embedded there
  *  via `COLD_WRITE_GUARDS_SOURCE`), so the two hook paths block the identical

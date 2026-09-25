@@ -143,6 +143,7 @@ scripts/internal/*
 !scripts/build-atomic.test.mjs
 !scripts/build-input-fingerprint.mjs
 !scripts/e2e-*.mjs
+!scripts/e2e-*.mts
 !scripts/e2e-*.d.mts
 !scripts/build-lease.mjs
 !scripts/build-publish.mjs
@@ -187,6 +188,7 @@ scripts/internal/*
 !scripts/gen-onboarding-demo.mts
 !scripts/onboarding-demo-template.html
 !scripts/smoke-tarball-install.sh
+!scripts/smoke-tarball-e2e.mjs
 # Sibling module extracted out of the tracked scripts/audit-receipts.mjs during
 # the cyclomatic burn-down (the parent was already over the line cap, so the
 # per-rule classify arms had to move out). The parent imports it, so a clone

@@ -72,6 +72,7 @@ import { runSessionEndJobs, runSessionEndResourcePlan } from "./session-end-batc
 import { writeSessionEndEvidence } from "./session-end-evidence.js";
 import { runSessionEndHeavyJobs } from "./session-end-heavy-jobs.js";
 import { readHeavyReports } from "./session-start-heavy-reports.js";
+import { recoverProjectE2eOrphans } from "../project-e2e/hooks.js";
 import { suppressRepeatedNudges } from "./stop-nudge-throttle.js";
 import { peekTrajectoryState } from "./trajectory-shadow.js";
 
@@ -185,6 +186,9 @@ async function handleSessionStart(
 	});
 	refreshFilePriorityOnSessionStart(ctx, log);
 	refreshTrigramIndexOnSessionStart(ctx, log);
+	// Project e2e (plan 31, Unit C3): an attempt whose process died before it
+	// published + reconciled becomes an explicit `unavailable` attempt, once.
+	heavyWarnings.push(...recoverProjectE2eOrphans(ctx.cwd));
 	const stripDecision = autoStripSessionStartPermissions(ctx, log, heavyWarnings);
 	if (stripDecision) return stripDecision;
 	return heavyWarnings.length > 0 ? { decision: "allow", warnings: heavyWarnings } : null;

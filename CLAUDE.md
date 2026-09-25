@@ -1192,6 +1192,512 @@ echo '{"hook_event":"PreToolUse","session_id":"t","agent_source":"claude","tool_
 # Expected: {"decision":"block","reason":"BLOCKED: Recursive deletion..."}
 ```
 
+## Project e2e enforcement (plan 31, Unit A landed 2026-09-23, Unit B 2026-09-24)
+
+`src/harness/project-e2e/` is the host-project feature the Interlinked-only
+E2E lane below is NOT: a repository declares behavioral scenarios in
+`.interlinked/e2e-policy.json` (projects → suites → scenarios → portable
+contract cases in `.interlinked/behavioral-contracts.json`) and the daemon
+turns observed edits into scenario obligations that only a supervised run can
+clear. Spec: `docs/plans/31-project-e2e-enforcement.md`; run-book
+`scratch/CAMPAIGN-project-e2e.md`. Unit A ships: strict policy parser
+(`policy.ts`), expectation lifecycle proposed → accepted / disputed /
+superseded bound to exact revision digests (`expectations.ts`, file side in
+`store.ts`), per-scenario input generation (`generation.ts`), append-only
+ledger + pure reducer (`ledger.ts`, `.interlinked/e2e-obligations.jsonl`),
+change reconciliation (`reconcile.ts`), the ONE qualification predicate with
+reason codes and the 0/1/2 exit contract (`qualify.ts`), write-once receipts
+(`receipt.ts`, `.interlinked/test-runs/e2e/<runId>/receipt.json`), the
+supervised managed-process runner (`run.ts`, reuses `contracts/runner.ts`
+under the project heavy-process lease) and the hook surfaces (`hooks.ts`:
+PostToolUse `[interlinked:e2e]` lines, Stop summary). CLI: `interlinked tests
+e2e status|plan|run|check` and `tests e2e expectations
+propose|review|accept|replace|dispute`. Fixtures under
+`project-e2e/__fixtures__/` (TypeScript CLI, Python CLI, Rust CLI) share no
+code with the engine; `lifecycle.test.ts` is the Unit A acceptance run and
+`dogfood.test.ts` drives the built `dist/index.js` from a disposable host.
+
+Rules that bind (hardened by the 2026-09-23 review, findings R1–R12 in
+`scratch/review-project-e2e-unit-a/REVIEW.md`, each pinned in
+`review-regressions.test.ts`): a scenario is satisfied only for the exact
+generation a receipt names — policy digest, affected files, manifest,
+`contract-policy.json`, each case's cited requirement, declared inputs and
+the bytes of any path-shaped executable in argv (so revoked acceptance, a
+rewritten requirement or a swapped candidate binary all go `stale`);
+collection limits (>8 MiB, symlinks, file cap) are gaps ⇒ `unavailable`,
+never `scope=complete`; the receipt reader is a constructing parser (an
+unknown case state ⇒ `RECEIPT_INVALID`); receipts bind the canonical
+worktree root and the ledger's runId; the policy parser refuses
+`boundary.entry: "http"` and any `real` component other than `application`
+until a managed service adapter exists, and an `http` runner is
+`BOUNDARY_UNSUPPORTED`; expectation revisions are recomputed from content on
+load and on every decision; runs copy the project into a disposable snapshot
+(private HOME) before prepare/cases, so the live tree is only read;
+compiled executables travel byte-for-byte; a bound PROPOSED expectation is an
+advisory unless `gates.review: "require"` (disputed/superseded always block);
+mapping gaps in a required-mode project make `check` exit 1; expectation
+binding is project-scoped. Round 2 (2026-09-24, F1–F6 in
+`REVIEW-round2.md`, pinned in `review-regressions-round2.test.ts`): the
+manifest and acceptance are frozen before preparation and restored after,
+declared inputs are re-hashed in the snapshot after preparation (any drift ⇒
+no case runs), executed case digests must equal the live contract digests,
+symlinks are never copied into the snapshot and a link covering a declared
+input is a scope gap, every argv file (prepare and case), every bound
+expectation's cited document and each input's mode bits are part of the
+generation, protected-inventory capture gaps gate required projects, a
+project with zero scenarios still owes its protected inputs, and nested
+projects accept into their own `contract-policy.json`. Round 3 (G1–G3,
+`review-regressions-round3.test.ts`): the ABSENCE of a control file is
+frozen too, wildcard globs detect symlinked ancestors segment-wise, and
+expectation citations resolve under the project root everywhere. A green run never accepts an unaccepted contract;
+`.interlinked/e2e-policy.json` absent ⇒ every hook path returns early at
+zero cost, and `tests e2e check` exits 2 UNCONFIGURED (never a pass). The
+TypeScript fixture compiles `src/cli.ts` with Node's built-in type stripping.
+`src/e2e/project-e2e.e2e.test.ts` runs the lifecycle through a real daemon
+and the built CLI. Status is precise: Unit A is reviewed and locally
+validated with TypeScript and Python; the compiled Rust route is
+UNVERIFIED here (cargo absent) and owes a run on a Cargo-equipped CI runner.
+
+Unit B (2026-09-24) is the adoption workflow, `tests e2e
+discover|surfaces|adopt|doctor` (`commands/tests-e2e-adopt.ts`): `discover.ts`
+inspects a repository read-only (manifests to depth 4, a `__main__`-guarded
+`.py` directory counts as a project, nested `package.json` without a declared
+workspace is an ambiguity, a nested project is named by its directory) and
+proposes an ADVISORY policy with one scenario per process-runner contract case
+plus gaps; `surfaces.ts` inventories bins / scripts / OpenAPI JSON operations
+in document order and maps them to scenario `surfaceIds` (explicit /
+unresolved / dangling; YAML and code-registered routes are limits, never an
+empty complete inventory); `adopt.ts` writes only the selected projects and
+scenarios, forces advisory unless `--mode required`, strips every expectation
+(inferred behavior is never adopted), and refuses to overwrite without
+`--replace`; `doctor.ts` diagnoses prerequisites without running (exit 1
+fail, 2 invalid policy). TypeScript and Python are the pilots; the policy,
+discovery report and qualification rules carry no language-specific field.
+Unit B review (2026-09-24, B1–B6 in `scratch/review-project-e2e-unit-b/REVIEW.md`,
+pinned in `review-regressions-unit-b.test.ts`): the protected scope is derived
+from the ACTUAL layout (`src/**`, python packages, top-level source files, the
+executable's own file), never a nonexistent default; `adopt --mode required`
+refuses a project with no scenarios or whose protected globs match no file;
+discovery binds the build's script files as shared inputs and infers artifacts
+from path literals in the script plus contract paths absent from the tree (an
+uninferable build is a named `suites[].artifacts` gap); a project-level
+`surfaces` list (`{id, kind: cli|http|other, address}`) is the
+language-independent declaration that binds through `surfaceIds` (the
+`cli:`/`http:` id shape admits `:`, `/`, space and braces); OpenAPI path-item
+`$ref`s resolve locally with bounded hops and an unresolved one is a named
+limit; a `[project.scripts]` console entry is invoked as its declared callable
+(never substituted by `-m`) and becomes a `python-entry` surface, or a gap when
+its module has no file; subtrees under the depth bound are recorded in
+`limits.omittedSubtrees` and a gap. Round 2 (C1–C3, `REVIEW-round2.md`):
+build commands are word-split with quote and backslash handling (no
+expansion) and a script word that resolves to no file, or a `$VAR`, is an
+unresolved build-input gap; an artifact directory needs WRITE evidence
+(`mkdir`/`writeFile`/`rm`/`outDir`/`--out` argument, or a contract path
+absent from the tree) — a directory the script only reads is never an
+artifact, and an inferred artifact glob covering an existing declared input
+is a conflict gap; the console-entry wrapper is `sys.exit(callable())`, so
+None/int/str returns keep console-script exit semantics. Round 3 (D1): a
+conflict is RESOLVED conservatively, not just printed — the inferred glob is
+dropped from the proposal so the existing input stays in freshness tracking
+(`build.conflicts` is the structured record, echoed in the adoption notes),
+unless the script names that exact path as a write target (a pre-built
+`dist/cli.js` stays an artifact); `adopt --mode required` re-runs the same
+evidence-aware check on any policy and refuses an artifact glob that covers
+an existing bound input the build does not provably write. Round 4 (E1–E2):
+write evidence is POSITIONAL — `writeFile`/`createWriteStream` first
+argument, `copyFile`/`cpSync`/`rename` SECOND argument, `outfile`/`--out`
+option value; a copy SOURCE or a variable destination proves nothing — and
+the evidence text comes from the suite's declared `prepare` argv (an
+`npm run <name>` alias resolves one level into package.json), so an explicit
+`node build.mjs` policy adopts without any npm script. Round 5 (F1–F2) made
+the invariant STRUCTURAL: an artifact-covered case input that already
+EXISTS is still hashed into the generation (`generation.ts`
+`addDeclaredInput`; listed in `ScenarioInputs.regenerated` so the
+post-preparation drift check tolerates the build rewriting it), so an edit
+goes stale no matter how the glob was inferred — textual write evidence is a
+SIGN for proposing/accepting a glob, never proof and never load-bearing for
+freshness; that evidence now strips comments, requires the literal to be the
+complete argument, and is judged per SELECTED suite (a writer in a suite no
+scenario runs proves nothing). Round 6 (G1): input ROLES are preserved — a
+path collected as source (protectedInputs, a scenario's `affects`,
+sharedInputs, build scripts, citations) is never listed as `regenerated`
+even when an artifact glob also covers it, so preparation replacing the code
+under test in the snapshot is still drift; required adoption refuses an
+artifact glob that covers a protected source outright. Round 7 (H1–H2): the
+drift exemption is computed across the WHOLE run (`run.ts driftExempt`: a
+path exempt only if no scenario of the run holds it as source), and prepare
+argv script files are always captured as source inputs whatever artifact
+glob covers them (adoption refuses that overlap too).
+Unit C (durable state, structured runner, scheduling; landed 2026-09-24,
+UNCOMMITTED) makes the evidence survive concurrency and restarts. A suite may
+be `adapter: "structured-runner"` (`run` argv + `report {format: json|junit,
+path}`; scenarios declare `caseIds` and still bind `contractIds`): the runner
+deletes any pre-existing report, runs the command in the snapshot, and
+`structured-report.ts` parses a versioned JSON protocol (v1: `{version,
+cases:[{id,status}]}`) or a documented JUnit subset (no DOCTYPE/entities,
+`tests=` must match, nested suites refused); `skipped`/`todo` never pass and a
+missing or malformed report leaves every declared case `CASE_NOT_RUN`
+(exit 1). Every run writes `attempt.json` (pid, host, keys, generations)
+before executing; the receipt is published temp→rename exactly once; and
+`recoverOrphanedRuns` (run start, daemon SessionStart via
+`hooks.ts recoverProjectE2eOrphans`) turns a dead-pid / other-host attempt
+into an explicit `unavailable` attempt under an `orphaned.json` one-writer
+marker. PostToolUse opens one durable request per pending key per session in
+`.interlinked/e2e-requests.jsonl`; a run serves only the requests whose
+key+generation its receipt certifies (`receipt.requestIds`), so two sessions
+share one qualifying run and an unrelated key stays open. The policy's
+`scheduling {autoRun, quietMs, minIntervalMs, budgetMs}` block (bounded,
+`autoRun` default OFF) drives the pure `decideAutoRun` and the daemon-side
+`AutoRunner`, which spawns `tests e2e run` DETACHED after the quiet period, at
+most one job per project and one start per interval, retaining work that
+arrives mid-run; nothing ever runs a suite inside the daemon.
+`RunE2eOptions.signal` cancels: an aborted prepare or run is `ok: false`
+"cancelled", the cases stay not-run, the attempt is `unavailable`. Pins:
+`structured-report.test.ts`, `structured-runner.test.ts`, `attempts.test.ts`,
+`requests.test.ts`, `scheduler.test.ts`, `review-regressions-unit-c.test.ts`.
+Unit C review round 1 (2026-09-24, C1–C6 in
+`scratch/review-project-e2e-unit-c/REVIEW.md`, pinned in
+`review-regressions-unit-c-round1.test.ts`): the snapshot is re-verified
+after EVERY writing stage (`run.ts stageIntact`: frozen controls restored,
+declared inputs re-hashed against the generation, artifacts re-bound from
+the bytes now present), so a native test command that rewrites protected
+source in the snapshot leaves the run incomplete and no contract runs (C1);
+a nonzero test-command exit is `execution.ok: false` and is explained only by
+a failed/error case the report itself records, otherwise the run is
+incomplete (C2); cancellation is checked before admission, threaded into
+`runContractsUnderLease` (`RunContractsOptions.signal`; a case observed after
+abort is unavailable, never a verdict) and re-checked after the contracts so
+a cancelled run never publishes a complete result (C3); a policy that turns
+`scheduling.autoRun` off, disappears or fails to parse DISARMS the project's
+lane (`AutoRunner.disarm`), and the detached child re-validates the current
+policy (`RunE2eOptions.automatic`, `INTERLINKED_AUTO_RUN=1`) before running
+(C4); orphan recovery is per (run, key) — a crash between the per-scenario
+publication rows recovers exactly the missing keys, and `orphaned.json` is
+written AFTER the rows so it means completed, not claimed (C5); reconcile
+reports `affected` (unresolved at the current generation) beside `pending`
+(newly opened), and requests plus scheduling key off `affected`, so a second
+session observing a generation another session opened gets its own request
+and the shared receipt attributes both (C6). One regression the fix itself
+introduced: importing `scheduler.ts` from `run.ts` moved it into a
+`dist/chunk-*.js` shared with `dist/index.js`, and `resolveCliEntry` (which
+took `../index.js` relative to its own bundle) silently found nothing, so
+the detached child never spawned; it now verifies each candidate root by
+its sibling daemon entry, and `src/e2e/project-e2e.e2e.test.ts` pins the
+real detached child both enabled and disabled-before-timer.
+Round 2 (D1–D2, `REVIEW-round2.md`, pinned in
+`review-regressions-unit-c-round2.test.ts`): request attribution is frozen
+at PUBLICATION and `serveRequests` serves exactly the ids the receipt names,
+so a request arriving during execution is listed and served while one
+arriving after publication stays open; orphan recovery is serialized per run
+by `recovery.lock` (live same-host holder ⇒ skip, dead or foreign holder ⇒
+take over), the missing keys are re-derived under the lock, and two real
+recoverer processes released at the same instant produce one row.
+Round 3 (E1, `REVIEW-round3.md`): the hand-rolled lock published its owner
+after exclusive creation, so an empty lock file read as abandoned; it is
+deleted, and recovery runs under the repository's `withFileMutationLock`
+(`src/lib/file-mutation-lock.ts`, keyed on the run's `orphaned.json`,
+`waitMs: 0` so contention defers the orphan), which publishes ownership
+atomically, recovers dead owners and never releases a successor's lock.
+Unit D (managed HTTP services, native test layouts, proof modes; landed
+2026-09-24, UNCOMMITTED). A managed-contracts suite may declare
+`services[] {id, argv, env, ready {kind: http, path, status}}`; `{port}` is
+allowed only there. `services.ts` allocates a loopback port, REFUSES it if
+anything already answers (PE-19), spawns the argv in its own process group
+inside the snapshot, calls it ready only while the OWNED child is alive and
+answers the declared status, and on stop kills the group and proves the
+port silent — a port that still answers belonged to something else, so the
+run cannot qualify (PE-26). Contract cases may be service-bound
+(`runner {kind: http, service, path, method, body?}`) with workflow
+`steps [{kind: restart, service}]` (create → restart → read-back, §5.3); the
+standalone contract runner marks such cases unavailable without the
+supervisor. A scenario's `boundary {entry: http, service, real}` must name
+an owned service; `fixture-store` is real only when that service's env
+binds `{fixture-directory}`. The receipt carries `services[]` and each http
+case's `service`; qualification grants `boundary: http-driver` only against
+an owned, ready, cleanly stopped service, and a literal-URL case is never a
+boundary. Fixture `__fixtures__/ts-http` (TypeScript HTTP service with
+disposable persistence; PE-20 defect) is pinned by `http-services.test.ts`;
+`py-native.test.ts` qualifies a pytest layout through the structured-runner
+route plus portable contracts (pytest reports the fixture's extra unit test
+too: undeclared native cases are observed, never required). Proof modes
+(§9.4): a scenario may declare `proof {mode: old-new | controlled-fault |
+characterization, revision | fault, designated}`; `sensitivity.ts` builds
+the comparison side as a SECOND disposable snapshot (a `git archive` export
+of the pinned commit run from the project directory, or the candidate with
+exactly one recorded fault applied) with the candidate's frozen manifest and
+acceptance, runs it through the same prepare → services → contracts stage,
+and classifies per the §9.4 table (both-pass is NOT_DEMONSTRATED for
+old-new, an unrelated failure before the designated case is not
+demonstrated, a comparison that cannot be built or a non-passing candidate
+is INCONCLUSIVE, characterization both-pass is preserved). The receipt
+records `sensitivity[scenarioId]`, the attempt is `unavailable` unless
+demonstrated/preserved, and qualification adds the `sensitivity` dimension
+with `SENSITIVITY_NOT_DEMONSTRATED` / `SENSITIVITY_INCONCLUSIVE`. The live
+worktree is only ever read (`proof-modes.test.ts` pins it byte-identical).
+Not in Unit D: the MCP/Worker profile (§10.3), remote profiles.
+Unit D review round 1 (2026-09-25, D1–D5 in
+`scratch/review-project-e2e-unit-d/REVIEW.md`, pinned in
+`review-regressions-unit-d.test.ts` + `services.test.ts` N5): a comparison
+must ESTABLISH THE ACTION before its failure counts — the contract runner
+records which DECLARED observables `matched` / `mismatched` per case, and a
+failed designated case is a behavioral red only when it produced primary
+output, exited 0, answered below 500, or ended with the declared exit code /
+status; an undeclared abnormal end with no output (a missing import) is
+INCONCLUSIVE `setup-build-dependency-failure`, never a demonstrated red. The
+comparison's own lifecycle is evidence: `runComparison` carries
+`contractsStage`'s completion, reasons and service records into
+`sensitivity[id].lifecycle`, and an incomplete one (a leaked responder that
+outlived teardown) is INCONCLUSIVE `comparison-lifecycle-failure` in the
+classifier AND in qualify, whatever the cases said. A proof revision is
+resolved to its commit at GENERATION time (`resolveProofRevision`, `git
+rev-parse <rev>^{commit}`): the sha is part of the generation and of
+`QualifyInput.generation.comparison`, so a moved ref makes the receipt stale
+(`STALE_GENERATION` + `SENSITIVITY_INCONCLUSIVE` "now resolves to …") and an
+unresolvable ref is `SCOPE_INCOMPLETE`. A service's argv executable gets the
+case-executable treatment — bytes in the generation, `regenerated` when an
+artifact glob covers it, a source role only through another declaration —
+so a prebuilt `dist/server.js` plus a harmless source edit runs and passes
+while `dist/**` also in `affects` still turns the rebuild into drift.
+`stopService` polls the whole OWNED process group (`kill(-pgid, 0)`),
+escalates to SIGKILL while any member survives, and reports clean shutdown
+only once the group is gone; a port squatter is still reported, never
+killed.
+Round 2 (R1, `REVIEW-round2.md`): output presence is not action evidence —
+a startup banner before a missing import and a 500 "dependency unavailable"
+body both look like output. A counterfactual proof now DECLARES its
+evidence: `designated: [{id, outcome?, action?}]` is required for old-new /
+controlled-fault (a plain id is refused). `outcome` names the observables
+that ARE the designated outcome; every other observable the case declares
+must hold on the comparison side. `action` names cases that must pass there
+first (the workflow's create before its read-back). `classifySensitivity`
+reads only the runner's per-case `matched` / `mismatched` sets: evidence
+that did not hold ⇒ INCONCLUSIVE `setup-build-dependency-failure`, no
+declared evidence (an outcome covering every observable, an undeclared key,
+a record without observations) ⇒ INCONCLUSIVE `action-evidence-undeclared`;
+exit codes, status classes and stdout are recorded, never decisive. A failed
+action case is never an "unrelated" failure. Characterization takes no
+split (every designated observation must hold on both sides). The CLI
+fixtures' `orders.invalid` contract now declares its usage line on stderr as
+the action evidence behind its exit-code outcome.
+Round 3 (R1, `REVIEW-round3.md`): an action case establishes an observation
+only if it EXECUTED before it. Sides are recorded in execution order, so
+`misordered` checks the action's index precedes the designated case's on the
+candidate (`preconditions`) and on the comparison (`unestablished`) —
+otherwise INCONCLUSIVE `action-evidence-undeclared`; and because the runner
+follows manifest order, `generation.ts actionOrderGaps` makes a reversed
+manifest a scope gap (`SCOPE_INCOMPLETE`) before anything runs.
+Unit E (stability cohorts, Playwright, quality feedback, runtime
+observations; landed 2026-09-25, UNCOMMITTED). E1 (§9.5): a scenario may
+declare `stability {qualificationRuns 1–5, seed?, clock?}`; `tests e2e
+qualify --scenario <id> [--runs n]` runs N INDEPENDENT supervised attempts
+(own snapshot each; seed derived per attempt, `INTERLINKED_E2E_SEED/COHORT/
+ATTEMPT[/CLOCK]` reach prepare, services AND contract case processes),
+publishes every attempt, records the cohort under
+`.interlinked/test-runs/e2e/cohorts/<id>.json` and a ledger `cohort` txn;
+mixed ⇒ a quarantine row in `.interlinked/e2e-quarantine.jsonl` keyed by
+generation (an unchanged rerun cannot erase it; a repair is a new
+generation); budget exhausted ⇒ deferred, resumable; qualify dimension
+`stability` + `STABILITY_*` codes (`stability.ts`, `cohort.ts`,
+`policy-stability.ts`). E2 (§10.2): a `playwright` suite OWNS its app as a
+`services` entry; the run fronts it with the supervisor's recording proxy
+(`proxy.ts`, `INTERLINKED_E2E_BASE_URL`), forces `--reporter=json
+--workers=1`, normalizes Playwright's JSON (`playwright-report.ts`: id =
+`file › titlePath [project]`, the FIRST attempt decides, PE-27; skipped /
+fixme / fail never pass) and credits each declared case exactly the requests
+the proxy saw inside its attempt window (`browser-stage.ts`; receipt
+`runnerKind: "browser"` + `boundaryRequests`; qualify `browser-driver` only
+against an owned, ready, cleanly stopped service with ≥1 request).
+`@playwright/test` absent in the project ⇒ cases `unavailable` with install
+guidance and a `<project>:<suite>:playwright` doctor failure — never an
+install (PE-24); the browser cache is passed as `PLAYWRIGHT_BROWSERS_PATH`
+from the REAL home because the run's HOME is private. Fixture
+`__fixtures__/ts-browser` (`.mjs` config/spec so the repo tsconfig never
+sees `@playwright/test`); the LIVE route is asserted only where this
+checkout carries `@playwright/test` and is UNVERIFIED here (`playwright.test.ts`
+P2 skipped). Policy parsing was split: `policy-primitives.ts`,
+`policy-suites.ts`. E3 (§12.3, §14): `quality-feedback.ts` turns the rule
+table into `[interlinked:e2e-quality] <project>/<scenario>: <rule> at
+<path>:<line>` advisories on PostToolUse (removed assertion/test block,
+`.only`/`.skip`, truthiness replacement, raised timeout/retry, `force:
+true`, timing wait, brittle locator, intercepted app endpoint, test with no
+assertion) — net-new multiset diff so a moved line is silent, ≤3 lines,
+never a verdict; `tests e2e scaffold <name> [--suite] [--write]` proposes a
+scenario (required: false, placeholder contract id) plus a skeleton whose
+only assertion FAILS deliberately, never edits the policy, never overwrites.
+E4 (§7.4, PE-85/86): `projects[].observations.runtimeCoverage:
+off|node|node-required` sets `NODE_V8_COVERAGE=<run>/coverage` on owned
+services and contract case processes (never prepare or the test runner);
+`runtime-observations.ts` folds V8 output into RUN-level `RuntimeEdge`
+rows (`caseId: null` — shared servers get no per-case attribution) in
+`<run>/runtime-observations.jsonl`, the receipt carries the summary, and
+`node-required` makes an incomplete collection `OBSERVATIONS_INCOMPLETE`
+(missing child output is incomplete, never zero; a service must exit
+normally on SIGTERM for V8 to flush — the fixtures do). Unit E review
+round 1 (2026-09-25, E1–E5 in `scratch/review-project-e2e-unit-e/REVIEW.md`,
+pinned in `review-regressions-unit-e.test.ts`): under a browser boundary the
+portable contracts are SUPPORT cases judged by their own mechanism (an http
+support case still through the declared service) and only a browser case
+establishes the entry — none evaluated ⇒ `BOUNDARY_UNSUPPORTED`; a browser
+boundary REQUIRES `requests: [{method, path}]`, the proxy records each
+case's `boundaryObservations`, and the boundary holds only when every
+required request was observed with a 1xx–4xx answer (GET / alone, a health
+check or an intercepted API earns nothing); `tests e2e qualify` judges each
+attempt by the shared predicate minus `STABILITY_*` and its exit is the
+evaluation's whenever the cohort is qualified or the evaluation says 1
+(two green runs with unaccepted contracts exit 1); coverage completeness
+reconciles an expected-process inventory — every service spawn's pid
+(`ServiceRecord.pids`, restarts included) must have a `coverage-<pid>-…`
+file and contract processes are counted — so one flushing service never
+hides another; and contract processes' `interlinked-contract-*` workspace
+copies map back to project-relative paths, so a supervised CLI run yields
+`dist/cli.js` edges. Round 2 (R1–R2): `receipt.services` is append-only
+across stages and each record carries its `stage` (`browser` | `contracts`),
+so a browser-stage lifetime that never flushed stays required and a browser
+case is judged against the instance that served it; the process runner
+records each case's own pid (`observations.pid`) and coverage is reconciled
+by identity — a neighbour's helper file never discharges a case whose own
+process wrote nothing. Composite-boundary pins run through a reporter double
+(fake `@playwright/test` + a script driving the proxy). The LIVE controls
+are verified (2026-09-25): `@playwright/test@1.59.1` (allowlisted; its
+chromium 1217 matches the cached browsers) installed `--no-save`, the fixture
+runs the package-local `node node_modules/playwright/cli.js test` (npm's
+`.bin` shim breaks when copied), the browser cache is found under the
+ACCOUNT home even when HOME is a sandbox, and `playwright.test.ts` P2
+(real Chromium ⇒ browser-driver) and N3 (`page.route` intercepts the API ⇒
+`BOUNDARY_UNSUPPORTED`) pass 6/6; they skip only where the package is
+absent.
+Unit F (completion gates and installed-package behavior; landed
+2026-09-25, UNCOMMITTED). Hooks CHECK, the supervised lane EXECUTES. F1
+snapshot identity (`target.ts`): `tests e2e check --staged | --revision
+<rev>` exports the INDEX (`git write-tree` + `checkout-index`) or a commit
+(`git archive`) into a disposable directory and computes every generation
+from those bytes, so a worktree receipt certifies a target only when the
+generation digest is identical — an unstaged fix never certifies broken
+staged bytes (PE-35); the evaluation records `target {mode, commit?,
+tree?}`; a policy not in the target is UNCONFIGURED, an unknown revision
+UNAVAILABLE (exit 2). F2 `scripts/smoke-tarball-e2e.mjs` runs the whole
+lane from the packed tarball's own bin. F3 base-policy comparison
+(`policy-diff.ts`, `policy-base.ts`, `policy-changes.ts`): `check --base
+<rev>` compares the judged policy with the TRUSTED base's policy (distinct
+from `proof.revision`, PE-74) and reports weakening kinds (removed/demoted
+scenario or project, loosened gate/observations/boundary/proof/stability,
+narrowed scope, unbound contract/case) as `POLICY_WEAKENED` (exit 1) unless
+a §13 record in `.interlinked/e2e-policy-changes.jsonl` — written by
+`tests e2e policy replace --base --project [--scenario] --rationale` —
+binds the exact base and head digests; refactors and reorders are not
+findings; a base without a policy is a bootstrap (PE-38); an unresolvable
+base is UNAVAILABLE, never HEAD (PE-37). F4 git hooks (`gate.ts`, `tests
+e2e gate install|status|uninstall`): pre-commit runs `check --gate commit
+--staged --base HEAD`, pre-push runs one `check --gate ci --revision <sha>
+--base <remote sha>` per pushed ref (deleted ref skipped, new ref a
+bootstrap); an existing hook is backed up and chained through a wrapper,
+never replaced; only the BUILT `dist/index.js` is baked in (a `tsx` source
+entry resolves from the hook cwd), else `interlinked` on PATH, else exit 2
+UNAVAILABLE; `--gate` honours `gates.commit/ci` (absent on a required
+project ⇒ require; warn/off/advisory ⇒ reported, exit 0). F5 `tests e2e
+ci` (`ci.ts`): a FRESH supervised run then the same check, base from the CI
+event (GitHub pull-request base ref / push `before`, GitLab merge-request
+diff base / `CI_COMMIT_BEFORE_SHA`, zero sha = bootstrap) or `--base`; no
+base ⇒ UNAVAILABLE and nothing runs; a satisfied verdict whose receipt this
+invocation did not produce is `CI_RECEIPT_NOT_FRESH` (exit 1); §13 trust
+limits are printed (receipts, base, checker path — pin the CLI in CI). F6
+(`stop-summary.ts`): the Stop reminder is bounded per session (3 identical
+reminders, one pause note, silence until the open set changes, PE-39), an
+all-unavailable set is a handoff (no "run it again"), a quarantined
+required scenario stays visible with the qualify path; with the daemon down
+the cold Stop says the obligations were NOT CHECKED
+(`hook-entry-cold-gates.ts coldProjectE2eStopNotice`); `interlinked verify`
+gains an `e2e` section (`verify/project-e2e-section.ts`, JSON key
+`project_e2e`) with the same codes as `check`, failing under verify's exit
+convention; absent policy ⇒ no section at zero cost. Pins: `target.test.ts`,
+`policy-diff.test.ts`, `policy-base.test.ts`, `gate.test.ts` (real `git
+commit`/`git push` into a bare remote), `ci.test.ts`,
+`stop-summary.test.ts`, `project-e2e-section.test.ts`,
+`hook-entry-cold-e2e-stop.test.ts`. Unit F review round 1 (2026-09-25,
+F-R1–F-R7 in `scratch/review-project-e2e-unit-f/REVIEW.md`, every
+counterexample re-run by its `probe.ts` and pinned in
+`review-regressions-unit-f.test.ts`): the chained hook's gate program is a
+separate file (`<hook>.interlinked-e2e-gate`) fed the SAME captured stdin as
+the original — a heredoc on the gate's stdin had replaced git's ref rows and
+let an unqualified push through (R1); `--gate` decisions read the judged
+TARGET's own policy (`E2eEvaluation.projects`) for the failing projects
+only, and `POLICY_WEAKENED` is never waived by the candidate's gate setting
+(R2); `tests e2e ci` exports the CANDIDATE COMMIT (`--revision`, else
+`GITHUB_SHA` / `CI_COMMIT_SHA`, else HEAD) into a disposable directory with a
+fresh `.interlinked` state and runs everything there — plain runs and every
+adopted stability cohort — through `gitRoot` threading (run / reconcile /
+cohort / evaluate resolve refs in the real repository), so a working-tree
+fix, a workstation receipt, an old cohort or a local record can never reach
+the verdict; evidence is copied to `.interlinked/test-runs/e2e/ci/<commit>/`
+(R3, R7); §13 replacement records are read from the judged target (the
+export for `--staged` / `--revision`, `PolicyEvaluation.recordsFrom`), so a
+record must be COMMITTED — carve `.interlinked/e2e-policy-changes.jsonl` out
+of `.gitignore` (R4); a revision is exported as its exact tree via
+`read-tree` into a private index plus `checkout-index`, never `git archive`
+(`export-ignore` hid the committed base policy) (R5); an omitted gate compares
+as its effective default (`GATE_DEFAULTS`: commit/ci require, stop warn,
+review advisory), so `require (default) → off` is `gate-loosened` (R6).
+Round 2 (F2-1–F2-3, `REVIEW-round2.md`, pinned in the same file): a target
+is materialized straight from the OBJECT STORE (`target.ts materializeTree`:
+`ls-tree -r` for membership and modes, `cat-file --batch` for bytes; the
+index is frozen with `write-tree` first) — `checkout-index` applied smudge
+filters, so a configured filter repaired a committed defect on export
+(F2-1); the CI export's execution state (ledger, requests, quarantine,
+`test-runs/`) is EMPTIED before anything runs and freshness is the set of
+receipts written under that emptied directory, so a committed deferred
+cohort or quarantine row is never resumed or counted (F2-2); the proof
+comparison side is exported from the REAL repository's project directory
+(`exportRevision(join(gitRoot, project.root), …)`, also via
+`materializeTree` of the `<commit>:<prefix>` subtree), so characterization
+and old-new proofs resolve inside CI (F2-3). Round 3: a committed symlink is
+a blob whose bytes are the link target — every blob is fetched and links are
+recreated without being followed, in both export modes (a documentation
+symlink outside any input scope had made the whole export fail). Round 4: CI
+checks every segment of `.interlinked` and its execution-state paths in the
+export for a symlink BEFORE cleanup or any state write (a committed link at
+`.interlinked/test-runs` had let cleanup delete a file outside the export) —
+a link there is UNAVAILABLE, nothing runs; evidence retention applies the same
+rule to its destination under the checkout and is refused, never followed.
+Unit G (migration, guidance, release matrix, dogfood; landed 2026-09-25,
+UNCOMMITTED). §15 migration: the Interlinked-only boundary reminder
+(`e2e-obligation-stop-check.ts`) and `interlinked e2e scaffold` are confined
+to the Interlinked checkout (`e2e-boundary.ts isInterlinkedCheckout`, package
+name `interlinked-cli`); a host repository never sees the reminder, and the
+scaffold refuses there with a pointer to `tests e2e scaffold` unless
+`--developer-preset`. Guidance: `docs/project-e2e.md` is the operator guide
+(files, schema, commands, reason codes, targets, base comparison, hooks, CI,
+proof limits, stability, Stop, recovery); `docs/e2e-testing.md` is scoped to
+the self-test lane; the `interlinked-verify` skill and the router carry the
+gate/CI/replace/target/boundary rules. Release matrix: `npm run e2e:matrix`
+runs every fixture (TS CLI, Python CLI, Rust CLI, TS HTTP, TS browser)
+through the common route — toolchain present, valid run accepted, injected
+fault rejected, stale input rejected — into `docs/e2e-release-matrix.md`; a
+missing toolchain is an explicit gap row, never a skip (Rust is a gap on the
+dev Mac), and `.github/workflows/e2e-release-matrix.yml` provisions Python,
+Rust and Chromium and fails on gaps. The matrix found a real hole: the
+browser fixture's page-only spec passed with broken persistence (PE-20), so
+the spec now reads the stored order back through the page and
+`playwright.test.ts` N4 pins the faulted run at CASE_FAILED. Dogfood: `npm
+run e2e:dogfood` bundles the built CLI into one executable with esbuild (a
+case workspace holds ≤128 declared inputs; the live bundle reaches 409
+chunks), declares the public `scratch init | status --json` workflow as
+portable contracts (exact stdout, exact `.gitignore` / `.ignore` /
+`scratch/README.md` bytes) and proves valid → stale → fault with supervisor
+and candidate sha256 recorded; the first contract asserted only the
+"created" line and let the fault through until the README file itself was
+asserted. Gotcha: `npm run build:e2e` overwrites `dist/` with the e2e build —
+run `npm run build` after the e2e lane. Explicit gaps: the MCP/Worker
+profile (§10.3) is not built; real-project pilots need user-selected
+repositories — until then adoption defaults to advisory. The browser
+case window is ORDER-based (`browser-stage.ts orderedWindows`): from a
+case's reported start to the next report case's start, `--retries=0` forced.
+Playwright's reported `duration` is timeout-slot time, not wall time, so the
+old `[start, start + duration]` window ended before the test body and, under
+full-suite load, credited no request at all (the 2026-09-25 flake); each
+browser case's details now carry its window and the proxy log as offsets. cargo is absent on the dev Mac, so the Rust fixture's compiled route
+is asserted only where cargo exists; locally it proves the `unavailable`
+path.
+
 ## E2E lane
 
 `npm run build:e2e && npm run test:e2e` exercises real hook processes and

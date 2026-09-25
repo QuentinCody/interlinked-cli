@@ -46,6 +46,7 @@ import type {
 import { collectComplexityPulseWarnings } from "./complexity-pulse.js";
 import { collectFunctionTokenPulseWarnings } from "./function-token-pulse.js";
 import { collectPostWriteFileWarnings } from "./post-tool-write-warnings.js";
+import { collectProjectE2eWarnings } from "../project-e2e/hooks.js";
 import { recordStubsIntroduced } from "./post-tool-stub-tracking.js";
 import {
 	globMatch,
@@ -126,6 +127,9 @@ export function evaluatePostToolUse(
 	warnings.push(...collectToolMissWarning(event));
 	warnings.push(...collectEditNearMissWarning(event));
 	warnings.push(...collectCommitCadenceWarning(event, rules, session));
+	// Project-aware e2e obligations (plan 31): observed changes → scenario
+	// obligations under .interlinked/e2e-policy.json. Free when no policy exists.
+	warnings.push(...collectProjectE2eWarnings(event));
 	recordStubsIntroduced(event, rules, session);
 	// Side-effecting only (no warning): tag the session's taint_sources when a
 	// Bash command web-fetched attacker-controllable content (gh/glab/curl/...),

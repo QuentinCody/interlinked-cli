@@ -9,6 +9,7 @@
 
 import { readFileSync } from "node:fs";
 import { formatE2eObligationWarning } from "../e2e-obligation-stop-check.js";
+import { formatProjectE2eStopWarning, hasProjectE2ePolicy } from "../project-e2e/hooks.js";
 import { checkDeadOnArrival } from "../dead-on-arrival.js";
 import { formatDebtEvasionStopLine } from "../debt-evasion.js";
 import { checkFixtureLeaks } from "../fixture-leak.js";
@@ -63,7 +64,13 @@ export function buildVerificationStopWarnings(
 	if (!vsc?.enabled) return [];
 	const verificationObserved = session.verification_observed ?? new Set<string>();
 	const warnings: string[] = [];
-	pushIfNotNull(warnings, formatE2eObligationWarning({ cwd: event.cwd ?? process.cwd(), files: session.files_written, lanes: session.test_lanes_run ?? [] }));
+	const stopCwd = event.cwd ?? process.cwd();
+	// One e2e reminder per obligation (plan 31 §15): a repository with a project
+	// e2e policy gets the policy-driven summary; the Interlinked-boundary reminder
+	// stays confined to this repository's own self-test tooling.
+	const projectE2e = formatProjectE2eStopWarning({ cwd: stopCwd, sessionId: event.session_id, ...(event.dry_run ? { dryRun: true } : {}) });
+	pushIfNotNull(warnings, projectE2e);
+	if (!hasProjectE2ePolicy(stopCwd)) pushIfNotNull(warnings, formatE2eObligationWarning({ cwd: stopCwd, files: session.files_written, lanes: session.test_lanes_run ?? [] }));
 	const unverifiedCode = vsc.warn_unverified_code
 		? checkUnverifiedCode(ctx, session, verificationObserved)
 		: null;

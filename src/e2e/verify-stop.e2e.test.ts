@@ -72,9 +72,16 @@ describe("Stop verification and session attribution", () => {
         expect(next.stdout + next.stderr).not.toContain("similar implementations");
     });
 
-    it("MUST-FIRE: boundary and adapter edits need this session's e2e lane", async () => {
+    it("MUST-NOT-FIRE (plan 31 §15): a host repository never sees the Interlinked-only boundary reminder, even for a matching path", async () => {
+        const session = `${fixture.sessionPrefix}-host-repo`;
+        await write(session, "src/hook-entry.ts");
+        expect(await stop(session)).not.toContain("e2e-obligation");
+    });
+
+    it("MUST-FIRE: boundary and adapter edits need this session's e2e lane (inside the Interlinked checkout)", async () => {
         const a = `${fixture.sessionPrefix}-boundary`;
         const b = `${fixture.sessionPrefix}-adapter`;
+        fixture.file("package.json", JSON.stringify({ name: "interlinked-cli" })); // the reminder is confined to Interlinked's own checkout (§15)
         await write(a, "src/hook-entry.ts");
         await write(b, "src/harness/adapters/example.ts");
         await post(b, "Bash", { command: "npm run test:unit" });
