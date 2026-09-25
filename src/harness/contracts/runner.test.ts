@@ -43,6 +43,24 @@ it("checks HTTP observations without following redirects", async () => {
     } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 
+it("records matched and mismatched HTTP headers as distinct behavioral evidence", async () => {
+    const server = createServer((_req, res) => { res.writeHead(200, { "x-contract": "actual" }); res.end("ready"); });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    try {
+        const address = server.address(); if (!address || typeof address === "string") throw new Error("No port");
+        const { root, row } = project([], {});
+        const runner = { kind: "http", url: `http://127.0.0.1:${address.port}`, method: "GET" };
+        for (const value of ["actual", "wrong"]) {
+            writeFileSync(join(root, ".interlinked/behavioral-contracts.json"), JSON.stringify({ version: 1, cases: [{ ...row, runner, expect: { status: 200, headers: { "X-Contract": value } } }] }));
+            const evidence = (await runContracts(root, { timeoutMs: 3000 })).cases[0];
+            expect(evidence?.state).toBe(value === "actual" ? "passed" : "failed");
+            expect(evidence?.observations?.matched).toEqual(value === "actual" ? ["status", "headers"] : ["status"]);
+            expect(evidence?.observations?.mismatched).toEqual(value === "actual" ? [] : ["headers"]);
+            if (value === "wrong") expect(evidence?.details).toContain("HTTP header X-Contract differs");
+        }
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
 it("runs retained old expectations against the new implementation", async () => {
     const { root, row } = project([process.execPath, "-e", "console.log('new')"], { stdout: "new\n" });
     writeFileSync(join(root, "previous.json"), JSON.stringify({ version: 1, cases: [{ ...row, expect: { stdout: "old\n" } }] }));

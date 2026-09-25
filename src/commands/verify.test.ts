@@ -787,6 +787,15 @@ describe("runVerify — tally line variants", () => {
 // ===========================================
 
 describe("runVerifyBatchJson — json output path", () => {
+    it("fails JSON verification when required project E2E evidence is open", async () => {
+        const { verifyCommand } = await importVerify();
+        const { projectE2eSection } = await import("./verify/project-e2e-section.js");
+        vi.mocked(projectE2eSection).mockReturnValueOnce({ status: "unavailable", failed: true, lines: ["E2E evidence unavailable"], json: { status: "unavailable", exit_code: 2, open_required: 1, scenarios: [] } });
+        await verifyCommand({ cwd: "/repo", json: true });
+        expect(process.exitCode).toBe(1);
+        expect(projectE2eSection).toHaveBeenCalledWith("/repo");
+        expect(outputJsonMock).toHaveBeenCalledTimes(1);
+    });
 	it("includes imported lint findings and runs all configured cadences for --all-checks", async () => {
 		const { verifyCommand } = await importVerify();
 		const finding = { tool: "lint-import", file: "src/app.py", message: "unused import" };

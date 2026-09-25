@@ -1,12 +1,18 @@
 import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
-import { testsE2eCommand, testsE2eExpectationsCommand } from "../commands/tests-e2e.js";
+import { testsE2eCommand, testsE2eExpectationsCommand, testsE2ePolicyCommand } from "../commands/tests-e2e.js";
 import { testsE2eAdoptionCommand } from "../commands/tests-e2e-adopt.js";
 import { registerTestsCommands } from "./tests.js";
-vi.mock("../commands/tests-e2e.js", () => ({ testsE2eCommand: vi.fn(), testsE2eExpectationsCommand: vi.fn() }));
+vi.mock("../commands/tests-e2e.js", () => ({ testsE2eCommand: vi.fn(), testsE2eExpectationsCommand: vi.fn(), testsE2ePolicyCommand: vi.fn() }));
 vi.mock("../commands/tests-e2e-adopt.js", () => ({ testsE2eAdoptionCommand: vi.fn() }));
 
 describe("tests e2e registrar", () => {
+    it("preserves every scenario in a reviewed policy replacement", async () => {
+        const program = new Command();
+        registerTestsCommands(program);
+        await program.parseAsync(["node", "interlinked", "tests", "e2e", "policy", "replace", "--base", "HEAD~1", "--project", "app", "--scenario", "create", "--scenario", "read", "--rationale", "Revised workflow"]);
+        expect(testsE2ePolicyCommand).toHaveBeenCalledWith("replace", expect.objectContaining({ base: "HEAD~1", project: "app", scenario: ["create", "read"], rationale: "Revised workflow" }));
+    });
     it("routes the adoption workflow: discover --out, surfaces --write, adopt --from with repeatable selection, doctor", async () => {
         const program = new Command();
         registerTestsCommands(program);

@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { parseContractManifest, parseContractPolicy } from "./schema.js";
 const sample = () => ({ id: "roundtrip", description: "Preserve supplied JSON", source: { kind: "example", path: "spec.md", sha256: "a".repeat(64), quote: "same JSON" }, inputs: ["main.py"], runner: { kind: "process", argv: ["python3", "main.py"] }, expect: { json: { value: "01" } } });
 describe("portable contract schema", () => {
+    it("refuses ambiguous service targets and unowned restart workflows", () => {
+        const http = { ...sample(), inputs: [], runner: { kind: "http", service: "app", path: "/orders", method: "GET" }, expect: { status: 200 } };
+        const parse = (row: unknown) => parseContractManifest(JSON.stringify({ version: 1, cases: [row] }));
+        expect(parse({ ...http, steps: [{ kind: "restart", service: "app" }] }).cases).toHaveLength(1);
+        for (const runner of [
+            { ...http.runner, url: "http://127.0.0.1" },
+            { ...http.runner, service: "bad/name" },
+            { ...http.runner, path: "//external.test/orders" },
+            { ...http.runner, method: "DELETE" },
+        ]) expect(() => parse({ ...http, runner })).toThrow();
+        for (const steps of [{ kind: "restart" }, Array(9).fill({ kind: "restart", service: "app" }), [{ kind: "stop", service: "app" }]]) {
+            expect(() => parse({ ...http, steps })).toThrow();
+        }
+        expect(() => parse({ ...sample(), steps: [{ kind: "restart", service: "app" }] })).toThrow(/service-bound/);
+    });
     it("retains exact expected data without scalar normalization", () => {
         const result = parseContractManifest(JSON.stringify({ version: 1, cases: [sample()] }));
         expect(result.cases[0]?.expect.json).toEqual({ value: "01" });

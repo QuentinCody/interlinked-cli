@@ -13,6 +13,7 @@ import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluat
 import { describe, expect, it, vi } from "vitest";
 import type { HarnessEvent, SessionTrajectory } from "../types.js";
 import {
+	buildVerificationStopWarnings,
 	checkBisectNotReset,
 	checkCodeFileVerification,
 	checkDeferredCoverage,
@@ -27,6 +28,12 @@ import {
 	pushIfNotNull,
 } from "./lifecycle-stop-warnings-code-file-verification.js";
 import type { ServerRuntime } from "./runtime-context.js";
+import { formatProjectE2eStopWarning, hasProjectE2ePolicy } from "../project-e2e/hooks.js";
+
+vi.mock("../project-e2e/hooks.js", () => ({
+    formatProjectE2eStopWarning: vi.fn(() => null),
+    hasProjectE2ePolicy: vi.fn(() => false),
+}));
 
 vi.mock("./review-reconcile-phase.js", () => ({
 	openReviewFindings: vi.fn(() => []),
@@ -62,6 +69,14 @@ function makeEvent(over: Partial<HarnessEvent> = {}): HarnessEvent {
 }
 
 describe("pushIfNotNull", () => {
+    it("forwards dry-run Stop inspection without consuming the E2E reminder budget", () => {
+        const ctx = makeCtx({ verification_stop_checks: { enabled: true } });
+        vi.mocked(formatProjectE2eStopWarning).mockReturnValueOnce("[interlinked:e2e] required evidence open");
+        vi.mocked(hasProjectE2ePolicy).mockReturnValueOnce(true);
+        const warnings = buildVerificationStopWarnings(ctx, makeEvent({ cwd: "/host-project", dry_run: true }), makeSession());
+        expect(formatProjectE2eStopWarning).toHaveBeenLastCalledWith({ cwd: "/host-project", sessionId: "s1", dryRun: true });
+        expect(warnings.filter(line => line.includes("[interlinked:e2e]"))).toEqual(["[interlinked:e2e] required evidence open"]);
+    });
 	it("P: pushes a non-null string", () => {
 		const arr: string[] = [];
 		pushIfNotNull(arr, "x");
