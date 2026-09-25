@@ -3,9 +3,11 @@
 // edited again and stopped. Promoted from the review's daemon probe.
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { hostname } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { fixtureProject, type FixtureProject } from "../harness/project-e2e/__tests__/fixture-projects.js";
+import { writeAttemptRecord } from "../harness/project-e2e/attempts.js";
 import { createFixture, type E2eFixture } from "./fixture.js";
 
 describe("project e2e lifecycle across a real daemon", () => {
@@ -19,6 +21,32 @@ describe("project e2e lifecycle across a real daemon", () => {
         }
     });
     afterAll(async () => { rmSync(product.root, { recursive: true, force: true }); await fixture?.close(); });
+
+    it("SessionStart recovers a crashed E2E attempt once without claiming a pass", async () => {
+        const fixture = await createFixture({ protocol: "raw", rules: { per_edit_coverage: { enabled: false } } });
+        try {
+            for (const name of ["orders_cli.py", "REQUIREMENTS.md", ".interlinked/e2e-policy.json", ".interlinked/behavioral-contracts.json", ".interlinked/contract-policy.json"]) {
+                cpSync(join(product.root, name), join(fixture.cwd, name));
+            }
+            const runId = "crashed-before-publication";
+            writeAttemptRecord(fixture.cwd, {
+                version: 1, runId, pid: 2_147_483_646, hostname: hostname(), startedAt: new Date().toISOString(),
+                projectId: "orders", scenarioIds: ["order-persists"], keys: ["orders/order-persists"],
+                generations: { "orders/order-persists": "a".repeat(64) },
+            });
+            const sessionId = `${fixture.sessionPrefix}-recovery`;
+            const start = await fixture.hook({ sessionId, event: "SessionStart" });
+            fixture.assertServed(start);
+            expect(start.stdout + start.stderr).toContain(`run ${runId} exited before its evidence was reconciled`);
+            const again = await fixture.hook({ sessionId, event: "SessionStart" });
+            fixture.assertServed(again);
+            expect(again.stdout + again.stderr).not.toContain(`run ${runId} exited`);
+            const attempts = fixture.ledger("e2e-obligations.jsonl").filter(row => row !== null && typeof row === "object" && "op" in row && row.op === "attempt" && "runId" in row && row.runId === runId);
+            expect(attempts).toHaveLength(1);
+            expect(attempts[0]).toMatchObject({ status: "unavailable", key: "orders/order-persists" });
+            expect((await fixture.cli(["tests", "e2e", "check", "--json"])).code).not.toBe(0);
+        } finally { await fixture.close(); }
+    }, 30_000);
 
     it("PostToolUse opens the obligation, check/run/check/edit/check follow the exit contract, Stop summarizes", async () => {
         const sessionId = `${fixture.sessionPrefix}-project-e2e`;
@@ -39,6 +67,25 @@ describe("project e2e lifecycle across a real daemon", () => {
         expect(stop.stdout + stop.stderr).toContain("[interlinked:e2e] 1 required scenario(s) unresolved");
     }, 120_000);
 });
+
+it("cold Stop reports unchecked E2E obligations only for a configured project", async () => {
+    const fixture = await createFixture();
+    try {
+        await fixture.stopDaemon();
+        const unconfigured = await fixture.hook({ cold: true, event: "Stop" });
+        expect(unconfigured.fellBack).toBe(true);
+        expect(unconfigured.stderr).not.toContain("project e2e obligations");
+        writeFileSync(join(fixture.cwd, ".interlinked/e2e-policy.json"), "{}");
+        for (const event of ["Stop", "SubagentStop"]) {
+            const configured = await fixture.hook({ cold: true, event });
+            expect(configured.fellBack).toBe(true);
+            expect(configured.stderr).toContain("project e2e obligations NOT CHECKED");
+            expect(configured.stderr).toContain("interlinked tests e2e check");
+        }
+        const read = await fixture.hook({ cold: true, event: "PreToolUse", tool: "Read", input: { file_path: "README.md" } });
+        expect(read.stderr).not.toContain("project e2e obligations");
+    } finally { await fixture.close(); }
+}, 30_000);
 
 /** Unit C5 through a REAL daemon: the detached child is the built CLI; review C4 pins that disabling before the timer fires cancels it. */
 describe("adopted automatic execution across a real daemon", () => {
