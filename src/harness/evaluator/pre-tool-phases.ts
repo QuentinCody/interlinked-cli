@@ -110,7 +110,7 @@ function blockEnvLeakToGitWrite(
 }
 
 /**
- * PRE-CHECKS (tail): per-file line cap, stale-branch, dirty-tree, large-file,
+ * PRE-CHECKS (tail): file-size advice, stale-branch, dirty-tree, large-file,
  * concurrent-edit. Runs after the manifest guard in the original order.
  * Mirrors the original inline block exactly. `warnings` mutated by reference.
  * Returns a `HarnessDecision` to short-circuit, else `null`.
@@ -130,7 +130,7 @@ function maybeWarnTestErosion(
 }
 
 /**
- * GUARD: per-file line cap + per-function cyclomatic/cognitive caps for a
+ * GUARD: per-function token/cyclomatic/cognitive caps for a
  * Write/Edit/MultiEdit/apply_patch. Extracted out of `evaluatePreChecksTail`
  * so the two metric gates' combined branching doesn't inflate the
  * orchestrator's own complexity (dogfooded: this split is what took
@@ -145,18 +145,6 @@ function checkFileWriteMetricCaps(
 	toolInput: ToolInput,
 ): HarnessDecision | null {
 	if (!isFileWrite(toolName)) return null;
-	// GUARD: per-file line cap — block a Write/Edit that would grow a
-	// hand-written code file past the cap (see large-file-policy.ts).
-	const sizeBlock = checkLargeFileLineCountWrite(toolInput, eventCwd);
-	if (sizeBlock?.block) {
-		return {
-			decision: "block",
-			reason: sizeBlock.block,
-			rule_id: "large-file-cap",
-			severity: "medium",
-			category: "file-size",
-		};
-	}
 	// GUARD: per-function cyclomatic cap — block a Write/Edit that introduces
 	// or worsens an over-cap function (delta semantics, no override). See
 	// complexity-write-guard.ts. The observer stashes the gate's already-paid
@@ -261,6 +249,10 @@ function pushTailWarnings(
 	toolInput: ToolInput,
 	warnings: string[],
 ): void {
+	if (isFileWrite(toolName)) {
+		const size = checkLargeFileLineCountWrite(toolInput, eventCwd);
+		if (size?.warning) warnings.push(size.warning);
+	}
 	pushStaleBranchWarning(event, session, eventCwd, warnings);
 	pushDirtyTreeWarning(toolName, toolInput, eventCwd, warnings);
 	pushLargeFileByteWarning(toolName, toolInput, warnings);

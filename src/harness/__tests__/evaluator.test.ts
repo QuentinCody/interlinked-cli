@@ -148,7 +148,7 @@ describe("evaluatePreToolUse", () => {
 			return r;
 		}
 
-		it("TDD debt-mode allow no longer bypasses the per-file line cap", () => {
+		it("TDD debt-mode allow still reaches advisory file-size feedback", () => {
 			const content = Array.from({ length: 600 }, (_, i) => `const x${i} = ${i};`).join("\n");
 			const event = makeEvent({
 				cwd: dir,
@@ -156,8 +156,8 @@ describe("evaluatePreToolUse", () => {
 				tool_input: { file_path: join(dir, "src", "big-new.ts"), content },
 			});
 			const result = evaluatePreToolUse(event, tddDebtRules(), session, reservations, cohort);
-			expect(result.decision).toBe("block");
-			expect(result.reason).toContain("-line cap");
+			expect(result.decision).toBe("allow");
+			expect(result.warnings?.join("\n")).toContain("-line review preference");
 		});
 
 		it("merges the opened-debt warning instead of clobbering it (small new file)", () => {

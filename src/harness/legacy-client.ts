@@ -154,6 +154,7 @@ function copyNormalizedContext(
 	if (event.tool_use_id) out.tool_use_id = event.tool_use_id;
 	else copyString(raw, out, "tool_use_id");
 	if (event.turn_id) out.prompt_id = event.turn_id;
+	if (raw.dry_run === true) out.dry_run = true;
 }
 
 /** Derive `tool_name` / `tool_input` / `tool_response` / `prompt` from the

@@ -1,9 +1,8 @@
 // ===========================================
-// Large-file policy — the single source of truth for the per-file line cap
+// Large-file policy — the single source of truth for the per-file size preference
 // ===========================================
 // One module, consumed by three surfaces:
-//   - PreToolUse  : `checkLargeFileLineCountWrite` (pre-checks.ts) blocks a
-//                   Write/Edit that grows a capped file past the cap.
+//   - PreToolUse  : `checkLargeFileLineCountWrite` (pre-checks.ts) advises on growth.
 //   - PostToolUse : the `[interlinked:file-size]` nudge (evaluator/post-tool.ts).
 //   - verify      : the `large_files` check (commands/verify/file-checks.ts).
 //
@@ -33,13 +32,11 @@ import { maxLinesOverride } from "./metric-caps.js";
  * returns the baseline value when present and falls back to this constant when
  * absent; keeping them equal means the fallback is never a *different* cap.
  *
- * Line count is a coarse proxy for the real cost — agent legibility and edit
- * reliability — so the cap sits above the ~300-500 line aspirational module
- * size: a gate that false-alarms gets ignored. The fine-grained `complexity` /
- * `cyclomatic` checks do the nuanced "is this file actually bad" work. To
- * ratchet the cap down (800 → 500 → …) as the grandfather list shrinks,
- * change BOTH this constant and the baseline's `max_lines` together — the
- * pinning test enforces it and the change shows up in one diff.
+ * Physical line count is an advisory prompt to review responsibilities. It
+ * does not prove cohesion or measure model context tokens. Formatting and
+ * brace changes can alter it without changing behavior; no source gate uses
+ * this preference to refuse an edit. Retain historical baselines and their
+ * integrity contract without treating that history as a source-size gate.
  */
 export const DEFAULT_MAX_LINES = 500;
 
@@ -134,7 +131,7 @@ export function isRepoScratchPath(normPath: string, root: string | undefined): b
 export interface LargeFileBaseline {
 	/** Schema version. */
 	version: number;
-	/** Active line cap. Files over this fail the gate / block the write. */
+	/** Advisory line threshold; never blocks a source edit or verification. */
 	max_lines: number;
 	/**
 	 * Grandfathered offenders: repo-relative POSIX path -> recorded line
@@ -414,7 +411,7 @@ interface LargeFileVerdict {
 
 /**
  * Judge a static file snapshot against the cap + grandfather list. Used by
- * the `large_files` verify check. The PreToolUse block does NOT use this —
+ * the advisory `large_files` verify check. PreToolUse advice does NOT use this —
  * it works on a live before/after delta (see `checkLargeFileLineCountWrite`).
  */
 export function evaluateLargeFile(args: {

@@ -40,11 +40,11 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	"tseslint-types",
 	"no_test_file",
 	"files_without_test",
+	// Physical line count is decomposition advice, never a source-edit gate.
+	// Normalizing formatting must not pressure agents to compress expressions.
+	"large_files",
 	// Function size and complexity — heuristic thresholds, frequent FPs on
-	// generated templates, barrel files, and long-but-linear code. (The
-	// per-file line cap `large_files` was promoted to the default gate in
-	// 2026-05 once it learned to exempt generated/test files — see
-	// harness/large-file-policy.ts.)
+	// generated templates, barrel files, and long-but-linear code.
 	"complexity",
 	// cognitive_complexity: AST-accurate (Sonar-aligned) but a taste threshold,
 	// not a defect — same class as `complexity`; promote only after FP

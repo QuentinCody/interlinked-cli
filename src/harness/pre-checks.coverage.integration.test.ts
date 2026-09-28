@@ -842,7 +842,7 @@ describe("checkLargeFileLineCountWrite — fail-open + fallback paths", () => {
 			{ path: file("viapath.ts"), content: lines(2000) },
 			dir,
 		);
-		expect(result?.block).toContain("file-size");
+		expect(result?.warning).toContain("file-size");
 	});
 
 	it("fails open for an Edit whose target file does not exist (current lines 0)", () => {
@@ -866,7 +866,7 @@ describe("checkLargeFileLineCountWrite — fail-open + fallback paths", () => {
 		).toBeNull();
 	});
 
-	it("blocks an Edit with replace_all across multiple occurrences (occurrence math)", () => {
+	it("warns about an Edit with replace_all across multiple occurrences (occurrence math)", () => {
 		const path = file("repeat.ts");
 		// 10 lines, each "const x = 1;" → old_string occurs 10x. Replacing each
 		// 1-line match with a 200-line block balloons well past the cap.
@@ -875,7 +875,7 @@ describe("checkLargeFileLineCountWrite — fail-open + fallback paths", () => {
 			{ file_path: path, old_string: "const x = 1;", new_string: lines(200), replace_all: true },
 			dir,
 		);
-		expect(result?.block).toContain("file-size");
+		expect(result?.warning).toContain("file-size");
 	});
 
 	it("fails open for a MultiEdit on a non-existent file", () => {
@@ -910,7 +910,7 @@ describe("checkLargeFileLineCountWrite — fail-open + fallback paths", () => {
 		expect(result).toBeNull();
 	});
 
-	it("blocks a well-formed replace_all MultiEdit that grows the file past the cap", () => {
+	it("warns about a well-formed replace_all MultiEdit that grows the file past the cap", () => {
 		const path = file("multi-valid.ts");
 		writeFileSync(path, lines(10));
 		const result = checkLargeFileLineCountWrite(
@@ -921,7 +921,7 @@ describe("checkLargeFileLineCountWrite — fail-open + fallback paths", () => {
 			dir,
 		);
 		// 10 matches × ~299 net lines → over cap.
-		expect(result?.block).toContain("file-size");
+		expect(result?.warning).toContain("file-size");
 	});
 
 	it("fails open for replace_all with an empty old_string (countOccurrences→0)", () => {
@@ -965,8 +965,8 @@ describe("checkLargeFileLineCountWrite — fail-open + fallback paths", () => {
 			{ file_path: file("brand-new.ts"), content: lines(2000) },
 			dir,
 		);
-		expect(result?.block).toContain("create");
-		expect(result?.block).not.toContain("already");
+		expect(result?.warning).toContain("create");
+		expect(result?.warning).not.toContain("already");
 	});
 });
 import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";

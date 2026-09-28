@@ -29,6 +29,7 @@ export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
 	"tseslint-types",
 	"no_test_file",
 	"files_without_test",
+	"large_files",
 	// Function size and complexity
 	"complexity",
 	"cognitive_complexity",

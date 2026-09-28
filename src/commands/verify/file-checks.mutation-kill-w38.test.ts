@@ -173,7 +173,7 @@ describe("collectLargeFileFinding — message text (cf3d0c9bd9128a99)", () => {
 		expect(r.largeFiles).toHaveLength(1);
 		const msg = nonNull(r.largeFiles[0]).message;
 		expect(msg).toContain("lines — over the");
-		expect(msg).toContain("-line cap for hand-written code. Split into smaller, focused modules.");
+		expect(msg).toContain("-line review preference. Advisory: review module responsibilities; do not compress formatting to lower this count.");
 	});
 });
 

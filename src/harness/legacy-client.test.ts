@@ -390,6 +390,11 @@ describe("callLegacyHarness", () => {
 // ===========================================================================
 
 describe("toLegacyHarnessEvent base mapping", () => {
+	it("preserves explicit dry-run intent without accepting truthy strings", () => {
+		const event = makePreEditEvent();
+		expect(toLegacyHarnessEvent({ ...event, raw: { dry_run: true } }).dry_run).toBe(true);
+		expect(toLegacyHarnessEvent({ ...event, raw: { dry_run: "true" } }).dry_run).toBeUndefined();
+	});
 	it("maps a Claude PreToolUse edit into the raw HarnessEvent shape (no RPC envelope)", () => {
 		const legacy = toLegacyHarnessEvent(makePreEditEvent());
 		expect(legacy).toMatchObject<Partial<HarnessEvent>>({

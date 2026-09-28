@@ -149,10 +149,10 @@ describe("caps.ts — mutation-kill w57", () => {
 		expect(code).toBe(0);
 		const text = loggedText();
 		expect(text).toContain("file size (lines) (lines)");
-		expect(text).toContain("The number of lines in a single hand-written code file");
+		expect(text).toContain("Physical lines in one hand-written code file: an advisory decomposition preference");
 		expect(text).toMatch(/Default: 500 lines · lower is stricter/);
 		expect(text).toContain("Configure: `interlinked caps set lines <n>`");
-		expect(text).toContain("Fix: Split the file into a re-exporting entry module");
+		expect(text).toContain("Fix: Review module responsibilities when useful");
 	});
 
 	it("P1: capsExplainAction json branch emits structured JSON only when opts.json true (kills 99e262caa8de93fc)", async () => {

@@ -25,4 +25,13 @@ describe.each(["entry", "generated"] as const)("%s cold fallback", (runtime) => 
         expect(result.stdout).toContain('"deny"');
         expect(result.stdout).toMatch(/offline|unavailable|graph/i);
     });
+    it("keeps physical size advisory and reports missing standalone guard evidence", async () => {
+        const result = await fixture.hook({ runtime, cold: true, tool: "Write", input: {
+            file_path: "src/large.ts", content: "export const value = 1;\n".repeat(700),
+        } });
+        expect(result.receipt.outcome).toBe("cold");
+        expect(result.stdout).not.toContain('"deny"');
+        if (runtime === "generated") expect(result.stderr).toContain("standalone cold fallback has no AST oracle");
+        else expect(result.stderr).toContain("advisory");
+    });
 });

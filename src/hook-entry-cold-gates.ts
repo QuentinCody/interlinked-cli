@@ -25,6 +25,10 @@ import {
 import { checkDestructiveCommand } from "./lib/hook-template-chunks/destructive-command-guard.js";
 import type { JsonObject } from "./lib/json-types.js";
 import { nonNull } from "./lib/non-null.js";
+import { toLegacyHarnessEvent } from "./harness/legacy-client.js";
+import { readSharedConfig } from "./lib/config.js";
+import { driveGuardPrediction, guardPredictionMode } from "./harness/guard-prediction.js";
+import type { HarnessDecision } from "./harness/types.js";
 
 // Unified phase tag (a subset of UnifiedPhase). Local copy of the constant in
 // hook-entry.ts so this leaf module does not import back from the main file
@@ -56,6 +60,28 @@ function resolveColdCwd(event: UnifiedHookEvent): string {
 /** Filesystem functions handed to the shared write guards. The .mjs supplies
  *  its own; here they are this module's real `node:fs` / `node:path` imports. */
 const COLD_WRITE_DEPS: ColdWriteDeps = { existsSync, statSync, join: joinPath };
+
+/** Guard prediction is local and remains available without the daemon or Supermodel. */
+export function coldGuardPredictionDecision(event: UnifiedHookEvent): HarnessDecision | null {
+    if (event.phase !== PHASE_PRE_TOOL) return null;
+    const config = readSharedConfig(resolveColdCwd(event));
+    return driveGuardPrediction(toLegacyHarnessEvent(event), guardPredictionMode(config));
+}
+
+/** Ordered cold safety gates; the first refusal owns the actionable explanation. */
+export function firstColdBlock(event: UnifiedHookEvent): { gate: string; reason: string } | null {
+    const gates: Array<[string, (event: UnifiedHookEvent) => string | null]> = [
+        ["merge-conflict", coldMergeConflictBlockReason],
+        ["graph-shard", coldGraphShardBlockReason],
+        ["destructive-command", coldDestructiveCommandBlockReason],
+        ["supply-chain", coldPackageInstallBlockReason],
+    ];
+    for (const [gate, check] of gates) {
+        const reason = check(event);
+        if (reason) return { gate, reason };
+    }
+    return null;
+}
 
 /** Cold Stop notice for project e2e (plan 31 Unit F6): with the daemon down the
  *  obligations are NOT CHECKED — the absence of a reminder is never a pass. One
@@ -198,15 +224,8 @@ export function coldPackageInstallBlockReason(event: UnifiedHookEvent): string |
 	return nonNull(decision.reason);
 }
 
-/** Cold fail-closed gate: refuse a Write/Edit/MultiEdit that would grow (or create)
- *  a hand-written code file past the per-file line cap when the daemon is
- *  unreachable. Runs the SAME pure `checkLargeFileLineCountWrite` the daemon uses —
- *  file content + the committed `.interlinked/large-files-baseline.json`, no daemon
- *  state — so the cap holds whether the daemon is up or down. This closes the gap
- *  that let an over-cap edit slip through when the socket blipped: the line cap is
- *  a quality gate, but it's deterministic and daemon-independent, so it belongs in
- *  the cold path alongside the destructive-command and supply-chain guards. */
-export function coldLargeFileBlockReason(event: UnifiedHookEvent): string | null {
+/** File-size advice uses the same measurement in the daemon and cold fallback. */
+export function coldLargeFileWarning(event: UnifiedHookEvent): string | null {
 	if (event.phase !== PHASE_PRE_TOOL) return null;
 	const action = event.action;
 	if (action.kind !== ACTION_TOOL_CALL) return null;
@@ -217,5 +236,5 @@ export function coldLargeFileBlockReason(event: UnifiedHookEvent): string | null
 	// SAFETY: tool_input is runner-supplied JSON (parsed, not typed); the check
 	// type-tests every field it reads, so any object shape is sound to pass.
 	const result = checkLargeFileLineCountWrite((action.tool_input ?? {}) as JsonObject, cwd);
-	return result?.block ?? null;
+	return result?.warning ?? null;
 }

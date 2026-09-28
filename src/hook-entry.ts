@@ -23,11 +23,9 @@ import { resetSupervisorBackoff } from "./harness/supervisor-backoff.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
 import { encodeHookResult, recordSuppressedStop } from "./hook-entry-translation.js";
 import {
-	coldDestructiveCommandBlockReason,
-	coldGraphShardBlockReason,
-	coldLargeFileBlockReason,
-	coldMergeConflictBlockReason,
-	coldPackageInstallBlockReason,
+	firstColdBlock,
+	coldGuardPredictionDecision,
+	coldLargeFileWarning,
 	coldProjectE2eStopNotice,
 } from "./hook-entry-cold-gates.js";
 import {
@@ -348,60 +346,18 @@ async function encodeColdFallback(
 			)
 		: null;
 
-	// Exception: fail-closed graph-prediction gate. If the agent is about to
-	// edit a file with a fresh `.graph.*` shard and we can't reach the
-	// evaluator, block — the protocol requires it.
-	// Cold fail-closed gate: merge-conflict markers are a guaranteed parse
-	// error. Checked before the graph-shard gate — broken content is a more
-	// immediate signal than the protocol-restart mechanics.
-	const mergeBlockReason = coldMergeConflictBlockReason(event);
-	if (mergeBlockReason) {
-		return coldBlockResult(adapter, event, reason, "merge-conflict", mergeBlockReason, lateWarnings);
+	const block = firstColdBlock(event);
+	if (block) return coldBlockResult(adapter, event, reason, block.gate, block.reason, lateWarnings);
+	const guardPrediction = coldGuardPredictionDecision(event);
+	if (guardPrediction?.decision === "block") {
+		return coldBlockResult(adapter, event, reason, "guard-prediction", guardPrediction.reason ?? "Guard reconciliation required", lateWarnings);
 	}
-
-	const shardBlockReason = coldGraphShardBlockReason(event);
-	if (shardBlockReason) {
-		return coldBlockResult(adapter, event, reason, "graph-shard", shardBlockReason, lateWarnings);
-	}
-
-	const destructiveReason = coldDestructiveCommandBlockReason(event);
-	if (destructiveReason)
-		return coldBlockResult(
-			adapter,
-			event,
-			reason,
-			"destructive-command",
-			destructiveReason,
-			lateWarnings,
-		);
-
-	const packageInstallReason = coldPackageInstallBlockReason(event);
-	if (packageInstallReason)
-		return coldBlockResult(
-			adapter,
-			event,
-			reason,
-			"supply-chain",
-			packageInstallReason,
-			lateWarnings,
-		);
-
-	// Quality gate, daemon-independent: enforce the per-file line cap inline so an
-	// over-cap write does not slip through while the daemon is unreachable (the gap
-	// that let a 797→802 edit cross the cap unblocked on a socket blip).
-	const largeFileReason = coldLargeFileBlockReason(event);
-	if (largeFileReason)
-		return coldBlockResult(
-			adapter,
-			event,
-			reason,
-			"large-file cap",
-			largeFileReason,
-			lateWarnings,
-		);
+	const fileSizeAdvice = coldLargeFileWarning(event);
+	const fallbackWarnings = [...lateWarnings, ...(guardPrediction?.warnings ?? [])];
+	if (fileSizeAdvice) fallbackWarnings.push(fileSizeAdvice);
 	const decision: HarnessDecision =
-		lateWarnings.length > 0
-			? { decision: "allow", warnings: [...lateWarnings] }
+		fallbackWarnings.length > 0
+			? { decision: "allow", warnings: fallbackWarnings }
 			: { decision: "allow" };
 	const output = adapter.encodeDecision(decision, event);
 	const fallbackNotice = `[interlinked] ${reason}; evaluator skipped${recoveryAttemptNotice(recoveryAttempt)}\n`;

@@ -5,9 +5,50 @@ description: "Understand and respond to the Interlinked PreToolUse guard — the
 
 # interlinked-harness — the guard: what blocks you & how to respond
 
+## Predict changes to guards
+
+The prediction phase includes a local JS/TS `if`-ownership oracle, independent of
+Supermodel and `graph_prediction.enabled`. Its default mode is `enforced`;
+`harness.guard_prediction.mode` in shared `.interlinked/config.json` accepts
+`enforced`, `shadow` (record/reveal without refusing), or `off`.
+
+Before intentionally changing which `if` guards an existing `return` or `throw`,
+declare the expected ownership change. The raw before/after AST comparison runs
+before content checks; do not brace or format away an unexpected change.
+Unpredicted changes block as protocol mismatches, not proven bugs. Correct the
+proposal, or reconcile the exact revealed change with a rationale and behavioral
+validation. A matching prediction does not prove correctness.
+
+Receipts are JSON at `.interlinked/predictions/guards/<sha256(session)>/<id>.json`.
+Fields: `version: 1`, `session`, `id`, `file` (canonical repository-relative path),
+`beforeSha256`, `afterSha256`, `nonce` (nonempty declaration identifier), and
+`changes`: an array of `{owner, statement, before, after}`. Statement and condition
+strings use parser token spellings joined by spaces. Each guard is
+`{condition, branch: "then" | "else"}`; arrays list outer to inner guards. The ID is
+SHA-256 of `JSON.stringify([1, file, beforeSha256, afterSha256])`, with UTF-8 hashes
+of the exact source bytes. Use the native session identity printed in a reveal.
+The reveal includes the measured fields and receipt path. After a reveal, include
+`reconcile: id` and a nonempty `rationale`; a late prediction alone cannot pass.
+Identical retries retain their declaration; changed bytes, file or session require
+a matching receipt. Never use a wildcard acknowledgment.
+
+The append-only `predictions/guard-events.jsonl` retains `reveal`, `predicted`, and
+`reconciled` evidence; acceptance never erases a surprise. Dry runs do not persist
+events. Invalid or inaccessible protocol state cannot authorize a changed proposal.
+This is local intent bookkeeping, not an adversarial security boundary.
+
+The initial oracle handles unique existing statements in identifiable function
+scopes, plus unchanged complete function bodies. Changed ambiguous/anonymous
+scopes and changed statement text produce partial/NOT CHECKED evidence. It does not
+establish loop/switch/exception dominance, semantic predicate equivalence, deleted
+statements, cross-file moves, or arbitrary shell effects. Native cold fallback runs
+the same oracle; a standalone generated hook without the daemon reports NOT CHECKED
+because it has no AST runtime. Restore the daemon or use `interlinked-hook` for
+that check. Single-line guards remain valid code; brace style is a separate policy.
+
 Claude and Codex Stop/SubagentStop advisories remain operator diagnostics on stderr.
 Only explicit blocking repair decisions request another model turn. Source guidance is
-sent during editing. File-size and per-function gates share native edit/patch content
+sent during editing. File-size advice and per-function gates share native edit/patch content
 projection; unreadable or invalid updates stay unmeasured. Shell effects remain
 post-execution evidence unless a supported pre-write path is used.
 
@@ -393,8 +434,9 @@ dead listener — every ordinary hook phase enters a cross-process, single-fligh
 Daemon absence alone does **not** blanket-block safe reads, diagnostics, or repair work. The
 current call proceeds in degraded mode after the inline deterministic subset runs:
 merge-conflict markers, **destructive commands**, **package installs**, graph-shard protection,
-file-dump limits, and the **per-file line cap**. Those checks still block when proven; checks that
-need the full evaluator are explicitly unavailable rather than silently reported clean.
+and file-dump limits. Native fallback also enforces local guard-prediction reconciliation;
+physical file size only advises. Checks needing the full evaluator are explicitly
+unavailable rather than silently reported clean.
 
 `interlinked harness status`, `harness start` / `restart`, `doctor`, `disable`, and the exact
 `interlinked install-hooks --refresh --preserve-mode` repair remain executable during an outage
@@ -453,6 +495,6 @@ interlinked harness restart                    # reload everything (clears traje
 
 ## Related skills
 - **interlinked-verify** — the check catalog behind the warnings, `interlinked verify`, and how to land edits through the gates.
-- **interlinked-quality-gates** — the metric ratchets (line-cap / coverage / complexity) that also block edits.
+- **interlinked-quality-gates** — advisory file size and the coverage/complexity/function-token ratchets.
 - **interlinked-supply-chain** — the package-install gate in detail.
 - **interlinked-setup** — starting/restarting the daemon, `doctor`, config.

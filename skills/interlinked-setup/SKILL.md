@@ -5,7 +5,15 @@ description: "Install, operate, and troubleshoot the Interlinked CLI harness in 
 
 # interlinked-setup — install, operate & troubleshoot the harness
 
-Provider qualification must exercise native edit routes, file-size denial/prevention,
+The local guard-prediction oracle defaults to `enforced`, independently of the
+optional Supermodel graph protocol. Shared `.interlinked/config.json` accepts
+`harness.guard_prediction.mode: "enforced" | "shadow" | "off"`. Use
+**interlinked-harness** for exact prediction/reconciliation receipts and limitations.
+Native cold fallback can run this AST oracle; standalone generated hooks need the
+daemon and report NOT CHECKED without it. Physical file size is advisory in both
+warm and cold paths; rebuilding must not revive the old line-count block.
+
+Provider qualification must exercise native edit routes, advisory file-size delivery,
 and completion after ordinary Stop advisories. Claude and Codex keep those advisories on
 stderr; explicit repair blocks still request continuation. Codex rewrites include
 `permissionDecision: allow`. Retain registrations and native transcripts: an encoded

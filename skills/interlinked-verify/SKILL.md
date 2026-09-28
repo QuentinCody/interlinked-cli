@@ -618,7 +618,10 @@ The callback check now uses exact syntax and defaults to >2 inline callback leve
 Generic brace advice accepts single-line guards, diagnoses multiline bodies, and
 defers to detected target style configuration. Explicit imported brace rules retain
 their native policy. Verify intended scope before adding braces; no bulk brace
-autofix runs. Missing parser/policy evidence produces NOT CHECKED, not a clean measurement. Use
+autofix runs. Guard changes are handled before the edit by the prediction protocol
+described in **interlinked-harness**. Physical file size (`large_files`) also belongs
+to `--all-checks` advice, never a source-edit or verification block.
+Missing parser/policy evidence produces NOT CHECKED, not a clean measurement. Use
 **interlinked-quality-gates** for counting boundaries and `.interlinked/readability.json`.
 
 Formatting requires explicit adoption of the project's formatter. `biome` imports
@@ -1069,5 +1072,5 @@ interlinked verify-changeset --file cs.json --json
 
 ## Related skills
 - **interlinked-harness** — how blocks read, suppression grammar, determinism tags.
-- **interlinked-quality-gates** — the function-token/coverage/complexity/line-cap ratchets the content gate does NOT run.
+- **interlinked-quality-gates** — function-token/coverage/complexity ratchets and advisory file-size measurements.
 - **interlinked-supply-chain** — the package-install gate.

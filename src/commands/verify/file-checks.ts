@@ -190,7 +190,7 @@ function dropInlineSuppressed(
 }
 
 /**
- * Oversized written-code files — enforced cap (default gate). Generated,
+ * Oversized written-code files — advisory decomposition preference. Generated,
  * test, .d.ts and non-code files are exempt; files in the baseline are
  * grandfathered up to their recorded size (a ratchet — they may shrink
  * or hold but not grow). See harness/large-file-policy.ts.
@@ -210,7 +210,7 @@ function collectLargeFileFinding(file: string, content: string, cwd: string, rel
 		check: "large_files",
 		file: relPath,
 		line: 0,
-		message: `${verdict.lines} lines — over the ${cap}-line cap for hand-written code. Split into smaller, focused modules.`,
+		message: `${verdict.lines} lines — over the ${cap}-line review preference. Advisory: review module responsibilities; do not compress formatting to lower this count.`,
 	});
 }
 

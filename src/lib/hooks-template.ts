@@ -1276,6 +1276,7 @@ ${PROVIDER_RESPONSES_CHUNK}
 
 		if (!guardDecision && ["Write", "Edit", "MultiEdit", "apply_patch", "write_file", "replace", "replace_string", "create_file"].includes(harnessEvent.tool_name)) {
 			process.stderr.write("[interlinked:function-tokens:not-measured] function-token enforcement requires the running harness daemon and an exact language adapter; this cold-fallback edit was not measured\\n");
+			process.stderr.write("[interlinked:guard-prediction] NOT CHECKED: standalone cold fallback has no AST oracle; restore the daemon or use the native interlinked-hook runtime before relying on guard preservation.\\n");
 		}
 
         const preElapsedMs = Date.now() - preStartMs;

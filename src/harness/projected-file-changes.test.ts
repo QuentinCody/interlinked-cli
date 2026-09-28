@@ -11,10 +11,10 @@ describe("equivalent proposed file effects", () => {
     afterEach(() => { rmSync(root, { recursive: true, force: true }); });
     const patch = (body: string) => ({ command: `*** Begin Patch\n${body}\n*** End Patch` });
 
-    it("blocks an oversized second patch target just like Write", () => {
+    it("advises on an oversized second patch target just like Write", () => {
         const content = Array.from({ length: 601 }, (_, i) => `value_${i} = ${i}`).join("\n");
-        expect(checkLargeFileLineCountWrite({ file_path: join(root, "large.py"), content }, root)?.block).toContain("file-size");
-        expect(checkLargeFileLineCountWrite(patch(`*** Add File: small.py\n+x = 1\n*** Add File: large.py\n${content.split("\n").map(line => `+${line}`).join("\n")}`), root)?.block).toContain("large.py");
+        expect(checkLargeFileLineCountWrite({ file_path: join(root, "large.py"), content }, root)?.warning).toContain("file-size");
+        expect(checkLargeFileLineCountWrite(patch(`*** Add File: small.py\n+x = 1\n*** Add File: large.py\n${content.split("\n").map(line => `+${line}`).join("\n")}`), root)?.warning).toContain("large.py");
     });
 
     it("normalizes Write, Edit, MultiEdit and patch updates to the same contents", () => {
@@ -35,8 +35,8 @@ describe("equivalent proposed file effects", () => {
         const content = `${lines.join("\n")}\n`;
         const input = patch(`*** Add File: boundary.py\n${lines.map(line => `+${line}`).join("\n")}`);
         expect(projectFileChanges(input, root)[0]?.after).toBe(content);
-        expect(checkLargeFileLineCountWrite(input, root)?.block).toContain("501 lines");
-        expect(checkLargeFileLineCountWrite({ path: "boundary.py", content }, root)?.block).toContain("501 lines");
+        expect(checkLargeFileLineCountWrite(input, root)?.warning).toContain("501 lines");
+        expect(checkLargeFileLineCountWrite({ path: "boundary.py", content }, root)?.warning).toContain("501 lines");
     });
 
     it("preserves source identity for moves and permits shrinking old debt", () => {
@@ -47,12 +47,12 @@ describe("equivalent proposed file effects", () => {
         expect(checkLargeFileLineCountWrite(input, root)).toBeNull();
     });
 
-    it("blocks the unanchored EOF insertion used by the pinned native Codex client", () => {
+    it("advises on growth from the unanchored EOF insertion used by the pinned native Codex client", () => {
         const before = Array.from({ length: 501 }, (_, i) => `value_${i} = ${i}\n`).join("");
         writeFileSync(join(root, "oversized.py"), before);
         const input = patch("*** Update File: oversized.py\n@@\n+extra_value = 1");
         expect(projectFileChanges(input, root)[0]?.after).toBe(`${before}extra_value = 1\n`);
-        expect(checkLargeFileLineCountWrite(input, root)?.block).toContain("503 lines");
+        expect(checkLargeFileLineCountWrite(input, root)?.warning).toContain("503 lines");
     });
 
     it("does not manufacture a baseline for missing or unreadable update targets", () => {

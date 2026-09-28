@@ -351,10 +351,10 @@ export {
 } from "./pre-checks-bash-write-detect.js";
 
 // ===========================================
-// Check 6: Large-file line-count cap (ratchet)
+// Check 6: Advisory file-size preference
 // ===========================================
-// Blocks a Write/Edit that would push a hand-written code file PAST the
-// per-file line cap, or grow a file that is ALREADY past it. Edits that
+// Advises about a Write/Edit that grows a hand-written file past the
+// per-file size preference. This measurement never blocks an edit. Edits that
 // hold or shrink an over-cap file are always allowed (so an oversized file
 // can be refactored down), and so is comment-only growth (docs, not code).
 // Generated, test, .d.ts and non-code files are exempt (see
@@ -364,11 +364,11 @@ export {
 // agent mid-task.
 
 /**
- * The PreToolUse half of the per-file line cap. Returns a `block` when a
- * Write/Edit would grow a cappable file past the cap; null otherwise. The
+ * Returns a warning when a Write/Edit grows a measured file past its
+ * size preference; null otherwise. Physical layout never authorizes a block. The
  * decision is a pure before/after delta against live file state — no
- * baseline lookup — so a grandfathered file is naturally allowed to shrink
- * or hold but not grow.
+ * baseline ceiling comparison — holding, shrinking and comment-only growth
+ * receive no repeated size advice. Growth can warn but is always permitted.
  */
 export function checkLargeFileLineCountWrite(
 	toolInput: JsonObject,
@@ -409,17 +409,11 @@ function checkProjectedFileSize(change: ProjectedFileChange, cwd: string): PreCh
 	}
 
 	const action = before === 0 ? `create ${filePath} at` : `grow ${filePath} to`;
-	const alreadyOver =
-		before > cap
-			? `It is already ${before} lines; edits to it may hold or shrink it, not grow it. `
-			: "";
 	return {
-		block:
-			`[interlinked:file-size] BLOCKED: this would ${action} ${after} lines — ` +
-			`${after - cap} over the ${cap}-line cap for hand-written code files. ${alreadyOver}` +
-			"Extract a cohesive section into its own module first. This line cap is per-repo " +
-			"configurable: `interlinked caps set lines <n>` (`caps explain lines` for why); " +
-			"generated, test, .d.ts, and non-code files (docs/markdown/HTML/data) are exempt. " +
-			"List: large-files-baseline.json.",
+		warning:
+			`[interlinked:file-size] advisory: this would ${action} ${after} lines — ` +
+			`${after - cap} over the ${cap}-line review preference (previously ${before}). ` +
+			"Review module responsibilities when useful. Formatting, removing braces, or compressing " +
+			"expressions is not decomposition; physical file size does not block this edit.",
 	};
 }

@@ -49,7 +49,7 @@ function collectFileSizeWriteWarning(event: HarnessEvent, filePath: string): str
 		const cap = maxLinesFor(root);
 		if (lineCount > cap) {
 			return [
-				`[interlinked:file-size] ${filePath} is ${lineCount} lines — over the ${cap}-line cap for hand-written code. Consider splitting into smaller, focused modules.`,
+				`[interlinked:file-size] advisory: ${filePath} is ${lineCount} lines — over the ${cap}-line review preference. Review responsibilities; do not compress formatting to reduce this count.`,
 			];
 		}
 	} catch (_err) {

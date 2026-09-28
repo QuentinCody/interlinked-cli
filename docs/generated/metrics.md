@@ -19,11 +19,11 @@ agent on any harness-running codebase is never unsure what a metric means.
 
 ## file size (lines) (`lines`)
 
-The number of lines in a single hand-written code file. Large files are harder for a human or agent to read, review, and safely edit, and slower to run a full mutation-test pass over. Generated, test, .d.ts, and non-code files are exempt.
+Physical lines in one hand-written code file: an advisory decomposition preference, never a source-edit or verification block. It is not an LLM token budget or a measure of cohesion. Generated, test, .d.ts, and non-code files are exempt.
 
 - **Shipped default:** 500 lines (lower is stricter)
 - **Configure:** `interlinked caps set lines <n>` (or .interlinked/metric-caps.json → max_lines)
-- **Fix when an edit is blocked:** Split the file into a re-exporting entry module plus smaller sibling modules grouped by responsibility. Shrinking or holding an over-cap file is always allowed.
+- **Review guidance:** Review module responsibilities when useful. Preserve readable formatting and braces; compressing source to lower a line count is not decomposition.
 
 ## canonical function size (per function) (`function-tokens`)
 
@@ -35,7 +35,7 @@ The number of non-trivia lexical code tokens in one implementation under the int
 
 ## cyclomatic complexity (per function) (`cyclomatic`)
 
-The number of independent paths through a single function — +1 for each branch point: if / else-if / for / while / case / catch / && / || / ?:. High complexity means more test cases are needed to cover the function and it is harder to reason about. Enforced per function, and additionally ratcheted: a named function may not INCREASE its complexity even below the cap (no edit makes a function worse).
+The number of independent paths through a single function — +1 for each branch point: if / else-if / for / while / case / catch / && / || / ?:. High complexity means more test cases are needed to cover the function and it is harder to reason about. Enforced per function at the configured cap. Sub-cap increases are permitted; grandfathered over-cap functions must hold or improve. Review behavior and expression structure alongside branch counts.
 
 - **Shipped default:** 25 branches (lower is stricter)
 - **Configure:** `interlinked caps set cyclomatic <n>` (or .interlinked/metric-caps.json → max_cyclomatic)

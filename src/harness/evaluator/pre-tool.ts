@@ -226,6 +226,8 @@ export function evaluatePreToolUse(
 		// apply_patch context validation, and the doomed-Edit/MultiEdit block
 		// with one-round-trip rescue. Composes the old old_string guard.
 		() => evaluateEditContractPhase(event, session, rules, toolName, toolInput, warnings),
+		// Predict raw guard changes before content checks or any input rewrite.
+		() => evaluateGraphPrediction(event, graph, cfg, warnings, ctx),
 		// Write/Edit content validation.
 		() => evaluateWriteContent(event, session, rules, toolName, toolInput, warnings, ctx),
 		// Mutation-directed file-class severity profile (GATE 1 escalation +
@@ -260,8 +262,6 @@ export function evaluatePreToolUse(
 			evaluateSupermodelGraphContext(event, toolName, warnings);
 			return null;
 		},
-		// Graph-prediction protocol.
-		() => evaluateGraphPrediction(event, graph, cfg, warnings, ctx),
 		// One-time project-setup validation (warning-only).
 		() => {
 			evaluateProjectSetupPhase(event, warnings);

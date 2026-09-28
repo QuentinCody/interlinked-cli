@@ -148,14 +148,13 @@ export const METRIC_DEFS: readonly MetricDef[] = [
 		stricter: "lower",
 		defaultValue: DEFAULT_MAX_LINES,
 		definition:
-			"The number of lines in a single hand-written code file. Large files are " +
-			"harder for a human or agent to read, review, and safely edit, and slower to " +
-			"run a full mutation-test pass over. Generated, test, .d.ts, and non-code files " +
-			"are exempt.",
+			"Physical lines in one hand-written code file: an advisory decomposition preference, " +
+			"never a source-edit or verification block. It is not an LLM token budget or a measure " +
+			"of cohesion. Generated, test, .d.ts, and non-code files are exempt.",
 		howToConfigure: "`interlinked caps set lines <n>` (or .interlinked/metric-caps.json → max_lines)",
 		fixHint:
-			"Split the file into a re-exporting entry module plus smaller sibling modules " +
-			"grouped by responsibility. Shrinking or holding an over-cap file is always allowed.",
+			"Review module responsibilities when useful. Preserve readable formatting and braces; " +
+			"compressing source to lower a line count is not decomposition.",
 	},
 	{
 		key: "function-tokens",
@@ -186,8 +185,8 @@ export const METRIC_DEFS: readonly MetricDef[] = [
 			"The number of independent paths through a single function — +1 for each branch " +
 			"point: if / else-if / for / while / case / catch / && / || / ?:. High complexity " +
 			"means more test cases are needed to cover the function and it is harder to reason " +
-			"about. Enforced per function, and additionally ratcheted: a named function may not " +
-			"INCREASE its complexity even below the cap (no edit makes a function worse).",
+			"about. Enforced per function at the configured cap. Sub-cap increases are permitted; " +
+			"grandfathered over-cap functions must hold or improve. Review behavior and expression structure alongside branch counts.",
 		howToConfigure:
 			"`interlinked caps set cyclomatic <n>` (or .interlinked/metric-caps.json → max_cyclomatic)",
 		fixHint:

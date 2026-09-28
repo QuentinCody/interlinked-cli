@@ -360,7 +360,7 @@ function collectReadFileSizeWarning(event: HarnessEvent): string[] {
 		const cap = maxLinesFor(root);
 		if (lineCount > cap) {
 			warnings.push(
-				`[interlinked:file-size] ${filePath} is ${lineCount} lines — over the ${cap}-line cap. If you edit this file, consider refactoring it into smaller modules.`,
+				`[interlinked:file-size] advisory: ${filePath} is ${lineCount} lines — over the ${cap}-line review preference. Review responsibilities; do not compress formatting to reduce this count.`,
 			);
 		}
 	} catch (_err) {

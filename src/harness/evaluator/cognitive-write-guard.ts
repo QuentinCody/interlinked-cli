@@ -15,8 +15,7 @@
 // (`per-function-metric-gate.ts`), so the two per-function metric gates cannot
 // disagree about what "this edit" changed or how a violation is judged. What
 // stays cognitive-specific is exactly the spec below: the analyzer (JS/TS only —
-// there is no Python cognitive counter), the cap resolver, the looser per-edit
-// slew tolerance, and the flatten-not-extract advice.
+// there is no Python cognitive counter), the cap resolver and flattening advice.
 //
 // PERF-DEBT: this parses both sides itself (2 parses) on top of the cyclomatic
 // gate's and the pulse profiles' parses. Consolidating all per-edit AST work
@@ -94,24 +93,7 @@ interface CognitiveWriteBlock {
 	block: string;
 }
 
-/**
- * Per-edit sub-cap SLEW tolerance for cognitive complexity — the cognitive
- * policy is independent of cyclomatic's end-state cap. Historically set
- * higher than the former cyclomatic tolerance: cognitive
- * increments are nesting-weighted, so the same single-edit structural change
- * (e.g. one more branch added a level deeper) costs more cognitive than
- * cyclomatic — the spec's own oracle example puts a 3-deep nested `if` at
- * cyclomatic 4 but cognitive 6 (docs/design/history-relational-metrics.md
- * §"3-deep nested if"), roughly 1.5x at shallow nesting and worse as nesting
- * grows. A tolerance of 2 (the historical cyclomatic value) would false-block routine
- * single-branch edits inside already-nested code; doubling it to 4 keeps
- * "roughly one added branch's worth of nesting-weighted cost" as the
- * per-edit allowance while still catching a genuinely large one-edit jump
- * (e.g. wrapping a block in two new nesting levels at once). The hard cap
- * (`maxCognitiveFor`) is unchanged and remains the END-STATE backstop — a
- * within-tolerance rise that crosses the cap is still caught by the over-cap
- * path, not this one.
- */
+/** @deprecated Historical fixture value only; the cognitive gate no longer enforces slew. */
 export const SUB_CAP_COGNITIVE_RATCHET_TOLERANCE = 4;
 
 /**
@@ -146,7 +128,8 @@ export const SUB_CAP_COGNITIVE_RATCHET_TOLERANCE = 4;
 const COGNITIVE_SPEC: MetricGateSpec<CognitiveComplexityEntry> = {
 	label: "cognitive",
 	anonName: ANON_FN,
-	slewTolerance: SUB_CAP_COGNITIVE_RATCHET_TOLERANCE,
+	// Sub-cap edit size is not a quality invariant: splitting reaches the same state.
+	slewTolerance: null,
 	metricOf: (entry) => entry.cognitive,
 	selectAnalyzer: (filePath) =>
 		JS_TS_RE.test(filePath) ? { compute: computeCognitiveAst, language: "js_ts" } : null,

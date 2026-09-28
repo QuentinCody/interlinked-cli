@@ -86,13 +86,11 @@ model-agnostic). Full analysis and numbers: `docs/design/fable-corpus-extraction
 The harness gates already nudge toward these; adopting them pre-emptively skips the
 block→retry round-trip.
 
-- **Decompose-first.** For naturally-branchy functions — data-shape parsers, summary
-  loaders, multi-screen policy handlers — extract cohesive sub-blocks into named
-  helpers *as you write*, not after the cyclomatic gate blocks you. The best model
-  needed this nudge every time it hit the gate and complied every time, always
-  producing the better decomposed design; pre-empting it is strictly faster. The
-  orchestrator drops under the cap and each extracted helper becomes independently
-  testable — a coverage win too.
+- **Use coherent patches and cohesive helpers.** Group a logical same-file change
+  into one patch when possible. Extract helpers when they clarify responsibility
+  or keep a function within its effective cap. Sequence dependent changes deliberately;
+  sending multiple tools in one message does not create a transaction. Avoid forwarding
+  helpers or splitting edits solely to manipulate a per-call metric increment.
 - **Prefer `Edit` over `Write`** when changing existing code — surgical edits, not
   file rewrites (best-model Edit:Write ≈ 6:1). Full rewrites lose context and trip
   the read/edit-balance and blast-radius detectors.
@@ -218,8 +216,8 @@ function over the cap — promoted from warn-only 2026-08-01 once measurement
 answered the FP-calibration hedge (p99 = 26 against a cap of 30, and the
 over-cap set overlaps heavily with what cyclomatic already refuses). Delta
 semantics, so holding or shrinking an already-over function never blocks; see
-*Monotonic metric ratchet* for the tolerance. `cognitiveWriteWarning` remains
-in the same module as the legacy warn-only signal. The per-edit pulse line
+*Monotonic metric ratchet* for the cap policy. `cognitiveWriteWarning` remains
+in the same module as the legacy warn-only signal. Captured per-edit telemetry
 also carries `cogΣ` and `astΔ`
 (AST semantic-delta: a rename is astΔ 0; a rewritten conditional is not).
 
@@ -999,36 +997,21 @@ on a real `git commit` it diffs `git show HEAD:<f>` vs the staged blob through t
 (`checks/snapshot-hygiene.ts`, advisory), blocks writing a `*.snap.new` / `*.pending-snap`
 snapshot-review artifact (the snapshot analog of leaving an `.only`/`.skip` behind).
 
-## Monotonic metric ratchet (bounded per-edit growth, hard cap as backstop)
+## Monotonic metric ratchet (effective caps and retained debt)
 
-Spec: `docs/design/monotonic-metric-ratchet.md`. Four metrics, each gated so no
-edit leaves a function past its hard cap and (cyclomatic, cognitive) no single
-edit makes a big complexity jump (per tool call, trajectory-aware via the
-on-disk/baseline state). Every cap number below lives in
-`.interlinked/metric-caps.json` — read it, don't trust this prose:
-- **Cyclomatic** — `complexity-write-guard.ts`: a uniquely-named function present
-  before+after may rise by at most `SUB_CAP_RATCHET_TOLERANCE` (= 2) branches *per
-  edit* while at/under the 22-branch cap (`subCapRatchetViolations`); a larger
-  one-edit jump blocks. New/anonymous/collision functions and any end-state over
-  the cap are bounded by the cap (the over-cap path). No suppression; the escape
-  is to decompose. Small rises across edits can walk a function toward the cap but
-  never past it (the cap is the ceiling; the slew limit only governs how fast you
-  approach it). Set the constant to 1 for a tighter "+1/edit" policy.
+The historical design is `docs/design/monotonic-metric-ratchet.md`. Current policy
+uses effective caps and grandfather identities, without sub-cap edit-size limits.
+Read `.interlinked/metric-caps.json` and `interlinked caps status` for this repo's values.
+- **Cyclomatic** — `complexity-write-guard.ts`: new over-cap functions and over-cap
+  growth block. Under-cap changes can land in one coherent patch. Existing debt may
+  hold or shrink according to the grandfather ledger; splitting cannot relax the cap.
 - **Coverage** — `coverage-write-decision.ts` (pre-existing): blocks an uncovered
   added line or a per-file coverage drop vs `coverage-baseline.json` (high-water).
-- **Cognitive** — `cognitive-write-guard.ts`: mirrors the cyclomatic rules against
-  the 30-point cognitive cap, with `SUB_CAP_COGNITIVE_RATCHET_TOLERANCE` (= 4),
-  not 2 — cognitive runs ~1.5x higher than cyclomatic at shallow nesting and
-  worse as it deepens, so copying 2 would false-block routine edits inside
-  already-nested code. STRICTER than cyclomatic in one respect: it compares
-  uniquely-named functions by identity (plus pooled rank for anonymous ones), so
-  "shrink the target, spawn an over-cap helper" still blocks — cyclomatic's
-  rank-only comparison reads that as an improvement and allows it. The block
-  message steers toward flattening (guard clauses, extract the deepest-nested
-  block), not cyclomatic's "extract a branch".
+- **Cognitive** — `cognitive-write-guard.ts`: the former +4-per-edit block is removed.
+  Cap crossing, over-cap growth and grandfather identity rules remain enforced.
+  Flatten nesting with guard clauses or cohesive helper responsibilities when useful.
 - **CRAP** — implied: CRAP = cyclo²·(1−cov)³+cyclo is ↑ in cyclo, ↓ in cov, so the
-  bounded cyclomatic slew + coverage-hold-or-↑ bound the per-edit CRAP rise — it
-  inherits the relaxation automatically. There is **no** separate sub-cap CRAP
+  cyclomatic and coverage changes can both affect it. There is **no** separate sub-cap CRAP
   ratchet: every CRAP gate (`decideCrap` block, `computeCrapRisers` advisory)
   fires only at/over cap 25, which bounds new/touched functions and is the
   end-state backstop. A function whose coverage is UNKNOWN (no report entry)

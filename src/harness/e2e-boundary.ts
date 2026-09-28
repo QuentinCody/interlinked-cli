@@ -9,7 +9,7 @@ export const LEDGER_WRITERS = [
     "src/harness/crap-telemetry.ts", "src/harness/daemon-ledger.ts", "src/harness/ephemeral-write-log.ts",
     "src/harness/error-history.ts", "src/harness/failure-record.ts", "src/harness/findings/corpus.ts",
     "src/harness/findings/simplification-record.ts", "src/harness/gate-reach-collect.ts", "src/harness/graph-prediction-cache.ts",
-    "src/harness/latency-log.ts", "src/harness/mutation/manifest.ts", "src/harness/mutation/mutation-cloud-v3-finding-delivery.ts",
+    "src/harness/guard-prediction.ts", "src/harness/latency-log.ts", "src/harness/mutation/manifest.ts", "src/harness/mutation/mutation-cloud-v3-finding-delivery.ts",
     "src/harness/mutation/run-log.ts", "src/harness/obligation-ledger-io.ts", "src/harness/plan-capture.ts",
     "src/harness/policy-classifier.ts", "src/harness/project-e2e/ledger.ts", "src/harness/project-e2e/policy-changes.ts", "src/harness/project-e2e/requests.ts", "src/harness/project-e2e/stability.ts","src/harness/replay/eval-ledger.ts", "src/harness/replay/inference-store.ts",
     "src/harness/replay/state-archive.ts", "src/harness/replay/tree-snapshot.ts", "src/harness/spec/reconciliation.ts",

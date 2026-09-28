@@ -65,6 +65,6 @@ describe("checkLargeFileLineCountWrite — apply_patch Delete File section", () 
 			"*** End Patch",
 		].join("\n");
 		const result = checkLargeFileLineCountWrite({ command: raw }, dir);
-		expect(result?.block).toContain("file-size");
+		expect(result?.warning).toContain("file-size");
 	});
 });

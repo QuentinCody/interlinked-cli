@@ -228,7 +228,7 @@ describe("evaluatePreChecksTail", () => {
 		expect(out?.rule_id).toBe("function-tokens-cap");
 		expect(out?.reason).toContain("function-tokens");
 	});
-	it("blocks a Write that would create a code file over the per-file line cap", () => {
+	it("advises without blocking when a Write exceeds the per-file line preference", () => {
 		const filePath = join(tmp, "huge.ts");
 		// 2000 trivial lines — comfortably past the 800-line cap.
 		const content = Array.from({ length: 2000 }, (_, i) => `export const v${i} = ${i};`).join("\n");
@@ -241,11 +241,9 @@ describe("evaluatePreChecksTail", () => {
 			{ file_path: filePath, content },
 			warnings,
 		);
-		expect(out?.decision).toBe("block");
-		expect(out?.rule_id).toBe("large-file-cap");
-		expect(out?.severity).toBe("medium");
-		expect(out?.category).toBe("file-size");
-		expect(out?.reason).toContain("[interlinked:file-size]");
+		expect(out).toBeNull();
+		expect(warnings.join("\n")).toContain("[interlinked:file-size]");
+		expect(warnings.join("\n")).toContain("advisory");
 	});
 
 	it("blocks a Write that introduces a NEW over-cyclomatic-cap function", () => {

@@ -19,6 +19,7 @@ import { extractScannableContent } from "../content-scanner/extractor.js";
 import type { ContentScanRequest } from "../content-scanner/types.js";
 import type { ErrorHistory } from "../error-history.js";
 import { driveGraphPrediction } from "../graph-prediction-pre-tool.js";
+import { driveGuardPrediction, guardPredictionMode } from "../guard-prediction.js";
 import {
 	DEFAULT_LOCKDOWN_CONFIG,
 	evaluateLockdown,
@@ -375,6 +376,10 @@ export function evaluateGraphPrediction(
 	warnings: string[],
 	ctx: PreToolCtx,
 ): HarnessDecision | null {
+	// Local guard ownership participates even when graph prediction is disabled.
+	const guard = driveGuardPrediction(event, guardPredictionMode(sharedConfig));
+	if (guard?.decision === "block") return guard;
+	warnings.push(...(guard?.warnings ?? []));
 	if (!isGraphPredictionEnabled(sharedConfig)) return null;
 	const mode = readGraphPredictionMode(sharedConfig);
 	const cwd = event.cwd || process.cwd();

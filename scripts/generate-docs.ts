@@ -462,7 +462,7 @@ function generateMetrics(): string {
 		lines.push(d.definition, "");
 		lines.push(`- **Shipped default:** ${d.defaultValue}${unit} (${d.stricter} is stricter)`);
 		lines.push(`- **Configure:** ${d.howToConfigure}`);
-		lines.push(`- **Fix when an edit is blocked:** ${d.fixHint}`, "");
+		lines.push(`- **${d.key === "lines" ? "Review guidance" : "Fix when an edit is blocked"}:** ${d.fixHint}`, "");
 	}
 	return `${lines.join("\n")}\n`;
 }

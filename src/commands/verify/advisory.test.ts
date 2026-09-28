@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_ADVISORY_SKIPS, JS_TS_EXTS, TOOL_IDS } from "./advisory.js";
 
 describe("DEFAULT_ADVISORY_SKIPS", () => {
+    it("keeps physical file length advisory so formatting cannot block verification", () => {
+        expect(DEFAULT_ADVISORY_SKIPS.has("large_files")).toBe(true);
+    });
     it("keeps Python simplification advice outside the default gate", () => {
         expect(DEFAULT_ADVISORY_SKIPS.has("python_simplification")).toBe(true);
     });

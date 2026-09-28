@@ -2,7 +2,7 @@
 // Targets the specific uncovered lines/branches from coverage/lcov.info:
 // coldGraphShardBlockReason (incl. extractColdTargetPaths, colColdToolName),
 // coldMergeConflictBlockReason, coldDestructiveCommandBlockReason,
-// coldPackageInstallBlockReason, coldLargeFileBlockReason.
+// coldPackageInstallBlockReason, coldLargeFileWarning.
 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,12 +29,13 @@ vi.mock("node:fs", async (importOriginal) => {
 	};
 });
 
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import type { ToolCallAction, UnifiedHookEvent } from "./harness/unified-event.js";
 import {
 	coldDestructiveCommandBlockReason,
 	coldGraphShardBlockReason,
-	coldLargeFileBlockReason,
+	coldLargeFileWarning,
+	coldGuardPredictionDecision,
 	coldMergeConflictBlockReason,
 	coldPackageInstallBlockReason,
 } from "./hook-entry-cold-gates.js";
@@ -104,6 +105,14 @@ function makeFileOpEvent(over: {
 // ===========================================================================
 // coldGraphShardBlockReason
 // ===========================================================================
+it("native cold guard prediction honors dry runs without writing a reveal", () => {
+    writeFileSync(join(cwd, "guard.ts"), "function f(){if(ok)return 1;}");
+    const event = makeToolCallEvent({ tool_name: "Write", tool_input: { file_path: "guard.ts", content: "function f(){return 1;}" } });
+    event.raw = { dry_run: true };
+    expect(coldGuardPredictionDecision(event)?.decision).toBe("block");
+    expect(existsSync(join(cwd, ".interlinked/predictions"))).toBe(false);
+});
+
 describe("coldGraphShardBlockReason", () => {
 	afterEach(() => {
 		delete process.env.INTERLINKED_DISABLE_GRAPH_SHARD_INLINE;
@@ -544,37 +553,37 @@ describe("coldPackageInstallBlockReason", () => {
 });
 
 // ===========================================================================
-// coldLargeFileBlockReason
+// coldLargeFileWarning
 // ===========================================================================
-describe("coldLargeFileBlockReason", () => {
+describe("coldLargeFileWarning", () => {
 	it("returns null outside the pre-tool phase", () => {
 		const event = makeToolCallEvent({
 			phase: "post-tool",
 			tool_input: { file_path: join(cwd, "a.ts"), content: "x\n".repeat(600) },
 		});
-		expect(coldLargeFileBlockReason(event)).toBeNull();
+		expect(coldLargeFileWarning(event)).toBeNull();
 	});
 
 	it("returns null for an action kind that is not tool_call", () => {
 		const event = makeFileOpEvent({ path: join(cwd, "a.ts") });
-		expect(coldLargeFileBlockReason(event)).toBeNull();
+		expect(coldLargeFileWarning(event)).toBeNull();
 	});
 
 	it("returns null for a small file well under the line cap", () => {
 		const event = makeToolCallEvent({
 			tool_input: { file_path: join(cwd, "small.ts"), content: "export const x = 1;\n" },
 		});
-		expect(coldLargeFileBlockReason(event)).toBeNull();
+		expect(coldLargeFileWarning(event)).toBeNull();
 	});
 
-	it("blocks creating a hand-written code file that starts over the line cap", () => {
+	it("advises about creating a hand-written code file above the size preference", () => {
 		const bigContent = Array.from({ length: 600 }, (_, i) => `export const v${i} = ${i};`).join(
 			"\n",
 		);
 		const event = makeToolCallEvent({
 			tool_input: { file_path: join(cwd, "big.ts"), content: bigContent },
 		});
-		const reason = coldLargeFileBlockReason(event);
+		const reason = coldLargeFileWarning(event);
 		expect(reason).not.toBeNull();
 		expect(typeof reason).toBe("string");
 	});
@@ -584,12 +593,12 @@ describe("coldLargeFileBlockReason", () => {
 			tool_input: { file_path: join(cwd, "x.ts"), content: "export const x = 1;\n" },
 			cwd: "",
 		});
-		expect(coldLargeFileBlockReason(event)).toBeNull();
+		expect(coldLargeFileWarning(event)).toBeNull();
 	});
 
 	it("treats a missing tool_input as an empty object (?? fallback -> no file_path, no crash)", () => {
 		const event = makeToolCallEvent({});
 		event.action.tool_input = undefined;
-		expect(coldLargeFileBlockReason(event)).toBeNull();
+		expect(coldLargeFileWarning(event)).toBeNull();
 	});
 });

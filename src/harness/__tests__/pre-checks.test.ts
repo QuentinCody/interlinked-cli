@@ -72,12 +72,12 @@ describe("checkLargeFileLineCountWrite", () => {
 
 	// --- Blocks (the write would grow a cappable file past the cap) ---
 
-	it("blocks a brand-new code file written over the cap", () => {
+	it("warns about a brand-new code file written over the cap", () => {
 		const result = checkLargeFileLineCountWrite(
 			{ file_path: file("big.ts"), content: lines(CAP + 600) },
 			dir,
 		);
-		expect(result?.block).toContain(`${CAP}-line cap`);
+		expect(result?.warning).toContain(`${CAP}-line review preference`);
 	});
 
 	it("allows an over-cap file OUTSIDE the guarded root — session scratchpad artifact", () => {
@@ -99,34 +99,34 @@ describe("checkLargeFileLineCountWrite", () => {
 		}
 	});
 
-	it("blocks a Write that grows an existing under-cap file past the cap", () => {
+	it("warns about a Write that grows an existing under-cap file past the cap", () => {
 		const path = file("grow.ts");
 		writeFileSync(path, lines(CAP));
 		const result = checkLargeFileLineCountWrite({ file_path: path, content: lines(CAP + 700) }, dir);
-		expect(result?.block).toBeDefined();
+		expect(result?.warning).toBeDefined();
 	});
 
-	it("blocks an Edit that grows a near-cap file past the cap", () => {
+	it("warns about an Edit that grows a near-cap file past the cap", () => {
 		const path = file("edit.ts");
 		writeFileSync(path, lines(CAP - 10));
 		const result = checkLargeFileLineCountWrite(
 			{ file_path: path, old_string: "const x = 1;", new_string: lines(21) },
 			dir,
 		);
-		expect(result?.block).toBeDefined();
+		expect(result?.warning).toBeDefined();
 	});
 
-	it("blocks a MultiEdit whose net growth crosses the cap", () => {
+	it("warns about a MultiEdit whose net growth crosses the cap", () => {
 		const path = file("multi.ts");
 		writeFileSync(path, lines(CAP - 5));
 		const result = checkLargeFileLineCountWrite(
 			{ file_path: path, edits: [{ old_string: "const x = 1;", new_string: lines(20) }] },
 			dir,
 		);
-		expect(result?.block).toBeDefined();
+		expect(result?.warning).toBeDefined();
 	});
 
-	it("blocks an Edit that grows an already-over-cap file", () => {
+	it("warns about an Edit that grows an already-over-cap file", () => {
 		const path = file("already-big.ts");
 		const before = CAP + 800;
 		writeFileSync(path, lines(before));
@@ -134,7 +134,7 @@ describe("checkLargeFileLineCountWrite", () => {
 			{ file_path: path, old_string: "const x = 1;", new_string: lines(10) },
 			dir,
 		);
-		expect(result?.block).toContain(`already ${before} lines`);
+		expect(result?.warning).toContain(`previously ${before}`);
 	});
 
 	// --- Allows (within cap, shrinking, or exempt) ---
@@ -201,7 +201,7 @@ describe("checkLargeFileLineCountWrite", () => {
 			{ file_path: path, old_string: "const x = 1;", new_string: lines(5) },
 			dir,
 		);
-		expect(result?.block).toContain(`${customCap}-line cap`);
+		expect(result?.warning).toContain(`${customCap}-line review preference`);
 	});
 
 	it("fails open on tool shapes it cannot project (apply_patch)", () => {
@@ -297,7 +297,7 @@ describe("checkLargeFileLineCountWrite", () => {
 			{ file_path: path, old_string: "const x = 1;", new_string: "const x = 1;\nconst y = 2;" },
 			dir,
 		);
-		expect(result?.block).toBeDefined();
+		expect(result?.warning).toBeDefined();
 	});
 
 	it("still blocks a MIXED edit (comments + code) whose code line count grows", () => {
@@ -311,7 +311,7 @@ describe("checkLargeFileLineCountWrite", () => {
 			},
 			dir,
 		);
-		expect(result?.block).toBeDefined();
+		expect(result?.warning).toBeDefined();
 	});
 
 	it("still blocks comment-laundered code: template-literal data lines count as code", () => {
@@ -325,7 +325,7 @@ describe("checkLargeFileLineCountWrite", () => {
 			},
 			dir,
 		);
-		expect(result?.block).toBeDefined();
+		expect(result?.warning).toBeDefined();
 	});
 
 	// --- Survivor-elimination additions (docs/plans/15-survivor-elimination-campaign.md) ---
@@ -342,13 +342,13 @@ describe("checkLargeFileLineCountWrite", () => {
 			{ file_path: 123, path, content: lines(CAP + 600) },
 			dir,
 		);
-		expect(result?.block).toContain(path);
+		expect(result?.warning).toContain(path);
 	});
 
 	it("uses `path` when `file_path` is absent (L378)", () => {
 		const path = file("viapath-only.ts");
 		const result = checkLargeFileLineCountWrite({ path, content: lines(CAP + 600) }, dir);
-		expect(result?.block).toContain(path);
+		expect(result?.warning).toContain(path);
 	});
 
 	it("ignores a non-string `path` when `file_path` is also absent (L378)", () => {
@@ -413,21 +413,20 @@ describe("checkLargeFileLineCountWrite", () => {
 			{ file_path: path, content: lines(CAP + 50) },
 			dir,
 		);
-		expect(result?.block).toContain(`grow ${path} to`);
-		expect(result?.block).not.toContain(`create ${path} at`);
+		expect(result?.warning).toContain(`grow ${path} to`);
+		expect(result?.warning).not.toContain(`create ${path} at`);
 	});
 
-	it("emits the exact BLOCKED message for a brand-new over-cap file — pins every literal + the delta arithmetic (L408/L410/L412/L415-L420)", () => {
+	it("emits the exact advisory message for a brand-new over-cap file — pins every literal + the delta arithmetic (L408/L410/L412/L415-L420)", () => {
 		const path = file("exact-message.ts");
 		const after = CAP + 600;
 		const result = checkLargeFileLineCountWrite({ file_path: path, content: lines(after) }, dir);
-		expect(result?.block).toBe(
-			`[interlinked:file-size] BLOCKED: this would create ${path} at ${after} lines — ` +
-				`${after - CAP} over the ${CAP}-line cap for hand-written code files. ` +
-				"Extract a cohesive section into its own module first. This line cap is per-repo " +
-				"configurable: `interlinked caps set lines <n>` (`caps explain lines` for why); " +
-				"generated, test, .d.ts, and non-code files (docs/markdown/HTML/data) are exempt. " +
-				"List: large-files-baseline.json.",
+		expect(result?.block).toBeUndefined();
+		expect(result?.warning).toBe(
+			`[interlinked:file-size] advisory: this would create ${path} at ${after} lines — ` +
+				`${after - CAP} over the ${CAP}-line review preference (previously 0). ` +
+				"Review module responsibilities when useful. Formatting, removing braces, or compressing expressions " +
+				"is not decomposition; physical file size does not block this edit.",
 		);
 	});
 
@@ -438,8 +437,8 @@ describe("checkLargeFileLineCountWrite", () => {
 			{ file_path: path, old_string: "const x = 1;", new_string: lines(11) },
 			dir,
 		);
-		expect(result?.block).toBeDefined();
-		expect(result?.block).not.toContain("already");
+		expect(result?.warning).toBeDefined();
+		expect(result?.warning).not.toContain("already");
 	});
 });
 

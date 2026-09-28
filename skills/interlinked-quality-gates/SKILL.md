@@ -5,6 +5,13 @@ description: "Configure and respond to Interlinked's metric ratchets: line-count
 
 # interlinked-quality-gates — the metric ratchets
 
+Physical per-file size is now advisory. The `lines` setting remains a review
+preference and historical measurements remain available; it never blocks source
+edits, native cold fallback, verification or commits solely for size. Do not remove
+braces, join lines, invent temporary variables, or split modules merely to satisfy
+that number. This is a decomposition prompt, not an LLM context-token budget.
+Guard ownership belongs to predict–reveal–reconcile; see **interlinked-harness**.
+
 File-size and per-function checks share Write/Edit/MultiEdit and native patch projection.
 Multi-file patches check every reconstructed target, and moves retain their source
 before-state. Equivalent known effects face the same policy. Unknown reconstruction
@@ -148,12 +155,12 @@ or block.
 
 | Gate | Blocks when | Threshold | Correct response |
 |---|---|---|---|
-| **Line cap** | a Write/Edit grows a *cappable* file past its ceiling | **500** lines (`DEFAULT_MAX_LINES`) | Decompose into a re-exporting entry + sibling modules |
+| **File-size preference** | never blocks; advice on growing files | **500** physical lines (`DEFAULT_MAX_LINES`) | Review module responsibilities; preserve readable layout |
 | **Function tokens** | an edit introduces or grows an implementation above the inclusive canonical-token cap | **500** tokens; no per-edit slew allowance | Extract cohesive helpers; an already-over-cap function may hold or shrink |
 | **Cyclomatic — over cap** | edit adds/raises a function over the hard cap | shipped **25**; this repo overrides to **22** | Extract cohesive branches into named helpers |
 | **Cyclomatic — below cap** | no edit-size restriction; the resulting function is within its effective cap | no slew | Prefer cohesive implementation; avoid extraction solely to reduce the size of one edit |
 | **Cognitive — over cap** | edit leaves a function over the cognitive cap | **30** | Flatten: guard clauses, extract the deepest-nested block |
-| **Cognitive — slew** | a uniquely-named ≤cap function jumps **>4** cognitive points in one edit | tolerance **4**/edit | Flatten rather than extract-in-place; a branch pulled out unchanged keeps its nesting cost |
+| **Cognitive — below cap** | no edit-size restriction while the resulting function stays within its effective cap | no slew | Use coherent patches and cohesive helpers; flatten nesting where useful |
 | **Per-edit coverage** | edit adds an uncovered executable line/function, or drops a file's coverage vs its high-water | gate default on; drop ε 0.005; hard floor `min_coverage` default 0 (off) | Stay within the source/test pair and add coverage; default debt mode allows the first uncovered/red edit but blocks unrelated wandering |
 
 **Coverage has a GOAL, not a cap (2026-08-17).** `coverage_goal` in
@@ -200,11 +207,12 @@ rails and every tighten-only ratchet ignore the mode. Hand edits to
   `unvalidated_input_boundary`.
 - Class-2 knobs: `per_edit_mutation.max_test_scope` (default 150) and
   `per_edit_coverage.drop_epsilon` (default 0.005) — engine budgets, tunable;
-  the slew tolerances and daemon timings deliberately are not.
+  daemon timings are separate implementation budgets. Cognitive and cyclomatic have no sub-cap slew rule.
 
-**Line cap** — three surfaces, one policy: PreToolUse block (pure before/after delta — shrinking
-or holding an over-cap file is always allowed, the refactor-down path), a `large_files` verify
-check, and a `[interlinked:file-size]` PostToolUse nudge. **Cappable = hand-written code only**;
+**File size** — three advisory surfaces: PreToolUse growth advice,
+`large_files` under `verify --all-checks`, and a `[interlinked:file-size]` PostToolUse
+nudge. None refuses edits. Historical baselines and measurements remain intact.
+**Cappable = hand-written code only**;
 exempt: `.d.ts`, anything under `.interlinked/`, root `scratch/`, non-code extensions
 (md/json/yaml/toml/html/…), generated files (`.gen.`/`generated/` path or `@generated`
 content), test/spec paths, and `@codegen-data`-marked modules.
@@ -1282,9 +1290,9 @@ first measured sighting. The lower-level brownfield manifest adoption helper is 
 public `interlinked mutation adopt` command.
 
 ## Gotchas
-- **The line cap is ONE number.** `DEFAULT_MAX_LINES` (code) and `max_lines`
+- **The advisory file-size preference is ONE number.** `DEFAULT_MAX_LINES` (code) and `max_lines`
   (large-files-baseline) are pinned equal by a test; `metric-caps.json → max_lines` overrides
-  both. Ratchet down by editing them together (or `caps set lines`).
+  both. `caps set lines` changes the review threshold, not a source-edit gate.
 - **The function-token cap is canonical, not model-specific.** Use `caps set function-tokens`
   to tighten it. Do not infer pass/fail from MiniLM, Nomic, llama.cpp, or another model tokenizer.
 - **Lowering a baseline is exactly what the integrity gate stops.** If you're blocked editing a

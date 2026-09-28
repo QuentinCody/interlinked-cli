@@ -157,15 +157,16 @@ describe("checkCognitiveComplexityWrite — sub-cap per-edit slew ratchet", () =
 		expect(out).toBeNull();
 	});
 
-	it("BLOCKS a sub-cap rise one past the tolerance (10 -> 15 at the default)", () => {
+	it("ALLOWS 10 -> 15 as one edit and as split edits with the same end state", () => {
 		const file = join(tmp, "slew-over.ts");
 		const pre = 10;
 		const post = pre + SUB_CAP_COGNITIVE_RATCHET_TOLERANCE + 1;
 		writeFileSync(file, flat("f", pre));
 		const out = checkCognitiveComplexityWrite({ file_path: file, content: flat("f", post) }, tmp);
-		expect(out?.block).toContain(`${pre} -> ${post}`);
-		expect(out?.block).toContain(`rose ${post - pre} in one edit`);
-		expect(out?.block).toContain(`+${SUB_CAP_COGNITIVE_RATCHET_TOLERANCE}/edit`);
+		expect(out).toBeNull();
+		expect(checkCognitiveComplexityWrite({ file_path: file, content: flat("f", 13) }, tmp)).toBeNull();
+		writeFileSync(file, flat("f", 13));
+		expect(checkCognitiveComplexityWrite({ file_path: file, content: flat("f", post) }, tmp)).toBeNull();
 	});
 
 	it("still BLOCKS a within-tolerance rise that crosses the cap (cap is the backstop)", () => {
