@@ -22,8 +22,16 @@ cleanup() { rm -rf "$PACK_DIR" "$SMOKE_DIR"; }
 trap cleanup EXIT
 
 # `npm pack` runs prepack → build, so the tarball reflects current source.
-npm pack --pack-destination "$PACK_DIR" >/dev/null
-TARBALL="$(ls -t "$PACK_DIR"/interlinked-cli-*.tgz | head -n 1)"
+# CI packs ONCE in its build job and hands the exact bytes down via
+# INTERLINKED_TARBALL, so lint (publint/attw) and this smoke judge the same
+# artifact; locally the script packs for itself.
+if [ -n "${INTERLINKED_TARBALL:-}" ]; then
+  [ -f "$INTERLINKED_TARBALL" ] || { echo "INTERLINKED_TARBALL is not a file: $INTERLINKED_TARBALL" >&2; exit 1; }
+  TARBALL="$(cd "$(dirname "$INTERLINKED_TARBALL")" && pwd)/$(basename "$INTERLINKED_TARBALL")"
+else
+  npm pack --pack-destination "$PACK_DIR" >/dev/null
+  TARBALL="$(find "$PACK_DIR" -name 'interlinked-cli-*.tgz' -print -quit)"
+fi
 echo "Installing: $TARBALL"
 
 cd "$SMOKE_DIR"

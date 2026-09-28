@@ -136,18 +136,20 @@ jobs:
       - name: Strict e2e coverage ratchet
         run: node dist/index.js coverage check --lane e2e --strict --require-measured --base "$E2E_BASE" --report coverage-e2e/coverage-summary.json
 
-  package:
-    name: package (Linux / Node 22)
+  # Packaging is four jobs, not one. The old single `package` job ran SIX
+  # sequential installs/builds (npm ci, build, publint --pack, attw --pack,
+  # `npm pack --dry-run`, then a tarball smoke and an onboarding smoke that each
+  # packed/built again) and needed a 35-minute budget: run 33822162421
+  # (2026-09-04) took 11 min to reach the tarball smoke and 7 min inside it, and
+  # run 36421358139 (2026-09-28) still spent 527 s on the job, the longest lane
+  # of the whole workflow. Now the tarball is packed ONCE and the exact bytes
+  # flow to publint, attw and the install smoke; onboarding is a separate,
+  # independent fresh-source check (git clone → npm ci → build → npm link) and
+  # never consumes the tarball, because that is the path a new user walks.
+  package-build:
+    name: package build (Linux / Node 22)
     runs-on: ubuntu-latest
-    # 35, not 20: this lane runs SIX sequential installs/builds — npm ci, build,
-    # publint, attw, `npm pack`, then a full tarball-install smoke and a full
-    # git-clone onboarding smoke that each do their own install+build. Measured
-    # on run 33822162421 (2026-09-04): 11min to reach the tarball smoke, 7min for
-    # the tarball smoke itself, leaving `npm link` inside the onboarding smoke
-    # only 86s before the 20min cap killed it as an orphan — every step had
-    # PASSED, the job just ran out of wall clock. The same smoke completes
-    # locally under the pre-push gate, so this is budget, not a hang.
-    timeout-minutes: 35
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -161,26 +163,121 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      # `npm pack` runs prepack → build, so this is the build step too.
+      - name: Pack tarball
+        run: |
+          mkdir -p pack
+          npm pack --pack-destination pack
+          ls -l pack
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: interlinked-cli-tarball
+          path: pack/interlinked-cli-*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  package-lint:
+    name: package lint (Linux / Node 22)
+    runs-on: ubuntu-latest
+    needs: package-build
+    timeout-minutes: 15
+    # No checkout, no `npm ci`: publint and attw both accept a .tgz path, so
+    # they judge the packed bytes and nothing else.
+    steps:
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Download tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: interlinked-cli-tarball
+          path: pack
 
       - name: Lint package with publint
-        run: npx publint
+        run: npx --yes publint run "$(ls pack/interlinked-cli-*.tgz)"
 
       - name: Check types with arethetypeswrong
-        run: npx --package=@arethetypeswrong/cli attw --pack . --profile esm-only
+        run: npx --yes --package=@arethetypeswrong/cli attw "$(ls pack/interlinked-cli-*.tgz)" --profile esm-only
 
-      - name: Pack dry-run
-        run: npm pack --dry-run
+  package-smoke:
+    name: package smoke (Linux / Node 22)
+    runs-on: ubuntu-latest
+    needs: package-build
+    # 25: the tarball smoke alone once took 7 min on a slow runner (see above);
+    # this job no longer pays for the in-tree install/build before it.
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
 
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Download tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: interlinked-cli-tarball
+          path: pack
+
+      # The smoke installs the downloaded tarball; it never packs or builds the
+      # checkout (the checkout is only read for the contract digest and the
+      # project-e2e fixture).
       - name: Tarball install smoke test
-        run: bash scripts/smoke-tarball-install.sh
+        run: INTERLINKED_TARBALL="$(ls pack/interlinked-cli-*.tgz)" bash scripts/smoke-tarball-install.sh
+
+  onboarding:
+    name: onboarding (Linux / Node 22)
+    runs-on: ubuntu-latest
+    # Independent of the tarball on purpose: this is the fresh-source install
+    # path (git clone → npm ci → npm run build → npm link → hooks → daemon)
+    # a new user walks, so it must keep doing its own install and build.
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
 
       - name: Onboarding smoke test (git-clone install path)
         env:
-          # Run against the in-tree checkout (already built above) so the smoke
-          # catches drift introduced by the current PR before it lands. On main
-          # pushes this also exercises the install path new users walk through.
+          # Run against the in-tree checkout so the smoke catches drift
+          # introduced by the current PR before it lands. On main pushes this
+          # also exercises the install path new users walk through.
           INTERLINKED_REPO_URL: ${{ github.workspace }}
           INTERLINKED_REPO_REF: HEAD
         run: bash scripts/smoke-onboarding.sh
+
+  # The `main` ruleset requires a status check named EXACTLY
+  # `package (Linux / Node 22)` (the old single job's name). This aggregate
+  # keeps that contract: it always runs, and passes only when every packaging
+  # job above reported `success` — `failure`, `cancelled` and `skipped` all
+  # fail it, so a skipped dependency can never satisfy the required check.
+  # Pinned by src/__tests__/ci-pipeline-parity.integration.test.ts.
+  package:
+    name: package (Linux / Node 22)
+    runs-on: ubuntu-latest
+    needs: [package-build, package-lint, package-smoke, onboarding]
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Require every packaging job to succeed
+        env:
+          PACKAGE_BUILD: ${{ needs.package-build.result }}
+          PACKAGE_LINT: ${{ needs.package-lint.result }}
+          PACKAGE_SMOKE: ${{ needs.package-smoke.result }}
+          ONBOARDING: ${{ needs.onboarding.result }}
+        run: bash scripts/ci-require-success.sh PACKAGE_BUILD PACKAGE_LINT PACKAGE_SMOKE ONBOARDING

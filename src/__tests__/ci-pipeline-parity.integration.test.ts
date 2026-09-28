@@ -96,24 +96,29 @@ const CI_STEPS: readonly CiStep[] = [
 	{ name: "Test (unit lane, shard ${{ matrix.shard }})", mirror: "pre-push", command: "npm test" },
 	{ name: "Test (integration lane)", mirror: "pre-push", command: "npm test" },
 	{
-		name: "Build",
+		name: "Pack tarball",
 		mirror: "skip",
-		reason: "build artifact — typecheck already covers source correctness; build itself is release-shape",
+		reason: "npm pack (prepack → build) — the one packed artifact every package-* job judges; release-shape, and typecheck already covers source correctness",
+	},
+	{
+		name: "Upload tarball",
+		mirror: "skip",
+		reason: "actions/upload-artifact — CI transport for the packed bytes; scripts/ci-packaging.sh hands the same path down through INTERLINKED_TARBALL",
+	},
+	{
+		name: "Download tarball",
+		mirror: "skip",
+		reason: "actions/download-artifact — CI transport (package-lint and package-smoke); locally the tarball never leaves the packing tmpdir",
 	},
 	{
 		name: "Lint package with publint",
 		mirror: "skip",
-		reason: "publint — package.json shape check; release-time only",
+		reason: "publint on the packed .tgz — package shape check; release-time only",
 	},
 	{
 		name: "Check types with arethetypeswrong",
 		mirror: "skip",
-		reason: "attw — types-publish surface check; release-time only",
-	},
-	{
-		name: "Pack dry-run",
-		mirror: "skip",
-		reason: "npm pack --dry-run — release-time tarball smoke",
+		reason: "attw on the packed .tgz — types-publish surface check; release-time only",
 	},
 	{
 		name: "Tarball install smoke test",
@@ -125,7 +130,17 @@ const CI_STEPS: readonly CiStep[] = [
 		mirror: "skip",
 		reason: "git-clone install walkthrough — too slow for pre-push (~minute)",
 	},
+	{
+		name: "Require every packaging job to succeed",
+		mirror: "skip",
+		reason: "aggregate for the ruleset's required `package (Linux / Node 22)` check — CI status plumbing, not a check the hook could mirror; the gate script is tested directly below",
+	},
 ];
+
+/** The `main` ruleset requires a status check with exactly this name. */
+const REQUIRED_PACKAGE_CHECK = "package (Linux / Node 22)";
+const PACKAGING_JOBS = ["package-build", "package-lint", "package-smoke", "onboarding"] as const;
+const REQUIRE_SUCCESS_SCRIPT = resolve(REPO_ROOT, "scripts", "ci-require-success.sh");
 
 /** Extract every `- name: <step>` from the matrix job. Strips the
  *  leading `- name:` and any trailing whitespace. Doesn't try to
@@ -178,6 +193,72 @@ describe("CI ↔ pre-push pipeline parity", () => {
 				expect(step.reason.trim().length).toBeGreaterThan(0);
 			});
 		}
+	});
+});
+
+// ===========================================
+// Required `package (Linux / Node 22)` status check
+// ===========================================
+//
+// The `main` ruleset (checked live 2026-09-28) requires a status check named
+// exactly `package (Linux / Node 22)`. Packaging was split into four jobs on
+// 2026-09-28; an aggregate job keeps the required name and must pass ONLY when
+// every packaging job succeeded. A skipped or cancelled dependency looks green
+// to a naive `needs:` job, so the gate is explicit and tested here.
+describe("required package status check survives the packaging split", () => {
+	const yaml = readFileSync(CI_WORKFLOW, "utf-8");
+	/** The `package:` job block: from its key to the next 2-space-indented key or EOF. */
+	const packageJob = nonNull(/^  package:\n([\s\S]*?)(?=^  [a-z][\w-]*:\n|(?![\s\S]))/m.exec(yaml))[1] ?? "";
+
+	// test-contract: invariant — the ruleset's required check name must exist as a job `name:`
+	it("a job carries the exact required check name", () => {
+		expect(packageJob).toContain(`name: ${REQUIRED_PACKAGE_CHECK}`);
+	});
+
+	// test-contract: invariant — the aggregate depends on every packaging job and always runs
+	it("the aggregate needs all four packaging jobs and runs under if: always()", () => {
+		const needs = nonNull(/needs:\s*\[([^\]]+)\]/.exec(packageJob))[1] ?? "";
+		expect(new Set(needs.split(",").map((job) => job.trim()))).toEqual(new Set(PACKAGING_JOBS));
+		expect(packageJob).toMatch(/^\s+if:\s*always\(\)\s*$/m);
+	});
+
+	// test-contract: invariant — every dependency's result is fed to the gate script by name
+	it("the gate step passes each dependency's needs.<job>.result to the script", () => {
+		for (const job of PACKAGING_JOBS) expect(packageJob).toContain(`\${{ needs.${job}.result }}`);
+		expect(packageJob).toContain("bash scripts/ci-require-success.sh PACKAGE_BUILD PACKAGE_LINT PACKAGE_SMOKE ONBOARDING");
+	});
+
+	const gate = (env: Record<string, string>) =>
+		spawnSync("bash", [REQUIRE_SUCCESS_SCRIPT, "A", "B"], { env: { PATH: process.env.PATH ?? "", ...env }, encoding: "utf-8" });
+
+	// test-contract: public-api — scripts/ci-require-success.sh exits 0 only when every named result is `success`
+	it("passes when every dependency succeeded", () => {
+		const result = gate({ A: "success", B: "success" });
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain("✓ A: success");
+		expect(result.stdout).toContain("✓ B: success");
+	});
+
+	for (const bad of ["failure", "cancelled", "skipped", ""]) {
+		// test-contract: security — a non-success dependency result (including skipped/cancelled) must fail the required check
+		it(`fails when one dependency reported ${JSON.stringify(bad)}`, () => {
+			const result = gate({ A: "success", B: bad });
+			expect(result.status).toBe(1);
+			expect(result.stdout).toContain(`✗ B: ${bad || "<unset>"} (required: success)`);
+		});
+	}
+
+	// test-contract: boundary — an unset variable is not success
+	it("fails when a dependency variable is unset", () => {
+		const result = gate({ A: "success" });
+		expect(result.status).toBe(1);
+		expect(result.stdout).toContain("✗ B: <unset> (required: success)");
+	});
+
+	// test-contract: boundary — no arguments is a usage error, never a pass
+	it("exits 2 with no variables named", () => {
+		const result = spawnSync("bash", [REQUIRE_SUCCESS_SCRIPT], { env: { PATH: process.env.PATH ?? "" }, encoding: "utf-8" });
+		expect(result.status).toBe(2);
 	});
 });
 
