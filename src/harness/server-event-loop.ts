@@ -57,7 +57,7 @@ async function lifecycleWithCompiler(ctx: ServerRuntime, event: HarnessEvent, se
 async function guardsWithCompiler(ctx: ServerRuntime, event: HarnessEvent, session: SessionTrajectory): Promise<HarnessDecision> {
     const guarded = await runPreToolPipeline(ctx, event, session);
     if (guarded.decision !== "allow") return guarded;
-    return mergeCompilerDecision(guarded, await runCompilerBoundary(ctx, event, session)) ?? guarded;
+    return mergeCompilerDecision(guarded, await runCompilerBoundary(ctx, event, session));
 }
 
 function reconcileBlockedPreTool(event: HarnessEvent, decision: HarnessDecision): void {

@@ -39,6 +39,14 @@ describe("ubs-language-specific/quality-smell-checks", () => {
 	// checkUbsStringConcatInLoop
 	// =========================================================================
 	describe("checkUbsStringConcatInLoop", () => {
+        it.each(["part.length", "part.size", "part.byteLength", "42"])("does not label numeric RHS %s as string concatenation", rhs => {
+            expect(checkUbsStringConcatInLoop(`for (const part of parts) {\n result += ${rhs};\n}`, "src/a.ts")).toEqual([]);
+        });
+        it("retains a string-building warning for an unknown indexed RHS", () => {
+            expect(checkUbsStringConcatInLoop("for (const part of parts) {\n result += chunks[0];\n}", "src/a.ts")).toEqual([
+                { line: 2, text: "result += chunks[0];" },
+            ]);
+        });
 		it("P1: flags `result += chunk` inside a JS for-loop, truncating a long indented line", () => {
 			const longTail = "x".repeat(200);
 			const codeLines = [

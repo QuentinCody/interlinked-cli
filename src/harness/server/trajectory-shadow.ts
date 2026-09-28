@@ -15,6 +15,7 @@
 
 import { createState, evaluateTrajectory } from "../trajectory/index.js";
 import { recordHookObservations } from "../hook-observations.js";
+import { nonNull } from "../../lib/non-null.js";
 import { seedReadsFromSession } from "../trajectory/rehydrate.js";
 import type { ToolEvent, TrajectoryState, Verdict } from "../trajectory/types.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
@@ -54,8 +55,7 @@ function getState(session: string, filesRead?: readonly string[]): TrajectorySta
 	const existing = stateBySession.get(session);
 	if (existing) return existing;
 	if (stateBySession.size >= SESSION_CAP) {
-		const oldest = stateBySession.keys().next().value;
-		if (oldest !== undefined) stateBySession.delete(oldest);
+		stateBySession.delete(nonNull(stateBySession.keys().next().value));
 	}
 	const fresh = createState(session);
 	if (filesRead && filesRead.length > 0) seedReadsFromSession(fresh, filesRead);

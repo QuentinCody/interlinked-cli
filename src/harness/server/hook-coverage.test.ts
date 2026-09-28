@@ -11,6 +11,15 @@ const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 describe("daemon hook coverage delivery", () => {
+    it("keeps an empty watch inventory silent without claiming any file was checked", () => {
+        const root = mkdtempSync(join(tmpdir(), "interlinked-empty-watch-"));
+        cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+        const watcher = startHookFilesystemWatch({ root, reservations: () => [] });
+        cleanups.push(watcher.stop);
+        const result = appendHookCoverageDecision({ cwd: root, hookCoverage: watcher }, { hook_event: "Stop", session_id: "empty" }, { decision: "allow" });
+        expect(result).toEqual({ decision: "allow", warnings: [] });
+        expect(watcher.ledger.summary().pendingCount).toBe(0);
+    });
 
     it("keeps pending coverage visible without forcing Codex Stop continuation or clearing evidence", () => {
         const root = mkdtempSync(join(tmpdir(), "interlinked-coverage-stop-output-"));

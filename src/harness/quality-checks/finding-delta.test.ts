@@ -18,6 +18,12 @@ beforeEach(() => {
 });
 
 describe("splitIntroducedFindings — positive (must classify as introduced)", () => {
+    it("attributes a cold compiler batch to every edited file without claiming unrelated errors", () => {
+        const a = row("src/a.ts", 1, "A"), b = row("src/b.ts", 1, "B"), c = row("src/c.ts", 1, "C");
+        expect(splitIntroducedFindings("/repo", "typescript", [a.file, b.file], [a, b, c])).toMatchObject({
+            introduced: [a, b], preExisting: [c],
+        });
+    });
 	it("P1: a finding absent from the previous run is introduced", () => {
 		splitIntroducedFindings("/repo", "typescript", "src/a.ts", [row("src/a.ts", 3, "TS1: old")]);
 		const second = splitIntroducedFindings("/repo", "typescript", "src/a.ts", [
@@ -85,6 +91,14 @@ describe("splitIntroducedFindings — negative (must classify as pre-existing)",
 });
 
 describe("formatEngineFindings", () => {
+    it("bounds detail while preserving the total number of files and omitted groups", () => {
+        const rows = Array.from({ length: 17 }, (_, i) => row(`src/file-${i}.ts`, i + 1, `TS${i}: error`));
+        const formatted = formatEngineFindings("src/edited.ts", rows);
+        expect(formatted.header).toBe("17 files (while checking src/edited.ts)");
+        expect(formatted.detail).toContain("src/file-14.ts(15): TS14: error");
+        expect(formatted.detail).not.toContain("src/file-15.ts");
+        expect(formatted.detail).toContain("(2 more groups)");
+    });
 	it("groups by actual file and names the real location in the header", () => {
 		const rows = [
 			row("src/binding.test.ts", 14, "TS2740: bad"),

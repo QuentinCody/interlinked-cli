@@ -111,6 +111,7 @@ import {
 	applyQualityDecision,
 	buildSmartTscOpts,
 	collectQualityResultEntries,
+	prepareQualityFeedback,
 	expandQualitySiblings,
 	runScoredSuggestionsPhase,
 } from "./post-tool-file-checks-phases-quality.js";
@@ -351,6 +352,27 @@ describe("collectQualityResultEntries", () => {
 // ===========================================================================
 
 describe("applyQualityDecision", () => {
+    it("retains observed-writer attribution in evidence even without a declared file target", () => {
+        const acc = makeAcc();
+        const rows = [qr({ name: "typescript", severity: "error" })];
+        const feedback = prepareQualityFeedback(rows, ev({ tool_input: {}, write_attribution: "observed-workspace" }), makeSession(), acc);
+        expect(feedback[0]?.writeAttribution).toBe("observed-workspace");
+        expect(acc.allCheckResults).toContainEqual(expect.objectContaining({ name: "typescript", writeAttribution: "observed-workspace" }));
+        const decision: HarnessDecision = { decision: "allow" };
+        applyQualityDecision(makeCtx(), feedback, decision);
+        expect(decision.decision).toBe("allow");
+    });
+    it.each([undefined, ["existing advice"]])("preserves an earlier refusal while delivering a distinct compiler reason", warnings => {
+        const decision: HarnessDecision = { decision: "block", reason: "earlier refusal", ...(warnings ? { warnings } : {}) };
+        applyQualityDecision(makeCtx(), [qr({ name: "check_a", severity: "error" })], decision);
+        expect(decision.reason).toBe("earlier refusal");
+        expect(decision.warnings).toEqual([...(warnings ?? []), "[q] check_a"]);
+    });
+    it("does not duplicate an identical blocking reason", () => {
+        const decision: HarnessDecision = { decision: "block", reason: "[q] check_a" };
+        applyQualityDecision(makeCtx(), [qr({ name: "check_a", severity: "error" })], decision);
+        expect(decision).toEqual({ decision: "block", reason: "[q] check_a", rule_id: "check_a" });
+    });
 	function fdResult(name: string, severity: "error" | "warning" = "error"): QualityCheckResult {
 		return qr({ name, severity, message: `msg-${name}` });
 	}

@@ -262,6 +262,15 @@ describe("processEvent — parse + dispatch (via evaluateEventLine)", () => {
 		expect(decision).toBe(blocked);
 		expect(mPostPipeline).not.toHaveBeenCalled();
 	});
+    it("retains a deterministic pre-tool refusal before compiler-boundary work", async () => {
+        const h = makeHarness();
+        const blocked: HarnessDecision = { decision: "block", reason: "unsafe command", rule_id: "destructive_command" };
+        mPrePipeline.mockResolvedValueOnce(blocked);
+        mForward.mockImplementationOnce(async (_event, decision) => decision);
+        const decision = await createEventLoop(h.deps).evaluateEventLine(preEvent(), "raw");
+        expect(decision).toMatchObject(blocked);
+        expect(mPostPipeline).not.toHaveBeenCalled();
+    });
 
 	it("PostToolUse: runs post-pipeline, writes collection record, returns its decision", async () => {
 		const h = makeHarness();

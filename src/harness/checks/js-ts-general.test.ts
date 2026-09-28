@@ -22,6 +22,10 @@ const TEST = "src/lib/foo.test.ts";
 // checkNestedTernaries
 // ===========================================
 describe("checkNestedTernaries", () => {
+    it.each(["\u2028", "\u2029", "\r", "\r\n"])("preserves source text after a JavaScript line separator %j", separator => {
+        const statement = "const x = a ? b : c ? d : e;";
+        expect(checkNestedTernaries(`const previous = 1;${separator}${statement}`, TS)).toEqual([{ line: 2, text: statement }]);
+    });
 	it("flags a line with two ternary operators", () => {
 		const code = "const x = a ? b : c ? d : e;";
 		const out = checkNestedTernaries(code, TS);

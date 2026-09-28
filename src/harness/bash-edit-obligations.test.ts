@@ -45,6 +45,11 @@ afterEach(() => {
 });
 
 describe("recordBashEditObligations — positive (must open)", () => {
+    it("keeps unknown writer identity separate from the observing session", () => {
+        const abs = writeSrc("src/a.ts", BAD_LINE);
+        expect(recordBashEditObligations({ cwd, sessionId: "observer", filePath: abs, dryRun: false, writerKnown: false })).toContain("writer unknown");
+        expect(openBashEditObligations(cwd)).toEqual([expect.objectContaining({ file: "src/a.ts", session_id: "" })]);
+    });
 	it("P1: a bash-edited file whose post-state carries a pre_block finding opens an obligation and returns a warning", () => {
 		const abs = writeSrc("src/a.ts", BAD_LINE);
 		const warning = recordBashEditObligations({ cwd, sessionId: "s1", filePath: abs, dryRun: false });

@@ -62,7 +62,7 @@ const NO_TESTS_RE = /No test files found|No tests found|matched no test files/i;
 
 /** vitest: `Tests  2 failed | 21845 passed`. jest: `Tests: 1 failed, 2 passed`. */
 // Accept a single rg/grep -n line prefix, not arbitrary source-file prefixes.
-const SUMMARY_LINE_RE = /^\s*(?:\d+:\s*)?(?:Tests|Test Files)[:\s]\s*(.+)$/gm;
+const SUMMARY_LINE_RE = /^\s*(?:\d+:\s*)?(?:Tests|Test Files)[:\s]\s*.+$/gm;
 
 /**
  * The runner's own verdict, independent of shell plumbing. Returns null when
@@ -73,7 +73,7 @@ export function parseTestSummary(output: string | undefined): "green" | "red" | 
 	if (!output) return null;
 	if (NO_TESTS_RE.test(output)) return null;
 
-    const summaries = [...output.matchAll(SUMMARY_LINE_RE)].map(match => match[1] ?? "");
+    const summaries = [...output.matchAll(SUMMARY_LINE_RE)].map(match => match[0]);
     if (summaries.some(summary => /\b[1-9]\d*\s+failed\b/.test(summary))) return "red";
     return summaries.some(summary => /\b[1-9]\d*\s+(?:passed|skipped)\b/.test(summary)) ? "green" : null;
 }

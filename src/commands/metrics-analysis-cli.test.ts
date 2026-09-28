@@ -30,6 +30,10 @@ it("exposes the new report through real CLI parsing and inherits root options", 
     expect(snapshot.metrics.some(row => row.id === "mutation.survivors" && row.state === "missing")).toBe(true);
     expect(snapshot.rankingEligible).toBe(false);
 });
+it("routes expression inventories with inherited cwd and JSON options", async () => {
+    const value = await run(["--cwd", fixture(), "--json", "expressions", "index.js"]);
+    expect(value).toMatchObject({ complete: true, files: [expect.objectContaining({ status: "measured" })] });
+});
 it("preserves the explicitly selected legacy structure profile", async () => {
     const value = await run(["score", "--cwd", fixture(), "--json", "--profile", "structure-v1"]);
     expect(isJsonObject(value) && value.schemaVersion).toBe(1);

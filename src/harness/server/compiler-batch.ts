@@ -15,6 +15,8 @@ import type { ServerRuntime } from "./runtime-context.js";
 // Capability is observed, not inferred from a provider name or a timer.
 const capable = new WeakMap<ServerRuntime, Set<string>>();
 
+export function mergeCompilerDecision(current: HarnessDecision, compiler: HarnessDecision | null): HarnessDecision;
+export function mergeCompilerDecision(current: HarnessDecision | null, compiler: HarnessDecision | null): HarnessDecision | null;
 export function mergeCompilerDecision(current: HarnessDecision | null, compiler: HarnessDecision | null): HarnessDecision | null {
     if (!compiler) return current;
     if (!current) return compiler;

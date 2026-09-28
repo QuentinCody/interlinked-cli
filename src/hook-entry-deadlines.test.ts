@@ -33,6 +33,9 @@ describe("isCodeEditEvent", () => {
 });
 
 describe("isCommitOrPushEvent", () => {
+    it.each([undefined, null, [], "git push", { command: 42 }])("rejects malformed native shell input: %j", tool_input => {
+        expect(isCommitOrPushEvent(preTool({ kind: "tool_call", tool_name: "bash", tool_class: "modify", tool_input, tool_input_redacted: {} }))).toBe(false);
+    });
     it("recognizes the actual normalized native Bash tool-call shape", () => {
         const native = preTool({ kind: "tool_call", tool_name: "bash", tool_class: "modify", tool_input: { command: "git commit -m fix" }, tool_input_redacted: {} });
         expect(isCommitOrPushEvent(native)).toBe(true);

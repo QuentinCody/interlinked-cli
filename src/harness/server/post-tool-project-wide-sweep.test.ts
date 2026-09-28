@@ -90,6 +90,19 @@ function cleanTscSweep(): void {
 }
 
 describe("runProjectWideSweepPhase — transient-debt retirement", () => {
+    it("retains noncompiler sweep tools while TypeScript waits for its native batch", async () => {
+        const ctx = makeCtx();
+        const config = ctx.rules.project_wide_checks;
+        if (!config) throw new Error("Missing project-wide fixture policy");
+        config.tools = ["tsc", "biome"];
+        const acc = makeAcc();
+        acc.allCheckResults.push({ name: "external_check_deferred", source: "quality", severity: "warning", determinism: "fully_deterministic",
+            message: "TypeScript scheduled for native PostToolBatch; no intermediate verdict" });
+        mRunProjectWide.mockResolvedValue({ findings: [], toolsRun: ["biome"], elapsedMs: 1 });
+        await runProjectWideSweepPhase(ctx, join(root, "a.ts"), true, false, { decision: "allow" }, acc);
+        expect(mRunProjectWide).toHaveBeenCalledWith(expect.objectContaining({ tools: ["biome"] }), ctx.projectWideSweepState, root);
+        expect(config.tools).toEqual(["tsc", "biome"]);
+    });
 	it("names each retired debt by file and detector in the daemon log", async () => {
 		openTransientDebt("src/a.ts", "TS18048");
 		cleanTscSweep();

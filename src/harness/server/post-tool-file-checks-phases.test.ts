@@ -26,6 +26,8 @@ import type {
 } from "../types.js";
 import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import type { ServerRuntime } from "./runtime-context.js";
+import { queueBatchCompiler } from "./compiler-batch.js";
+vi.mock("./compiler-batch.js", () => ({ queueBatchCompiler: vi.fn(() => false) }));
 
 const { createChangeSetExternalBatch, batchResultsForFile } = vi.hoisted(() => ({
 	createChangeSetExternalBatch: vi.fn<typeof import("../quality-checks/change-set-external.js").createChangeSetExternalBatch>(),
@@ -312,6 +314,15 @@ beforeEach(() => {
 // ===========================================================================
 
 describe("runQualityPhase", () => {
+    it("defers only TypeScript for a queued native edit and preserves other checks", async () => {
+        vi.mocked(queueBatchCompiler).mockReturnValueOnce(true);
+        const result = await call();
+        expect(mRunQualityChecks.mock.calls[0]?.[1]).not.toHaveProperty("typescript");
+        expect(result.acc.allCheckResults).toContainEqual(expect.objectContaining({
+            name: "external_check_deferred", message: expect.stringContaining("PostToolBatch"),
+        }));
+        expect(result.ctx.rules.quality_checks.typescript?.enabled).toBe(true);
+    });
 	async function call(over: {
 		ctx?: ServerRuntime;
 		event?: HarnessEvent;

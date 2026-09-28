@@ -5,7 +5,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as parser from "../checks/cyclomatic-ast.js";
 import {
 	buildPatchApplierReason,
 	detectPatchApplier,
@@ -14,6 +15,14 @@ import {
 } from "./patch-applier-guard.js";
 
 describe("detectPatchApplier — positive (must fire)", () => {
+    it.each([
+        'const target = ("src/" + "generated.ts"); writeFileSync(target, data);',
+        'writeFileSync(resolve("src", "generated.ts"), data);',
+        'copyFile("fixture.ts", "src/generated.ts");',
+        'rename("fixture.ts", "src/generated.ts");',
+    ])("resolves immutable destination expressions: %s", content => {
+        expect(detectPatchApplier(content, "probe.ts")?.writeCall).toMatch(/(?:writeFileSync|copyFile|rename)\(/);
+    });
 	it("P1: anchor/replacement applier writing into src/", () => {
 		const content = [
 			'import { readFileSync, writeFileSync } from "node:fs";',
@@ -56,6 +65,34 @@ describe("detectPatchApplier — positive (must fire)", () => {
 });
 
 describe("detectPatchApplier — negative (must not fire)", () => {
+    it("does not claim a destination when the optional analyzer is unavailable", () => {
+        const parse = vi.spyOn(parser, "parseTsSource").mockReturnValueOnce(null);
+        try { expect(detectPatchApplier('writeFileSync("src/a.ts", data)', "probe.ts")).toBeNull(); }
+        finally { parse.mockRestore(); }
+    });
+    it("permits a Python write with no repository destination", () => {
+        expect(detectPatchApplier('Path(output).write_text(data)', "probe.py")).toBeNull();
+    });
+    it.each([
+        'const target = "src/a.ts"; function run(target) { writeFileSync(target, data); }',
+        'const target = "src/a.ts"; function run() { const target = other; writeFileSync(target, data); }',
+        'const target: string; writeFileSync(target, data);',
+        'const target = target; writeFileSync(target, data);',
+        'writeFileSync(resolve(), data);',
+        'writeFileSync(resolve(unknown, "src/a.ts"), data);',
+        'writeFileSync(buildPath("src/a.ts"), data);',
+        'writeFileSync(mkdtemp(), data);',
+        'writeFileSync(tmpdir(), data);',
+        'writeFileSync("src/" + unknown, data);',
+        'writeFileSync(unknown + "src/a.ts", data);',
+        'writeFileSync(1 + 2, data);',
+        'writeFileSync(1 - 2, data);',
+        'writeFileSync({ path: "src/a.ts" }, data);',
+        'fs["writeFileSync"]("src/a.ts", data);',
+        'function run({ target }) { writeFileSync(target, data); }',
+    ])("does not certify ambiguous or nonrepository destinations: %s", content => {
+        expect(detectPatchApplier(content, "probe.ts")).toBeNull();
+    });
 	it.each([
 		'readFileSync("src/a.ts"); writeFileSync(join(tmpdir(), "fixture.ts"), data);',
 		'const root = mkdtempSync(join(tmpdir(), "probe-")); readFileSync(resolve(process.cwd(), "src/a.ts")); writeFileSync(join(root, "src/a.ts"), data);',

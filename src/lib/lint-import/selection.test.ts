@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { lintEntryKey } from "./identity.js";
-import { checkLintSources, LINT_POLICY_PATH, loadLintPolicy, writeLintJson } from "./policy.js";
+import { checkLintSources, LINT_POLICY_PATH, loadLintPolicy, planLintImport, writeLintJson } from "./policy.js";
 import { prepareLintImport } from "./selection.js";
 import { parseLintArgv, toolForExecutable } from "./argv.js";
 
@@ -20,6 +20,12 @@ function put(root: string, file: string, content = "export default [];\n"): void
 afterEach(() => { for (const root of directories.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("explicit ESLint import profiles", () => {
+    it("binds discovered Biome policy to formatter profiles but excludes unrelated tools", () => {
+        const source = { tool: "biome", file: "biome.json", scope: ".", kind: "config" as const, declarations: [], rules: [], digest: "reviewed", notes: [] };
+        const inventory = { root: project(), sources: [source, { ...source, tool: "oxlint", file: ".oxlintrc.json" }], warnings: [], complete: true };
+        const plan = planLintImport(inventory, [{ tool: "biome-format", scope: ".", sources: ["format.json"] }], { onlyConfigured: true });
+        expect(plan.policy.digests).toEqual({ "biome.json": "reviewed" });
+    });
     it("distinguishes Biome lint and formatting invocations without adopting writes", () => {
         expect(toolForExecutable("biome", ["lint", "."])).toBe("biome");
         expect(toolForExecutable("biome", ["format", "src"])).toBe("biome-format");

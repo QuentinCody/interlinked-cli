@@ -26,6 +26,16 @@ describe("Biome sibling overlay configuration", () => {
 		}));
 		expect(inspectBiomeOverlayConfig(target)).toEqual({ status: "ok" });
 	});
+    it.each([null, {}, { includes: [] }, { includes: [42] }])("does not discard malformed override shapes as unrelated: %j", override => {
+        writeFileSync(join(root, "biome.json"), JSON.stringify({ overrides: [override] }));
+        const result = inspectBiomeOverlayConfig(target);
+        if (override && "includes" in override && override.includes?.length) {
+            expect(result).toMatchObject({ status: "unavailable" });
+        } else {
+            // The identity inspection leaves schema validation to the real Biome runner.
+            expect(result).toEqual({ status: "ok" });
+        }
+    });
 
 	it("reads JSONC comments and trailing commas without corrupting glob strings", () => {
 		writeFileSync(join(root, "biome.jsonc"), '{ /* local */ "files": { "includes": ["**/*.ts",], }, }');

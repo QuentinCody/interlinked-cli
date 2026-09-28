@@ -50,6 +50,21 @@ afterEach(() => {
 });
 
 describe("formatComplexityPulse", () => {
+    it("handles relative paths and empty non-JS snapshots without inventing a pulse", () => {
+        const file = join(tmp, "empty.py"), content = "pass\n";
+        recordComplexityPulse("pulse-test", file, [], [], content);
+        writeFileSync(file, content);
+        expect(collectComplexityPulseWarnings(postEvent({ cwd: tmp, tool_name: "Write", tool_input: { file_path: "empty.py" } }))).toEqual([]);
+        expect(collectComplexityPulseWarnings(postEvent({ cwd: tmp }))).toEqual([]);
+    });
+    it("delivers over-cap measurements but suppresses ordinary pulses in actionable mode", () => {
+        const file = join(tmp, "a.ts");
+        const event = postEvent({ cwd: tmp, tool_name: "Write", tool_input: { file_path: file } });
+        writeFileSync(file, fnWith("small", 1));
+        expect(collectComplexityPulseWarnings(event, "actionable")).toEqual([]);
+        writeFileSync(file, fnWith("large", 26));
+        expect(collectComplexityPulseWarnings(event, "actionable")[0]).toContain("over cap");
+    });
 	it("reports counts, ΣCC delta, max function, and per-name deltas", () => {
 		const before = [entry("alpha", 5), entry("beta", 3)];
 		const after = [entry("alpha", 8), entry("beta", 3), entry("gamma", 2)];

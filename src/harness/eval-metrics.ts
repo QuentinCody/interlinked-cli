@@ -9,6 +9,7 @@
 // guard_warnings (string[] | null), tool_input.command.
 
 import { resolve } from "node:path";
+import { nonNull } from "../lib/non-null.js";
 import { isDirectFileEditTool } from "../lib/write-tool-registry.js";
 
 export interface EvalMetrics {
@@ -125,7 +126,7 @@ function targetKey(evt: RawEvent): string | null {
 		if (key in input && typeof input[key as keyof typeof input] === "string") paths.push(String(input[key as keyof typeof input]));
 	}
 	if ("patch" in input && typeof input.patch === "string") {
-		for (const match of input.patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)) if (match[1]) paths.push(match[1]);
+		for (const match of input.patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)) paths.push(nonNull(match[1]));
 	}
 	if (!paths.length) return null;
 	const cwd = str(evt.cwd) ?? "/";

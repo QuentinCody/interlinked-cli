@@ -66,19 +66,20 @@ function targetLooksNumeric(target: string): boolean {
 
 /**
  * Internal: does the `+=` right-hand side read as numeric evidence — a
- * numeric literal, a `.length`/`.size`/`.byteLength` read, a name already
+ * `.length`/`.size`/`.byteLength` read, a name already
  * known numeric (`numericVars`), a conventionally-numeric name, or an
  * arithmetic expression built only from those? A quote/backtick anywhere
  * disqualifies it immediately (string literal present -> string building).
+ * The caller's concat regex supplies an identifier-led or quoted RHS;
+ * numeric literals never enter this helper.
  */
 function rhsLooksNumeric(rhs: string, numericVars: Set<string>): boolean {
 	const trimmed = rhs.trim().replace(/;\s*$/, "");
 	if (trimmed === "" || /["'`]/.test(trimmed)) return false;
-	if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return true;
 	if (/\.(?:length|size|byteLength)\b/.test(trimmed)) return true;
 	if (!/^[\w.\s+\-*/()]+$/.test(trimmed)) return false;
-	const idents = trimmed.match(/[A-Za-z_$]\w*/g) || [];
-	return idents.length > 0 && idents.every((id) => numericVars.has(id) || isNumericName(id));
+	const idents = nonNull(trimmed.match(/[A-Za-z_$]\w*/g));
+	return idents.every((id) => numericVars.has(id) || isNumericName(id));
 }
 
 /**

@@ -21,7 +21,7 @@ import { findSkipMarkers } from "./test-skip-markers.js";
 export function checkNestedTernaries(content: string, filePath: string): InlineMatch[] {
     return readabilityMatches(content, filePath, "nested_ternaries").map(match => ({
         line: match.line,
-        text: content.split(/\r\n|[\n\r]/)[match.line - 1]?.trim().slice(0, 150) ?? match.text,
+        text: nonNull(content.split(/\r\n|[\n\r\u2028\u2029]/)[match.line - 1]).trim().slice(0, 150),
     }));
 }
 

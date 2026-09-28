@@ -50,6 +50,27 @@ afterEach(() => {
 });
 
 describe("function-token PostToolUse pulse", () => {
+    it("reports ties deterministically and a shrinking maximum as a negative delta", () => {
+        const line = formatFunctionTokenPulse("a.ts", [entry("prior", 30)], [entry("zeta", 20), entry("alpha", 20)], 500);
+        expect(line).toContain("max alpha=20 (Δ-10)");
+    });
+    it("handles relative writes and nonwrite events without measuring missing files", () => {
+        writeFileSync(join(temporary, "a.ts"), "export function relative() { return 1; }\n");
+        expect(collectFunctionTokenPulseWarnings(postEvent(temporary, "a.ts"))[0]).toContain("max relative=");
+        expect(collectFunctionTokenPulseWarnings({ ...postEvent(temporary, "a.ts"), tool_name: "Read" })).toEqual([]);
+        expect(collectFunctionTokenPulseWarnings(postEvent(temporary, "missing.ts"))).toEqual([]);
+    });
+    it("delivers only actionable pulses while retaining ordinary measurements", () => {
+        const file = join(temporary, "a.ts");
+        const content = "export function alpha() { return 1; }\n";
+        writeFileSync(file, content);
+        const event = postEvent(temporary, file);
+        expect(collectFunctionTokenPulseWarnings(event, "actionable")).toEqual([]);
+        recordFunctionTokenPulse(event.session_id, file, [], [entry("alpha", 501)], content);
+        expect(collectFunctionTokenPulseWarnings(event, "actionable")[0]).toContain("over cap 1");
+        writeFileSync(file, "export const value = 1;\n");
+        expect(collectFunctionTokenPulseWarnings(event, "actionable")).toEqual([]);
+    });
     it("reports maximum movement, the review band, and active cap", () => {
         const line = formatFunctionTokenPulse(
             "src/a.ts",
