@@ -28,6 +28,7 @@ import { maybeRecordReplaySnapshots, phaseForHookEvent } from "./replay/tree-sna
 import { recordGuardDecision } from "./guard-tally.js";
 import { buildLatencyRecord } from "./server/latency-record.js";
 import { handleLifecycleEvent } from "./server/lifecycle-events.js";
+import { mergeCompilerDecision, runCompilerBoundary } from "./server/compiler-batch.js";
 import {
 	POST_TOOL_PIPELINE_FAILURE_WARNING,
 	runPostToolPipeline,
@@ -43,9 +44,21 @@ import { mergeTrajectoryShadow } from "./server/trajectory-shadow.js";
 import { isPostToolUse, isPreToolUse } from "./server-tool-helpers.js";
 import { captureTimeline } from "./timeline-capture.js";
 import { observeBlockWorkaround } from "./trajectory/block-fingerprint-session.js";
-import type { HarnessDecision, HarnessEvent } from "./types.js";
+import type { HarnessDecision, HarnessEvent, SessionTrajectory } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 import { discardWorkspaceSnapshot } from "./workspace-effects.js";
+
+async function lifecycleWithCompiler(ctx: ServerRuntime, event: HarnessEvent, session: SessionTrajectory): Promise<HarnessDecision | null> {
+    const lifecycle = await handleLifecycleEvent(ctx, event, session);
+    if (isPreToolUse(event)) return lifecycle;
+    return mergeCompilerDecision(lifecycle, await runCompilerBoundary(ctx, event, session));
+}
+
+async function guardsWithCompiler(ctx: ServerRuntime, event: HarnessEvent, session: SessionTrajectory): Promise<HarnessDecision> {
+    const guarded = await runPreToolPipeline(ctx, event, session);
+    if (guarded.decision !== "allow") return guarded;
+    return mergeCompilerDecision(guarded, await runCompilerBoundary(ctx, event, session)) ?? guarded;
+}
 
 function reconcileBlockedPreTool(event: HarnessEvent, decision: HarnessDecision): void {
 	if (decision.decision !== "block") return;
@@ -255,7 +268,7 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 		// Lifecycle events (SessionStart / SessionEnd / Stop / Subagent* /
 		// Skill* / UserPromptSubmit): a non-null decision is an early return,
 		// null means fall through to the Pre/Post evaluation path.
-		const lifecycleDecision = await handleLifecycleEvent(ctx, event, session);
+		const lifecycleDecision = await lifecycleWithCompiler(ctx, event, session);
 		persistNonToolLifecycleActivity(writeLifecycleActivityRecord, event, lifecycleDecision);
 		// Shadow-eval lifecycle events too (Stop carries the obligation-ledger
 		// inventory). Metric-only: appends warnings, never alters the decision.
@@ -266,7 +279,7 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 
 		// Evaluate based on hook type
 		if (isPreToolUse(event)) {
-			const local = await runPreToolPipeline(ctx, event, session);
+			const local = await guardsWithCompiler(ctx, event, session);
 			// P1 trajectory continuity (shadow): arm a fingerprint when this
 			// event was blocked; on a later event that gets through, note if it
 			// reproduces a still-armed refusal through another channel. Never

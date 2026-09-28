@@ -28,7 +28,7 @@ it("removes an install population before source batching and retains security fi
     expect(await prepareSourceChecks(ctx, event, [...dependencies, "app.py"], decision)).toEqual(["app.py"]);
     expect(Object.keys(vi.mocked(createChangeSetExternalBatch).mock.calls[0]![0].checks)).toEqual(["gitleaks", "dependency_audit"]);
     expect(resultsForFile).toHaveBeenCalledTimes(40);
-    expect(decision.warnings?.join("\n")).toContain("secret detected");
+    expect(decision.reason).toContain("secret detected");
     expect(decision.decision).toBe("block");
     expect(decision.check_results?.[0]?.name).toBe("gitleaks");
 });

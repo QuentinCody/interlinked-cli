@@ -2,7 +2,6 @@ import { getOrCreateEngine } from "../check-engine/index.js";
 import { getRepoProfile } from "../repo-profile.js";
 import { testReadiness, testReadinessGuidance } from "../test-readiness.js";
 import { contractFeedback } from "../contracts/feedback.js";
-import { isOperationalCheckDeferral } from "../operational-check-deferrals.js";
 import {
 	baselineCallKey,
 	consumeBaselineSnapshot,
@@ -121,7 +120,7 @@ export function emitAllCleanSummary(options: {
 }): void {
 	const { postDecision, rules, checksRan, elapsedMs } = options;
 	if ((postDecision.warnings || []).length !== 0 || checksRan.length === 0) return;
-    if (postDecision.check_results?.some(result => isOperationalCheckDeferral(result.name))) return;
+    if (postDecision.decision === "block" || postDecision.check_results?.length) return;
 	const checkSummary = [...new Set(checksRan)].map(abbreviateCheckName).join(", ");
 	postDecision.summary = `[interlinked] ✓ ${rules.rules.length} guard rules, ${checkSummary} — all clean (${elapsedMs}ms)`;
 }

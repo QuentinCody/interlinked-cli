@@ -480,7 +480,7 @@ describe("evaluateTaintPhase — merges the block decision's own non-empty warni
 // (L382, L384, L387, L393)
 // ============================================================
 
-	describe("evaluateGraphPrediction — cwd fallback and result-handling branches", () => {
+describe("evaluateGraphPrediction — cwd fallback and result-handling branches", () => {
 	const enabledConfig = ({ version: 1, server_url: "https://example.test",
 		// These cases isolate the remote graph protocol with synthetic paths.
 		harness: { graph_prediction: { enabled: true, mode: "enforced" }, guard_prediction: { mode: "off" } },

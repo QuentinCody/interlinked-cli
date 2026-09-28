@@ -20,6 +20,7 @@ export const HOOK_TIMEOUT_SECONDS: Readonly<Record<string, number>> = {
 	Interrupt: 3,
 	PreToolUse: 240,
 	PostToolUse: 120,
+	PostToolBatch: 120,
 };
 
 /** The policy timeout for an event, or undefined to keep the client default. */

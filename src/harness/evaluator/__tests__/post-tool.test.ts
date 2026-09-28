@@ -637,7 +637,7 @@ describe("post-write file warnings", () => {
 		const hit = ws.find((w) => w.includes("[interlinked:file-size]"));
 		expect(hit).toBeDefined();
 		expect(hit).toContain("900 lines");
-		expect(hit).toContain("500-line cap");
+		expect(hit).toContain("500-line review preference");
 	});
 
 	it("does not warn for an over-cap file OUTSIDE the guarded root (scratchpad artifact)", () => {
@@ -1185,7 +1185,7 @@ describe("read file-size warning", () => {
 		const hit = ws.find((w) => w.includes("[interlinked:file-size]"));
 		expect(hit).toBeDefined();
 		expect(hit).toContain("850 lines");
-		expect(hit).toContain("consider refactoring");
+		expect(hit).toContain("do not compress formatting");
 	});
 
 	it("does not nudge when reading an oversized file outside the guarded root", () => {

@@ -29,6 +29,8 @@ import { toLegacyHarnessEvent } from "./harness/legacy-client.js";
 import { readSharedConfig } from "./lib/config.js";
 import { driveGuardPrediction, guardPredictionMode } from "./harness/guard-prediction.js";
 import type { HarnessDecision } from "./harness/types.js";
+import { readCompilerBatch } from "./harness/server/compiler-batch-store.js";
+import { isCommitOrPushEvent } from "./hook-entry-deadlines.js";
 
 // Unified phase tag (a subset of UnifiedPhase). Local copy of the constant in
 // hook-entry.ts so this leaf module does not import back from the main file
@@ -71,6 +73,7 @@ export function coldGuardPredictionDecision(event: UnifiedHookEvent): HarnessDec
 /** Ordered cold safety gates; the first refusal owns the actionable explanation. */
 export function firstColdBlock(event: UnifiedHookEvent): { gate: string; reason: string } | null {
     const gates: Array<[string, (event: UnifiedHookEvent) => string | null]> = [
+        ["compiler-batch", coldCompilerBatchBlockReason],
         ["merge-conflict", coldMergeConflictBlockReason],
         ["graph-shard", coldGraphShardBlockReason],
         ["destructive-command", coldDestructiveCommandBlockReason],
@@ -81,6 +84,18 @@ export function firstColdBlock(event: UnifiedHookEvent): { gate: string; reason:
         if (reason) return { gate, reason };
     }
     return null;
+}
+
+/** Scheduled work cannot silently disappear when the daemon goes down. */
+export function coldCompilerBatchBlockReason(event: UnifiedHookEvent): string | null {
+    if (event.runner !== "claude-code" || (event.phase !== "stop" && !isCommitOrPushEvent(event))) return null;
+    try {
+        const pending = readCompilerBatch(resolveColdCwd(event), toLegacyHarnessEvent(event));
+        if (!pending.paths.length) return null;
+    } catch (error) {
+        return `[interlinked:typescript] NOT CHECKED: pending compiler batch is unreadable: ${String(error)}. Restore the daemon and retry verification.`;
+    }
+    return "[interlinked:typescript] NOT CHECKED: pending compiler batch requires the daemon. Restore the daemon and retry verification before completing or committing.";
 }
 
 /** Cold Stop notice for project e2e (plan 31 Unit F6): with the daemon down the

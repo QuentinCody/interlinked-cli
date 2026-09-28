@@ -111,8 +111,10 @@ describe("buildCheckRow", () => {
 		expect(row?.file).toBe("src/touched.ts");
 	});
 
-	it("returns null without a tool_use_id (no correlation key)", () => {
-		expect(buildCheckRow(postEvent({ tool_name: "Edit" }), decisionWith({ check_results: [magicFinding] }))).toBeNull();
+	it("retains findings with an explicitly missing correlation key", () => {
+		const row = buildCheckRow(postEvent({ tool_name: "Edit" }), decisionWith({ check_results: [magicFinding] }));
+		expect(row?.tool_use_id).toBe("");
+		expect(row?.finding_details).toEqual([magicFinding]);
 	});
 
 	it("returns null when no checks ran and nothing fired", () => {

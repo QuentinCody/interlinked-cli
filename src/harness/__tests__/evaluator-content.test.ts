@@ -1,10 +1,13 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CohortManager } from "../cohort.js";
 import { evaluatePreToolUse } from "../evaluator.js";
 import { ReservationManager } from "../reservations.js";
 import { getDefaultConfig, loadRules } from "../rules-loader.js";
 import type { GuardRulesConfig, SessionTrajectory } from "../types.js";
 import { makeEvent, makeSession } from "./fixtures/evaluator.js";
+
+// These evaluator units use synthetic paths; real capture has isolated integration coverage.
+vi.mock("../hook-observations.js", () => ({ recordHookObservations: vi.fn() }));
 
 describe("evaluatePreToolUse — content checks", () => {
 	let rules: GuardRulesConfig;

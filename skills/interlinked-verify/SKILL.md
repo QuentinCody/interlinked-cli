@@ -5,6 +5,26 @@ description: "Run `interlinked verify`, understand the PostToolUse quality check
 
 # interlinked-verify — check your work & land edits through the gates
 
+## Claude compiler batches
+
+After a Claude session has delivered a native `PostToolBatch`, declared single-file
+edits queue TypeScript checking until that boundary. Related edits in the same model
+message are checked against the completed tree, once per project. Existing atomic
+multi-file calls retain their shared check path. Other clients, unknown writers, and
+Claude sessions that have not demonstrated the boundary keep per-edit checking.
+Security, content guards, lint and hard complexity caps still apply per edit.
+
+Final compiler errors arrive as batch context so Claude can repair them; a native batch
+`block` would cancel its loop. Unresolved errors and unavailable compiler work remain
+in `.interlinked/compiler-batches/` and are checked before Stop and commit, including
+after daemon restart. Do not delete this state to bypass verification. A queued edit
+has no TypeScript verdict and must not be described as fully checked. Explicit verify
+and commit checks remain necessary for the required repository validation scope.
+
+Runner summaries from `rg -n`/`grep -n` are recognized with a single numeric line prefix.
+A failure in any recognized summary takes precedence over a pass; shell success after
+a pipe/trailing command alone still does not prove that tests passed.
+
 ## Repeated implementation advisory
 
 `repeated_implementation` compares same-file Python and JS/TS function bodies by
@@ -57,15 +77,31 @@ public-contract tests.
 Interlinked gates edits at **three moments**, and they run different check sets:
 - **PreToolUse content gate**: real agent Edit/Write calls run deterministic `pre_block` checks
   without synchronously launching biome/tsc on the daemon event loop; those external overlays
-  are reported as **NOT CHECKED** only for applicable file types and run asynchronously after
-  the write. Python/Go/Rust edits do not receive JS/TS overlay deferrals. Transactional CLI
+  are recorded as scheduled for applicable file types and run asynchronously after
+  the write. Routine scheduling produces no model warning; unavailable or failed checks still
+  report **NOT CHECKED**. Python/Go/Rust edits do not receive JS/TS overlay scheduling. Transactional CLI
   paths (`interlinked write` / `verify-changeset`) still run `pre_block → biome → tsc` and fail
   closed. `interlinked multi-edit` uses the same shared content gate.
 - **Other PreToolUse guards** (real Edit/Write only): function tokens, coverage, cyclomatic, CRAP, baseline —
   see **interlinked-quality-gates**; package/allowlist — see **interlinked-supply-chain**.
 - **PostToolUse** (after the write lands): external tools (tsc/biome/eslint/semgrep/gitleaks/…)
-  plus the inline check registry. **Warn only** — surfaced to you next turn. Bash and unknown
+  plus the inline check registry. Findings arrive after the write; default-gate errors can
+  return blocking feedback requiring repair, without rolling back the tool. Bash and unknown
   writer tools are routed by their observed filesystem ChangeSet, not merely command parsing.
+
+PostToolUse keeps full findings in the check-results ledger while presenting compact
+diagnostics. Repeated advisories are acknowledged per session, check and file; a successful
+scoped recheck clears that acknowledgment. Pre-existing TypeScript findings show a count
+and the evidence path. "Newly observed" means changed since the previous compiler report,
+not proven caused by this edit. Changes observed outside the tool's declared write targets
+are labeled "writer unknown"; TypeScript findings there are workspace feedback and do not
+block the observing call. Security checks and workspace obligations still apply.
+
+For test evidence, a recognized runner summary can establish the outcome of a piped run.
+An unsummarized pipeline's final exit code alone cannot prove the test process passed.
+For scratch probes, reading a repository file and writing an unrelated temporary fixture
+does not establish a patch applier; the guard checks statically resolved write destinations.
+Unknown destinations still rely on filesystem observation after execution.
 
 `interlinked verify` is the **on-demand, whole-project** run of that same check catalog.
 Its `function_tokens` finding uses the shared `interlinked-code-v2` adapters and reports every current
@@ -841,8 +877,9 @@ compiler backpressure). Unavailable
 is never clean: transactional paths — `interlinked write` (single AND
 `--batch`), `multi-edit`, `verify-changeset` — ABORT with a
 `tsc-overlay-unavailable` failure and leave files untouched; the ordinary
-single-edit hook path does not launch the sidecar at all. It surfaces a NOT CHECKED warning,
-and the admitted PostToolUse path checks the on-disk result asynchronously.
+single-edit hook path does not launch the sidecar at all. It records scheduled work,
+and the admitted PostToolUse path checks the on-disk result asynchronously. A scheduled
+record is not a passing verdict; unavailable PostToolUse checks still surface missing evidence.
 
 Full-project TypeScript children are serialized per project across concurrent
 hook and CLI processes. Heavy verify/check/test/audit/sweep work uses one

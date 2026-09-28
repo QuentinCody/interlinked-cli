@@ -92,14 +92,16 @@ describe("daemon hook coverage delivery", () => {
             const other = appendHookCoverageDecision(runtime, { hook_event: "Stop", session_id: "s2" }, { decision: "allow" });
             expect(other.warnings?.join("\n")).toContain("NOT CHECKED");
         });
-        it("N2: non-Stop boundaries and Stops with no session id are never throttled", () => {
+        it("N2: batch boundaries share the session throttle; unidentified sessions are never silenced", () => {
             const root = mkdtempSync(join(tmpdir(), "interlinked-hook-stop-boundary-"));
             writeFileSync(join(root, "reserved.txt"), "observed file version");
             cleanups.push(() => rmSync(root, { recursive: true, force: true }));
             const watcher = startHookFilesystemWatch({ root, reservations: () => ["reserved.txt"] });
             cleanups.push(watcher.stop);
             const runtime = { cwd: root, hookCoverage: watcher };
-            for (const event of [{ hook_event: "SessionStart", session_id: "s1" }, { hook_event: "SessionStart", session_id: "s1" }, { hook_event: "Stop", session_id: "" }, { hook_event: "Stop", session_id: "" }]) {
+            expect(appendHookCoverageDecision(runtime, { hook_event: "SessionStart", session_id: "s1" }, { decision: "allow" }).warnings?.join("\n")).toContain("NOT CHECKED");
+            expect(appendHookCoverageDecision(runtime, { hook_event: "PostToolBatch", session_id: "s1" }, { decision: "allow" }).warnings).toEqual([]);
+            for (const event of [{ hook_event: "Stop", session_id: "" }, { hook_event: "Stop", session_id: "" }]) {
                 expect(appendHookCoverageDecision(runtime, event, { decision: "allow" }).warnings?.join("\n")).toContain("NOT CHECKED");
             }
         });

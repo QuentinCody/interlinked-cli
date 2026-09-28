@@ -9,6 +9,13 @@ import {
 } from "./post-tool-file-checks-phases-quality.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
+function sweepConfig(ctx: ServerRuntime, acc: PerFileCheckCtx): ServerRuntime["rules"]["project_wide_checks"] {
+    const config = ctx.rules.project_wide_checks;
+    const queued = acc.allCheckResults.some(result => result.message.startsWith("TypeScript scheduled for native PostToolBatch"));
+    if (!config || !queued) return config;
+    return { ...config, tools: config.tools.filter(tool => tool !== "tsc") };
+}
+
 /** Retire transient debts only when a whole-project tsc actually ran. */
 function expireTransientDebtsAfterSweep(
 	sweepResult: ProjectWideSweepResult,
@@ -98,7 +105,7 @@ export async function runProjectWideSweepPhase(
 	decision: HarnessDecision,
 	acc: PerFileCheckCtx,
 ): Promise<void> {
-	const config = ctx.rules.project_wide_checks;
+	const config = sweepConfig(ctx, acc);
 	if (config?.enabled && editedFilePath && editedFileInRepo) {
 		ctx.projectWideSweepState.recordFileChecked(editedFilePath);
 		if (!acc.projectWideSweepFired) {

@@ -1,12 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CohortManager } from "../cohort.js";
 import { evaluatePostToolUse, evaluatePreToolUse } from "../evaluator.js";
 import { ReservationManager } from "../reservations.js";
 import { getDefaultConfig, loadRules } from "../rules-loader.js";
 import type { GuardRulesConfig, HarnessEvent, SessionTrajectory } from "../types.js";
+
+vi.mock("../hook-observations.js", () => ({ recordHookObservations: vi.fn() }));
 
 // Deterministic fixtures. Tests don't rely on relative time calculations
 // that need real `Date.now()` — they only need a valid timestamp shape.

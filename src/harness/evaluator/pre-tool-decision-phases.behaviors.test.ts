@@ -294,7 +294,7 @@ describe("evaluateWriteContent", () => {
 		expect(decision?.warnings).toEqual(["[interlinked] earlier warning"]);
 	});
 
-	it("never runs external overlays on the daemon PreTool path and says NOT CHECKED", () => {
+	it("schedules external overlays without routine model warnings on the daemon PreTool path", () => {
 		const warnings: string[] = [];
 		const decision = evaluateWriteContent(
 			makeEvent({ tool_name: "Write" }),
@@ -306,8 +306,8 @@ describe("evaluateWriteContent", () => {
 			makeCtx(),
 		);
 		expect(decision).toBeNull();
-		expect(warnings.join("\n")).toContain("biome-overlay] NOT CHECKED");
-		expect(warnings.join("\n")).toContain("tsc-overlay] NOT CHECKED");
+		expect(warnings.join("\n")).not.toContain("biome-overlay] NOT CHECKED");
+		expect(warnings.join("\n")).not.toContain("tsc-overlay] NOT CHECKED");
 	});
 });
 

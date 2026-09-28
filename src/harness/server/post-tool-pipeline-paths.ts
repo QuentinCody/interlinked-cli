@@ -9,13 +9,14 @@
 // + imports.
 
 import { isReadOnlyToolName } from "../../lib/hook-read-only-tools.js";
+import { resolve } from "node:path";
 import { isDirectFileEditTool } from "../../lib/write-tool-registry.js";
 import { detectBashCodeFileWrite } from "../pre-checks-bash-write-detect.js";
 import { extractAllEditedFilePaths } from "../server-tool-helpers.js";
 import type { HarnessEvent } from "../types.js";
 
 /** Tool names whose payload is a shell command that may edit files. */
-const SHELL_TOOLS = ["Bash", "Shell", "shell", "run_command"];
+const SHELL_TOOLS = ["Bash", "Shell", "shell", "run_command", "exec_command"];
 
 /** Directory segments whose contents are GENERATED — never worth analyzing. */
 const GENERATED_DIR_SEGMENTS = [
@@ -131,4 +132,11 @@ export function resolveEditedPaths(event: HarnessEvent, includeGenerated = false
 	const editedFilePath = editedFilePaths[0] || "";
 	const shouldRunChecks = isDirectFileEdit || editedFilePaths.length > 0;
 	return { editedFilePath, editedFilePaths, isDirectFileEdit, shouldRunChecks };
+}
+
+/** A snapshot overlap establishes observation, never authorship. */
+export function writeAttribution(event: HarnessEvent, file: string, cwd: string): "declared-target" | "observed-workspace" {
+	const targets = resolveDeclaredPaths(event, isDirectFileEditTool(event.tool_name), true);
+	return targets.some(target => resolve(cwd, target) === resolve(cwd, file))
+		? "declared-target" : "observed-workspace";
 }

@@ -66,11 +66,10 @@ function extractFile(event: HarnessEvent, findings: HarnessDecision["check_resul
 
 /**
  * Project a PostToolUse decision into a filmstrip row. Returns null when there
- * is nothing to record (no correlation id, or no checks ran and nothing fired).
+ * is nothing to record. Missing call identity stays explicitly empty; evidence is retained.
  */
 export function buildCheckRow(event: HarnessEvent, decision: HarnessDecision): CheckRow | null {
-	const toolUseId = event.tool_use_id;
-	if (!toolUseId) return null;
+	const toolUseId = event.tool_use_id ?? "";
 
 	const findings = decision.check_results ?? [];
 	const ranList = decision.checks_ran ?? [];

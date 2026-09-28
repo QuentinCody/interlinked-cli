@@ -13,6 +13,23 @@ Native cold fallback can run this AST oracle; standalone generated hooks need th
 daemon and report NOT CHECKED without it. Physical file size is advisory in both
 warm and cold paths; rebuilding must not revive the old line-count block.
 
+Claude compiler batching activates only after a session sends native `PostToolBatch`.
+After daemon restart, edits use the ordinary compiler path until that boundary is
+observed again; previously queued work remains durable and is checked at Stop/commit.
+Keep the installed PostToolBatch hook current. It delivers repair context rather than
+cancelling the agent loop for ordinary compiler findings. See **interlinked-verify**.
+
+Skill refresh preserves modified installed copies. If they still describe sub-cap
+complexity slew blocks, compare them with canonical `skills/*/SKILL.md`, retain local
+customizations/backups, and reconcile deliberately. Restarting a daemon cannot erase
+guidance already loaded into a model's conversation.
+
+Non-gating native hook commands use a compact missing-runtime diagnostic and exit 1;
+gating hooks retain the self-contained fail-closed fallback and exact repair allowlist.
+After rebuilding, use `interlinked install-hooks --refresh --preserve-mode` to refresh
+installed command text, then verify `interlinked harness status --json` shows the serving
+build. Keep PostToolUse scoped to mutating tools; do not add PostToolUseFailure duplicates.
+
 Provider qualification must exercise native edit routes, advisory file-size delivery,
 and completion after ordinary Stop advisories. Claude and Codex keep those advisories on
 stderr; explicit repair blocks still request continuation. Codex rewrites include

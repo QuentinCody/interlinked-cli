@@ -422,7 +422,8 @@ describe("applyQualityDecision", () => {
 		applyQualityDecision(ctx, results, decision);
 		expect(decision.decision).toBe("block");
 		expect(decision.rule_id).toBe("check_a");
-		expect(decision.warnings).toEqual(["[q] check_a", "[q] check_b"]);
+		expect(decision.warnings).toEqual(["[q] check_b"]);
+		expect(decision.reason).toBe("[q] check_a");
 		expect(ctx.log).toHaveBeenCalledWith("Quality issues found: check_a, check_b (blocking)");
 	});
 
@@ -440,7 +441,7 @@ describe("applyQualityDecision", () => {
 	// test-contract: public-api — a non-empty advisory tail is wrapped behind
 	// the "— Advisory findings —" marker, and its own 2+ messages are ALSO
 	// joined with a blank line (independent join call, independent mutant).
-	it("wraps a multi-message advisory tail behind the advisory marker", () => {
+	it("keeps the blocking reason free of the advisory tail and duplicate warnings", () => {
 		const ctx = makeCtx();
 		const decision: HarnessDecision = { decision: "allow" };
 		const results = [
@@ -449,9 +450,8 @@ describe("applyQualityDecision", () => {
 			qr({ name: "check_c", severity: "warning", message: "m3" }),
 		];
 		applyQualityDecision(ctx, results, decision);
-		expect(decision.reason).toBe(
-			"[q] check_a\n\n— Advisory findings (not blocking; address when convenient) —\n\n[q] check_b\n\n[q] check_c",
-		);
+		expect(decision.reason).toBe("[q] check_a");
+		expect(decision.warnings).toEqual(["[q] check_b", "[q] check_c"]);
 	});
 
 	it("compacts same-file deferrals without collapsing a different file", () => {

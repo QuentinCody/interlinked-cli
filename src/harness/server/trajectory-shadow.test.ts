@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { recordHookObservations } from "../hook-observations.js";
+vi.mock("../hook-observations.js", () => ({ recordHookObservations: vi.fn() }));
 import type { Verdict } from "../trajectory/types.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 import {
@@ -240,19 +242,20 @@ describe("trajectoryShadowWarnings", () => {
 });
 
 describe("mergeTrajectoryShadow", () => {
-	it("appends warnings without ever changing the decision verdict", () => {
+	it("retains shadow observations without adding model warnings or changing the verdict", () => {
 		trajectoryShadowWarnings(postEdit({ file: "/y.ts", from: "a", to: "b", step: "1" }), ALLOW, CONFIG_ON); // seed
 		const decision: HarnessDecision = { decision: "allow", warnings: ["existing"] };
 		mergeTrajectoryShadow(postEdit({ file: "/y.ts", from: "b", to: "a", step: "2" }), decision, CONFIG_ON);
 		expect(decision.decision).toBe("allow"); // verdict never mutated — shadow is metric-only
 		expect(decision.warnings).toContain("existing"); // prior warnings preserved
-		expect(decision.warnings?.some((w) => w.includes("churn_literal_edit_revert"))).toBe(true);
+		expect(decision.warnings).toEqual(["existing"]);
+		expect(recordHookObservations).toHaveBeenCalledWith(expect.objectContaining({ tool_use_id: "tu-2" }), expect.arrayContaining([expect.objectContaining({ kind: "trajectory", message: expect.stringContaining("churn_literal_edit_revert") })]));
 	});
 
-	it("initializes warnings via ?? [] when the decision has no warnings array yet", () => {
+	it("leaves the warnings field absent when no actionable warning exists", () => {
 		trajectoryShadowWarnings(postEdit({ file: "/q.ts", from: "1", to: "2", step: "q1" }), ALLOW, CONFIG_ON); // seed
 		const decision: HarnessDecision = { decision: "allow" }; // no warnings key at all
 		mergeTrajectoryShadow(postEdit({ file: "/q.ts", from: "2", to: "1", step: "q2" }), decision, CONFIG_ON);
-		expect(decision.warnings?.some((w) => w.includes("churn_literal_edit_revert"))).toBe(true);
+		expect(decision.warnings).toBeUndefined();
 	});
 });

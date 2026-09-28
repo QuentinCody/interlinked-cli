@@ -16,6 +16,7 @@ interface CommandCheckContext {
 	cwd: string;
 	tscFilterFile: string | undefined;
 	outToolMetrics: ToolBreakdownEntry[] | undefined;
+    editedFiles?: readonly string[];
 }
 
 function typescriptDeltaResults(
@@ -24,17 +25,21 @@ function typescriptDeltaResults(
 	severity: QualityCheckConfig["severity"],
 	checkCwd: string,
 	rows: EngineFindingRow[],
+    editedFiles?: readonly string[],
 ): QualityCheckResult[] {
-	const delta = splitIntroducedFindings(checkCwd, name, editedFile, rows);
+	const delta = splitIntroducedFindings(checkCwd, name, editedFiles ?? editedFile, rows);
 	const out: QualityCheckResult[] = [];
 	if (delta.introduced.length > 0) {
 		const formatted = formatEngineFindings(editedFile, delta.introduced);
 		out.push({
 			name,
 			severity,
-			message: `${name} found new issues in ${formatted.header}`,
+			message: `${name} found newly observed issues in ${formatted.header}`,
+			novelty: "newly-observed",
+			findingCount: delta.introduced.length,
 			file: editedFile,
 			detail: formatted.detail,
+            diagnosticKeys: delta.introduced.map(row => `${row.file}\0${row.message.trim().replace(/\s+/g, " ")}`),
 		});
 	}
 	if (delta.preExisting.length > 0) {
@@ -42,9 +47,12 @@ function typescriptDeltaResults(
 		out.push({
 			name,
 			severity: "warning",
-			message: `${name}: ${delta.preExisting.length} pre-existing issue(s) in ${formatted.header} — not introduced by this edit`,
+			message: `${name}: ${delta.preExisting.length} pre-existing issue(s) in ${formatted.header}`,
+			novelty: "pre-existing",
+			findingCount: delta.preExisting.length,
 			file: editedFile,
 			detail: formatted.detail,
+            diagnosticKeys: delta.preExisting.map(row => `${row.file}\0${row.message.trim().replace(/\s+/g, " ")}`),
 		});
 	}
 	return out;
@@ -66,6 +74,26 @@ export function deferredExternalCheck(
 	];
 }
 
+/**
+ * A project without the tool's config file (no `tsconfig.json`, no `biome.json`, …) is a project the check does NOT APPLY
+ * to — not an operational deferral. A deferral means "retry when capacity returns"; a missing config never returns, and
+ * treating it as a deferral left a pending compiler batch that no edit and no retry could complete (2026-09-25: a `.mjs`
+ * fixture under its own `package.json` kept blocking Stop for the whole session). The finding stays visible as a warning.
+ */
+function skippedToolResult(filePath: string, checkName: string, reason: string): QualityCheckResult[] {
+	return reason.startsWith("no config file found") ? notApplicableCheck(filePath, checkName, reason) : deferredExternalCheck(filePath, checkName, reason);
+}
+function notApplicableCheck(filePath: string, checkName: string, reason: string): QualityCheckResult[] {
+	return [
+		{
+			name: "external_check_not_applicable",
+			severity: "warning",
+			message: `${checkName} does not apply to ${filePath}: ${reason}; add the config to the file's project to enable it`,
+			file: filePath,
+			detail: `NOT APPLICABLE (not a deferral): ${reason}`,
+		},
+	];
+}
 /** Delegate one command-backed check to the unified out-of-process engine. */
 export async function runCommandCheck(
 	ctx: CommandCheckContext,
@@ -113,7 +141,7 @@ export async function runCommandCheck(
 				entry.category === "timeout" ||
 				entry.category === "error"),
 	);
-	if (unavailable) return deferredExternalCheck(ctx.filePath, name, unavailable.reason);
+	if (unavailable) return skippedToolResult(ctx.filePath, name, unavailable.reason);
 	const unavailableFinding = engineReport.results.find(
 		(result) => result.ruleId === "tsc-unavailable",
 	);
@@ -127,7 +155,7 @@ export async function runCommandCheck(
 		message: result.message,
 	}));
 	if (name === "typescript") {
-		return typescriptDeltaResults(ctx.filePath, name, check.severity, checkCwd, rows);
+		return typescriptDeltaResults(ctx.filePath, name, check.severity, checkCwd, rows, ctx.editedFiles);
 	}
 	if (rows.length === 0) return [];
 	const formatted = formatEngineFindings(ctx.filePath, rows);

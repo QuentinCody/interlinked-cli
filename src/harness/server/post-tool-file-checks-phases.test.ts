@@ -558,7 +558,7 @@ describe("runQualityPhase", () => {
 		expect(acc.checksRan).not.toContain("typescript");
 	});
 
-	it("filters out acknowledged warnings but keeps acknowledged errors", async () => {
+	it("retains acknowledged warnings in evidence while hiding them from delivery", async () => {
 		mRunQualityChecks.mockResolvedValue([
 			qres({ name: "warn_ack", severity: "warning" }),
 			qres({ name: "err_ack", severity: "error" }),
@@ -567,7 +567,7 @@ describe("runQualityPhase", () => {
 		mIsAck.mockReturnValue(true);
 		const { acc, decision } = await call();
 		const names = acc.allCheckResults.map((r) => r.name);
-		expect(names).toEqual(["err_ack"]);
+		expect(names).toEqual(["warn_ack", "err_ack"]);
 		expect(decision.warnings).toEqual(["[q] err_ack"]);
 	});
 
@@ -640,7 +640,7 @@ describe("runQualityPhase", () => {
 		expect(nonNull(acc.allCheckResults[0]).determinism).toBe("heuristic");
 	});
 
-	it("composes the block reason with blocking findings first and the advisory tail demoted", async () => {
+	it("puts blocking diagnostics in the reason and separate advisories in warnings", async () => {
 		mRunQualityChecks.mockResolvedValue([
 			qres({ name: "strong_typing", severity: "warning" }),
 			qres({ name: "typescript", severity: "error" }),
@@ -651,11 +651,8 @@ describe("runQualityPhase", () => {
 		// aggregates by cause instead of the null-id bucket.
 		expect(decision.rule_id).toBe("typescript");
 		const reason = nonNull(decision.reason);
-		expect(reason).toContain("— Advisory findings");
-		// Blocking (typescript) leads; the advisory (strong_typing) sits after the
-		// separator — one deterministic error no longer buries it.
-		expect(reason.indexOf("[q] typescript")).toBeLessThan(reason.indexOf("— Advisory findings"));
-		expect(reason.indexOf("— Advisory findings")).toBeLessThan(reason.indexOf("[q] strong_typing"));
+		expect(reason).toBe("[q] typescript");
+		expect(decision.warnings).toEqual(["[q] strong_typing"]);
 	});
 
 	it("omits the advisory separator from the block reason when every finding blocks", async () => {

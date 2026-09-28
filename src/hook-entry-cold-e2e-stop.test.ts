@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeCompilerBatch } from "./harness/server/compiler-batch-store.js";
 
 const transport = vi.hoisted(() => ({ call: vi.fn() }));
 vi.mock("./hook-entry-transport.js", async (importOriginal) => ({
@@ -26,6 +27,15 @@ async function stopWithColdDaemon(nativeEventName: string, nativeJson: Record<st
 }
 
 describe("cold Stop — positive", () => {
+    it("retains enforcement of a pending compiler batch while the daemon is unreachable", async () => {
+        writeCompilerBatch(root, { hook_event: "PostToolUse", agent_source: "claude", session_id: "s1", timestamp: "2026-09-25T00:00:00Z" },
+            { revision: "", paths: [join(root, "a.ts")], calls: ["edit"], blocking: [] });
+        const result = await stopWithColdDaemon("Stop", { cwd: root, session_id: "s1" });
+        expect(result.stdout).toContain('"decision":"block"');
+        expect(result.stdout).toContain("pending compiler batch");
+        const commit = await stopWithColdDaemon("PreToolUse", { cwd: root, session_id: "s1", tool_name: "Bash", tool_input: { command: "git commit -m fix" } });
+        expect(commit.stdout).toContain('"permissionDecision":"deny"');
+    });
     it("P1: a policy exists and the daemon is down ⇒ the Stop reports NOT CHECKED with the check command, exit 0 (warn-only)", async () => {
         writeFileSync(join(root, ".interlinked", "e2e-policy.json"), "{}");
         const result = await stopWithColdDaemon("Stop", { cwd: root, session_id: "s1" });

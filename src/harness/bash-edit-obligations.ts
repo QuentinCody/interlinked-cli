@@ -24,6 +24,7 @@ import { isJsonObject } from "../lib/json-types.js";
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { writeAttribution } from "./server/post-tool-pipeline-paths.js";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { runPreBlockRegistryGate } from "./pre-block-gate.js";
 import type { HarnessDecision, HarnessEvent } from "./types.js";
@@ -203,6 +204,7 @@ export function recordBashEditObligations(opts: {
 	sessionId: string;
 	filePath: string;
 	dryRun: boolean;
+	writerKnown?: boolean;
 }): string | null {
 	const cwd = resolve(opts.cwd);
 	const abs = isAbsolute(opts.filePath) ? opts.filePath : resolve(cwd, opts.filePath);
@@ -215,8 +217,8 @@ export function recordBashEditObligations(opts: {
 		return null;
 	}
 	const warning =
-		`[interlinked:bash-edit-obligation] ${rel} was changed through the bash channel and its ` +
-		`post-state INTRODUCES pre_block-class finding(s): ${ids.join(", ")}. The same rules the ` +
+		`[interlinked:bash-edit-obligation] ${rel}: ${opts.writerKnown === false ? "workspace change observed; writer unknown" : "declared shell write"}. Its ` +
+		`post-state has pre_block-class finding(s): ${ids.join(", ")}. The workspace obligation policy means the ` +
 		`Write/Edit gates enforce now hold delayed: until ${rel} is fixed, write-class tool calls ` +
 		`to other files are refused (edits to ${rel} itself and reads stay allowed).`;
 	if (opts.dryRun) return warning;
@@ -224,7 +226,7 @@ export function recordBashEditObligations(opts: {
 		file: rel,
 		checkIds: ids,
 		opened_at: new Date().toISOString(),
-		session_id: opts.sessionId,
+		session_id: opts.writerKnown === false ? "" : opts.sessionId,
 	});
 	persist(cwd, map);
 	return warning;
@@ -247,6 +249,7 @@ export function appendBashEditObligationWarnings(
 			sessionId: event.session_id,
 			filePath,
 			dryRun: event.dry_run === true,
+			writerKnown: writeAttribution(event, filePath, event.cwd || fallbackCwd) === "declared-target",
 		});
 		if (warning) (postDecision.warnings ??= []).push(warning);
 	}
@@ -309,7 +312,7 @@ export function evaluateBashEditObligationGate(
 	return {
 		decision: "block",
 		reason:
-			`BLOCKED: a bash-channel edit left pre_block-class finding(s) on disk and its obligation ` +
+			`BLOCKED by workspace obligation policy: observed files have pre_block-class finding(s) on disk and an obligation ` +
 			`is still open: ${summary}. The bash channel cannot be judged before execution, so the ` +
 			`same rule holds one step later — fix the listed file(s) first (edits to them and reads ` +
 			`are allowed), then this call proceeds. The gate re-checks on every call and releases ` +

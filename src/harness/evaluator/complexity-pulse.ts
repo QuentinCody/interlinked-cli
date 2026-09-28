@@ -28,6 +28,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { recordHookObservations } from "../hook-observations.js";
 import { isAbsolute, relative, resolve } from "node:path";
 import { type AstProfile, astProfile, structuralDelta } from "../checks/ast-delta.js";
 import type { FunctionComplexityEntry } from "../checks/cyclomatic.js";
@@ -273,7 +274,7 @@ export function formatComplexityPulse(
 
 /** The pulse line for one on-disk file, or null (unreadable, not a governed
  *  code file, analyzer unavailable, or nothing to say). */
-function pulseForFile(sessionId: string, cwd: string, absPath: string): string | null {
+function pulseForFile(sessionId: string, cwd: string, absPath: string): { message: string; actionable: boolean } | null {
 	let disk: string;
 	try {
 		disk = readFileSync(absPath, "utf-8");
@@ -306,21 +307,25 @@ function pulseForFile(sessionId: string, cwd: string, absPath: string): string |
 	const display = rel === "" || rel.startsWith("..") ? absPath : rel;
 	// Production path must use the repo's effective cap, not the default
 	// (round-2 #38 — round-1 fixed the formatter but not this caller).
-	return formatComplexityPulse(display, beforeFns, afterFns, maxCyclomaticFor(cwd), profiles);
+	const cap = maxCyclomaticFor(cwd);
+	const message = formatComplexityPulse(display, beforeFns, afterFns, cap, profiles);
+	return message ? { message, actionable: afterFns.some(entry => entry.cyclomatic > cap) } : null;
 }
 
 /**
  * PostToolUse entry — one pulse line per edited code file, bounded per event.
  * Never blocks; returns [] for non-write tools and ungoverned files.
  */
-export function collectComplexityPulseWarnings(event: HarnessEvent): string[] {
+export function collectComplexityPulseWarnings(event: HarnessEvent, delivery: "all" | "actionable" = "all"): string[] {
 	if (!isFileWrite(event.tool_name || "")) return [];
 	const cwd = event.cwd || process.cwd();
 	const warnings: string[] = [];
 	for (const path of extractAllEditedFilePaths(event).slice(0, MAX_FILES_PER_EVENT)) {
 		const abs = isAbsolute(path) ? path : resolve(cwd, path);
 		const line = pulseForFile(event.session_id, cwd, abs);
-		if (line) warnings.push(line);
+		if (!line) continue;
+		recordHookObservations(event, [{ kind: "metric", check: "cyclomatic", file: abs, message: line.message }]);
+		if (delivery === "all" || line.actionable) warnings.push(line.message);
 	}
 	return warnings;
 }

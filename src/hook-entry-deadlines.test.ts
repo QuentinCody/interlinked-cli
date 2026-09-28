@@ -33,6 +33,11 @@ describe("isCodeEditEvent", () => {
 });
 
 describe("isCommitOrPushEvent", () => {
+    it("recognizes the actual normalized native Bash tool-call shape", () => {
+        const native = preTool({ kind: "tool_call", tool_name: "bash", tool_class: "modify", tool_input: { command: "git commit -m fix" }, tool_input_redacted: {} });
+        expect(isCommitOrPushEvent(native)).toBe(true);
+        expect(defaultTimeoutForPhase(native)).toBe(220_000);
+    });
 	it("is true for a git commit or push Bash command", () => {
 		expect(isCommitOrPushEvent(bash('git commit -m "x"'))).toBe(true);
 		expect(isCommitOrPushEvent(bash("git push origin main"))).toBe(true);

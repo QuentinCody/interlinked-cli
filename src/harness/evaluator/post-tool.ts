@@ -121,8 +121,8 @@ export function evaluatePostToolUse(
 	warnings.push(...collectPostWriteFileWarnings(event));
 	// Ambient per-edit cyclomatic telemetry — consumes the PreToolUse stash the
 	// complexity gate's observer recorded (see complexity-pulse.ts).
-	warnings.push(...collectComplexityPulseWarnings(event));
-	warnings.push(...collectFunctionTokenPulseWarnings(event));
+	warnings.push(...collectComplexityPulseWarnings(event, "actionable"));
+	warnings.push(...collectFunctionTokenPulseWarnings(event, "actionable"));
 	warnings.push(...collectReadFileSizeWarning(event));
 	warnings.push(...collectToolMissWarning(event));
 	warnings.push(...collectEditNearMissWarning(event));

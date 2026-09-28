@@ -1,4 +1,5 @@
 import { readToolString } from "../evaluator/tool-input-values.js";
+import { writeAttribution } from "./post-tool-pipeline-paths.js";
 // ===========================================
 // PostToolUse — per-file check body
 // ===========================================
@@ -109,7 +110,7 @@ export async function runPerFileChecks(
 	let editedFilePath = currentEditedPath;
 	// For Bash edits, inject the detected file path into a synthetic event
 	const checkEvent = editedFilePath
-		? { ...event, tool_input: { ...event.tool_input, file_path: editedFilePath } }
+		? { ...event, write_attribution: writeAttribution(event, editedFilePath, CWD), tool_input: { ...event.tool_input, file_path: editedFilePath } }
 		: event;
 
 	// --- Structural checks (fast, sub-100ms, dependency-aware) ---

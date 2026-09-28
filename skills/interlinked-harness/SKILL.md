@@ -46,6 +46,18 @@ the same oracle; a standalone generated hook without the daemon reports NOT CHEC
 because it has no AST runtime. Restore the daemon or use `interlinked-hook` for
 that check. Single-line guards remain valid code; brace style is a separate policy.
 
+Claude's demonstrated native `PostToolBatch` boundary coalesces TypeScript checks for
+declared single-file edits. The final tree is checked before the next model request;
+security guards and hard complexity caps remain per edit. Final compiler findings are
+repair context, with unresolved work enforced at Stop/commit. See **interlinked-verify**
+for fallback and recovery behavior. Merely using multiple Edit calls is not evidence
+of a retry: correlate their emission time and assistant message with hook feedback.
+
+Repeated pre-edit content advice, test-evidence limitations, and unchanged coverage
+gaps are deduplicated for model delivery. Full observations remain in local evidence.
+Changing coverage counts alone do not repeat the same instruction; a recovered gap
+that recurs or a different unavailable-check reason is announced again.
+
 Claude and Codex Stop/SubagentStop advisories remain operator diagnostics on stderr.
 Only explicit blocking repair decisions request another model turn. Source guidance is
 sent during editing. File-size advice and per-function gates share native edit/patch content
@@ -466,8 +478,9 @@ never inferred read-only from their text. Restore the runtime before relying on 
   start duplicate recurrence scans or coverage ratchets. While one detached job is still active,
   later SessionEnd events log it as already running and skip that copy; the next run becomes
   eligible when the child exits or the daemon restarts.
-- **`[interlinked:trajectory] …(shadow — would block)`** warnings are advisory only (shadow
-  mode) — they preview a future gate; treat as signal, not a block.
+- **Shadow trajectory observations** are recorded in `check-executions.jsonl` as
+  `hook-observation.v1` rows (`kind: trajectory`), without model warnings. They preview
+  possible rules and do not enforce the reported action. Enforced trajectory rules remain active.
 - **PreToolUse blocking**: Claude Code and Codex are supported. Claude also registers
   PermissionRequest; Codex registers all twelve native lifecycle/tool events. Codex
   PreToolUse `ask` becomes deny, while both providers' PermissionRequest `ask` preserves the

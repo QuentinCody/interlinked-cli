@@ -20,6 +20,7 @@
 import { isGitPushCommand, parseGitCommit } from "./harness/evaluator/commit-parse.js";
 import { DEFAULT_LEGACY_PRE_TOOL_TIMEOUT_MS } from "./harness/legacy-client.js";
 import { asShellCommand, type UnifiedHookEvent } from "./harness/unified-event.js";
+import { isJsonObject } from "./lib/json-types.js";
 
 const PHASE_PRE_TOOL = "pre-tool";
 const ACTION_TOOL_CALL = "tool_call";
@@ -90,10 +91,16 @@ export function isCodeEditEvent(event: UnifiedHookEvent): boolean {
  * comment and a quoted `"git commit"` do not qualify for the long deadline.
  */
 export function isCommitOrPushEvent(event: UnifiedHookEvent): boolean {
-	const shell = asShellCommand(event);
-	if (!shell) return false;
-	const command = shell.command;
+	const command = asShellCommand(event)?.command ?? nativeShellCommand(event);
+	if (!command) return false;
 	return parseGitCommit(command)?.isCommit === true || isGitPushCommand(command);
+}
+
+function nativeShellCommand(event: UnifiedHookEvent): string | null {
+    const action = event.action;
+    if (action.kind !== "tool_call" || !["bash", "powershell", "shell"].includes(action.tool_name.toLowerCase())) return null;
+    const command = isJsonObject(action.tool_input) ? action.tool_input.command : undefined;
+    return typeof command === "string" ? command : null;
 }
 
 /**

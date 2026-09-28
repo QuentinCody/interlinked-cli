@@ -26,6 +26,11 @@ import { buildDetachedHookCommand, buildHookCommand } from "./hook-command.js";
 import type { RunnerAdapter } from "./types.js";
 
 let dir = "";
+it("keeps a non-gating hook command under 2 KiB without embedding the missing-runtime program", () => {
+    const command = buildHookCommand("/opt/interlinked/dist/hook-entry.js", "claude-code", "PostToolUse", "warn_open");
+    expect(Buffer.byteLength(command)).toBeLessThan(2048);
+    expect(command).not.toContain("JSON.parse");
+});
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "hook-cmd-"));
 });

@@ -13,6 +13,12 @@ export interface QualityCheckResult {
 	message: string;
 	file?: string;
 	detail?: string;
+	/** Novelty is relative to the last report, not proof of writer identity. */
+	novelty?: "newly-observed" | "pre-existing";
+	findingCount?: number;
+	writeAttribution?: "declared-target" | "observed-workspace";
+    /** Full unformatted diagnostic identities for durable batch repair tracking. */
+    diagnosticKeys?: string[];
 }
 
 /** Per-tool execution metrics surfaced from the engine into latency telemetry.

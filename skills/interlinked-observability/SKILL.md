@@ -6,6 +6,21 @@ description: "Investigate agent activity and JSONL/gzip evidence. Load for data 
 
 # interlinked-observability — inspect what agents did
 
+For Claude compiler batching, distinguish tool calls, scheduled checks, compiler
+executions and delivered diagnostics. `hook-observation.v1` rows record scheduled
+TypeScript work; batch results and timing are in `check-results.jsonl`. Pending work
+survives in `.interlinked/compiler-batches/`. Coverage observations are retained even
+when repeated model warnings are suppressed. Silence does not mean coverage is complete.
+Measure a repeated-edit problem by assistant-message/tool-use identity and timestamps:
+an edit emitted before an earlier hook's feedback cannot be attributed to that feedback.
+
+`check-executions.jsonl` also carries `hook-observation.v1`: scheduled external overlays,
+normal complexity/token measurements, and shadow trajectory observations. These are telemetry,
+not check passes or confirmed model delivery. `check-results.jsonl` retains full findings,
+including `novelty`, `findingCount` and server-computed `writeAttribution` where available.
+Newly observed means report novelty, not proven causation. Repeated advisories may be hidden
+from model feedback while remaining in each call's records; hidden findings prevent all-clean.
+
 `repeated_implementation` check results retain each current AST-matched group with
 a `group=<sha256>` detail identity, even when unchanged agent-facing warnings are
 suppressed. Compare these identities rather than line numbers across formatting edits.

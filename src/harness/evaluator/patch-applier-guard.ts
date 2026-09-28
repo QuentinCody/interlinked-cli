@@ -27,7 +27,9 @@
 // into `src/` from inline strings is the same evasion.
 
 import { readFileSync, statSync } from "node:fs";
-import { basename, isAbsolute, resolve } from "node:path";
+import { basename, isAbsolute, resolve, posix } from "node:path";
+import type * as TS from "typescript";
+import { parseTsSource, type ParsedTsSource } from "../checks/cyclomatic-ast.js";
 import { stripCommentsAndStrings } from "../checks/shared-text-utils.js";
 
 /** Script extensions this guard inspects. Non-scripts cannot execute a write,
@@ -106,6 +108,7 @@ export function detectPatchApplier(
 	filePath: string,
 ): PatchApplierEvidence | null {
 	if (!SCRIPT_EXT_RE.test(filePath)) return null;
+	if (/\.[cm]?[jt]s$/i.test(filePath)) return detectJsDestination(content, filePath);
 	// Red-team F3: match the WRITE CALL against comment- and string-stripped
 	// source. A write call quoted inside a string is data, not a write — this
 	// guard blocked a probe script that only carried write-shaped payloads, and
@@ -117,6 +120,94 @@ export function detectPatchApplier(
 	const target = REPO_TARGET_RE.exec(stripModuleSpecifiers(content));
 	if (!target) return null;
 	return { writeCall: write, repoTarget: target[0].trim() };
+}
+
+type PathBindings = Map<string, TS.Expression | null>;
+interface PathContext extends ParsedTsSource { bindings: PathBindings }
+const TEMP_MARKER = "/__interlinked_temp__";
+const WRITE_DESTINATION_ARG = new Map([
+	["writeFileSync", 0], ["appendFileSync", 0], ["createWriteStream", 0],
+	["writeFile", 0], ["appendFile", 0], ["copyFileSync", 1], ["renameSync", 1],
+	["copyFile", 1], ["rename", 1],
+]);
+
+/** Only unique top-level immutable bindings; shadowed/mutable names are unknown. */
+function pathBindings(parsed: ParsedTsSource): PathBindings {
+	const bindings: PathBindings = new Map();
+	const { ts, sf } = parsed;
+	function visit(node: TS.Node): void {
+		if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+			const topLevel = ts.isVariableDeclarationList(node.parent) &&
+				node.parent.parent.parent === sf && (node.parent.flags & ts.NodeFlags.Const) !== 0;
+			bindings.set(node.name.text, !bindings.has(node.name.text) && topLevel ? node.initializer ?? null : null);
+		}
+		if (ts.isParameter(node) && ts.isIdentifier(node.name)) bindings.set(node.name.text, null);
+		ts.forEachChild(node, visit);
+	}
+	visit(sf);
+	return bindings;
+}
+
+function callName(node: TS.Expression, ts: ParsedTsSource["ts"]): string {
+	if (ts.isIdentifier(node)) return node.text;
+	return ts.isPropertyAccessExpression(node) ? node.name.text : "";
+}
+
+function resolvePathCall(node: TS.CallExpression, ctx: PathContext, depth: number): string | null {
+	const name = callName(node.expression, ctx.ts);
+	if (node.expression.getText(ctx.sf) === "process.cwd") return "/__interlinked_project__";
+	if (name === "tmpdir") return TEMP_MARKER;
+	const args = node.arguments.map(arg => resolvePathExpression(arg, ctx, depth + 1));
+	if (name === "mkdtempSync" || name === "mkdtemp") return args[0] ?? null;
+	if (name !== "join" && name !== "resolve") return null;
+	if (!args.length || args.some(arg => arg === null)) return null;
+	const parts = args.filter((arg): arg is string => arg !== null);
+	return name === "join" ? posix.join(...parts) : posix.resolve("/__interlinked_project__", ...parts);
+}
+
+function resolvePathExpression(node: TS.Expression, ctx: PathContext, depth = 0): string | null {
+	if (depth > 12) return null;
+	const { ts } = ctx;
+	if (ts.isStringLiteralLike(node)) return node.text;
+	if (ts.isParenthesizedExpression(node)) return resolvePathExpression(node.expression, ctx, depth + 1);
+	if (ts.isIdentifier(node)) {
+		const binding = ctx.bindings.get(node.text);
+		return binding ? resolvePathExpression(binding, ctx, depth + 1) : null;
+	}
+	if (ts.isCallExpression(node)) return resolvePathCall(node, ctx, depth);
+	if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+		const left = resolvePathExpression(node.left, ctx, depth + 1);
+		const right = resolvePathExpression(node.right, ctx, depth + 1);
+		return left !== null && right !== null ? left + right : null;
+	}
+	return null;
+}
+
+function isRepositoryDestination(path: string): boolean {
+	const normalized = posix.normalize(path);
+	if (normalized === TEMP_MARKER || normalized.startsWith(`${TEMP_MARKER}/`)) return false;
+	return normalized.startsWith("/__interlinked_project__") || normalized.startsWith("../") ||
+		/(?:^|\/)(?:src|lib|app|packages|tests?|docs)\//.test(normalized);
+}
+
+function detectJsDestination(content: string, filePath: string): PatchApplierEvidence | null {
+	const parsed = parseTsSource(content, filePath);
+	if (!parsed) return null; // No exact analyzer: observed-write checks remain the backstop.
+	const ctx: PathContext = { ...parsed, bindings: pathBindings(parsed) };
+	let evidence: PatchApplierEvidence | null = null;
+	function visit(node: TS.Node): void {
+		if (ctx.ts.isCallExpression(node)) {
+			const index = WRITE_DESTINATION_ARG.get(callName(node.expression, ctx.ts));
+			const target = index === undefined ? undefined : node.arguments[index];
+			const value = target ? resolvePathExpression(target, ctx) : null;
+			if (value !== null && isRepositoryDestination(value)) evidence = {
+				writeCall: `${node.expression.getText(ctx.sf)}(`, repoTarget: target!.getText(ctx.sf),
+			};
+		}
+		if (!evidence) ctx.ts.forEachChild(node, visit);
+	}
+	visit(ctx.sf);
+	return evidence;
 }
 
 /** Interpreters that can execute a script file passed as an argument. */

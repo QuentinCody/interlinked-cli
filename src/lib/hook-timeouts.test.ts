@@ -22,9 +22,13 @@ describe("hook timeout policy", () => {
 		expect(hookTimeoutSecondsFor("Interrupt")).toBe(3);
 	});
 
-	it("exposes exactly the three governed events", () => {
+	it("grants native compiler batches room beyond the 60s transport deadline", () => {
+        expect(hookTimeoutSecondsFor("PostToolBatch")).toBe(120);
+    });
+	it("exposes exactly the four governed events", () => {
 		expect(Object.keys(HOOK_TIMEOUT_SECONDS).sort()).toEqual([
 			"Interrupt",
+			"PostToolBatch",
 			"PostToolUse",
 			"PreToolUse",
 		]);

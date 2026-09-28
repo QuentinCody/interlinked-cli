@@ -29,7 +29,9 @@ describe("coverage on both daemon transports", () => {
         expect(await loop.evaluateEventLine(JSON.stringify({ hook_event: "HookCoverage", request: { operation: "erase" } }), "raw")).toMatchObject({ decision: "block" });
     });
     it("preserves existing feedback and adds explicit unavailable coverage on raw and framed Stop", async () => {
-        const deps = makeEventLoopDeps({ ctx: makeServerRuntime({ hookCoverageUnavailable: "watcher offline" }) });
+        const root = mkdtempSync(join(tmpdir(), "interlinked-coverage-loop-evidence-"));
+        cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+        const deps = makeEventLoopDeps({ ctx: makeServerRuntime({ cwd: root, hookCoverageUnavailable: "watcher offline" }) });
         const loop = createCoverageEventLoop(deps);
         const raw = await loop.evaluateEventLine(JSON.stringify({ hook_event: "Stop" }), "raw");
         const framed = await loop.evaluateUnifiedViaRuntime(createCodexAdapter().parseHookInput({}, "Stop"));

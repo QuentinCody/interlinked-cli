@@ -56,6 +56,18 @@ describe("isOutcomeAttributable — can the shell exit code be trusted?", () => 
 });
 
 describe("parseTestSummary — the runner's own verdict", () => {
+    it("accepts rg -n summaries from the captured Unit F run", () => {
+        expect(parseTestSummary("5: Test Files  4 passed (4)\n6:      Tests  22 passed (22)")).toBe("green");
+        expect(parseTestSummary("56: Test Files 2 failed (2)\n57: Tests 2 failed | 6 passed (8)")).toBe("red");
+    });
+
+    it("never lets a later pass summary mask a failure in the same output", () => {
+        expect(parseTestSummary("1: Test Files 1 failed (1)\n2: Tests 22 passed (22)")).toBe("red");
+        expect(parseTestSummary("Tests 22 passed\nTests 1 failed")).toBe("red");
+        expect(parseTestSummary("Tests 0 failed | 22 passed")).toBe("green");
+        expect(parseTestSummary("Tests 0 passed (0)")).toBeNull();
+        expect(parseTestSummary("source.ts:12: Tests 22 passed")).toBeNull();
+    });
 	it("reads a vitest pass summary", () => {
 		expect(parseTestSummary("\n Test Files  4 passed (4)\n      Tests  108 passed (108)\n")).toBe(
 			"green",

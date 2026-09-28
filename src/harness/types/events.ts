@@ -92,6 +92,8 @@ export interface HarnessEvent {
 	tool_input?: JsonObject | undefined;
 	tool_response?: unknown;
 	tool_use_id?: string | undefined;
+	/** Server-computed before synthetic per-file inputs; never trusted from a client. */
+	write_attribution?: "declared-target" | "observed-workspace";
 	/** Generated-hook delivery token for the request-owned PostTool warning
 	 * spool. The daemon never trusts it as identity; it is only a filesystem
 	 * correlation key validated to a bounded filename-safe alphabet. */

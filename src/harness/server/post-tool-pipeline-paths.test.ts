@@ -1,7 +1,15 @@
 import { makeEvent as makeEventFixture } from "../__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import type { HarnessEvent } from "../types.js";
-import { resolveEditedPaths } from "./post-tool-pipeline-paths.js";
+import { resolveEditedPaths, writeAttribution } from "./post-tool-pipeline-paths.js";
+
+it("distinguishes a concurrent workspace observation from a declared write", () => {
+	expect(writeAttribution(bash("sed -n '1,10p' src/a.ts"), "src/a.ts", "/repo")).toBe("observed-workspace");
+	expect(writeAttribution(edit("src/a.ts"), "src/a.ts", "/repo")).toBe("declared-target");
+	expect(writeAttribution(edit("src/a.ts"), "src/b.ts", "/repo")).toBe("observed-workspace");
+	expect(writeAttribution(bash("sed -i '' 's/a/b/' src/a.ts"), "src/a.ts", "/repo")).toBe("declared-target");
+	expect(writeAttribution({ ...bash("anything"), tool_name: "unknown" }, "src/a.ts", "/repo")).toBe("observed-workspace");
+});
 
 /**
  * Generated build artifacts must never enter the quality pipeline. The bash

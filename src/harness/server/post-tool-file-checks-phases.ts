@@ -31,12 +31,12 @@ import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import {
 	applyQualityDecision,
 	buildSmartTscOpts,
-	collectQualityResultEntries,
+	prepareQualityFeedback,
 	expandQualitySiblings,
-	isQualityDeferralName,
 	runScoredSuggestionsPhase,
 } from "./post-tool-file-checks-phases-quality.js";
 import type { ServerRuntime } from "./runtime-context.js";
+import { queueBatchCompiler } from "./compiler-batch.js";
 
 // Re-export the scored-suggestions phase so the orchestrator keeps importing
 // it from this module entry (it now lives in the -quality sibling).
@@ -51,6 +51,15 @@ const STRUCT_TIME_BUDGET_MS = 12000;
 const SHOTGUN_THRESHOLD = 40;
 /** Higher session edit count that fires the shotgun check a second time. */
 const SHOTGUN_THRESHOLD_HIGH = 60;
+
+function qualityChecksForCall(ctx: ServerRuntime, event: HarnessEvent, file: string, acc: PerFileCheckCtx): GuardRulesConfig["quality_checks"] {
+    const checks = ctx.rules.quality_checks;
+    // Existing atomic multi-file calls already have a shared compiler run.
+    if ((acc.editedFilePaths?.length ?? 0) > 1 || !queueBatchCompiler(ctx, event, file)) return checks;
+    acc.allCheckResults.push({ name: "external_check_deferred", source: "quality", severity: "warning", determinism: "fully_deterministic",
+        message: "TypeScript scheduled for native PostToolBatch; no compiler verdict for this intermediate edit", file });
+    return Object.fromEntries(Object.entries(checks).filter(([name]) => name !== "typescript"));
+}
 
 /**
  * Quality-checks phase: tsc/lint/secrets (subprocess-based) + sibling
@@ -75,7 +84,9 @@ export async function runQualityPhase(
 ): Promise<number> {
 	const CWD = ctx.cwd;
 	const rules = ctx.rules;
-	const { allCheckResults, checksRan, postToolMetrics, markPhase } = acc;
+	const { checksRan, postToolMetrics, markPhase } = acc;
+	const checksStart = checksRan.length;
+	const qualityChecks = qualityChecksForCall(ctx, checkEvent, editedFilePath, acc);
 
 	// --- Quality checks (tsc, lint, secrets — slower, subprocess-based) ---
 	// Capture baseline suppression count before quality checks consume it
@@ -109,7 +120,7 @@ export async function runQualityPhase(
 			acc.externalCheckBatch = createChangeSetExternalBatch({
 				paths: inRepoPaths,
 				newFilePaths,
-				checks: rules.quality_checks,
+				checks: qualityChecks,
 				cwd: CWD,
 				outToolMetrics: postToolMetrics,
 				outChecksRan: checksRan,
@@ -120,7 +131,7 @@ export async function runQualityPhase(
 	// the structural-checks block (export-surface diff, project
 	// graph update, impact analysis, deletion-hygiene).
 	markPhase("structural_checks");
-	const perFileQualityResults = await runQualityChecksWithCoverage({ watcher: ctx.hookCoverage, event: checkEvent, checks: rules.quality_checks, cwd: CWD, externalBatch: acc.externalCheckBatch, options: {
+	const perFileQualityResults = await runQualityChecksWithCoverage({ watcher: ctx.hookCoverage, event: checkEvent, checks: qualityChecks, cwd: CWD, externalBatch: acc.externalCheckBatch, options: {
 		...qualityOpts,
 		...(currentBaseline !== undefined ? { baseline: currentBaseline } : {}),
 		...(rules.diff_aware !== undefined ? { diffAware: rules.diff_aware } : {}),
@@ -159,12 +170,7 @@ export async function runQualityPhase(
 	// Skip re-firing warnings the user already acknowledged for this file+check.
 	// Errors and no-verdict deferrals always re-fire regardless of acknowledgment:
 	// suppressing a deferral could make the tail incorrectly report all-clean.
-	const qualityResults = rawQualityResults.filter(
-		(r) =>
-			r.severity === "error" ||
-			isQualityDeferralName(r.name) ||
-			!isAcknowledged(session, editedFilePath, r.name),
-	);
+	const qualityResults = prepareQualityFeedback(rawQualityResults, checkEvent, session, acc);
 
 	// --- Sibling expansion (PostToolUse fan-out) ---
 	// When a finding hits a known type-erasure / boundary pattern, query
@@ -172,12 +178,10 @@ export async function runQualityPhase(
 	// sibling. Codex finding-discovery convention "do not collapse
 	// separate instances under one candidate" — turns a single edit's
 	// `as_any_ratchet` into a worklist covering the whole module.
-	expandQualitySiblings(ctx, editedFilePath, qualityResults);
+	expandQualitySiblings(ctx, editedFilePath, qualityResults, acc.allCheckResults);
 
 	// Collect quality check results for local persistence
-	collectQualityResultEntries(qualityResults, allCheckResults);
-
-	applyQualityDecision(ctx, qualityResults, decision, session, checksRan);
+	applyQualityDecision(ctx, qualityResults, decision, session, checksRan.slice(checksStart), editedFilePath);
 
 	return previousSuppressionCount;
 }

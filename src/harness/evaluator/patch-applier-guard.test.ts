@@ -56,6 +56,23 @@ describe("detectPatchApplier — positive (must fire)", () => {
 });
 
 describe("detectPatchApplier — negative (must not fire)", () => {
+	it.each([
+		'readFileSync("src/a.ts"); writeFileSync(join(tmpdir(), "fixture.ts"), data);',
+		'const root = mkdtempSync(join(tmpdir(), "probe-")); readFileSync(resolve(process.cwd(), "src/a.ts")); writeFileSync(join(root, "src/a.ts"), data);',
+		'copyFileSync("src/a.ts", join(tmpdir(), "copy.ts"));',
+		'renameSync("src/a.ts", join(tmpdir(), "copy.ts"));',
+		'let target = "src/a.ts"; target = external; writeFileSync(target, data);',
+	])("does not infer a repo destination from an unrelated read or unknown binding: %s", content => {
+		expect(detectPatchApplier(content, "/repo/scratch/probe.mjs")).toBeNull();
+	});
+	it.each([
+		'copyFileSync(join(tmpdir(), "fixture.ts"), "src/a.ts");',
+		'renameSync(join(tmpdir(), "fixture.ts"), "src/a.ts");',
+		'const root = process.cwd(); const target = join(root, "src", "a.ts"); writeFileSync(target, data);',
+		'writeFileSync(join(tmpdir(), "ok.ts"), data); appendFileSync("../src/a.ts", data);',
+	])("retains concrete repo destination controls: %s", content => {
+		expect(detectPatchApplier(content, "/repo/scratch/probe.mjs")).not.toBeNull();
+	});
 	it("N1: probe that only reads repo source", () => {
 		const content = [
 			'import { readFileSync } from "node:fs";',

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { recordHookObservations } from "../hook-observations.js";
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { computeFunctionTokens, functionTokenAnalyzerStatus } from "../function-tokens/index.js";
@@ -84,7 +85,7 @@ export function formatFunctionTokenPulse(
     return `${line}; tokenizer ${CANONICAL_TOKENIZER_ID}`;
 }
 
-function pulseForFile(sessionId: string, cwd: string, absolutePath: string): string | null {
+function pulseForFile(sessionId: string, cwd: string, absolutePath: string): { message: string; actionable: boolean } | null {
     let content: string;
     try {
         content = readFileSync(absolutePath, "utf8");
@@ -108,19 +109,23 @@ function pulseForFile(sessionId: string, cwd: string, absolutePath: string): str
         const status = functionTokenAnalyzerStatus(absolutePath);
         return status.language === "unknown"
             ? null
-            : `[interlinked:function-tokens:not-measured] ${display}: ${status.language} exact adapter unavailable`;
+            : { message: `[interlinked:function-tokens:not-measured] ${display}: ${status.language} exact adapter unavailable`, actionable: true };
     }
-    return formatFunctionTokenPulse(display, before, after, maxFunctionTokensFor(cwd));
+    const cap = maxFunctionTokensFor(cwd);
+    const message = formatFunctionTokenPulse(display, before, after, cap);
+    return message ? { message, actionable: after.some(entry => entry.canonicalTokens > cap) } : null;
 }
 
-export function collectFunctionTokenPulseWarnings(event: HarnessEvent): string[] {
+export function collectFunctionTokenPulseWarnings(event: HarnessEvent, delivery: "all" | "actionable" = "all"): string[] {
     if (!isFileWrite(event.tool_name || "")) return [];
     const cwd = event.cwd || process.cwd();
     const warnings: string[] = [];
     for (const path of extractAllEditedFilePaths(event).slice(0, MAX_FILES_PER_EVENT)) {
         const absolutePath = isAbsolute(path) ? path : resolve(cwd, path);
         const warning = pulseForFile(event.session_id, cwd, absolutePath);
-        if (warning !== null) warnings.push(warning);
+        if (warning === null) continue;
+        recordHookObservations(event, [{ kind: "metric", check: "function_tokens", file: absolutePath, message: warning.message }]);
+        if (delivery === "all" || warning.actionable) warnings.push(warning.message);
     }
     return warnings;
 }

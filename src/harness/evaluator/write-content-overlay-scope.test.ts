@@ -1,8 +1,12 @@
-import { expect, it } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
+import { recordHookObservations } from "../hook-observations.js";
 import { makeEvent } from "../__tests__/fixtures/evaluator.js";
 import { makeGuardRules } from "./__tests__/fixtures.js";
 import type { WriteContentGuardState } from "./write-content-basic-guards.js";
 import { biomeDiffOverlayGuard, tscDiffOverlayGuard } from "./write-content-overlay-guards.js";
+
+vi.mock("../hook-observations.js", () => ({ recordHookObservations: vi.fn() }));
+beforeEach(() => vi.clearAllMocks());
 
 function state(extension: string, externalOverlays = false): WriteContentGuardState {
     return { toolName: "Write", filePath: `/repo/example.${extension}`, content: "answer = 42", postEditContent: "answer = 42",
@@ -19,10 +23,10 @@ it.each(["py", "go", "rs", "java", "json", "md"])("does not promise irrelevant J
     }
 });
 
-it.each([["ts", 2], ["js", 1], ["mts", 1]] as const)("retains applicable deferrals for %s", (extension, count) => {
+it.each([["ts", 2], ["js", 1], ["mts", 1]] as const)("records applicable scheduled checks without repeating them to the model for %s", (extension, count) => {
     const input = state(extension);
     biomeDiffOverlayGuard(input);
     tscDiffOverlayGuard(input);
-    expect(input.warnings).toHaveLength(count);
-    expect(input.warnings.every(warning => warning.includes("NOT CHECKED"))).toBe(true);
+    expect(input.warnings).toEqual([]);
+    expect(recordHookObservations).toHaveBeenCalledTimes(count);
 });

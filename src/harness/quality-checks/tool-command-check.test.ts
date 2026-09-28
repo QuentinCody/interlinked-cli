@@ -59,6 +59,26 @@ const CHECK: QualityCheckConfig = {
 	severity: "error",
 };
 
+describe("runCommandCheck skipped tools — a missing config is NOT APPLICABLE, a missing binary is a deferral", () => {
+	it("P1: a project without the tool's config file yields a visible warning that is not an operational deferral (a compiler batch can complete)", async () => {
+		const editedFile = join(dir, "fixture/tests/orders.spec.mjs");
+		const engine = new CheckEngine(dir);
+		vi.spyOn(engine, "runChecksAsync").mockResolvedValue({ ...mkReport([]), skipped: [{ check: "tsc", category: "tool_missing", reason: "no config file found (tsconfig.json)" }] });
+		mockGetOrCreateEngine.mockReturnValue(engine);
+		const results = await runCommandCheck({ filePath: editedFile, cwd: dir, tscFilterFile: undefined, outToolMetrics: undefined }, "typescript", CHECK);
+		expect(results?.map((row) => [row.name, row.severity])).toEqual([["external_check_not_applicable", "warning"]]);
+		expect(results?.[0]?.message).toMatch(/does not apply to .*orders\.spec\.mjs: no config file found \(tsconfig\.json\); add the config/);
+	});
+	it("N1: a missing binary stays an operational deferral (retry when it is installed)", async () => {
+		const editedFile = join(dir, "src/foo.ts");
+		const engine = new CheckEngine(dir);
+		vi.spyOn(engine, "runChecksAsync").mockResolvedValue({ ...mkReport([]), skipped: [{ check: "tsc", category: "tool_missing", reason: "not installed" }] });
+		mockGetOrCreateEngine.mockReturnValue(engine);
+		const results = await runCommandCheck({ filePath: editedFile, cwd: dir, tscFilterFile: undefined, outToolMetrics: undefined }, "typescript", CHECK);
+		expect(results?.map((row) => row.name)).toEqual(["external_check_deferred"]);
+	});
+});
+
 describe("runCommandCheck typescript delta split — positive (must appear)", () => {
 	it("P1: reports an introduced finding for the edited file", async () => {
 		const editedFile = join(dir, "src/foo.ts");
@@ -73,7 +93,8 @@ describe("runCommandCheck typescript delta split — positive (must appear)", ()
 		);
 
 		expect(results).toHaveLength(1);
-		expect(results?.[0]?.message).toBe(`typescript found new issues in ${editedFile}`);
+		expect(results?.[0]?.message).toBe(`typescript found newly observed issues in ${editedFile}`);
+		expect(results?.[0]?.novelty).toBe("newly-observed");
 	});
 
 	it("P2: reports pre-existing findings from a different file as not-introduced", async () => {
@@ -92,7 +113,7 @@ describe("runCommandCheck typescript delta split — positive (must appear)", ()
 		expect(results).toHaveLength(1);
 		expect(results?.[0]?.severity).toBe("warning");
 		expect(results?.[0]?.message).toBe(
-			`typescript: 1 pre-existing issue(s) in ${otherFile} (while checking ${editedFile}) — not introduced by this edit`,
+			`typescript: 1 pre-existing issue(s) in ${otherFile} (while checking ${editedFile})`,
 		);
 	});
 });

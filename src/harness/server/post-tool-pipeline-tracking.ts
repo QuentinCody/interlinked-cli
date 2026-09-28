@@ -134,7 +134,7 @@ function resolveTestOutcome(event: HarnessEvent, cmd: string): "red" | "green" |
  *  is what let repeated green runs fail to clear a wedged cycle with nobody
  *  able to see why they were not counting. */
 const UNCOUNTED_RUN_WARNING =
-	"[interlinked:test-evidence] Test result NOT counted — this command's exit status belongs to what follows the runner (a pipe or `;`/`&&` tail), and the output carried no runner summary. Run the test command on its own so the result can be recorded; redirects are fine, pipes and trailing commands are not.";
+	"[interlinked:test-evidence] Test result NOT counted — the output carried no recognized runner summary, and shell exit status alone is not attributable through a pipe or trailing command. Preserve the full runner summary or run the test command directly so its outcome can be recorded.";
 
 /** The transport-gap sibling of {@link UNCOUNTED_RUN_WARNING}: the command WAS
  *  attributable, but the event arrived with no evidence at all — no runner

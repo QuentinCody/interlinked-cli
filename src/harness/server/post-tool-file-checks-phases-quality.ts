@@ -13,9 +13,10 @@ import { readOptionalToolString } from "../evaluator/tool-input-values.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
+import { getDataDir } from "../../lib/config.js";
 import { GENERIC_CHECK_META, QUALITY_CHECK_META } from "../check-metadata.js";
 import { isOperationalCheckDeferral } from "../operational-check-deferrals.js";
-import { novelQualityFeedback } from "../quality-feedback.js";
+import { compactQualityResults, novelQualityFeedback } from "../quality-feedback.js";
 import type { QualityCheckResult } from "../quality-checks/result-types.js";
 import {
 	classifyDeterminism,
@@ -91,6 +92,10 @@ export function formatQualityDecisionWarnings(
 	const warnings: string[] = [];
 	const emittedDeferredFiles = new Set<string>();
 	for (const result of qualityResults) {
+		if (result.novelty === "pre-existing") {
+			warnings.push(`[interlinked:${result.name}] ${result.message}`);
+			continue;
+		}
 		if (!isQualityDeferralName(result.name)) {
 			warnings.push(...formatQualityWarnings([result]));
 			continue;
@@ -151,6 +156,7 @@ export function expandQualitySiblings(
 	ctx: ServerRuntime,
 	editedFilePath: string,
 	qualityResults: QualityCheckResult[],
+	allCheckResults?: PerFileCheckCtx["allCheckResults"],
 ): void {
 	const triggerNames = new Set(DEFAULT_TRIGGERS.map((t) => t.triggerName));
 	const triggers = qualityResults
@@ -175,12 +181,14 @@ export function expandQualitySiblings(
 			cwd: CWD,
 		});
 		for (const s of siblings) {
-			qualityResults.push({
+			const result: QualityCheckResult = {
 				name: s.siblingRuleId,
 				severity: "warning",
 				message: s.message,
 				file: s.file,
-			});
+			};
+			qualityResults.push(result);
+			if (allCheckResults) collectQualityResultEntries([result], allCheckResults);
 		}
 		if (siblings.length > 0) {
 			ctx.log(
@@ -207,6 +215,9 @@ export function collectQualityResultEntries(
 			message: r.message,
 			file: r.file,
 			detail: r.detail,
+			novelty: r.novelty,
+			findingCount: r.findingCount,
+			writeAttribution: r.writeAttribution,
 			determinism:
 				QUALITY_CHECK_META[r.name]?.determinism ??
 				GENERIC_CHECK_META[r.name]?.determinism ??
@@ -231,65 +242,43 @@ export function applyQualityDecision(
 	decision: HarnessDecision,
     session?: SessionTrajectory,
     completed: readonly string[] = [],
+    checkedFile?: string,
 ): void {
     const feedbackRoot = findProjectRoot(qualityResults[0]?.file ?? "", ctx.cwd) ?? ctx.cwd;
-    if (session) qualityResults = novelQualityFeedback(session, `${feedbackRoot}\0${JSON.stringify(ctx.rules.quality_checks)}`, qualityResults, completed);
-	if (qualityResults.length === 0) return;
-	decision.warnings = [
-		...(decision.warnings || []),
-		...formatQualityDecisionWarnings(qualityResults),
-	];
-
-	// Block only on fully_deterministic quality checks with error severity, plus
-	// the software_version_regression attention channel (PostToolUse returns
-	// `block` for compatibility even though the mutation already landed). Every
-	// heuristic check (strong_typing, magic numbers, taste smells) is advisory.
-	const isBlockingResult = (r: QualityCheckResult): boolean =>
-		(r.severity === "error" &&
-			QUALITY_CHECK_META[r.name]?.determinism === "fully_deterministic") ||
-		r.name === "software_version_regression";
-
+	// Enforce raw results BEFORE delivery deduplication.
 	const blocking = qualityResults.filter(isBlockingResult);
-	const advisory = qualityResults.filter((r) => !isBlockingResult(r));
-
+	const feedback = session ? novelQualityFeedback(session,
+		`${feedbackRoot}\0${JSON.stringify(ctx.rules.quality_checks)}`, qualityResults, completed, checkedFile) : qualityResults;
+	const detailPath = join(getDataDir(ctx.cwd), "check-results.jsonl");
+	const advisory = compactQualityResults(feedback.filter(r => !isBlockingResult(r)), detailPath);
+	if (advisory.length) decision.warnings = [...(decision.warnings ?? []), ...formatQualityDecisionWarnings(advisory)];
 	if (blocking.length > 0) {
 		decision.decision = "block";
-		// Rule id = the lead blocking check's name (e.g. "typescript"), so
-		// activity/recurrence aggregation can see repeat-block thrash — 216 of
-		// the last 735 guard_block rows had NO id, all from paths like this one
-		// (2026-07 telemetry), making retry loops invisible to `query blocks --by
-		// guard_rule_id`.
 		decision.rule_id ??= blocking[0]?.name;
-		// Compose the block reason so the actionable (blocking) findings lead and
-		// the advisory pile is demoted into a clearly-labelled tail. Without the
-		// split, one deterministic error drags the whole heuristic list into the
-		// human-visible block reason and buries the thing that must be fixed.
-		// Bug B1: a PostToolUse block MUST carry a reason, else the hook renders
-		// the "no reason was attached" fallback.
-		const blockingText =
-			formatQualityDecisionWarnings(blocking).join("\n\n") ||
+		const reason = formatQualityDecisionWarnings(compactQualityResults(blocking, detailPath)).join("\n\n") ||
 			"[interlinked] PostToolUse quality checks flagged a deterministic error.";
-		const advisoryText = formatQualityDecisionWarnings(advisory).join("\n\n");
-		decision.reason ??= advisoryText
-			? `${blockingText}\n\n— Advisory findings (not blocking; address when convenient) —\n\n${advisoryText}`
-			: blockingText;
+		if (decision.reason && decision.reason !== reason) decision.warnings = [...(decision.warnings ?? []), reason];
+		decision.reason ??= reason;
 	}
+	const outcome = blocking.some(r => r.severity === "error") ? "blocking" : blocking.length ? "post-tool attention required" : "advisory";
+	if (qualityResults.length) ctx.log(`Quality issues found: ${qualityResults.map(r => r.name).join(", ")} (${outcome})`);
+}
 
-	// Outcome label for the daemon log: a deterministic error is a hard block;
-	// software_version_regression alone is the softer "attention" channel.
-	const hasDeterministicError = qualityResults.some(
-		(r) =>
-			r.severity === "error" &&
-			QUALITY_CHECK_META[r.name]?.determinism === "fully_deterministic",
-	);
-	const outcome = hasDeterministicError
-		? "blocking"
-		: blocking.length > 0
-			? "post-tool attention required"
-			: "advisory";
-	ctx.log(
-		`Quality issues found: ${qualityResults.map((r) => r.name).join(", ")} (${outcome})`,
-	);
+function isBlockingResult(result: QualityCheckResult): boolean {
+	// Deterministic detection does not establish who caused a workspace error.
+	if (result.writeAttribution === "observed-workspace" && result.name === "typescript") return false;
+	return (result.severity === "error" && QUALITY_CHECK_META[result.name]?.determinism === "fully_deterministic")
+		|| result.name === "software_version_regression";
+}
+
+/** Keep every observation, including findings hidden by acknowledgment. */
+export function prepareQualityFeedback(results: QualityCheckResult[], event: HarnessEvent, session: SessionTrajectory, acc: PerFileCheckCtx): QualityCheckResult[] {
+	for (const result of results) {
+		if (event.write_attribution) result.writeAttribution = event.write_attribution;
+	}
+	collectQualityResultEntries(results, acc.allCheckResults);
+	const file = typeof event.tool_input?.file_path === "string" ? event.tool_input.file_path : "";
+	return results.filter(r => r.severity === "error" || isQualityDeferralName(r.name) || !isAcknowledged(session, file, r.name));
 }
 
 /**

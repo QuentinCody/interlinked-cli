@@ -21,6 +21,7 @@ export const isReplayEvent = wireObject<HarnessEvent>({
 	agent_name: wireAbsentOptional(wireString), timestamp: wireString,
 	tool_name: wireAbsentOptional(wireOptional(wireString)), tool_input: wireAbsentOptional(wireOptional(isJsonObject)),
 	tool_response: wireAbsentOptional(wireUnknown), tool_use_id: wireAbsentOptional(wireOptional(wireString)),
+	write_attribution: wireAbsentOptional(wireLiteral("declared-target", "observed-workspace")),
 	post_delivery_token: wireAbsentOptional(wireOptional(wireString)), post_delivery_pid: wireAbsentOptional(wireOptional(wireNumber)),
 	seq: wireAbsentOptional(wireNumber), event_id: wireAbsentOptional(wireString),
 	files_modified: wireAbsentOptional(wireArray(wireString)), change_set: wireAbsentOptional(isChangeSet),

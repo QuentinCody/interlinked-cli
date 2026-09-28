@@ -159,6 +159,9 @@ export interface CheckResultEntry {
 	file?: string | undefined;
 	/** Extended detail (stack traces, diffs, etc.) */
 	detail?: string | undefined;
+	novelty?: "newly-observed" | "pre-existing" | undefined;
+	findingCount?: number | undefined;
+	writeAttribution?: "declared-target" | "observed-workspace" | undefined;
 	/** Suggestion score (0-1, for scored suggestions only) */
 	score?: number | undefined;
 	/** Files affected by this issue (for structural/impact checks) */

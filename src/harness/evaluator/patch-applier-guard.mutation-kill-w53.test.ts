@@ -85,7 +85,7 @@ describe("detectPatchApplier — REPO_TARGET_RE exact grammar (must fire)", () =
 	// `\s*` is documented to tolerate whitespace before the call parens.
 	it("P8: process.cwd() with a space between cwd and '(' matches", () => {
 		// \s* must allow the space; a \S* mutant refuses to match here.
-		const content = `writeFileSync(x, y); const p = process.cwd ();`;
+		const content = `const p = process.cwd (); writeFileSync(join(p, 'src/generated.ts'), y);`;
 		const result = detectPatchApplier(content, "probe.mjs");
 		expect(result).not.toBeNull();
 	});
@@ -95,41 +95,16 @@ describe("detectPatchApplier — REPO_TARGET_RE exact grammar (must fire)", () =
 	it("P9: process.cwd( ) with a space inside the parens matches", () => {
 		// The second \s* must allow a space between '(' and ')'; a \S* mutant
 		// there requires a non-whitespace char and fails.
-		const content = `writeFileSync(x, y); const p = process.cwd( );`;
+		const content = `const p = process.cwd( ); writeFileSync(join(p, 'src/generated.ts'), y);`;
 		const result = detectPatchApplier(content, "probe.mjs");
 		expect(result).not.toBeNull();
 	});
 
-	// test-contract: public-api — the os.getcwd() alternative's first `\s*`
-	// is documented to tolerate ZERO whitespace before the call parens.
-	it("P10: os.getcwd() with zero spaces before '(' matches", () => {
-		// The first \s* after getcwd must allow ZERO spaces; a mutant requiring
-		// a mandatory single \s fails on this tightly-packed call.
-		const content = `writeFileSync(x, y); const p = os.getcwd();`;
-		const result = detectPatchApplier(content, "probe.mjs");
-		expect(result).not.toBeNull();
-		// P13's zero-space-inside-parens condition is covered by this same
-		// tightly-packed `os.getcwd()` call; keeping a second identical body
-		// would not add mutation coverage.
-	});
-
-	// test-contract: public-api — the os.getcwd() alternative's first `\s*`
-	// also tolerates whitespace before the call parens.
-	it("P11: os.getcwd () with a space before '(' matches", () => {
-		// The first \s* must allow the space; a \S* mutant there fails.
-		const content = `writeFileSync(x, y); const p = os.getcwd ();`;
-		const result = detectPatchApplier(content, "probe.mjs");
-		expect(result).not.toBeNull();
-	});
-
-	// test-contract: public-api — the os.getcwd() alternative's second
-	// `\s*` is documented to tolerate whitespace inside the call parens.
-	it("P12: os.getcwd( ) with a space inside the parens matches", () => {
-		// The second \s* must allow the space; a \S* mutant there fails.
-		const content = `writeFileSync(x, y); const p = os.getcwd( );`;
-		const result = detectPatchApplier(content, "probe.mjs");
-		expect(result).not.toBeNull();
-	});
+    // JS destination proof must connect the path to the write. An unrelated
+    // cwd expression (including Python-shaped text) is not that proof.
+    it.each(["os.getcwd()", "os.getcwd ()", "os.getcwd( )", "process.cwd()"])("does not infer an unknown destination from unrelated %s", call => {
+        expect(detectPatchApplier(`writeFileSync(x, y); const p = ${call};`, "probe.mjs")).toBeNull();
+    });
 
 	// test-contract: public-api — REPO_TARGET_RE's `../` escape alternative
 	// requires a real leading quote/backtick, asserted against the exact
@@ -137,11 +112,10 @@ describe("detectPatchApplier — REPO_TARGET_RE exact grammar (must fire)", () =
 	it("P14: a quoted '../' escape closed correctly by a preceding quote matches", () => {
 		// The leading ['"`] before '../' must be a real quote; a mutant
 		// negating it to [^'"`] cannot match a genuinely-quoted literal. This
-		// alternative has no trailing-path requirement, so the match is just
-		// the quote + "../" — asserted exactly, not merely non-null.
+		// destination proof retains the complete literal for the repair diagnostic.
 		const content = `writeFileSync('../generated.ts', data);`;
 		const result = detectPatchApplier(content, "probe.mjs");
-		expect(result?.repoTarget).toBe("'../");
+		expect(result?.repoTarget).toBe("'../generated.ts'");
 	});
 });
 

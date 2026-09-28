@@ -1,4 +1,5 @@
 import { nonNull } from "../../lib/non-null.js";
+import { recordHookObservations } from "../hook-observations.js";
 import { buildAgentSafetyChecks, buildCheckInstructions } from "../check-registry/index.js";
 import {
 	_isJsTsExt as isBiomeOverlayTarget,
@@ -77,9 +78,8 @@ export function biomeDiffOverlayGuard(state: WriteContentGuardState): HarnessDec
 	const { content, externalOverlays, filePath, rules, warnings } = state;
 	if (rules.quality_checks.biome_lint?.enabled === false || !isBiomeOverlayTarget(filePath)) return null;
 	if (!externalOverlays) {
-		warnings.push(
-			`[interlinked:biome-overlay] NOT CHECKED — external PreTool checks are deferred for ${filePath}; PostToolUse runs the on-disk check without blocking the daemon event loop.`,
-		);
+		recordHookObservations(state.event, [{ kind: "scheduled", check: "biome_lint", file: filePath,
+			message: "External check scheduled for PostToolUse; no pre-write verdict." }]);
 		return null;
 	}
 	const overlay = evaluateBiomeDiffOverlay(filePath, content, projectRootFor(state));
@@ -114,12 +114,8 @@ export function tscDiffOverlayGuard(state: WriteContentGuardState): HarnessDecis
 	const { content, event, externalOverlays, filePath, rules, toolName, warnings } = state;
 	if (rules.quality_checks.typescript?.enabled === false || !isTscOverlayTarget(filePath)) return null;
 	if (!externalOverlays) {
-		warnings.push(
-			tscUnavailableWarning(
-				filePath,
-				"external PreTool checks are deferred to the admitted PostToolUse path",
-			),
-		);
+		recordHookObservations(event, [{ kind: "scheduled", check: "typescript", file: filePath,
+			message: "External check scheduled for PostToolUse; no pre-write verdict." }]);
 		return null;
 	}
 	const projectRoot = projectRootFor(state);

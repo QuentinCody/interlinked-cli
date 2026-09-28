@@ -70,10 +70,11 @@ function toMultiset(rows: readonly EngineFindingRow[]): Map<string, number> {
 export function splitIntroducedFindings(
 	projectRoot: string,
 	tool: string,
-	editedFile: string,
+	editedFile: string | readonly string[],
 	rows: readonly EngineFindingRow[],
 ): FindingDelta {
 	const key = storeKey(projectRoot, tool);
+	const edited = new Set(typeof editedFile === "string" ? [editedFile] : editedFile);
 	const previous = previousRunByKey.get(key);
 	const budget = previous ? new Map(previous) : null;
 	const introduced: EngineFindingRow[] = [];
@@ -81,7 +82,7 @@ export function splitIntroducedFindings(
 	for (const row of rows) {
 		if (budget === null) {
 			// Cold start: attribution is impossible for other files.
-			if (row.file === editedFile) introduced.push(row);
+			if (edited.has(row.file)) introduced.push(row);
 			else preExisting.push(row);
 			continue;
 		}

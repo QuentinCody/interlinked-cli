@@ -219,13 +219,13 @@ export function buildHookCommand(
 	const runtimeFailureMessage =
 		`[interlinked] hook runtime failed before returning a valid decision: ${binaryPath} — ${verb}. ${repairSteer}`;
 	const runtime = runtimeInvocation(binaryPath, runner, event);
-	const missingFallback = fallbackInvocation({
+	const missingFallback = isFailClosed ? fallbackInvocation({
 		binaryPath,
 		message: missingMessage,
 		exitCode: fallbackExit,
 		runner,
 		event,
-	});
+	}) : `echo ${shellQuote(missingMessage)} >&2 ; exit 1`;
 
 	return isFailClosed
 		? failClosedRuntimeCommand({

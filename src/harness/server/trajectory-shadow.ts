@@ -5,16 +5,16 @@
 // Wires the next-gen trajectory engine (src/harness/trajectory/) into the live
 // daemon in SHADOW mode: per-session TrajectoryState is held here, each tool-call
 // HarnessEvent is normalized into the engine's ToolEvent, the engine runs, and
-// every firing verdict — INCLUDING catalog "block"/"nudge" ones — surfaces as a
-// non-blocking `[interlinked:trajectory]` stderr warning. It never mutates the
+// every firing verdict — INCLUDING catalog "block"/"nudge" ones — is retained
+// as captured telemetry without a model warning. It never mutates the
 // harness decision, never blocks, and never throws (fails open). Promotion of
 // individual rules to real nudge/block happens later, after they are validated
 // against the Fable interactive traces.
 //
-// Deterministic: no IO, no clock, no randomness — the engine reads only event
-// data + the content hashes the harness already computed.
+// The engine is deterministic; the merge seam persists its observations.
 
 import { createState, evaluateTrajectory } from "../trajectory/index.js";
+import { recordHookObservations } from "../hook-observations.js";
 import { seedReadsFromSession } from "../trajectory/rehydrate.js";
 import type { ToolEvent, TrajectoryState, Verdict } from "../trajectory/types.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
@@ -112,8 +112,8 @@ export function formatTrajectoryVerdict(verdict: Verdict): string {
 
 /**
  * Run the trajectory engine in shadow mode for one tool-call event and return
- * the `[interlinked:trajectory]` warning lines to merge into the decision's
- * warnings. Returns [] when disabled, for non-tool events, or on any internal
+ * the `[interlinked:trajectory]` lines for the capture ledger. The merge seam
+ * records them without changing decision warnings. Returns [] when disabled or on any internal
  * error (fail-open — shadow telemetry must never disrupt the tool loop).
  *
  * Called on BOTH PreToolUse (where security/block-family rules evaluate) and
@@ -146,8 +146,7 @@ export function trajectoryShadowWarnings(
 	}
 }
 
-/** Append the shadow warnings for `event` to `decision.warnings` in place.
- *  Metric-only: mutates ONLY the warnings array, never `decision.decision`. */
+/** Persist shadow observations without changing the enforcement or model response. */
 export function mergeTrajectoryShadow(
 	event: HarnessEvent,
 	decision: HarnessDecision,
@@ -157,7 +156,9 @@ export function mergeTrajectoryShadow(
 ): void {
 	const warnings = trajectoryShadowWarnings(event, decision, config, filesRead);
 	if (warnings.length === 0) return;
-	decision.warnings = [...(decision.warnings ?? []), ...warnings];
+	recordHookObservations(event, warnings.map((message) => ({
+		kind: "trajectory", check: "trajectory_shadow", message,
+	})));
 }
 
 /** Test-only: drop all per-session state (so cases start from a clean engine). */
