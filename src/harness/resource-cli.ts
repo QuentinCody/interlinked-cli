@@ -18,7 +18,8 @@ export async function superviseResourceCli(argv: string[]): Promise<boolean> {
     if (argv.includes("--help") || argv.includes("-h")) return false;
     const resourceBudget = readResourceBudget() ?? readResourceBudget("light");
     if (!resourceBudget) {
-        process.stderr.write("[resources] Host memory capacity unavailable; no verification verdict.\n");
+        // Nothing ran: this is NOT RUN (EX_TEMPFAIL), never a failed check.
+        process.stderr.write("[resources] NOT RUN: host memory capacity unavailable; no verification verdict.\n");
         process.exitCode = 75;
         return true;
     }

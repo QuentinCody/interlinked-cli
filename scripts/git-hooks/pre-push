@@ -75,8 +75,41 @@ cleanup_export() {
 trap cleanup_export EXIT
 
 # The supervisor retains host admission until the command's children are reaped.
+# The bounded runner writes a VERDICT record beside its exit status, because the
+# status alone cannot tell three cases apart that all exit 75: admission never
+# happened (not-run: nothing failed, nothing verified), the command was killed
+# or timed out (interrupted: no verdict), and a command that itself exited 75
+# (exit: its own verdict). Only `exit` may be reported as a failed gate. The
+# push is blocked in every non-zero case: nothing was verified.
+bounded_outcome_file() { printf '%s\n' "$export_dir/bounded-outcome.json"; }
 bounded() {
-    node --max-old-space-size=128 --import tsx "$hook_dir/../run-resource-bounded.ts" "$@"
+    local outcome
+    outcome="$(bounded_outcome_file)"
+    rm -f "$outcome"
+    INTERLINKED_BOUNDED_OUTCOME="$outcome" node --max-old-space-size=128 --import tsx "$hook_dir/../run-resource-bounded.ts" "$@"
+    local status=$?
+    case "$(bounded_verdict)" in
+        not-run) echo "[pre-push] NOT RUN (host capacity or memory unavailable; nothing failed): $*" ;;
+        interrupted) echo "[pre-push] INTERRUPTED (killed or timed out; no verdict): $*" ;;
+    esac
+    return "$status"
+}
+
+# One word from the last bounded run's record: not-run | interrupted | exit | unknown (no record).
+bounded_verdict() {
+    local outcome
+    outcome="$(bounded_outcome_file)"
+    [ -f "$outcome" ] || { echo unknown; return 0; }
+    node -e 'try { const o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(["not-run","interrupted","exit"].includes(o.verdict) ? o.verdict : "unknown"); } catch { console.log("unknown"); }' "$outcome"
+}
+
+# Names a failed gate only when it actually ran to a verdict (or left no record); NOT RUN and INTERRUPTED already explained themselves.
+report_gate_failure() {
+    local label="$1"
+    case "$(bounded_verdict)" in
+        not-run|interrupted) ;;
+        *) echo "[pre-push] $label failed for $push_sha." ;;
+    esac
 }
 
 run_gate() {
@@ -98,7 +131,7 @@ run_gate() {
         return 0
     fi
     (cd "$gate_dir" && bounded npm run typecheck:stable) || {
-        echo "[pre-push] typecheck:stable failed for $push_sha."
+        report_gate_failure "typecheck:stable"
         return 1
     }
     (cd "$gate_dir" && bounded npm run docs:check) || return 1
@@ -110,7 +143,7 @@ run_gate() {
     cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | LC_ALL=C sort -u | paste -sd, - || true)"
     if [ -z "$cov_files" ]; then
         (cd "$gate_dir" && CI=1 bounded npm test -- --maxWorkers="$test_workers") || {
-            echo "[pre-push] tests failed for $push_sha."
+            report_gate_failure "tests"
             return 1
         }
         echo "[pre-push] coverage check SKIPPED: no src/ code files in the push range."
@@ -121,7 +154,7 @@ run_gate() {
         (cd "$gate_dir" && CI=1 INTERLINKED_PRE_PUSH_COVERAGE_SCOPE="$cov_scope" \
             INTERLINKED_PRE_PUSH_COVERAGE_TARGETS="$cov_files" bounded npm test -- --maxWorkers="$test_workers" --coverage --testTimeout=120000 \
             --coverage.reporter=json-summary --reporter=default --reporter="$hook_dir/../pre-push-coverage.mjs") || {
-            echo "[pre-push] tests failed for $push_sha."
+            report_gate_failure "tests"
             return 1
         }
         if ! git -C "$gate_dir" diff --quiet "$push_sha" --; then

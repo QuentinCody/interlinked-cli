@@ -334,8 +334,19 @@ describe("pre-push hook exit-status behavior", () => {
 		chmodSync(join(work, "scripts", "git-hooks", "pre-push"), 0o755);
 		// Admission has its own resource-command tests. This fixture checks
 		// hook exit propagation with stub gates regardless of host pressure.
-		writeFileSync(join(work, "scripts/run-resource-bounded.ts"),
-			'import { spawnSync } from "node:child_process";\nconst [file, ...args] = process.argv.slice(2);\nprocess.exitCode = spawnSync(file, args, { stdio: "inherit" }).status ?? 75;\n');
+		// The stub mirrors the real runner's contract: it writes the verdict record at
+		// INTERLINKED_BOUNDED_OUTCOME (verdict `exit` with the child's status) unless the gate
+		// command wrote one itself — which is how a case simulates not-run or interrupted.
+		writeFileSync(join(work, "scripts/run-resource-bounded.ts"), [
+			'import { spawnSync } from "node:child_process";',
+			'import { existsSync, writeFileSync } from "node:fs";',
+			"const [file, ...args] = process.argv.slice(2);",
+			"const outcome = process.env.INTERLINKED_BOUNDED_OUTCOME;",
+			"const status = spawnSync(file, args, { stdio: \"inherit\" }).status ?? 75;",
+			"if (outcome && !existsSync(outcome)) writeFileSync(outcome, JSON.stringify({ verdict: \"exit\", kind: \"ran\", wait_capacity_ms: 0, exit_code: status }));",
+			"process.exitCode = status;",
+			"",
+		].join("\n"));
 		symlinkSync(join(REPO_ROOT, "node_modules"), join(work, "node_modules"));
 		// interlinked: defer write_without_mkdir -- git init above creates work synchronously before this write.
 		writeFileSync(join(work, ".gitignore"), "node_modules\n");
@@ -430,6 +441,49 @@ describe("pre-push hook exit-status behavior", () => {
 		expect(git(work, "rev-parse", "origin/main")).toBe(before);
 		// Working tree still restored even on the failure path.
 		expect(readFileSync(join(work, "file.txt"), "utf-8")).toBe("dirty\n");
+	});
+
+	/** A gate command that leaves the runner's verdict record itself, then exits with the given status. */
+	const gateWithVerdict = (verdict: string, kind: string, exitCode: number): string =>
+		`printf '%s' '${JSON.stringify({ verdict, kind, wait_capacity_ms: 5000, exit_code: exitCode })}' > "$INTERLINKED_BOUNDED_OUTCOME"; exit ${exitCode}`;
+
+	/** Commits the given typecheck gate and pushes; returns the hook's status/output and whether origin/main moved. */
+	const pushWithTypecheckGate = (gate: string, message: string): { status: number | null; output: string; moved: boolean } => {
+		writePackageJson(work, { typecheck: gate, docs: "true", test: "true" });
+		git(work, "add", "package.json");
+		git(work, "commit", "-q", "-m", message);
+		const before = git(work, "rev-parse", "origin/main");
+		const { status, output } = push();
+		return { status, output, moved: git(work, "rev-parse", "origin/main") !== before };
+	};
+
+	// test-contract: invariant — verdict not-run (admission never happened) is reported as NOT RUN, never as a failed gate, and still blocks the push
+	it("a gate whose admission never happened blocks the push as NOT RUN, not as a failure", () => {
+		const { status, output, moved } = pushWithTypecheckGate(gateWithVerdict("not-run", "capacity-timeout", 75), "gate without capacity");
+		expect(status).not.toBe(0);
+		expect(output).toContain("[pre-push] NOT RUN (host capacity or memory unavailable; nothing failed): npm run typecheck:stable");
+		expect(output).not.toContain("typecheck:stable failed");
+		expect(moved).toBe(false);
+	});
+
+	// test-contract: invariant — verdict interrupted (killed or timed out) is reported as INTERRUPTED with no verdict, never as a failed gate
+	it("a gate killed mid-run blocks the push as INTERRUPTED, not as a failure", () => {
+		const { status, output, moved } = pushWithTypecheckGate(gateWithVerdict("interrupted", "ran", 75), "gate interrupted");
+		expect(status).not.toBe(0);
+		expect(output).toContain("[pre-push] INTERRUPTED (killed or timed out; no verdict): npm run typecheck:stable");
+		expect(output).not.toContain("NOT RUN");
+		expect(output).not.toContain("typecheck:stable failed");
+		expect(moved).toBe(false);
+	});
+
+	// test-contract: invariant — a gate whose OWN exit code is 75 ran to a verdict: it is a failed gate, not NOT RUN
+	it("a gate that itself exits 75 is reported as failed, not as NOT RUN", () => {
+		const { status, output, moved } = pushWithTypecheckGate("echo own-exit-75; exit 75", "gate exiting 75");
+		expect(status).not.toBe(0);
+		expect(output).toContain("typecheck:stable failed");
+		expect(output).not.toContain("NOT RUN");
+		expect(output).not.toContain("INTERRUPTED");
+		expect(moved).toBe(false);
 	});
 
 	it("a failing typecheck gate still blocks the push (non-zero exit)", () => {

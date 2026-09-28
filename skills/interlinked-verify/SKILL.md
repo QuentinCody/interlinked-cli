@@ -542,6 +542,19 @@ Public `interlinked verify` and `interlinked tests` commands have an outer resou
 as well: in-process planning/scanning is measured along with the runner tree. This supervisor
 does not acquire a second host lease; the actual command keeps its existing admission protocol.
 Memory interruption exits 75 without a verification verdict, even if partial output was printed.
+Exit 75 alone cannot say what happened — admission that never happened, a child killed
+mid-run and a child that itself exits 75 all surface as 75 — so the bounded runner
+(`scripts/run-resource-bounded.ts`, used by every pre-push gate step) writes a VERDICT
+record to `INTERLINKED_BOUNDED_OUTCOME` beside its status (2026-09-28): `not-run`
+(capacity timeout, memory budget unavailable, or cancelled while waiting; stderr
+`[resources] NOT RUN: …` with the wait), `interrupted` (started, then killed or timed
+out; `[resources] INTERRUPTED: …`), or `exit` (ran to completion; the child's own code,
+including its own 75). The pre-push hook reads the record: `not-run` prints
+`[pre-push] NOT RUN (host capacity or memory unavailable; nothing failed): <command>`,
+`interrupted` prints `[pre-push] INTERRUPTED (killed or timed out; no verdict): <command>`,
+and only `exit` (or a missing record) prints `<gate> failed`. The stage ledger row carries
+the matching `reuse_denied_reason`. The push is blocked in every non-zero case — nothing
+was verified — but only a real verdict names a failed gate.
 
 The daemon's async project test gate and legacy affected-test process adapter also acquire
 the shared host lane, even when their caller already owns project admission. They monitor

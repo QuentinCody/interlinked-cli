@@ -2,7 +2,57 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runResourceCommand } from "./resource-command.js";
+import { NO_VERDICT_EXIT_CODE, describeResourceCommandOutcome, runResourceCommand } from "./resource-command.js";
+
+describe("describeResourceCommandOutcome — the verdict travels beside the exit code", () => {
+    // test-contract: public-api — a capacity timeout is verdict not-run: it names the wait and exits 75 (EX_TEMPFAIL), distinct from any check failure
+    it("reports a capacity timeout as NOT RUN with the wait it paid", () => {
+        expect(describeResourceCommandOutcome({ kind: "capacity-timeout", wait_capacity_ms: 600_400 })).toEqual({
+            verdict: "not-run", kind: "capacity-timeout", wait_capacity_ms: 600_400, exitCode: NO_VERDICT_EXIT_CODE,
+            message: "[resources] NOT RUN: waited 600s for host capacity and none opened; no verification verdict.",
+        });
+    });
+
+    // test-contract: public-api — a missing memory budget and a pre-start interruption are not-run too
+    it.each([
+        ["memory-budget-unavailable", "[resources] NOT RUN: host memory budget unavailable after admission (waited 2s); no verification verdict."],
+        ["interrupted", "[resources] NOT RUN: interrupted before the command started; no verification verdict."],
+    ] as const)("reports %s as NOT RUN", (kind, message) => {
+        expect(describeResourceCommandOutcome({ kind, wait_capacity_ms: 2000 })).toEqual({ verdict: "not-run", kind, wait_capacity_ms: 2000, message, exitCode: NO_VERDICT_EXIT_CODE });
+    });
+
+    // test-contract: public-api — a command that ran adopts its own exit code, INCLUDING its own 75, as verdict exit with no extra line
+    it.each([0, 1, 2, NO_VERDICT_EXIT_CODE])("adopts exit %i of a command that ran as its verdict", code => {
+        expect(describeResourceCommandOutcome({ kind: "ran", wait_capacity_ms: 5, result: { code, killed: false, timedOut: false, stdout: "", stderr: "" } }))
+            .toEqual({ verdict: "exit", kind: "ran", wait_capacity_ms: 5, message: null, exitCode: code });
+    });
+
+    // test-contract: public-api — a command killed mid-run is verdict interrupted (75, with the kill reason): neither not-run nor a failing exit
+    it("reports a killed command as INTERRUPTED with its resource reason", () => {
+        const result = { code: null, killed: true, timedOut: false, stdout: "", stderr: "", resourceReason: "memory budget" };
+        expect(describeResourceCommandOutcome({ kind: "ran", wait_capacity_ms: 5, result }))
+            .toEqual({ verdict: "interrupted", kind: "ran", wait_capacity_ms: 5, message: "[resources] INTERRUPTED: memory budget; no verification verdict.", exitCode: NO_VERDICT_EXIT_CODE });
+    });
+});
+
+describe("cancellation while waiting for admission", () => {
+    // test-contract: public-api — an aborted host wait (the blocking lease wait throws on abort) is the interrupted outcome, never a crash
+    it("returns interrupted with the wait when the lease wait throws after abort", async () => {
+        const controller = new AbortController();
+        vi.mocked(acquireTestCapacity).mockImplementation(async () => {
+            controller.abort();
+            throw new Error("aborted");
+        });
+        await expect(runResourceCommand("node", [], controller.signal)).resolves.toMatchObject({ kind: "interrupted", wait_capacity_ms: expect.any(Number) });
+        expect(runProcessAsync).not.toHaveBeenCalled();
+    });
+
+    // test-contract: boundary — an admission error without an abort is not cancellation and still propagates
+    it("propagates an admission error when the signal is not aborted", async () => {
+        vi.mocked(acquireTestCapacity).mockRejectedValue(new Error("lease store unreadable"));
+        await expect(runResourceCommand("node", [], new AbortController().signal)).rejects.toThrow("lease store unreadable");
+    });
+});
 import { acquireTestCapacity } from "./test-capacity.js";
 import { readResourceBudget } from "./resource-budget.js";
 import { runProcessAsync } from "./check-engine/spawn-async.js";
@@ -41,7 +91,7 @@ describe("stage ledger rows", () => {
     it("records capacity-timeout when the host lane never opens", async () => {
         const rows = readRows;
         vi.mocked(acquireTestCapacity).mockResolvedValue(null);
-        expect(await runResourceCommand("npm", ["run", "typecheck:stable"], new AbortController().signal)).toBeNull();
+        expect(await runResourceCommand("npm", ["run", "typecheck:stable"], new AbortController().signal)).toMatchObject({ kind: "capacity-timeout" });
         expect(rows()).toMatchObject([{ check: "npm run typecheck:stable", stage: "cli", status: "deferred", reused: false, reuse_denied_reason: "capacity-timeout", identity: null }]);
         expect(typeof rows()[0]?.wait_capacity_ms).toBe("number");
         expect(rows()[0]?.exec_ms).toBeUndefined();
@@ -52,7 +102,7 @@ describe("stage ledger rows", () => {
         const rows = readRows;
         vi.mocked(acquireTestCapacity).mockResolvedValue({ release: vi.fn() });
         vi.mocked(readResourceBudget).mockReturnValue(null);
-        expect(await runResourceCommand("node", [], new AbortController().signal)).toBeNull();
+        expect(await runResourceCommand("node", [], new AbortController().signal)).toMatchObject({ kind: "memory-budget-unavailable" });
         expect(rows()).toMatchObject([{ status: "deferred", reuse_denied_reason: "memory-budget-unavailable" }]);
     });
 
@@ -84,21 +134,21 @@ it.each([["heavy", 600_000], ["light", 5000]] as const)("bounds %s admission wai
     vi.spyOn(Date, "now").mockReturnValue(1000);
     vi.mocked(acquireTestCapacity).mockResolvedValue(null);
     const signal = new AbortController().signal;
-    expect(await runResourceCommand("node", [], signal, profile)).toBeNull();
+    expect(await runResourceCommand("node", [], signal, profile)).toEqual({ kind: "capacity-timeout", wait_capacity_ms: 0 });
     expect(acquireTestCapacity).toHaveBeenCalledWith("foreground", 1000 + waitMs, signal);
     expect(runProcessAsync).not.toHaveBeenCalled();
 });
 
 it("does not spawn when another project owns the host lane", async () => {
     vi.mocked(acquireTestCapacity).mockResolvedValue(null);
-    expect(await runResourceCommand("node", [], new AbortController().signal)).toBeNull();
+    expect(await runResourceCommand("node", [], new AbortController().signal)).toMatchObject({ kind: "capacity-timeout" });
     expect(runProcessAsync).not.toHaveBeenCalled();
 });
 it("rechecks memory after admission and releases a deferred lane", async () => {
     const release = vi.fn();
     vi.mocked(acquireTestCapacity).mockResolvedValue({ release });
     vi.mocked(readResourceBudget).mockReturnValue(null);
-    expect(await runResourceCommand("node", [], new AbortController().signal)).toBeNull();
+    expect(await runResourceCommand("node", [], new AbortController().signal)).toMatchObject({ kind: "memory-budget-unavailable" });
     expect(runProcessAsync).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledOnce();
 });
@@ -113,6 +163,6 @@ it("keeps the lease until an interrupted command is reaped and propagates its re
         expect(options).toMatchObject({ resourceBudget: budget, inheritOutput: true });
         return interrupted;
     });
-    expect(await runResourceCommand("node", ["--version"], new AbortController().signal)).toEqual(interrupted);
+    expect(await runResourceCommand("node", ["--version"], new AbortController().signal)).toEqual({ kind: "ran", result: interrupted, wait_capacity_ms: expect.any(Number) });
     expect(release).toHaveBeenCalledOnce();
 });
