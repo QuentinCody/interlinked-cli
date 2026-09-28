@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
+import { checkExpressionMeasurement } from "./expression-readability.js";
 import {
 	checkCatchAndLog,
 	checkHardcodedTimeout,
@@ -82,35 +83,16 @@ describe("checkNestedTernaries — mutation kills", () => {
 		expect(checkNestedTernaries(code, TS)).toEqual([]);
 	});
 
-	// test-contract: boundary — a genuine ternary `?` immediately adjacent
-	// (left side) to a cleanup-neutralized region becomes optional-chaining
-	// (`?.`) look-alike ONLY if the cleanup fully removes the matched text;
-	// this shape isolates the optional-property cleanup's replacement string.
-	it("P: flags when a `?` sits directly against a cleaned optional-property region followed by `.`", () => {
-		const code = "a?id?:.b ? c";
-		expect(checkNestedTernaries(code, TS)).toEqual([{ line: 1, text: "a?id?:.b ? c" }]);
-	});
-
-	// test-contract: boundary — same adjacency shape as above, isolating the
-	// regex-lookahead-group cleanup's replacement string (`(?:` etc. → "(X").
-	it("P: flags when a `?` sits directly against a cleaned regex-lookahead region followed by `.`", () => {
-		const code = "a?(?:.b ? c";
-		expect(checkNestedTernaries(code, TS)).toEqual([{ line: 1, text: "a?(?:.b ? c" }]);
-	});
-
-	// test-contract: boundary — same adjacency shape, isolating the lazy-
-	// quantifier cleanup's replacement string (`*?`/`+?` → "X").
-	it("P: flags when a `?` sits directly against a cleaned lazy-quantifier region followed by `.`", () => {
-		const code = "a?*?.b ? c";
-		expect(checkNestedTernaries(code, TS)).toEqual([{ line: 1, text: "a?*?.b ? c" }]);
-	});
-
-	// test-contract: boundary — same adjacency shape, isolating the regex-
-	// literal cleanup's replacement string (`/.../ ` → "X").
-	it("P: flags when a `?` sits directly against a cleaned regex-literal region followed by `.`", () => {
-		const code = "a?/re/.b ? c";
-		expect(checkNestedTernaries(code, TS)).toEqual([{ line: 1, text: "a?/re/.b ? c" }]);
-	});
+	// Parser migration: these old regex-survivor fixtures are malformed programs.
+	// They must produce unavailable evidence, not invented ternary findings.
+	it.each(["a?id?:.b ? c", "a?(?:.b ? c", "a?*?.b ? c", "a?/re/.b ? c"])(
+		"reports incomplete syntax as NOT CHECKED: %s", (code) => {
+			expect(checkNestedTernaries(code, TS)).toEqual([]);
+			expect(checkExpressionMeasurement(code, TS)).toMatchObject([
+				{ text: expect.stringContaining("NOT CHECKED") },
+			]);
+		},
+	);
 
 	// test-contract: public-api — the reported `text` is the TRIMMED original
 	// line; leading/trailing whitespace around a genuinely flagged line must

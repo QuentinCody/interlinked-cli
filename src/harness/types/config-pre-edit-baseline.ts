@@ -9,6 +9,8 @@
 
 /** Cached check results from before an edit, used for baseline subtraction and ratchet comparison */
 export interface PreEditBaseline {
+    /** Source generation used by expression-level advisory comparisons. */
+    readabilityPreContent?: string;
 	/** Function signatures with missing return types (Set of trimmed signature text) */
 	missingReturnTypes: Set<string>;
 	/** Complex function signatures (Set of trimmed signature text) */

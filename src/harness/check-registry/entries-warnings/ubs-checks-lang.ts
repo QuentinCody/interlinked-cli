@@ -405,13 +405,13 @@ export const UBS_ENTRIES_LANG: CheckRegistration[] = [
 		phase: "post",
 		name: "Deeply Nested Callback",
 		description:
-			"Detects 4+ levels of nested function/arrow callbacks — callback-hell smell.",
+			"Measures inline callback nesting in executable expressions with an exact JS/TS parser; warns above the configured depth (default 2).",
 		tier: 3,
 		determinism: "heuristic",
 		severity: "warning",
 		pipeline: "agent_safety",
 		fix_instruction:
-			"Nesting 4+ callbacks deep is callback hell. Refactor with `async`/`await`, `Promise.all`, or extract each level into a named function so the structure is grep-able and the failure modes are isolatable.",
+			"Name the domain rule and preserve the context needed to verify it. Consider intermediate values or explicit iteration; do not extract trivial helpers solely to satisfy the budget. Configure .interlinked/readability.json after calibration.",
 		fn: checkDeeplyNestedCallback,
 		resultsPropName: "deeplyNestedCallback",
 		content_keywords: ["function", "=>"],

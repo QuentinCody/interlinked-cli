@@ -10,6 +10,10 @@ import { describe, expect, it } from "vitest";
 import { toIssues } from "./file-checks-shared.js";
 
 describe("toIssues", () => {
+    it("retains the complete expression span for machine-readable diagnostics", () => {
+        expect(toIssues("expression_size", "a.ts", [{ line: 2, endLine: 7, startOffset: 20, endOffset: 99, text: "large computation" }]))
+            .toEqual([{ check: "expression_size", file: "a.ts", line: 2, endLine: 7, startOffset: 20, endOffset: 99, message: "large computation" }]);
+    });
 	it("maps each match to a CodeQualityIssue carrying check, file, line, message", () => {
 		const issues = toIssues("console_statements", "src/a.ts", [
 			{ line: 12, text: "console.log left in" },

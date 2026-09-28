@@ -266,6 +266,9 @@ function checkCrapRisersBlock(ctx: InlineBlockContext): QualityCheckResult[] {
 
 /** Parser missingness is execution evidence, not a source defect or completed check. */
 function preservePythonAdviceMissingness(result: QualityCheckResult): QualityCheckResult {
+    if (result.name === "expression_measurement" && result.detail?.includes("Expression readability NOT CHECKED:")) {
+        return { ...result, name: "external_check_deferred", message: "Expression readability unavailable (expression_measurement)" };
+    }
     if (result.name !== "python_simplification" || !result.detail?.includes("Python simplification NOT CHECKED:")) return result;
     return { ...result, name: "external_check_deferred", message: "Python AST review unavailable (python_simplification)" };
 }
@@ -284,7 +287,7 @@ function checkAgentSafetyBlock(ctx: InlineBlockContext): QualityCheckResult[] {
 		fileContent,
 		absFilePath,
 		"post",
-		undefined,
+        ctx.diffAware?.enabled === false ? undefined : ctx.baseline?.readabilityPreContent,
 		coldFileMode,
 	);
 

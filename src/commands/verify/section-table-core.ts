@@ -32,6 +32,12 @@ export const coreSections: readonly SectionSpec[] = [
 		passLabel: "all import references valid",
 		color: "31",
 	},
+    { label: "expression size", key: "expressionSize", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
+    { label: "inline callback count", key: "inlineCallbackCount", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
+    { label: "control flow depth", key: "controlFlowDepth", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
+    { label: "expression measurement availability", key: "expressionMeasurement", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
+    { label: "required braces", key: "requiredBraces", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
+    { label: "statements per line", key: "statementsPerLine", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
 	{
 		label: "dead exports",
 		key: "deadExports",
@@ -141,7 +147,7 @@ export const coreSections: readonly SectionSpec[] = [
 	{
 		// Explicit skipId: the every-file-tested ratchet is DEFAULT-GATE, keyed by
 		// id (not normalized label) in streaming-output's skip set. NOT in
-		// DEFAULT_ADVISORY_SKIPS — it runs on every verify, like large_files.
+		// DEFAULT_ADVISORY_SKIPS — it runs on every verify.
 		label: "untested files",
 		key: "untestedFiles",
 		skipId: "untested_files",

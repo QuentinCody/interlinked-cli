@@ -67,6 +67,7 @@ import { toIssues } from "./file-checks-shared.js";
 import { runUbsChecks } from "./file-checks-ubs.js";
 import { collectSuppressionFindings } from "./suppressions.js";
 import type { CodeQualityIssue, CodeQualityResults } from "./tool-results-types.js";
+import { checkExpressionSize, checkInlineCallbackCount, checkControlFlowDepth, checkExpressionMeasurement, checkRequiredBraces, checkStatementsPerLine } from "../../harness/checks/expression-readability.js";
 import { CQ_RESULT_KEYS } from "./tool-results-types.js";
 
 export type { FileCheckContext };
@@ -434,12 +435,26 @@ function collectPerFileFindings(args: RunFileChecksArgs): void {
 	// shared context carries everything they need; each group mutates `r` in
 	// place, preserving the original inline statement order per bucket.
 	const ctx: FileCheckContext = { file, content, relPath, cwd, r, piiOpts };
-	runCrapCheck(ctx);
-	runAgentSafetyChecks(ctx);
-	runTypeRedundancyChecks(ctx);
-	runOverExtractionChecks(ctx);
-	runReactAndTasteChecks(ctx);
-	runUbsChecks(ctx);
-	runEndpointAndLazinessChecks(ctx);
-	runTestDiscriminationChecks(ctx);
+    runStatelessChecks(ctx);
+}
+
+function runStatelessChecks(ctx: FileCheckContext): void {
+    runCrapCheck(ctx);
+    runAgentSafetyChecks(ctx);
+    runTypeRedundancyChecks(ctx);
+    runOverExtractionChecks(ctx);
+    runReactAndTasteChecks(ctx);
+    runUbsChecks(ctx);
+    runEndpointAndLazinessChecks(ctx);
+    runTestDiscriminationChecks(ctx);
+    collectExpressionFindings(ctx);
+}
+
+function collectExpressionFindings({ content, file, relPath, r }: FileCheckContext): void {
+    r.expressionSize.push(...toIssues("expression_size", relPath, checkExpressionSize(content, file)));
+    r.inlineCallbackCount.push(...toIssues("inline_callback_count", relPath, checkInlineCallbackCount(content, file)));
+    r.controlFlowDepth.push(...toIssues("control_flow_depth", relPath, checkControlFlowDepth(content, file)));
+    r.expressionMeasurement.push(...toIssues("expression_measurement", relPath, checkExpressionMeasurement(content, file)));
+    r.requiredBraces.push(...toIssues("required_braces", relPath, checkRequiredBraces(content, file)));
+    r.statementsPerLine.push(...toIssues("statements_per_line", relPath, checkStatementsPerLine(content, file)));
 }

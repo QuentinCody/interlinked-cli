@@ -883,13 +883,9 @@ describe("ubs-language-specific/quality-smell-checks", () => {
 				"});",
 			];
 			const code = codeLines.join("\n");
-			const expectedText = codeLines[4]?.trim().slice(0, 150);
-			// Once funcDepth reaches NESTING_LIMIT it stays >= the limit until a
-			// closing brace pops the stack, so the `e();` line INSIDE that scope
-			// is flagged too — not just the line that tipped depth over 4.
-			expect(checkDeeplyNestedCallback(code, "src/lib/foo.ts")).toEqual([
-				{ line: 5, text: expectedText },
-				{ line: 6, text: "e();" },
+			// One containing expression, with the true source range and callback depth.
+			expect(checkDeeplyNestedCallback(code, "src/lib/foo.ts")).toMatchObject([
+				{ line: 2, endLine: 10, text: expect.stringContaining("callback depth 4 > 2") },
 			]);
 		});
 
@@ -899,15 +895,15 @@ describe("ubs-language-specific/quality-smell-checks", () => {
 			expect(checkDeeplyNestedCallback(code, "src/foo.py")).toEqual([]);
 		});
 
-		it("N2: does NOT fire on test files", () => {
+		it("N2: retains computation findings inside test files", () => {
 			const code =
 				"a(() => {\n  b(() => {\n    c(() => {\n      d(() => {\n        e();\n      });\n    });\n  });\n});\n";
-			expect(checkDeeplyNestedCallback(code, "src/foo.test.ts")).toEqual([]);
+			expect(checkDeeplyNestedCallback(code, "src/foo.test.ts")).toHaveLength(1);
 		});
 
-		it("boundary: does NOT flag exactly 3-level nesting", () => {
+		it("boundary: flags exactly 3-level nesting with the default maximum of 2", () => {
 			const code = "a(() => {\n  b(() => {\n    c(() => {\n      d();\n    });\n  });\n});\n";
-			expect(checkDeeplyNestedCallback(code, "src/lib/foo.ts")).toEqual([]);
+			expect(checkDeeplyNestedCallback(code, "src/lib/foo.ts")).toMatchObject([{ text: expect.stringContaining("callback depth 3 > 2") }]);
 		});
 
 		it("P2: the callback stack correctly pops after a deep block closes (no false positive after)", () => {
@@ -926,17 +922,13 @@ describe("ubs-language-specific/quality-smell-checks", () => {
 				"});",
 			];
 			const code = codeLines.join("\n");
-			expect(checkDeeplyNestedCallback(code, "src/lib/foo.ts")).toEqual([
-				{ line: 4, text: "d(() => {" },
-				{ line: 5, text: "e();" },
+			expect(checkDeeplyNestedCallback(code, "src/lib/foo.ts")).toMatchObject([
+				{ line: 1, endLine: 9, text: expect.stringContaining("callback depth 4 > 2") },
 			]);
 		});
 
 		it("does NOT count a brace-only line (no `function`/`=>`) as a function opener at depth 3", () => {
-			// `line.match(/\bfunction\b|=>/g) || []` — if the `[]` fallback were
-			// ever non-empty, a brace-only line at funcDepth 3 would spuriously
-			// push the stack to 4 and get flagged even though it opens no
-			// callback at all.
+			// Ordinary control-flow braces do not introduce a fourth callback scope.
 			const code = [
 				"a(() => {",
 				"  b(() => {",
@@ -948,14 +940,11 @@ describe("ubs-language-specific/quality-smell-checks", () => {
 				"  });",
 				"});",
 			].join("\n");
-			expect(checkDeeplyNestedCallback(code, "src/lib/foo.ts")).toEqual([]);
+			expect(checkDeeplyNestedCallback(code, "src/lib/foo.ts")).toMatchObject([{ text: expect.stringContaining("callback depth 3 > 2") }]);
 		});
 
-		it("a single line with two `=>` but only one `{` pushes the stack once, not twice", () => {
-			// `Math.min(funcOpens, opens)` bounds the push count to the number
-			// of braces ACTUALLY opened on the line — a `Math.max` mutant would
-			// push twice here (2 arrows, 1 brace) and cross NESTING_LIMIT one
-			// level early.
+		it("named function initializers create independent computations, not inline call arguments", () => {
+			// A curried named initializer inside two callbacks is measured separately.
 			const code = [
 				"a(() => {",
 				"  b(() => {",
@@ -968,7 +957,7 @@ describe("ubs-language-specific/quality-smell-checks", () => {
 			expect(checkDeeplyNestedCallback(code, "src/lib/foo.ts")).toEqual([]);
 		});
 
-		it("boundary: stops collecting matches at MATCH_LIMIT", () => {
+		it("boundary: inventories all independent violating expressions", () => {
 			const n = MATCH_LIMIT + 2;
 			const codeLines: string[] = [];
 			for (let i = 0; i < n; i++) {
@@ -983,7 +972,7 @@ describe("ubs-language-specific/quality-smell-checks", () => {
 				codeLines.push("});");
 			}
 			const matches = checkDeeplyNestedCallback(codeLines.join("\n"), "src/lib/foo.ts");
-			expect(matches.length).toBe(MATCH_LIMIT);
+			expect(matches.length).toBe(n);
 		});
 	});
 

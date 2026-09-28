@@ -22,9 +22,9 @@ describe("checkDeeplyNestedCallback", () => {
 		expect(checkDeeplyNestedCallback(code, "src/foo.py")).toEqual([]);
 	});
 
-	it("skips test files", () => {
+	it("inspects computations inside test files", () => {
 		const code =
 			"a(() => {\n  b(() => {\n    c(() => {\n      d(() => {});\n    });\n  });\n});";
-		expect(checkDeeplyNestedCallback(code, "src/foo.test.ts")).toEqual([]);
+		expect(checkDeeplyNestedCallback(code, "src/foo.test.ts")).toHaveLength(1);
 	});
 });

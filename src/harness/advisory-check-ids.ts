@@ -35,6 +35,12 @@ export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
 	"function_arg_count",
 	"loop_nesting_depth",
 	"nested_ternaries",
+    "expression_size",
+    "inline_callback_count",
+    "control_flow_depth",
+    "expression_measurement",
+    "required_braces",
+    "statements_per_line",
 	"else_if_chain",
 	// Style-level smells
 	"console_statements",

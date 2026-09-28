@@ -12,6 +12,16 @@ it never edits source or changes the branch.
 
 ## Choose the scope
 
+For dense JS/TS, `interlinked metrics expressions <path> --json` supplies advisory
+locations and measurements. A smaller function or lower branch count is not a complete
+review. Name domain concepts while preserving the context their decisions require;
+explicit iteration and compact named pipelines can both be appropriate. Review whether
+dependent checks reuse the same prerequisite observation, distinguish failure from
+not-evaluated, and make success claims only about what was established. Preserve command
+origin, suite and execution phase until availability decisions are complete. Validate
+relevant failure cases from the requirement; these questions are semantic review guidance,
+not static proofs or new automatic blockers. See **interlinked-quality-gates** for budgets.
+
 | Command | Scope and effect |
 |---|---|
 | `interlinked simplify scan [--cwd <path>] [--json] [--record]` | Run the deterministic repository scan. |

@@ -610,6 +610,17 @@ update links, labels, ARIA references, and selectors; use classes for shared sty
 
 ### Adopt existing project linters
 
+For expression-level review, run `interlinked metrics expressions <path> --json`
+or `verify --all-checks`. `expression_size`, `inline_callback_count`,
+`control_flow_depth`, `expression_measurement`, `required_braces`,
+`statements_per_line`, `nested_ternaries` and `ubs_deeply_nested_callback` are advisory.
+The callback check now uses exact syntax and defaults to >2 inline callback levels.
+Generic brace advice accepts single-line guards, diagnoses multiline bodies, and
+defers to detected target style configuration. Explicit imported brace rules retain
+their native policy. Verify intended scope before adding braces; no bulk brace
+autofix runs. Missing parser/policy evidence produces NOT CHECKED, not a clean measurement. Use
+**interlinked-quality-gates** for counting boundaries and `.interlinked/readability.json`.
+
 Formatting requires explicit adoption of the project's formatter. `biome` imports
 lint rules; `biome-format` imports read-only format checking with the same config and
 inheritance tracking. Example: `lint import --config biome-format=biome.json

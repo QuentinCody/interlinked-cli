@@ -426,3 +426,11 @@ export {
 	checkSuppressionSpan,
 } from "./checks/unsafe-span.js";
 export { checkHtmlDuplicateId } from "./checks/html-duplicate-id.js";
+export {
+    checkExpressionSize,
+    checkInlineCallbackCount,
+    checkControlFlowDepth,
+    checkExpressionMeasurement,
+    checkRequiredBraces,
+    checkStatementsPerLine,
+} from "./checks/expression-readability.js";

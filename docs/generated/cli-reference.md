@@ -891,6 +891,9 @@ Commands:
                                       score one commit or the staged diff and
                                       rank it against the repo's own recent
                                       commits
+  expressions [options] [target]      Measure JS/TS expression tokens,
+                                      callbacks and presentation; advisory
+                                      findings
   diagnostics [options]               Explained verbosity and erosion census;
                                       advisory evidence, no quality verdict
   gates [options]                     Show disabled gates, actual coverage

@@ -44,8 +44,8 @@ describe("checkNestedTernaries", () => {
 		expect(nonNull(out[0]).text.startsWith("const x = a ? b : c ? d : e;")).toBe(true);
 	});
 
-	it("returns [] for test files (gate)", () => {
-		expect(checkNestedTernaries("const x = a ? b : c ? d : e;", TEST)).toEqual([]);
+	it("inspects nested conditional computations in test files", () => {
+		expect(checkNestedTernaries("const x = a ? b : c ? d : e;", TEST)).toHaveLength(1);
 	});
 
 	it("returns [] for non-JS/TS extensions (gate)", () => {
@@ -103,11 +103,11 @@ describe("checkNestedTernaries", () => {
 		expect(checkNestedTernaries(code, TS)).toEqual([]);
 	});
 
-	it("caps results at 10 even when more nested ternaries exist", () => {
+	it("retains every finding so an inventory cannot silently truncate", () => {
 		const line = "const x = a ? b : c ? d : e;";
 		const code = Array.from({ length: 15 }, () => line).join("\n");
 		const out = checkNestedTernaries(code, TS);
-		expect(out).toHaveLength(10);
+		expect(out).toHaveLength(15);
 	});
 });
 

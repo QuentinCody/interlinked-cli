@@ -20,8 +20,51 @@ import {
 import { detectJsdocParamDrift } from "../../checks/jsdoc-param-drift.js";
 import { detectTimeoutUnitMismatch } from "../../checks/unit-mismatch.js";
 import type { CheckRegistration } from "../types.js";
+import { checkExpressionSize, checkInlineCallbackCount, checkControlFlowDepth, checkExpressionMeasurement, checkRequiredBraces, checkStatementsPerLine } from "../../checks/expression-readability.js";
 
 export const QUALITY_FRONTIER_ENTRIES: CheckRegistration[] = [
+    {
+        id: "expression_size", name: "Expression Size", phase: "post",
+        description: "Reports executable expressions above the configured syntax-token budget; literal-only data is classified separately.",
+        tier: 2, determinism: "heuristic", severity: "warning", pipeline: "agent_safety",
+        fix_instruction: "Name intermediate domain concepts; retain meaningful control flow even when it uses more lines.",
+        fn: checkExpressionSize, resultsPropName: "expressionSize",
+    },
+    {
+        id: "inline_callback_count", name: "Inline Callback Count", phase: "post",
+        description: "Reports expressions containing three or more inline callbacks by default.",
+        tier: 2, determinism: "heuristic", severity: "warning", pipeline: "agent_safety",
+        fix_instruction: "Review the anonymous computations together with callback depth; named pipelines can remain concise.",
+        fn: checkInlineCallbackCount, resultsPropName: "inlineCallbackCount",
+    },
+    {
+        id: "control_flow_depth", name: "Control Flow Depth", phase: "post",
+        description: "Reports control-flow nesting above three levels by default; function boundaries reset depth.",
+        tier: 2, determinism: "heuristic", severity: "warning", pipeline: "agent_safety",
+        fix_instruction: "Flatten prerequisite handling or name a cohesive domain rule; review behavior before extracting.",
+        fn: checkControlFlowDepth, resultsPropName: "controlFlowDepth",
+    },
+    {
+        id: "expression_measurement", name: "Expression Measurement Availability", phase: "post",
+        description: "Reports unavailable exact expression analysis or invalid readability policy without claiming clean code.",
+        tier: 2, determinism: "heuristic", severity: "warning", pipeline: "agent_safety",
+        fix_instruction: "Repair parser or policy availability and rerun; unavailable measurements are not source defects.",
+        fn: checkExpressionMeasurement, resultsPropName: "expressionMeasurement",
+    },
+    {
+        id: "required_braces", name: "Required Braces", phase: "post",
+        description: "Advises on multiline unbraced control-flow bodies when the target has no configured style tool; single-line guards are accepted.",
+        tier: 2, determinism: "heuristic", severity: "warning", pipeline: "agent_safety",
+        fix_instruction: "Verify intended scope before adding braces. Follow the target repository's lint policy; do not bulk-normalize braces to hide a guard change.",
+        fn: checkRequiredBraces, resultsPropName: "requiredBraces",
+    },
+    {
+        id: "statements_per_line", name: "Statements Per Line", phase: "post",
+        description: "Reports multiple sibling statements beginning on one physical line.",
+        tier: 2, determinism: "heuristic", severity: "warning", pipeline: "agent_safety",
+        fix_instruction: "Put each statement on its own line and run the project's formatter.",
+        fn: checkStatementsPerLine, resultsPropName: "statementsPerLine",
+    },
 	{
 		id: "timeout_unit_mismatch",
 		phase: "post",

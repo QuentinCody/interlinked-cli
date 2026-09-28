@@ -5,4 +5,5 @@
 // documented; it stays advisory in metrics and contributes no quality score.
 // python_simplification adds bounded advisory evidence; it has no scoring authority.
 // repeated_implementation is heuristic, advisory, and excluded from quality scoring.
-export const REVIEWED_REGISTRY_HASH = "7514a058d65259a325374d2db7d174b89310d2f03cdf74b88f5819981643bae9";
+// Six expression-readability checks remain heuristic, advisory, and unscored.
+export const REVIEWED_REGISTRY_HASH = "c87a029ef9da4ebac196e304c3ca30dffaccc209e2a1e801b2b2694db7df6dbb";

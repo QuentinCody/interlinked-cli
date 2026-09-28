@@ -48,6 +48,12 @@ function summarizeWithDetails(list: readonly FileKeyedRow[]): JsonObject {
 
 function summarizeSupplementalChecks(cq: CodeQualityResults): JsonObject {
     return {
+        expression_size: summarizeWithDetails(cq.expressionSize),
+        inline_callback_count: summarizeWithDetails(cq.inlineCallbackCount),
+        control_flow_depth: summarizeWithDetails(cq.controlFlowDepth),
+        expression_measurement: summarizeWithDetails(cq.expressionMeasurement),
+        required_braces: summarizeWithDetails(cq.requiredBraces),
+        statements_per_line: summarizeWithDetails(cq.statementsPerLine),
         json_validity: summarizeWithDetails(cq.jsonValidity),
         html_duplicate_id: summarizeWithDetails(cq.htmlDuplicateId),
         python_simplification: summarizeWithDetails(cq.pythonSimplification),

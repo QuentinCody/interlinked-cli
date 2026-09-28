@@ -4,6 +4,10 @@ import type { Determinism } from "../types.js";
 
 /** A single match found by an inline check */
 export interface InlineMatch {
+    /** Optional full source span; UTF-16 half-open offsets. */
+    startOffset?: number;
+    endOffset?: number;
+    endLine?: number;
 	/** 1-based line number */
 	line: number;
 	/** Trimmed text of the matching line (truncated to 150 chars) */

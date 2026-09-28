@@ -3,6 +3,7 @@
 
 import { applyVerifyPasses } from "../check-pipeline/verify-pass.js";
 import { classifyDiff } from "../diff-classifier.js";
+import { introducedReadability, READABILITY_CHECK_IDS } from "../checks/expression-readability.js";
 import type { Determinism } from "../types.js";
 import { CHECK_REGISTRY } from "./registry.js";
 import type { CheckPhase, InlineMatch } from "./types.js";
@@ -67,7 +68,7 @@ export function buildAgentSafetyChecks(
 	const skipWarnings = diffClass === "whitespace_only";
 	return CHECK_REGISTRY.filter((c) => c.pipeline === "agent_safety")
 		.filter((c) => !phase || c.phase === phase)
-		.filter((c) => !(skipWarnings && c.severity === "warning"))
+		.filter((c) => !(skipWarnings && c.severity === "warning" && !READABILITY_CHECK_IDS.has(c.id)))
 		.filter((c) => !coldFileMode || c.determinism === "fully_deterministic")
 		.filter((c) => matchesContentKeywords(c.content_keywords, lcContent))
 		.map((c) => ({
@@ -77,7 +78,10 @@ export function buildAgentSafetyChecks(
 			// `applyVerifyPasses` second-pass filter chain. When no
 			// passes are registered for this check id, the helper is
 			// effectively a passthrough (one Map lookup, no allocation).
-			fn: () => applyVerifyPasses(c.id, c.fn(content, filePath), content, filePath),
+            fn: () => applyVerifyPasses(c.id,
+                oldContent !== undefined && READABILITY_CHECK_IDS.has(c.id) && c.id !== "expression_measurement"
+                    ? introducedReadability(oldContent, content, filePath).filter(finding => finding.check === c.id)
+                    : c.fn(content, filePath), content, filePath),
 		}));
 }
 

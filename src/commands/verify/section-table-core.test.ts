@@ -61,6 +61,12 @@ describe("coreSections", () => {
 				passLabel: "all import references valid",
 				color: "31",
 			},
+    { label: "expression size", key: "expressionSize", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
+    { label: "inline callback count", key: "inlineCallbackCount", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
+    { label: "control flow depth", key: "controlFlowDepth", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
+    { label: "expression measurement availability", key: "expressionMeasurement", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
+    { label: "required braces", key: "requiredBraces", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
+    { label: "statements per line", key: "statementsPerLine", noun: "findings", passLabel: "no findings in measured scope", color: "33" },
 			{
 				label: "dead exports",
 				key: "deadExports",

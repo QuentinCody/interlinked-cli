@@ -11,7 +11,7 @@ import {
 	stripCommentsAndStrings,
 } from "../shared.js";
 import { isJsTsFile, isPyFile, MATCH_LIMIT } from "./_shared.js";
-import { findDeeplyNestedCallbackLines } from "./callback-nesting.js";
+import { readabilityMatches } from "../expression-readability.js";
 
 /**
  * `ubs_string_concat_in_loop` — `result += chunk` inside a loop is O(n²) in
@@ -417,18 +417,7 @@ export function checkLargeFunction(content: string, filePath: string): InlineMat
  * at the same time using brace depth.
  */
 export function checkDeeplyNestedCallback(content: string, filePath: string): InlineMatch[] {
-	const ext = getExtension(filePath);
-	if (!isJsTsFile(ext)) return [];
-	if (isTestFile(filePath)) return [];
-
-	const stripped = stripCommentsAndStrings(content);
-	const originalLines = content.split("\n");
-	const nestedLines = findDeeplyNestedCallbackLines(stripped.split("\n"), MATCH_LIMIT);
-
-	return nestedLines.map((i) => ({
-		line: i + 1,
-		text: nonNull(originalLines[i]).trim().slice(0, 150),
-	}));
+    return readabilityMatches(content, filePath, "ubs_deeply_nested_callback");
 }
 
 /**

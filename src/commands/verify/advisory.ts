@@ -53,6 +53,12 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	"function_arg_count",
 	"loop_nesting_depth",
 	"nested_ternaries",
+    "expression_size",
+    "inline_callback_count",
+    "control_flow_depth",
+    "expression_measurement",
+    "required_braces",
+    "statements_per_line",
 	"else_if_chain",
 	// Style-level smells — legitimate patterns flagged often enough to noise
 	// the gate. Still run under --all-checks for taste reviews.

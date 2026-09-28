@@ -16,6 +16,12 @@ function expectedAgentSafetyChecks(content: string): typeof CHECK_REGISTRY {
 }
 
 describe("buildAgentSafetyChecks", () => {
+    it("finds a presentation regression made only by joining lines", () => {
+        const before = "const first = 1;\nconst second = 2;";
+        const after = "const first = 1; const second = 2;";
+        const check = buildAgentSafetyChecks(after, "x.ts", "post", before).find(item => item.name === "statements_per_line");
+        expect(check?.fn()).toMatchObject([{ line: 1, text: expect.stringContaining("multiple sibling statements") }]);
+    });
 	it("returns one entry per agent_safety check whose content_keywords are present (or absent — always-eval)", () => {
 		const content = "";
 		const all = buildAgentSafetyChecks(content, "x.ts");
@@ -145,7 +151,8 @@ test("accepts three", () => { expect(3).toBe(3); });`;
 		const newText = "    const a = 1;";
 		const skipped = buildAgentSafetyChecks(newText, "x.ts", undefined, oldText);
 		const skippedWarnings = skipped.filter((c) => c.severity === "warning");
-		expect(skippedWarnings.length).toBe(0);
+        expect(skippedWarnings.every(check => ["expression_size", "inline_callback_count", "control_flow_depth", "expression_measurement", "required_braces", "statements_per_line", "nested_ternaries", "ubs_deeply_nested_callback"].includes(check.name))).toBe(true);
+        expect(skippedWarnings.flatMap(check => check.fn())).toEqual([]);
 	});
 });
 

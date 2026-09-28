@@ -54,6 +54,12 @@ import {
 import { type InlineBlockContext, runInlineCheckBlock } from "./inline-block.js";
 
 // --- Fixture builders -------------------------------------------------------
+it("preserves unavailable expression analysis as an operational deferral", () => {
+    vi.mocked(buildAgentSafetyChecks).mockReturnValueOnce([{ name: "expression_measurement", severity: "warning", fn: () => [{ line: 1, text: "Expression readability NOT CHECKED: parser unavailable" }] }]);
+    const results = runInlineCheckBlock(ctx({ fileContent: "const broken = (" }));
+    expect(results).toContainEqual(expect.objectContaining({ name: "external_check_deferred" }));
+    expect(results.some(result => result.name === "expression_measurement")).toBe(false);
+});
 it("preserves unavailable Python analysis as an operational deferral", () => {
     vi.mocked(buildAgentSafetyChecks).mockReturnValueOnce([{ name: "python_simplification", severity: "warning", fn: () => [{ line: 1, text: "Python simplification NOT CHECKED: parser unavailable" }] }]);
     const results = runInlineCheckBlock(ctx({ filePath: "app.py", absFilePath: "/repo/app.py", fileContent: "def broken(" }));

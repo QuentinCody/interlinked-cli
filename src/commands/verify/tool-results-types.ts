@@ -14,6 +14,9 @@ export type AuditResult = import("../../harness/check-engine/types.js").AuditRes
 
 /** Public API — consumed by verify submodules. */
 export interface CodeQualityIssue {
+    startOffset?: number;
+    endOffset?: number;
+    endLine?: number;
 	check: string;
 	file: string;
 	line: number;
@@ -28,6 +31,12 @@ export interface CodeQualityIssue {
  * streaming output.
  */
 export interface CodeQualityResults {
+    expressionSize: CodeQualityIssue[];
+    inlineCallbackCount: CodeQualityIssue[];
+    controlFlowDepth: CodeQualityIssue[];
+    expressionMeasurement: CodeQualityIssue[];
+    requiredBraces: CodeQualityIssue[];
+    statementsPerLine: CodeQualityIssue[];
 	strongTyping: CodeQualityIssue[];
 	suppressions: CodeQualityIssue[];
 	largeFiles: CodeQualityIssue[];

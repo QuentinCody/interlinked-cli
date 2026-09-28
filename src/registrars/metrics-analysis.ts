@@ -56,6 +56,11 @@ function diagnosticCommands(metrics: Command): void {
 }
 
 export function registerMetricsAnalysisCommands(metrics: Command): void {
+    common(metrics.command("expressions [target]").description("Measure JS/TS expression tokens, callbacks and presentation; advisory findings"))
+        .action(async (target: string | undefined, opts: OptionValues, command: Command) => {
+            const { metricsExpressionsCommand } = await import("../commands/metrics-expressions.js");
+            metricsExpressionsCommand(target, options(opts, command));
+        });
     diagnosticCommands(metrics);
     coverageCommands(metrics);
     common(metrics.command("corpus <manifest>").description("Score pinned clean local repositories and persist reproducible reports"))

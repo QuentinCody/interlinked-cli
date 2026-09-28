@@ -2,6 +2,7 @@
 // Extracted from generic-checks.ts.
 
 import { nonNull } from "../../lib/non-null.js";
+import { readabilityMatches } from "./expression-readability.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -18,44 +19,10 @@ import { findSkipMarkers } from "./test-skip-markers.js";
 
 /** Detect nested ternary operators — unreadable conditional logic. */
 export function checkNestedTernaries(content: string, filePath: string): InlineMatch[] {
-	if (isTestFile(filePath)) return [];
-	const ext = getExtension(filePath);
-	if (!JS_TS_ALL_EXTS.includes(ext)) return [];
-
-	const stripped = stripCommentsAndStrings(content);
-	const originalLines = content.split("\n");
-	const strippedLines = stripped.split("\n");
-	const matches: InlineMatch[] = [];
-	const ternaryPattern = /(?<!\?)\?(?!\?)(?!\.)/g;
-
-	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 10) break;
-		const line = nonNull(strippedLines[i]);
-		// Skip TypeScript type annotation patterns that use ? but aren't ternaries
-		if (/\bextends\s+.*\?/.test(line)) continue; // conditional types
-		if (/\btype\s+\w+.*=.*\?/.test(line)) continue; // type aliases with conditionals
-		// Skip lines that are purely property/parameter declarations with ?:
-		// e.g. "name?: string" or "{ id?: number, label?: string }"
-		if (/^\s*[\w$]+\?:\s/.test(line)) continue; // standalone optional property
-		// Strip patterns that use ? but aren't ternary operators:
-		// - Optional properties: name?: type
-		// - Regex non-capturing groups: (?:...), lookaheads: (?=...), (?!...), (?<...)
-		// - Regex lazy quantifiers: *?, +?, ??
-		const cleaned = line
-			.replace(/\w+\?\s*:/g, "X:") // optional properties
-			.replace(/\(\?[!:=<]/g, "(X") // regex groups/lookaheads
-			.replace(/[*+]\?/g, "X") // lazy quantifiers
-			.replace(/\/[^/\n]+\//g, "X"); // regex literals (simplified)
-		const ternaryMatches = cleaned.match(ternaryPattern);
-		if (ternaryMatches && ternaryMatches.length >= 2) {
-			matches.push({
-				line: i + 1,
-				text: nonNull(originalLines[i]).trim().slice(0, 150),
-			});
-		}
-	}
-
-	return matches;
+    return readabilityMatches(content, filePath, "nested_ternaries").map(match => ({
+        line: match.line,
+        text: content.split(/\r\n|[\n\r]/)[match.line - 1]?.trim().slice(0, 150) ?? match.text,
+    }));
 }
 
 /**

@@ -9,6 +9,7 @@
 // `file-checks.ts` — mirrors `harness/checks/test-hygiene-shared.ts`.
 
 import type { CodeQualityIssue, CodeQualityResults } from "./tool-results-types.js";
+import type { InlineMatch } from "../../harness/check-registry/types.js";
 
 /**
  * Public API — consumed by `file-checks.ts` and the `file-checks-<group>.ts`
@@ -19,9 +20,15 @@ import type { CodeQualityIssue, CodeQualityResults } from "./tool-results-types.
 export function toIssues(
 	check: string,
 	file: string,
-	matches: Array<{ line: number; text: string }>,
+	matches: InlineMatch[],
 ): CodeQualityIssue[] {
-	return matches.map((m) => ({ check, file, line: m.line, message: m.text }));
+    return matches.map((match) => {
+        const issue: CodeQualityIssue = { check, file, line: match.line, message: match.text };
+        if (match.startOffset !== undefined) issue.startOffset = match.startOffset;
+        if (match.endOffset !== undefined) issue.endOffset = match.endOffset;
+        if (match.endLine !== undefined) issue.endLine = match.endLine;
+        return issue;
+    });
 }
 
 /** Public API — consumed by `file-checks.ts` and the `file-checks-<group>.ts` helpers. */

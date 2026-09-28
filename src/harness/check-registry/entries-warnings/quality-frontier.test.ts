@@ -7,6 +7,12 @@ import { QUALITY_FRONTIER_ENTRIES } from "./quality-frontier.js";
 // suites; this file pins what is specific to THIS fragment.
 
 const EXPECTED_IDS = [
+    "expression_size",
+    "inline_callback_count",
+    "control_flow_depth",
+    "expression_measurement",
+    "required_braces",
+    "statements_per_line",
 	"timeout_unit_mismatch",
 	"numeric_sort_without_comparator",
 	"implicit_switch_fallthrough",
@@ -24,7 +30,7 @@ const EXPECTED_IDS = [
 ] as const;
 
 describe("QUALITY_FRONTIER_ENTRIES", () => {
-	it("registers exactly the ten wave detectors, in declaration order", () => {
+	it("registers the readability and frontier detectors in declaration order", () => {
 		expect(QUALITY_FRONTIER_ENTRIES.map((e) => e.id)).toEqual([...EXPECTED_IDS]);
 	});
 

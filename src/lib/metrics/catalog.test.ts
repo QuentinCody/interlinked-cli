@@ -24,4 +24,10 @@ describe("complete metric catalog", () => {
         expect(new Set(metrics.map(metric => metric.id)).size).toBe(metrics.length);
         expect(metrics.find(metric => metric.id === "coverage.crap")?.denominator).toBe("functions with matching coverage spans");
     });
+    it("keeps the six readability checks advisory and outside the scoring profile", () => {
+        const ids = ["expression_size", "inline_callback_count", "control_flow_depth", "expression_measurement", "required_braces", "statements_per_line"];
+        const checks = buildMetricCatalog().checks.filter(check => ids.includes(check.id));
+        expect(checks).toHaveLength(6);
+        expect(checks.map(check => [check.disposition, check.dimension])).toEqual(ids.map(() => ["advisory", null]));
+    });
 });
