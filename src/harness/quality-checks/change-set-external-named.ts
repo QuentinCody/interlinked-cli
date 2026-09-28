@@ -45,7 +45,7 @@ async function runAffectedTestsAdmitted(
     }
     const result = await scheduleTests({ root: projectRoot, paths: inputs, timeoutMs: candidate.check.timeout_ms,
         ...(options.recovery ? {} : { maxTests: candidate.check.max_dependent_tests ?? 150 }),
-        maxWorkers: 2, waitForCapacity: options.recovery === true });
+        maxWorkers: 2, waitForCapacity: options.recovery === true, stage: "edit" });
     if (result.status === "deferred" || result.status === "stale") return { name: candidate.name, reason: result.reason };
     if (result.status === "empty") return { name: candidate.name, reason: result.reason };
     options.outChecksRan?.push(candidate.name);

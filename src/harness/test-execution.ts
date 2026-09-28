@@ -15,8 +15,42 @@ import { readTestReceipt, writeTestReceipt, type TestExecution } from "./test-ru
 import type { TestPlan } from "./test-plan.js";
 import { testReportIssue } from "./test-run-report.js";
 import { observeTestRun } from "./test-run-observation.js";
+import { elapsedMs, recordVerificationStage, type ReuseDeniedReason, type VerificationStage, type VerificationStageInput } from "./verification-stages.js";
 
-export interface TestRunOptions { root: string; deadline: number; maxWorkers?: number; signal?: AbortSignal; }
+export interface TestRunOptions {
+    root: string;
+    deadline: number;
+    maxWorkers?: number;
+    signal?: AbortSignal;
+    /** Which pipeline stage asked (ledger row); defaults to `cli`. */
+    stage?: VerificationStage;
+    /** A dry run never writes the stage ledger. */
+    dryRun?: boolean;
+    session?: string;
+    /** `Date.now()` when the request was queued, for the row's `queue_ms`. */
+    queuedAt?: number;
+    /** Milliseconds the scheduler waited for its leases before this execution. */
+    waitCapacityMs?: number;
+}
+
+/** Per-attempt ledger facts: the receipt identity (when computed), when the attempt started, phase timings and why reuse was denied. */
+interface StageOutcome { identity: string | null; started: number; validate_ms?: number; lookup_ms?: number; exec_ms?: number; post_ms?: number; denied?: ReuseDeniedReason; }
+
+/** One ledger row per execution attempt: what happened, how long each phase took, and why nothing could be reused. */
+function recordExecution(options: TestRunOptions, execution: TestExecution, outcome: StageOutcome): TestExecution {
+    const input: VerificationStageInput = { stage: options.stage ?? "cli", check: `vitest:${execution.plan.mode}`, identity: outcome.identity, status: execution.status, reused: execution.reused };
+    if (execution.runId) input.run_id = execution.runId;
+    if (outcome.denied) input.reuse_denied_reason = outcome.denied;
+    if (options.session) input.session = options.session;
+    if (options.waitCapacityMs !== undefined) input.wait_capacity_ms = options.waitCapacityMs;
+    if (options.queuedAt !== undefined) input.queue_ms = elapsedMs(options.queuedAt, () => outcome.started);
+    if (outcome.validate_ms !== undefined) input.validate_ms = outcome.validate_ms;
+    if (outcome.lookup_ms !== undefined) input.lookup_ms = outcome.lookup_ms;
+    if (outcome.exec_ms !== undefined) input.exec_ms = outcome.exec_ms;
+    if (outcome.post_ms !== undefined) input.post_ms = outcome.post_ms;
+    recordVerificationStage(options.root, input, { dryRun: options.dryRun === true });
+    return execution;
+}
 
 export function testWorkerBudget(requested?: number): number {
     const budget = readResourceBudget();
@@ -59,27 +93,69 @@ function interrupted(result: { timedOut?: boolean; killed?: boolean; code: numbe
     return !!result.timedOut || !!result.killed || result.code === null || result.code >= 128;
 }
 
+type Outcome = Omit<StageOutcome, "started">;
+type Attempt = { execution: TestExecution; outcome: Outcome };
+interface AdmittedContext { environment: ReturnType<typeof captureVitestEnvironment>; workers: number; }
+
 /** Evidence is reusable only for identical runtime bytes and controlled test dependencies. */
 async function executePlan(plan: TestPlan, options: TestRunOptions): Promise<TestExecution> {
+    const started = Date.now();
     const base: TestExecution = { plan, runId: randomUUID(), reused: false, durationMs: 0, reason: "", output: "", status: "deferred" };
-    if (plan.mode === "selected" && !plan.tests.length) return { ...base, status: "empty", reason: "No tests selected; no test pass certified" };
+    const record = (attempt: Attempt) => recordExecution(options, attempt.execution, { started, ...attempt.outcome });
+    if (plan.mode === "selected" && !plan.tests.length) return record({ execution: { ...base, status: "empty", reason: "No tests selected; no test pass certified" }, outcome: { identity: null, denied: "empty-selection" } });
     const workers = testWorkerBudget(options.maxWorkers);
-    if (!workers) return { ...base, reason: "Host CPU or memory capacity unavailable for a test worker" };
+    if (!workers) return record({ execution: { ...base, reason: "Host CPU or memory capacity unavailable for a test worker" }, outcome: { identity: null, denied: "worker-budget-unavailable" } });
     const environment = captureVitestEnvironment();
-    if (plan.runtimeIssue) return runWithoutReusableEvidence(base, options, environment.environment, workers, plan.runtimeIssue);
+    if (plan.runtimeIssue) {
+        const execStarted = Date.now();
+        const execution = await runWithoutReusableEvidence(base, options, environment.environment, workers, plan.runtimeIssue);
+        return record({ execution, outcome: { identity: null, exec_ms: elapsedMs(execStarted), denied: `plan-not-reusable:${plan.runtimeIssue}` } });
+    }
+    return record(await executeValidated(base, options, { environment, workers }));
+}
+
+function executionKey(plan: TestPlan, context: AdmittedContext & { runtimeHash: string }): string {
+    const toolchain = [process.versions, process.platform, process.arch, release()];
+    const scope = [plan.snapshot, plan.mode, plan.tests.map(test => test.path), context.workers];
+    return hashBytes(JSON.stringify(["test-execution-v3", ...toolchain, context.runtimeHash, context.environment.environmentHash, ...scope]));
+}
+
+/** Binds the plan to the live runtime, consumes an identical receipt when one exists, else runs fresh. */
+async function executeValidated(base: TestExecution, options: TestRunOptions, context: AdmittedContext): Promise<Attempt> {
+    const plan = base.plan;
+    // Runtime validation is paid on every path below (hit, miss, early stale return), so it is its own measured phase.
+    const validateStarted = Date.now();
     const runtime = await captureTestRuntime(options.root, options.deadline);
-    if (runtime.issue) return { ...base, status: "stale", reason: `Runtime validation became unavailable: ${runtime.issue}` };
-    if (plan.runtimeHash && plan.runtimeHash !== runtime.hash) return { ...base, status: "stale", reason: "Runtime changed since planning" };
-    const key = hashBytes(JSON.stringify(["test-execution-v3", process.versions, process.platform, process.arch, release(),
-        runtime.hash, environment.environmentHash, plan.snapshot, plan.mode, plan.tests.map(test => test.path), workers]));
+    const validate_ms = elapsedMs(validateStarted);
+    const stale = (reason: string): Attempt => ({ execution: { ...base, status: "stale", reason }, outcome: { identity: null, validate_ms, denied: "stale-inputs" } });
+    if (runtime.issue || runtime.hash === undefined) return stale(`Runtime validation became unavailable: ${runtime.issue ?? "no runtime hash"}`);
+    if (plan.runtimeHash && plan.runtimeHash !== runtime.hash) return stale("Runtime changed since planning");
+    const key = executionKey(plan, { ...context, runtimeHash: runtime.hash });
+    const lookupStarted = Date.now();
     const receipt = plan.reusable ? readTestReceipt(options.root, key) : null;
-    if (receipt) return { ...base, status: "passed", reused: true, runtimeVerified: true, runId: receipt.runId, reason: "Identical validated runtime and test scope" };
-    const execution = await launchTestPlan(base, options, environment.environment, workers);
-    if (execution.status === "deferred") return execution;
+    const lookup_ms = elapsedMs(lookupStarted);
+    if (receipt) {
+        const execution: TestExecution = { ...base, status: "passed", reused: true, runtimeVerified: true, runId: receipt.runId, reason: "Identical validated runtime and test scope" };
+        return { execution, outcome: { identity: key, validate_ms, lookup_ms } };
+    }
+    const fresh = await runFresh(base, options, { ...context, runtimeHash: runtime.hash, key });
+    return { execution: fresh.execution, outcome: { identity: key, validate_ms, lookup_ms, ...fresh.outcome } };
+}
+
+/** Runs the plan, re-validates the runtime afterwards and writes the receipt a later identical plan can reuse. */
+async function runFresh(base: TestExecution, options: TestRunOptions, context: AdmittedContext & { runtimeHash: string; key: string }): Promise<{ execution: TestExecution; outcome: Omit<Outcome, "identity"> }> {
+    const execStarted = Date.now();
+    const execution = await launchTestPlan(base, options, context.environment.environment, context.workers);
+    const exec_ms = elapsedMs(execStarted);
+    if (execution.status === "deferred") return { execution, outcome: { exec_ms, denied: "interrupted" } };
+    const postStarted = Date.now();
     const after = await captureTestRuntime(options.root, options.deadline);
-    if (after.hash !== runtime.hash || captureVitestEnvironment().environmentHash !== environment.environmentHash) return { ...execution, status: "stale", reason: "Inputs changed during execution; a new plan is required" };
-    if (plan.reusable && execution.status === "passed") writeTestReceipt(options.root, key, execution);
-    return { ...execution, runtimeVerified: true };
+    const post_ms = elapsedMs(postStarted);
+    if (after.hash !== context.runtimeHash || captureVitestEnvironment().environmentHash !== context.environment.environmentHash) {
+        return { execution: { ...execution, status: "stale", reason: "Inputs changed during execution; a new plan is required" }, outcome: { exec_ms, post_ms, denied: "stale-inputs" } };
+    }
+    if (base.plan.reusable && execution.status === "passed") writeTestReceipt(options.root, context.key, execution);
+    return { execution: { ...execution, runtimeVerified: true }, outcome: { exec_ms, post_ms, denied: "no-receipt" } };
 }
 
 async function runWithoutReusableEvidence(base: TestExecution, options: TestRunOptions, environment: NodeJS.ProcessEnv, workers: number, issue: string): Promise<TestExecution> {

@@ -31,6 +31,12 @@ remote="$1"
 url="$2"
 source_root="$(pwd -P)"
 hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# Every `bounded` step writes one stage-timing row (wait/exec ms, why no
+# verdict) through src/harness/verification-stages.ts. The gate runs inside a
+# disposable export whose .interlinked/ vanishes, so the ledger is pinned to
+# the source checkout; `interlinked query stages` reads it.
+export INTERLINKED_STAGE=push
+export INTERLINKED_STAGES_LEDGER="$source_root/.interlinked/verification-stages.jsonl"
 zero=$(git hash-object --stdin </dev/null | tr '0-9a-f' '0')
 protected_branch_re='^(main|master)$'
 push_shas=()

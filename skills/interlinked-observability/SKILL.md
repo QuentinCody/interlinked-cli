@@ -416,6 +416,28 @@ Two consequences worth knowing:
 Activating a change to any of this needs `npm run build && interlinked harness
 restart`: the daemon serves the build it started with.
 
+## `interlinked query stages` — where verification time goes
+
+`.interlinked/verification-stages.jsonl` (added 2026-09-28) holds one row per
+check per pipeline stage: `stage` (`edit` from the hook path, `push` from the
+pre-push hook, `cli` otherwise), `check` (`vitest:selected`, `vitest:full`,
+`npm run typecheck:stable`, `e2e-tests`, `e2e-merge`, …), `queue_ms`,
+`wait_capacity_ms`, `validate_ms` (runtime snapshot + hash that decides
+reuse; paid on hits, misses and early stale returns), `lookup_ms`, `exec_ms`,
+`post_ms`, `reused` and
+`reuse_denied_reason` (`no-receipt`, `plan-not-reusable:<issue>`,
+`stale-inputs`, `budget-exceeded`, `capacity-timeout`,
+`memory-budget-unavailable`, `interrupted`, `empty-selection`). A dry run
+never writes a row; a write failure is silent. Rows the pre-push hook writes
+inside its disposable export land in the source checkout through
+`INTERLINKED_STAGES_LEDGER`.
+
+```bash
+interlinked query stages --by reuse_denied_reason        # why results are not reused
+interlinked query stages --by check --sum exec_ms        # where the minutes go
+interlinked query stages --where stage=push              # one push's timeline
+```
+
 ## `interlinked recurrence` — repeating-pattern aggregation
 Deterministic counting/grouping over `.interlinked/recurrences.jsonl` (no LLM), ranked by count.
 Check-health aggregation accepts only caught rows with a nonempty string check ID and a string

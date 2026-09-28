@@ -41,8 +41,9 @@ async function runVitestDispatcher(input: TestDispatcherInput): Promise<TestDisp
         return [unavailable(input, "The configured runner is not Vitest; no run was scheduled.")];
     }
     try {
+        // A dry-run event never reaches this dispatcher (tool-check-loop-run.ts returns first), so no dryRun flag is threaded.
         const result = await scheduleTests({ root: input.checkCwd, paths: [input.absPath], timeoutMs: input.timeoutMs,
-            maxTests: input.maxDependentTests ?? 150, waitForCapacity: false });
+            maxTests: input.maxDependentTests ?? 150, waitForCapacity: false, stage: "edit" });
         if (result.status === "passed") return [];
         if (result.status === "failed") return [{ name: input.checkName, severity: input.severity,
             file: input.filePath, message: `Tests failed for ${input.filePath}`, detail: result.output }];

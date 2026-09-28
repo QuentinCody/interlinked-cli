@@ -57,6 +57,7 @@ export const DATA_CATALOG: readonly DataSource[] = [
     defineDataSource({ name: "offline-spool", category: "transport", role: "state-ledger", description: "Pending local guard telemetry", producer: "harness/telemetry-spool", fields: ["type", "decision", "tool"] }),
     defineDataSource({ name: "capture-receipts", category: "runtime", description: "Producer eligibility, successful writes and failures", producer: "lib/data/capture", fields: ["source", "status", "records", "error"] }),
     defineDataSource({ name: "audit-checkpoints", category: "audit", retention: "preserve", description: "Explicit audit recovery boundaries and evidence hashes", producer: "lib/data/audit", fields: ["reason", "source", "offset", "hash"] }),
+    defineDataSource({ name: "stages", path: "verification-stages.jsonl", category: "quality", description: "Per-check stage timings by pipeline stage (queue/wait/lookup/exec/post ms) and why a result could not be reused", producer: "harness/verification-stages", fields: ["stage", "check", "status", "reused", "reuse_denied_reason", "wait_capacity_ms", "exec_ms", "post_ms"] }),
 ];
 
 export function dataSourceForPath(path: string): DataSource {

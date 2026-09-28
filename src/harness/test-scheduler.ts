@@ -14,10 +14,34 @@ import type { TestExecution } from "./test-run-receipt.js";
 import type { TestPlan } from "./test-plan.js";
 import { currentProcessSignal } from "./check-engine/process-cancellation.js";
 import { acquireProjectHeavyProcessLease } from "./project-heavy-process-lock.js";
+import { elapsedMs, recordVerificationStage, type ReuseDeniedReason, type VerificationStage } from "./verification-stages.js";
 
-export interface ScheduleTestsOptions { root: string; paths: readonly string[]; timeoutMs: number; full?: boolean; maxWorkers?: number; maxTests?: number; waitForCapacity?: boolean; }
+export interface ScheduleTestsOptions {
+    root: string;
+    paths: readonly string[];
+    timeoutMs: number;
+    full?: boolean;
+    maxWorkers?: number;
+    maxTests?: number;
+    waitForCapacity?: boolean;
+    /** Pipeline stage for the ledger rows; hook callers pass `edit`, defaults to `cli`. */
+    stage?: VerificationStage;
+    /** A dry run never writes the ledger. */
+    dryRun?: boolean;
+    session?: string;
+}
 interface ScheduledRequest extends ScheduleTestsOptions { requestId: string; }
+/** Lease-wait facts a drain hands to each batch so the executor's row carries them. */
+interface DrainTiming { queuedAt: number; waitCapacityMs: number; }
 const active = new Map<string, Promise<TestExecution>>();
+
+/** A row for work the scheduler refused before any executor ran (budget or capacity); the executor writes its own rows. */
+function recordSchedulerDeferral(options: ScheduleTestsOptions, denied: ReuseDeniedReason, timing: DrainTiming, mode: string): void {
+    recordVerificationStage(options.root, {
+        stage: options.stage ?? "cli", check: `vitest:${mode}`, identity: null, status: "deferred", reused: false, reuse_denied_reason: denied,
+        queue_ms: elapsedMs(timing.queuedAt), wait_capacity_ms: timing.waitCapacityMs, ...(options.session ? { session: options.session } : {}),
+    }, { dryRun: options.dryRun === true });
+}
 
 async function acquireProject(options: ScheduleTestsOptions, deadline: number): Promise<(() => void) | null> {
     const signal = currentProcessSignal();
@@ -49,14 +73,20 @@ function satisfiedRequests(root: string, batch: PendingTests): string[] {
     return current.paths.every(path => paths.has(path)) ? current.ids : batch.ids;
 }
 
-async function runOneBatch(options: ScheduleTestsOptions, deadline: number): Promise<TestExecution> {
+async function runOneBatch(options: ScheduleTestsOptions, deadline: number, timing: DrainTiming): Promise<TestExecution> {
     const pending = pendingTests(options.root), before = collectRepositoryInventory(options.root);
     const environmentHash = captureVitestEnvironment().environmentHash;
     const known = captureKnownTestInputs(options.root, [...pending.paths, ...Object.values(readTestDependencies(options.root)).flat(), ".interlinked/test-dependencies.json"]);
     const plan = await loadTestPlan(options.root, pending.paths, Math.max(1, deadline - Date.now()), pending.full);
     const deferred = overBudget(plan, options);
-    if (deferred) return deferred;
-    const result = await executeTestPlan(plan, { root: options.root, deadline, ...(options.maxWorkers === undefined ? {} : { maxWorkers: options.maxWorkers }) });
+    if (deferred) {
+        recordSchedulerDeferral(options, "budget-exceeded", timing, plan.mode);
+        return deferred;
+    }
+    const result = await executeTestPlan(plan, {
+        root: options.root, deadline, stage: options.stage ?? "cli", dryRun: options.dryRun === true, queuedAt: timing.queuedAt, waitCapacityMs: timing.waitCapacityMs,
+        ...(options.maxWorkers === undefined ? {} : { maxWorkers: options.maxWorkers }), ...(options.session ? { session: options.session } : {}),
+    });
     const changed = [...changedDuring(before, collectRepositoryInventory(options.root)), ...changedKnownTestInputs(options.root, known)];
     if (captureVitestEnvironment().environmentHash !== environmentHash) {
         requestTests(options.root, [], true);
@@ -72,9 +102,12 @@ async function runOneBatch(options: ScheduleTestsOptions, deadline: number): Pro
     return changed.length ? { ...result, status: "stale", reason: "Inputs changed during execution" } : result;
 }
 
-async function runPending(options: ScheduleTestsOptions, deadline: number): Promise<TestExecution> {
+async function runPending(options: ScheduleTestsOptions, deadline: number, first: DrainTiming): Promise<TestExecution> {
+    // Timings are per batch: only the first batch paid the lease wait, and a later batch was queued when its predecessor finished.
+    let timing = first;
     for (;;) {
-        const result = await runOneBatch(options, deadline);
+        const result = await runOneBatch(options, deadline, timing);
+        timing = { queuedAt: Date.now(), waitCapacityMs: 0 };
         if (result.runId) observeTestRun(options.root, result);
         if (result.status === "deferred" || result.status === "failed" || pendingTests(options.root).ids.length === 0) return result;
         if (Date.now() >= deadline) return { ...result, status: "stale", reason: "Newer inputs remain queued; previous result does not certify them" };
@@ -82,20 +115,24 @@ async function runPending(options: ScheduleTestsOptions, deadline: number): Prom
 }
 
 async function drain(options: ScheduledRequest): Promise<TestExecution> {
-    const deadline = Date.now() + options.timeoutMs, signal = currentProcessSignal() ?? new AbortController().signal;
+    const queuedAt = Date.now(), deadline = queuedAt + options.timeoutMs, signal = currentProcessSignal() ?? new AbortController().signal;
     const key = `interlinked-test-scheduler-v1\0${options.root}`, wait = options.waitForCapacity !== false;
+    const busy = (denied: ReuseDeniedReason, message: string): Error => {
+        recordSchedulerDeferral(options, denied, { queuedAt, waitCapacityMs: elapsedMs(queuedAt) }, options.full ? "full" : "selected");
+        return new Error(message);
+    };
     const owner = wait ? await acquireCrossProcessCompilerLease(key, deadline, signal) : tryAcquireCrossProcessCompilerLease(key);
-    if (!owner) throw new Error("Test scheduler busy; request retained");
+    if (!owner) throw busy("capacity-timeout", "Test scheduler busy; request retained");
     try {
         const completed = await readTestCompletion(options.root, options.requestId, deadline);
         if (completed) return completed;
         if (!hasTestRequest(options.root, options.requestId)) requestTests(options.root, options.paths, options.full === true);
         const release = await acquireProject(options, deadline);
-        if (!release) throw new Error("Project check capacity busy; test request retained");
+        if (!release) throw busy("capacity-timeout", "Project check capacity busy; test request retained");
         try {
             const capacity = wait ? await acquireTestCapacity("foreground", deadline, signal) : tryAcquireForegroundCapacity();
-            if (!capacity) throw new Error("Host test capacity busy; request retained");
-            try { return await runPending(options, deadline); }
+            if (!capacity) throw busy("capacity-timeout", "Host test capacity busy; request retained");
+            try { return await runPending(options, deadline, { queuedAt, waitCapacityMs: elapsedMs(queuedAt) }); }
             finally { capacity.release(); }
         } finally { release(); }
     } finally { owner.release(); }

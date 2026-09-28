@@ -14,6 +14,18 @@ vi.mock("node:os", async importOriginal => ({ ...await importOriginal<typeof imp
 
 it("runs edited tests, reuses exact passing inputs, and invalidates an edited assertion", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "planned-tests-")));
+    // The pre-push hook exports INTERLINKED_STAGES_LEDGER / INTERLINKED_STAGE; without a private ledger this run's
+    // deliberate failures and reuse would land in the source checkout's real timing data.
+    // Outside the fixture root: a ledger inside it would change the repository inventory between runs and defeat the reuse under test.
+    const ledgerDir = mkdtempSync(join(tmpdir(), "planned-tests-ledger-"));
+    const ledger = join(ledgerDir, "stages.jsonl");
+    // A test-owned stand-in for the ledger a pre-push environment would hand down. Only this test knows the path, so
+    // "unchanged afterwards" is deterministic — the real shared ledger may legitimately receive rows from a daemon meanwhile.
+    const sentinel = join(ledgerDir, "inherited-sentinel.jsonl");
+    writeFileSync(sentinel, '{"sentinel":true}\n');
+    vi.stubEnv("INTERLINKED_STAGES_LEDGER", sentinel);
+    vi.stubEnv("INTERLINKED_STAGES_LEDGER", ledger);
+    vi.stubEnv("INTERLINKED_STAGE", "");
     try {
         copyVitestRuntime(root);
         writeFileSync(join(root, "package.json"), '{"type":"module"}');
@@ -42,5 +54,16 @@ it("runs edited tests, reuses exact passing inputs, and invalidates an edited as
         const stale = await executeTestPlan(plan, { root, deadline: Date.now() + 60_000 });
         expect(stale.status).toBe("stale");
         expect(stale.reason).toBe("Runtime changed since planning");
-    } finally { rmSync(root, { recursive: true, force: true }); }
+        // test-contract: invariant — this run's rows (fresh, reused, failed, stale) went to the private ledger, and an inherited ledger is untouched
+        // SAFETY: the private ledger is written only by recordVerificationStage, one VerificationStageRow per line.
+        const rows = readFileSync(ledger, "utf8").trim().split("\n").map(line => JSON.parse(line) as { stage: string; reused: boolean; status: string });
+        expect(rows.every(row => row.stage === "cli")).toBe(true);
+        expect(rows.some(row => row.reused)).toBe(true);
+        expect(rows.filter(row => row.status === "failed").length).toBeGreaterThanOrEqual(2);
+        expect(readFileSync(sentinel, "utf8")).toBe('{"sentinel":true}\n');
+    } finally {
+        vi.unstubAllEnvs();
+        rmSync(root, { recursive: true, force: true });
+        rmSync(ledgerDir, { recursive: true, force: true });
+    }
 }, 120_000);

@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { scheduleTests } from "./test-scheduler.js";
 import { pendingTests, completeTestRequests } from "./test-requests.js";
 import { executeTestPlan } from "./test-execution.js";
@@ -16,7 +16,13 @@ import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
 vi.mock("./test-execution.js", () => ({ executeTestPlan: vi.fn() }));
 vi.mock("./test-plan-inputs.js", async importOriginal => ({ ...await importOriginal<typeof import("./test-plan-inputs.js")>(), loadTestPlan: vi.fn(), readTestDependencies: () => ({}) }));
 const roots: string[] = [];
-afterEach(() => { vi.resetAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+// The pre-push hook exports INTERLINKED_STAGES_LEDGER; an inherited override would redirect the fixture's rows, so pin the default path.
+beforeEach(() => { vi.stubEnv("INTERLINKED_STAGES_LEDGER", ""); });
+afterEach(() => {
+    vi.resetAllMocks();
+    vi.unstubAllEnvs();
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 function fixture(): string {
     const root = mkdtempSync(join(tmpdir(), "test-scheduler-")); roots.push(root);
     writeFileSync(join(root, "a.ts"), "export const a = 1;");
@@ -87,12 +93,66 @@ it("retains a hook request immediately when the project slot is occupied", async
     const root = fixture(), release = tryAcquireProjectHeavyProcessLease(root);
     if (!release) throw new Error("Fixture lease unavailable");
     try {
-        await expect(scheduleTests({ root, paths: ["a.ts"], timeoutMs: 60_000, waitForCapacity: false }))
+        await expect(scheduleTests({ root, paths: ["a.ts"], timeoutMs: 60_000, waitForCapacity: false, stage: "edit" }))
             .rejects.toThrow("Project check capacity busy");
         expect(executeTestPlan).not.toHaveBeenCalled();
         expect(pendingTests(root).paths).toEqual(["a.ts"]);
+        // test-contract: public-api — a retained request is a ledger row that names capacity, not a failed check
+        expect(stageRows(root)).toMatchObject([{ stage: "edit", check: "vitest:selected", status: "deferred", reused: false, reuse_denied_reason: "capacity-timeout" }]);
     } finally { release(); }
 }, 2000);
+
+/** Rows the scheduler wrote for this fixture (the executor is mocked here, so only scheduler rows appear). */
+function stageRows(root: string): Array<Record<string, unknown>> {
+    const path = join(root, ".interlinked", "verification-stages.jsonl");
+    // SAFETY: the fixture's ledger is written only by recordVerificationStage, one JSON object per line.
+    return existsSync(path) ? readFileSync(path, "utf8").trim().split("\n").map(line => JSON.parse(line) as Record<string, unknown>) : [];
+}
+
+// test-contract: invariant — the executor's row carries the stage, the queue mark and the lease wait the scheduler measured
+it("hands the stage, queue mark and lease wait to the executor", async () => {
+    const root = fixture();
+    await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, stage: "edit", session: "s1" });
+    const options = vi.mocked(executeTestPlan).mock.calls[0]?.[1];
+    expect(options).toMatchObject({ stage: "edit", dryRun: false, session: "s1" });
+    expect(typeof options?.queuedAt).toBe("number");
+    expect(options?.waitCapacityMs).toBeGreaterThanOrEqual(0);
+});
+
+// test-contract: public-api — a hook-budget deferral is recorded as budget-exceeded before any executor runs
+it("records a budget-exceeded row when the plan exceeds the hook budget", async () => {
+    const root = fixture();
+    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, maxTests: 0, stage: "edit" });
+    expect(result.status).toBe("deferred");
+    expect(executeTestPlan).not.toHaveBeenCalled();
+    expect(stageRows(root)).toMatchObject([{ stage: "edit", check: "vitest:selected", status: "deferred", reuse_denied_reason: "budget-exceeded" }]);
+    expect(typeof stageRows(root)[0]?.wait_capacity_ms).toBe("number");
+});
+
+// test-contract: invariant — timings are per batch: a batch queued by a mid-run edit carries its own queue mark and no lease wait
+it("gives a second batch its own queue mark and zero lease wait", async () => {
+    const root = fixture();
+    vi.mocked(executeTestPlan).mockImplementationOnce(async plan => {
+        writeFileSync(join(root, "a.ts"), "export const a = 2;");
+        await new Promise(resolve => global.setTimeout(resolve, 25));
+        return { plan, status: "passed", runId: "first", reused: false, durationMs: 25, reason: "", output: "" };
+    });
+    await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 5000, stage: "edit" });
+    const calls = vi.mocked(executeTestPlan).mock.calls;
+    expect(calls).toHaveLength(2);
+    const [first, second] = [calls[0]?.[1], calls[1]?.[1]];
+    expect(first?.waitCapacityMs).toBeGreaterThanOrEqual(0);
+    expect(second?.waitCapacityMs).toBe(0);
+    // The first batch slept 25 ms (a duration under test, not a wait for a condition); timer granularity allows a few ms of slack.
+    expect(second?.queuedAt).toBeGreaterThanOrEqual((first?.queuedAt ?? 0) + 20);
+});
+
+// test-contract: invariant — a dry run must not move any ledger
+it("writes no scheduler row for a dry run", async () => {
+    const root = fixture();
+    await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, maxTests: 0, stage: "edit", dryRun: true });
+    expect(stageRows(root)).toEqual([]);
+});
 
 async function completedByAnotherOwner(root: string): Promise<Awaited<ReturnType<typeof scheduleTests>>> {
     const requests = pendingTests(root), plan = await loadTestPlan(root, requests.paths, 1000);
