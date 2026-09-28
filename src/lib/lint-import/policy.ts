@@ -48,7 +48,7 @@ function sourceApplies(source: LintSource, entry: LintImportEntry): boolean {
     if (entry.sources.includes(source.file)) return true;
     if (source.kind === "script" || exampleSource(source)) return false;
     if (source.tool === "shared-ignore") return scopesOverlap(source, entry);
-    if (source.tool !== entry.tool) return false;
+    if (source.tool !== entry.tool && !(entry.tool === "biome-format" && source.tool === "biome")) return false;
     return source.kind === "ignore" ? scopesOverlap(source, entry) : withinScope(source.scope, entry.scope);
 }
 

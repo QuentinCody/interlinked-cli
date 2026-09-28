@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { parseImportedLint } from "./parsers.js";
 
 describe("imported analyzer protocols", () => {
+    it("preserves native warning/error severity and accepts formatter diagnostics only for the formatter adapter", () => {
+        const messages = [1, 2].map(severity => ({ ruleId: "rule", line: 1, message: "finding", severity }));
+        expect(parseImportedLint({ tool: "eslint", output: JSON.stringify([{ filePath: "a.ts", messages }]) }).map(row => row.severity)).toEqual(["warning", "error"]);
+        const output = JSON.stringify({ summary: { skipped: 0, diagnosticsNotPrinted: 0, changed: 0, unchanged: 1 }, diagnostics: [{ category: "format", severity: "error", message: "Format differs", location: { path: "a.ts", start: { line: 0 } } }] });
+        expect(parseImportedLint({ tool: "biome-format", output })).toMatchObject([{ rule: "format", severity: "error" }]);
+        expect(() => parseImportedLint({ tool: "biome", output })).toThrow();
+    });
     it("reads Oxlint native and JavaScript plugin diagnostics, preserving their rule IDs", () => {
         const diagnostics = ["eslint(no-debugger)", "anti-slop(no-unknown-type-alias)"].map((code) => ({ filename: "src/a.ts", code, message: "finding", labels: [{ span: { line: 2, column: 3 } }] }));
         const rows = parseImportedLint({ tool: "oxlint", output: JSON.stringify({ number_of_files: 1, diagnostics }) });

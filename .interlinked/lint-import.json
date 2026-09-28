@@ -4,7 +4,6 @@
     {
       "tool": "oxlint",
       "scope": "src",
-      "config": "oxlint.anti-slop.json",
       "sources": [
         "node_modules/oxlint/configuration_schema.json",
         "oxlint.anti-slop.json",
@@ -41,12 +40,49 @@
         "tools/oxlint/anti-slop/vendor/eslint-stylistic/padding-line-options.d.ts",
         "tsconfig.json"
       ],
+      "config": "oxlint.anti-slop.json",
       "cadence": "audit"
+    },
+    {
+      "tool": "biome-format",
+      "scope": "src/harness/project-e2e",
+      "config": "biome.json",
+      "sources": [
+        "biome.json",
+        "node_modules/@biomejs/biome/configuration_schema.json",
+        "package-lock.json",
+        "package.json",
+        "tsconfig.json"
+      ],
+      "cadence": "audit",
+      "targets": [
+        "doctor.ts",
+        "doctor-toolchain.ts"
+      ],
+      "gate": "errors"
+    },
+    {
+      "tool": "oxlint",
+      "scope": "src/harness/project-e2e",
+      "config": "oxlint.readability.json",
+      "sources": [
+        "node_modules/oxlint/configuration_schema.json",
+        "oxlint.readability.json",
+        "package-lock.json",
+        "package.json",
+        "tsconfig.json"
+      ],
+      "cadence": "audit",
+      "targets": [
+        "doctor.ts",
+        "doctor-toolchain.ts"
+      ],
+      "gate": "errors"
     }
   ],
   "digests": {
     "oxlint.anti-slop.json": "5e12c0a97a70877f5adb0f9e176bf2ca4cad31a5268e1de75d00d5eda002edea",
-    "package.json": "7578bf230a55eb1d2300d7256d4fc83380a9a45ae1c05dfd71e0642f1190d5a3",
+    "package.json": "7103b6b213e2caa76d7650960f9de4137a6c26ee167e964dd32df1e952315e3a",
     "tsconfig.json": "0d61be41add7ba49cd6aa6c41ddd3135e396600cd7821c3336b1755714289bb9",
     "package-lock.json": "7d4015f903fd737ad1361f23e3e76e8b4514e8f24ba06deb46e55b1cfe9a3ad5",
     "tools/oxlint/anti-slop/index.ts": "9deed4cb455b9a6251001dc3a525d5b5e2c6ef989dd1c01e804c2edf0a697415",
@@ -79,9 +115,12 @@
     "tools/oxlint/anti-slop/shared/array-method.ts": "e360557253c56ab7c256623f3338415743e5027e9d999f801fb79d98240d217b",
     "tools/oxlint/anti-slop/rules/no-array-filter-map.ts": "528bba857b84712c038e35e59079cc1e6c78a0421c65bb3c6117c9d412a2f28a",
     "node_modules/oxlint/configuration_schema.json": "a0faa36156d984a4015d0db4daba076f2ed5ad75bfca42fb0d94a8c21f361a8b",
-    ".github/workflows/ci.yml": "f7536fa5d62fa407c910460dab29f1d460496e146fcdcbe2c2376396c4d01b9c",
+    "biome.json": "8913b8c35db8229cb1f9048602af8be810339a1cf6cc169bfec9e477bf21dd82",
+    "oxlint.readability.json": "37ef9b3b3fe1116708a4247a16cffd1fc37af53d307e3b78abc1ba98da3e4121",
+    "node_modules/@biomejs/biome/configuration_schema.json": "4bc1a4bea3674c0bc6af80beaf6f055e4a5690bf32680be0ad8c0137851d81b1",
+    ".github/workflows/ci.yml": "6c55935e94a12141ef4fc162138f40bdbc8a78e8d31fdc502e1b9252c3f2be05",
     ".github/workflows/publish.yml": "a1f1d908def5eee2a0cf38d2a8334aee2bace37b34e87c522f27a5b7349a5d4f",
-    ".gitignore": "41feed68b620873ae97e5a234ae2553fa565f0c8fb71579fbcdf8a79e66eec8f",
+    ".gitignore": "66e91566f495af1eac23c0704c91924f25ec8a459f84b390e0bbfc03a2136192",
     ".ignore": "cea917835c35b81f818c35039a2e50e48c7c9a52c1bc86346aaa945fba13d5c7",
     "scripts/ci-local.sh": "cf0796c96597145f02a46ea3a7dfa3533f506b331d223714ec975df63a4b277b"
   }

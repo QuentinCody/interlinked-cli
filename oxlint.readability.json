@@ -1,0 +1,10 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "categories": { "correctness": "off" },
+    "rules": {
+        "curly": ["error", "all"],
+        "max-nested-callbacks": ["warn", { "max": 2 }],
+        "max-depth": ["warn", { "max": 3 }],
+        "no-nested-ternary": "warn"
+    }
+}

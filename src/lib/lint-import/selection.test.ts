@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { lintEntryKey } from "./identity.js";
 import { checkLintSources, LINT_POLICY_PATH, loadLintPolicy, writeLintJson } from "./policy.js";
 import { prepareLintImport } from "./selection.js";
+import { parseLintArgv, toolForExecutable } from "./argv.js";
 
 const directories: string[] = [];
 function project(): string {
@@ -19,6 +20,32 @@ function put(root: string, file: string, content = "export default [];\n"): void
 afterEach(() => { for (const root of directories.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("explicit ESLint import profiles", () => {
+    it("distinguishes Biome lint and formatting invocations without adopting writes", () => {
+        expect(toolForExecutable("biome", ["lint", "."])).toBe("biome");
+        expect(toolForExecutable("biome", ["format", "src"])).toBe("biome-format");
+        expect(parseLintArgv("biome-format", ["format", "--reporter=json", "src"], ".")).toMatchObject({ targets: ["src"] });
+        expect(() => parseLintArgv("biome-format", ["format", "--write", "src"], ".")).toThrow();
+    });
+    it("selects bounded targets without widening them during reimport", () => {
+        const root = project();
+        put(root, "biome.json", "{}");
+        const plan = prepareLintImport(root, { config: ["biome-format=biome.json"], target: ["src/doctor.ts"], onlySelected: true });
+        expect(plan.policy.entries[0]?.targets).toEqual(["src/doctor.ts"]);
+        writeLintJson(root, LINT_POLICY_PATH, plan.policy);
+        expect(prepareLintImport(root, {}).policy.entries.find(entry => entry.tool === "biome-format")?.targets).toEqual(["src/doctor.ts"]);
+        expect(() => prepareLintImport(root, { target: ["src"] })).toThrow("requires --config");
+    });
+    it("retains an errors-only gate across reimports and measures formatter config inheritance", () => {
+        const root = project();
+        put(root, "biome.json", '{"extends":["./format-base.json"]}');
+        put(root, "format-base.json", '{"formatter":{"enabled":true}}');
+        const plan = prepareLintImport(root, { config: ["biome-format=biome.json"], gate: "errors", onlySelected: true });
+        expect(plan.policy.entries[0]).toMatchObject({ tool: "biome-format", gate: "errors", sources: expect.arrayContaining(["format-base.json"]) });
+        expect(() => checkLintSources(root, plan.policy)).not.toThrow();
+        writeLintJson(root, LINT_POLICY_PATH, plan.policy);
+        expect(prepareLintImport(root, {}).policy.entries.find(entry => entry.tool === "biome-format")?.gate).toBe("errors");
+        expect(() => prepareLintImport(root, { gate: "off" })).toThrow("gate");
+    });
     it("imports only explicit configs on request and leaves discovered profiles for review", () => {
         const root = project();
         put(root, ".oxlintrc.json", "{}");

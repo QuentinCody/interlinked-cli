@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { tryAcquireProjectHeavyProcessLease } from "../harness/project-heavy-process-lock.js";
-import { loadLintBaseline, newLintFindings, retireLintDebt, tightenLintBaseline } from "../lib/lint-import/baseline.js";
+import { blockingLintFindings, loadLintBaseline, newLintFindings, retireLintDebt, tightenLintBaseline } from "../lib/lint-import/baseline.js";
 import { lintEntryLabel } from "../lib/lint-import/identity.js";
 import { importedLintGuardUpdate, LINT_POLICY_PATH, loadLintPolicy, planLintImport, writeLintJson } from "../lib/lint-import/policy.js";
 import { measureImportedLint } from "../lib/lint-import/runner.js";
@@ -89,7 +89,7 @@ function renderMeasurements(measurements: LintMeasurement[], root: string): void
             continue;
         }
         const introduced = newLintFindings(measurement, baseline);
-        console.log(`${label}: ${introduced.length} new findings; ${measurement.findings.length - introduced.length} baseline findings`);
+        console.log(`${label}: ${introduced.length} new findings (${blockingLintFindings(measurement, baseline).length} gating); ${measurement.findings.length - introduced.length} baseline findings`);
         for (const finding of introduced) console.log(`  ${finding.file}:${finding.line} [${finding.rule}] ${finding.message}`);
     }
 }
@@ -109,9 +109,10 @@ export async function lintCheckCommand(target: string, options: LintOptions): Pr
         else if (complete) retireLintDebt(root, measurements);
         const baseline = loadLintBaseline(root);
         const introduced = measurements.flatMap((measurement) => newLintFindings(measurement, baseline));
-        if (options.json) console.log(JSON.stringify({ root, complete, measurements, introduced, baseline_updated: complete && options.updateBaseline === true }, null, 2));
+        const blocking = measurements.flatMap((measurement) => blockingLintFindings(measurement, baseline));
+        if (options.json) console.log(JSON.stringify({ root, complete, measurements, introduced, blocking, baseline_updated: complete && options.updateBaseline === true }, null, 2));
         else renderMeasurements(measurements, root);
         if (!complete) process.exitCode = 2;
-        else if (introduced.length > 0) process.exitCode = 1;
+        else if (blocking.length > 0) process.exitCode = 1;
     } finally { release(); }
 }

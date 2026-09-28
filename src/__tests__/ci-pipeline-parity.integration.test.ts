@@ -79,6 +79,7 @@ const CI_STEPS: readonly CiStep[] = [
 			"environment provision, not a check — runners ship no ripgrep, so without it the rg-gated tests skip on CI while passing on every dev machine (finding 2026-06: that divergence shipped a red run); locally rg is already the grep-accelerator's own dependency",
 	},
 	{ name: "Typecheck", mirror: "pre-push", command: "npm run typecheck:stable" },
+    { name: "Doctor formatting and readability policy", mirror: "pre-push", command: "npm run format:check" },
 	{
 		name: "Doc accuracy (landing + README vs source)",
 		mirror: "pre-push",
@@ -226,6 +227,8 @@ describe("pre-push hook exit-status behavior", () => {
 				scripts: {
 					"typecheck:stable": gates.typecheck,
 					"docs:check": gates.docs,
+                    "format:check": "true",
+                    "lint:readability": "true",
 					test: gates.test,
 				},
 			}),

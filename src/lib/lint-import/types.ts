@@ -47,6 +47,8 @@ export interface LintImportEntry {
     targets?: string[];
     flags?: string[];
     cadence?: LintCadence;
+    /** Defaults to all for compatibility; errors keeps native warnings advisory. */
+    gate?: "all" | "errors";
     evidence?: LintOrigin[];
     report?: LintReportAdapter;
 }
@@ -65,6 +67,7 @@ export interface LintImportPolicy {
 }
 
 export interface ImportedLintFinding {
+    severity?: "warning" | "error";
     tool: string;
     scope: string;
     config?: string;

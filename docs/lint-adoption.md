@@ -14,6 +14,12 @@ interlinked lint check                # gate new findings and retire resolved de
 ```
 
 Each command accepts an optional local directory target and `--json`.
+Explicit config selections also accept repeatable `--target <path>` relative to
+`--scope`, and `--gate errors` to keep native warnings advisory while errors and
+unknown severity gate. The default gate remains `all`. `biome-format` is an explicit
+format-check adapter; ordinary `biome` adoption remains lint-only. See
+[expression readability](expression-readability.md) for the bounded doctor rollout,
+configuration example, source measurements and behavioral regression cases.
 `doctor` also detects existing lint sources and offers the import command.
 The scan and import preview do not execute project code or write configuration.
 `--write` applies the import; adding `--baseline` executes the supported linters
@@ -40,7 +46,7 @@ and a bounded traversal limit produce explicit incomplete-inventory notices;
 an incomplete inventory cannot be applied automatically. Configurations under
 fixture, example, and documentation directories remain review items.
 
-The 22 native execution adapters cover **ESLint, Biome, Oxlint, Ruff, Clippy,
+The native execution adapters cover **ESLint, Biome (lint and format), Oxlint, Ruff, Clippy,
 golangci-lint, SwiftLint, RuboCop, Stylelint, mypy, Pylint, Flake8, Standard Ruby,
 ShellCheck, Hadolint, actionlint, PHPCS, PHPStan, Psalm, SQLFluff, Semgrep and Prettier**.
 The generated check preserves

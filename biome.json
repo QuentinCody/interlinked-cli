@@ -38,5 +38,12 @@
 	},
 	"formatter": {
 		"enabled": false
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["src/harness/project-e2e/doctor.ts", "src/harness/project-e2e/doctor-toolchain.ts"],
+			"formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 4, "lineWidth": 100 },
+			"linter": { "rules": { "style": { "useBlockStatements": "error" } } }
+		}
+	]
 }

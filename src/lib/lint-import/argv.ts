@@ -97,5 +97,6 @@ export function validateLintArguments(entry: LintImportEntry): void {
 export function toolForExecutable(command: string, args: string[]): string | undefined {
     const name = basename(command).replace(/\.exe$/, "");
     if (name === "cargo") return args[0] === "clippy" ? "clippy" : undefined;
+    if (name === "biome") return args[0] === "format" ? "biome-format" : "biome";
     return Object.keys(LINT_ADAPTERS).find((tool) => LINT_ADAPTERS[tool]?.command === name);
 }

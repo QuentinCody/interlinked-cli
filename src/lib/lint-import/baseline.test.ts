@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadLintBaseline, newLintFindings, retireLintDebt, tightenLintBaseline } from "./baseline.js";
+import { blockingLintFindings, loadLintBaseline, newLintFindings, retireLintDebt, tightenLintBaseline } from "./baseline.js";
 import { writeUndoRecord } from "../../harness/evaluator/baseline-effect-guard.js";
 import { LINT_BASELINE_PATH, writeLintJson } from "./policy.js";
 import { lintDigest } from "./discovery.js";
@@ -23,6 +23,16 @@ function measured(...codes: string[]): LintMeasurement {
 afterEach(() => { for (const root of directories.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("imported lint debt ratchet", () => {
+    it("keeps native warnings visible without gating errors-only profiles; unknown severity remains gating", () => {
+        const measurement = measured("warning", "error", "unknown");
+        measurement.findings[0]!.severity = "warning";
+        measurement.findings[1]!.severity = "error";
+        const baseline = { version: 1 as const, entries: {} };
+        expect(blockingLintFindings(measurement, baseline)).toHaveLength(3);
+        measurement.entry.gate = "errors";
+        expect(newLintFindings(measurement, baseline)).toHaveLength(3);
+        expect(blockingLintFindings(measurement, baseline).map(item => item.message)).toEqual(["error", "unknown"]);
+    });
     it("retires resolved findings and never accepts replacements as equivalent totals", () => {
         const root = project();
         tightenLintBaseline(root, [measured("old-a", "old-b")]);

@@ -2,10 +2,17 @@ import { lintJson, lintObject } from "./policy.js";
 import { EXTRA_LINT_PARSERS, TEXT_LINT_PARSERS } from "./parsers-extra.js";
 
 export interface LintDiagnostic {
+    severity?: "warning" | "error" | undefined;
     file: string;
     line: number;
     rule: string;
     message: string;
+}
+
+function severity(value: unknown): "warning" | "error" | undefined {
+    if (value === 1 || value === "warning" || value === "warn") return "warning";
+    if (value === 2 || value === "error" || value === "fatal") return "error";
+    return undefined;
 }
 
 function string(value: unknown): string {
@@ -28,7 +35,7 @@ function eslintReport(value: unknown): LintDiagnostic[] {
         const file = lintObject(raw);
         return array(file.messages).map((rawMessage) => {
             const message = lintObject(rawMessage);
-            return { file: string(file.filePath), line: line(message.line), rule: string(message.ruleId), message: string(message.message) };
+            return { file: string(file.filePath), line: line(message.line), rule: string(message.ruleId), message: string(message.message), severity: severity(message.severity) };
         });
     });
 }
@@ -42,7 +49,7 @@ function oxlintReport(value: unknown): LintDiagnostic[] {
         const diagnostic = lintObject(raw);
         const span = lintObject(lintObject(array(diagnostic.labels)[0]).span);
         // Parser/configuration errors do not carry a lint rule code; never adopt them as debt.
-        return { file: string(diagnostic.filename), line: line(span.line), rule: string(diagnostic.code), message: string(diagnostic.message) };
+        return { file: string(diagnostic.filename), line: line(span.line), rule: string(diagnostic.code), message: string(diagnostic.message), severity: severity(diagnostic.severity) };
     });
 }
 
@@ -70,16 +77,18 @@ function swiftReport(value: unknown): LintDiagnostic[] {
     });
 }
 
-function biomeReport(value: unknown): LintDiagnostic[] {
+function biomeReport(value: unknown, format = false): LintDiagnostic[] {
     const report = lintObject(value);
     const summary = lintObject(report.summary);
     if (summary.diagnosticsNotPrinted !== 0 || summary.skipped !== 0) throw new Error("Biome report is incomplete");
+    if (format && !(typeof summary.unchanged === "number" && typeof summary.changed === "number" && summary.unchanged + summary.changed > 0)) throw new Error("Biome formatter measured no files");
     return array(report.diagnostics).map((raw) => {
         const diagnostic = lintObject(raw);
         const location = lintObject(diagnostic.location);
         const rule = string(diagnostic.category);
-        if (!rule.startsWith("lint/")) throw new Error("Biome parse/configuration failure prevents lint measurement");
-        return { file: string(location.path), line: line(lintObject(location.start).line), rule, message: string(diagnostic.message) };
+        if (!(format ? rule === "format" : rule.startsWith("lint/"))) throw new Error("Biome parse/configuration failure prevents lint measurement");
+        const start = lintObject(location.start).line;
+        return { file: string(location.path), line: format && start === 0 ? 1 : line(start), rule, message: string(diagnostic.message), severity: severity(diagnostic.severity) };
     });
 }
 
@@ -129,6 +138,7 @@ function clippyReport(output: string): LintDiagnostic[] {
 const PARSERS: Record<string, (value: unknown) => LintDiagnostic[]> = {
     ...EXTRA_LINT_PARSERS,
     biome: biomeReport,
+    "biome-format": value => biomeReport(value, true),
     eslint: eslintReport,
     oxlint: oxlintReport,
     ruff: ruffReport,

@@ -83,8 +83,18 @@ cloud/
 # Third-party reference repos cloned for design/research only — never committed.
 reference-repos/
 
-# Local evaluations; existing tracked fixtures remain versioned.
-/evals/
+# Local evaluation output stays private; reusable comparison drivers are versioned.
+/evals/*
+!/evals/compare-builds.mjs
+!/evals/compare-builds.test.mjs
+!/evals/fixed-feedback.mjs
+!/evals/fixed-feedback.test.mjs
+!/evals/report-comparison.mjs
+!/evals/report-comparison.test.mjs
+!/evals/lib/
+/evals/lib/*
+!/evals/lib/native-hook-metrics.mjs
+!/evals/lib/native-hook-metrics.test.mjs
 
 # Vitest integration-test fixtures — created/destroyed by tests, should
 # never surface in git status or VS Code SCM.

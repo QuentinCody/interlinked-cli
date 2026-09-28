@@ -73,6 +73,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck:stable
 
+      - name: Doctor formatting and readability policy
+        run: |
+          npm run format:check
+          npm run lint:readability
+
       - name: Doc accuracy (landing + README vs source)
         run: npm run docs:check
 

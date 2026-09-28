@@ -38,6 +38,13 @@ export function newLintFindings(measurement: LintMeasurement, baseline: LintBase
     });
 }
 
+/** Unknown analyzer severity remains gating; only explicit warnings are advisory. */
+export function blockingLintFindings(measurement: LintMeasurement, baseline: LintBaseline): ImportedLintFinding[] {
+    const findings = newLintFindings(measurement, baseline);
+    if (measurement.entry.gate !== "errors") return findings;
+    return findings.filter(finding => finding.severity !== "warning");
+}
+
 /** Seed previously unadopted scopes explicitly; existing scopes can only retire allowances. */
 export function tightenLintBaseline(root: string, measurements: LintMeasurement[]): LintBaseline {
     if (measurements.some((measurement) => measurement.status !== "measured")) throw new Error("Cannot baseline an incomplete lint run");

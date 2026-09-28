@@ -42,6 +42,7 @@ export const LINT_PATH_OPTIONS: Readonly<Record<string, string[]>> = {
 };
 
 export const LINT_REPORT_OPTIONS: Readonly<Record<string, string[]>> = {
+    "biome-format": ["--reporter"],
     eslint: ["--format", "-f"], oxlint: ["--format", "-f"], biome: ["--reporter"],
     ruff: ["--output-format"], mypy: ["--output", "-O"], pylint: ["--output-format", "-f"],
     flake8: ["--format"], clippy: ["--message-format"], swiftlint: ["--reporter"],

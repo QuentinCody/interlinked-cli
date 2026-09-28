@@ -610,6 +610,23 @@ update links, labels, ARIA references, and selectors; use classes for shared sty
 
 ### Adopt existing project linters
 
+Formatting requires explicit adoption of the project's formatter. `biome` imports
+lint rules; `biome-format` imports read-only format checking with the same config and
+inheritance tracking. Example: `lint import --config biome-format=biome.json
+--target src/example.ts --only-selected --cadence audit --write`. Repeat `--target`
+to bound rollout; targets are relative to `--scope` and require `--config`. `--gate errors`
+keeps explicit native warnings advisory in `lint check`, while errors and unknown
+severity remain gating. Default `all` preserves existing behavior. Both modes retain
+all findings in JSON; cadence and gate survive re-import. Formatter-disabled or
+zero-file runs cannot establish formatter compliance. Width is a formatting target,
+not a hard maximum. Normalize a bounded scope first; avoid repo-wide churn or implicit
+line-baseline resets. This repository's doctor pilot is enforced by CI through
+`npm run format:check` and `npm run lint:readability`.
+
+Biome sibling overlays can ignore literal-file overrides confined to another
+directory. Overrides that may select the target or its temporary sibling still
+require supported filename-invariant selectors; otherwise the overlay is unavailable.
+
 `interlinked lint scan [directory] --json` inventories recognized lint configs,
 manifest sections, declaration/selector candidates, ignores, scripts/aliases and task/CI evidence
 across nested packages. `lint import` previews which sources can become imported
@@ -617,7 +634,7 @@ checks and which need review; `lint import --write --baseline` applies supported
 scopes, enables `quality_checks.lint_import`, and measures existing debt.
 Preview never executes configuration; the baseline run invokes installed analyzers.
 
-The 22 native adapters cover ESLint, Biome, Oxlint, Ruff, Clippy, golangci-lint,
+The native adapters cover ESLint, Biome (lint and format), Oxlint, Ruff, Clippy, golangci-lint,
 SwiftLint, RuboCop, Stylelint, mypy, Pylint, Flake8, Standard Ruby, ShellCheck,
 Hadolint, actionlint, PHPCS, PHPStan, Psalm, SQLFluff, Semgrep and Prettier.
 Other analyzers can use reviewed SARIF stdout declarations in
@@ -655,7 +672,7 @@ PostToolUse and ordinary `verify` run hook profiles; `verify --all-checks` and
 `lint check` run all profiles. Saved cadence survives re-import. Named/type/build-heavy
 and CI profiles initially use audit cadence. Imported checks run asynchronously; hook findings
 warn, never become automatic `pre_block` errors. `lint check` is the explicit
-gate: exit 0 = complete/no new debt, 1 = new debt, 2 = incomplete/no verdict.
+gate: exit 0 = complete/no new gating debt, 1 = new gating debt, 2 = incomplete/no verdict.
 `lint check --update-baseline` seeds new scopes and tightens existing allowances.
 Ordinary complete checks also retire resolved debt; incomplete runs never do.
 Analyzer report capture has a 10 MiB threshold per stream. A truncated report is

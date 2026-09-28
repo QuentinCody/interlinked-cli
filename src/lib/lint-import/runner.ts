@@ -34,7 +34,7 @@ function finding(root: string, entry: LintImportEntry, row: LintDiagnostic, snap
     if (entry.config !== undefined) identity.push(entry.config);
     if (entry.targets || entry.flags) identity.push(JSON.stringify([entry.targets, entry.flags]));
     const fingerprint = lintDigest(JSON.stringify(identity));
-    return { tool: entry.tool, scope: entry.scope, ...profile, file, line: row.line, rule: row.rule, message: row.message, fingerprint };
+    return { tool: entry.tool, scope: entry.scope, ...profile, file, line: row.line, rule: row.rule, message: row.message, fingerprint, ...(row.severity ? { severity: row.severity } : {}) };
 }
 
 interface EntryMeasurement { measurement: LintMeasurement; snapshot?: LintSourceSnapshot }

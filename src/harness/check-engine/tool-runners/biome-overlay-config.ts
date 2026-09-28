@@ -68,7 +68,15 @@ function configChangedInProposal(path: string): boolean {
 	return proposed !== disk;
 }
 
-function inspectDirectoryConfiguration(dir: string): BiomeOverlayConfiguration | null {
+/** Literal selectors in another directory cannot select either the target or its sibling overlay. */
+function irrelevantOverride(value: unknown, dir: string, filePath: string): boolean {
+	if (!isJsonObject(value) || !Array.isArray(value.includes) || value.includes.length === 0) return false;
+	return value.includes.every(pattern => typeof pattern === "string" &&
+		/^[\w-]+(?:\/[\w.-]+)+$/.test(pattern) && !pattern.split("/").includes("..") &&
+		dirname(resolve(dir, pattern)).toLowerCase() !== dirname(resolve(filePath)).toLowerCase());
+}
+
+function inspectDirectoryConfiguration(dir: string, filePath: string): BiomeOverlayConfiguration | null {
 	const candidates = [join(dir, "biome.json"), join(dir, "biome.jsonc")];
 	const rewritten = candidates.find(configChangedInProposal);
 	if (rewritten) return { status: "unavailable", reason: `Biome configuration ${rewritten} is changed by this proposal; the subprocess reads disk` };
@@ -76,7 +84,10 @@ function inspectDirectoryConfiguration(dir: string): BiomeOverlayConfiguration |
 	if (!path) return null;
 	const config = lintJsonc(readFileSync(path, "utf-8"));
 	if (!isJsonObject(config)) return { status: "unavailable", reason: `Biome configuration ${path} is not an object` };
-	const issue = configurationIssue(config);
+	const scoped = Array.isArray(config.overrides)
+		? { ...config, overrides: config.overrides.filter(value => !irrelevantOverride(value, dir, filePath)) }
+		: config;
+	const issue = configurationIssue(scoped);
 	return issue ? { status: "unavailable", reason: `Biome overlay unavailable: ${path}: ${issue}` } : { status: "ok" };
 }
 
@@ -87,7 +98,7 @@ export function inspectBiomeOverlayConfig(filePath: string): BiomeOverlayConfigu
 	let dir = dirname(resolve(filePath));
 	try {
 		for (let depth = 0; depth < 64; depth++) {
-			const configuration = inspectDirectoryConfiguration(dir);
+			const configuration = inspectDirectoryConfiguration(dir, filePath);
 			if (configuration) return configuration;
 			const parent = dirname(dir);
 			if (parent === dir) return { status: "skipped", reason: "no Biome configuration" };

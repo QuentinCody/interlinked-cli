@@ -32,6 +32,22 @@ describe("Biome sibling overlay configuration", () => {
 		expect(inspectBiomeOverlayConfig(target)).toEqual({ status: "ok" });
 	});
 
+	it("ignores exact-file overrides in other directories while retaining target-directory refusals", () => {
+		writeFileSync(join(root, "biome.json"), JSON.stringify({
+			overrides: [{ includes: ["doctor/check.ts"], formatter: { enabled: true } }],
+		}));
+		expect(inspectBiomeOverlayConfig(target)).toEqual({ status: "ok" });
+		expect(inspectBiomeOverlayConfig(join(root, "doctor", "check.ts"))).toMatchObject({ status: "unavailable" });
+		expect(inspectBiomeOverlayConfig(join(root, "doctor", "other.ts"))).toMatchObject({ status: "unavailable" });
+	});
+
+	it.each(["!doctor/check.ts", "doctor/*.ts", "doctor/../src/index.ts", "doctor/check.ts", "SRC/index.ts"])("retains potentially applicable selectors: %s", (pattern) => {
+		writeFileSync(join(root, "biome.json"), JSON.stringify({
+			overrides: [{ includes: [pattern, "src/index.ts"] }],
+		}));
+		expect(inspectBiomeOverlayConfig(target)).toMatchObject({ status: "unavailable" });
+	});
+
 	it.each(["**/index.ts", "**/*.test.ts", "!**/*.spec.ts", "**/*.{ts,tsx}"])("defers a filename selector it cannot prove invariant: %s", (pattern) => {
 		writeFileSync(join(root, "biome.json"), JSON.stringify({ overrides: [{ includes: [pattern] }] }));
 		expect(inspectBiomeOverlayConfig(target)).toMatchObject({ status: "unavailable", reason: expect.stringContaining("may depend on the filename") });

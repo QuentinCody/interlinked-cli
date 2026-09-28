@@ -1,4 +1,5 @@
 import { existsSync, statSync } from "node:fs";
+import { parseLintGate } from "./entry-options.js";
 import { discoverLint, inspectLintInput } from "./discovery.js";
 import { lintEntryKey } from "./identity.js";
 import { inferredLintEntries } from "./inferred-entries.js";
@@ -18,11 +19,18 @@ function retainProfile(entry: LintImportEntry): boolean {
     return entry.config !== undefined || entry.report !== undefined || entry.flags !== undefined || entry.targets !== undefined;
 }
 
+function applyGate(entries: LintImportEntry[], gate: string | undefined): void {
+    if (gate === undefined) return;
+    const policy = parseLintGate(gate);
+    for (const entry of entries) entry.gate = policy;
+}
+
 function preserveCadence(entries: LintImportEntry[], previous: LintImportPolicy | null): void {
     const saved = new Map(previous?.entries.map((entry) => [lintEntryKey(entry), entry]));
     for (const entry of entries) {
         const prior = saved.get(lintEntryKey(entry));
         if (!prior) continue;
+        if (prior.gate !== undefined) entry.gate = prior.gate;
         if (prior.cadence === undefined) delete entry.cadence;
         else entry.cadence = prior.cadence;
     }
@@ -105,6 +113,7 @@ export function prepareLintImport(target: string, options: LintSelection, retain
     const selectedKeys = new Set(selected.map(lintEntryKey));
     const cadenceEntries = options.onlySelected ? plan.policy.entries.filter((entry) => selectedKeys.has(lintEntryKey(entry))) : plan.policy.entries;
     applyCadence(cadenceEntries, options.cadence);
+    applyGate(cadenceEntries, options.gate);
     for (const entry of plan.policy.entries) includeLintInputGraph(inventory, entry);
     const refreshed = planLintImport(inventory, plan.policy.entries, mode);
     return { inventory, review: refreshed.review, policy: mergeLintPolicy(inventory.root, previous, refreshed.policy) };

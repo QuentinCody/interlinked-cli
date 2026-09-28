@@ -808,9 +808,13 @@ Options:
                               (default: [])
   --scope <directory>         Working directory for --config selections
                               (default: .)
+  --target <path>             Analyzer target relative to --scope for explicit
+                              --config selections (repeatable) (default: [])
   --only-selected             Add only explicit configs, retaining existing
                               profiles; cadence applies only to selections
   --cadence <cadence>         Set imported profiles to hook or audit cadence
+  --gate <policy>             Gate all findings (default), or errors; native
+                              warnings stay advisory with errors
   --timeout <ms>              Total analyzer batch budget, up to 300000 ms
                               (default: "30000")
   --json                      Machine-readable import plan/result

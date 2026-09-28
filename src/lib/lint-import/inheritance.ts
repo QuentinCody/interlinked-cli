@@ -13,6 +13,7 @@ function paths(value: unknown): string[] {
 
 /** Only documented inheritance fields give bare strings path semantics. */
 export function lintInheritance(tool: string, file: string, content: string): string[] {
+    if (tool === "biome-format") return lintInheritance("biome", file, content);
     if (tool === "ruff" && file.endsWith(".toml")) return ruffInheritance(content, basename(file) === "pyproject.toml");
     if ((tool === "biome" || tool === "oxlint") && /\.jsonc?$/.test(file)) {
         const inherited = paths(lintObject(lintJsonc(content)).extends);

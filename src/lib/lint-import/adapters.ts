@@ -10,6 +10,7 @@ export interface LintAdapter {
 
 /** Only installed analyzers are invoked; reporters and read-only verbs are owned here. */
 export const LINT_ADAPTERS: Readonly<Record<string, LintAdapter>> = {
+    "biome-format": { command: "biome", prefix: ["format"], reporter: ["--reporter=json", "--max-diagnostics=none"], successCodes: [0, 1], configFlag: "--config-path", targets: ["."] },
     biome: { command: "biome", prefix: ["lint"], reporter: ["--reporter=json", "--max-diagnostics=none"], successCodes: [0, 1], configFlag: "--config-path", targets: ["."] },
     eslint: { command: "eslint", prefix: [], reporter: ["--format", "json"], successCodes: [0, 1], configFlag: "--config", targets: ["."] },
     oxlint: { command: "oxlint", prefix: [], reporter: ["--format=json"], successCodes: [0, 1], configFlag: "--config", targets: ["."] },

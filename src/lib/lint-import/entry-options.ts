@@ -19,11 +19,17 @@ function origin(value: unknown): LintOrigin {
     return { file: row.file, line: row.line, kind, label: row.label };
 }
 
+export function parseLintGate(value: unknown): "all" | "errors" {
+    if (value !== "all" && value !== "errors") throw new Error("Invalid lint gate; expected all or errors");
+    return value;
+}
+
 export function applyLintEntryOptions(entry: LintImportEntry, value: Record<string, unknown>): LintImportEntry {
     if (isReportTool(entry.tool)) entry.report = parseReportAdapter(value.report);
     else if (value.report !== undefined) throw new Error("Native adapter cannot replace its command");
     if (value.targets !== undefined) entry.targets = stringList(value.targets);
     if (value.flags !== undefined) entry.flags = stringList(value.flags);
+    if (value.gate !== undefined) entry.gate = parseLintGate(value.gate);
     if (value.cadence !== undefined) {
         if (value.cadence !== "hook" && value.cadence !== "audit") throw new Error("Invalid lint cadence");
         entry.cadence = value.cadence;

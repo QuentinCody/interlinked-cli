@@ -9,7 +9,10 @@ const ZERO = "0".repeat(40);
 const TARGET = "src/well0.ts";
 const COMMIT_DATE = "2026-01-01T00:00:00Z";
 const FILES = Array.from({ length: 20 }, (_, index) => `src/well${index}.ts`);
-const E2E_SCRIPTS = { "build:e2e": "echo E2E_BUILD_GATE", "test:e2e:coverage": "echo E2E_TEST_GATE" };
+const E2E_SCRIPTS = {
+    "build:e2e": "echo E2E_BUILD_GATE", "test:e2e:coverage": "echo E2E_TEST_GATE",
+    "format:check": "echo FORMAT_GATE", "lint:readability": "echo READABILITY_GATE",
+};
 
 describe("pre-push coverage integration", () => {
     let root: string;
@@ -148,6 +151,8 @@ process.exitCode = result.status ?? 1;
         const passing = run(updates);
         expect(passing.status).toBe(0);
         expect(passing.output).toContain("1 measured file(s)");
+        expect(passing.output).toContain("FORMAT_GATE");
+        expect(passing.output).toContain("READABILITY_GATE");
         expect(passing.output).toContain("E2E_BUILD_GATE");
         expect(passing.output).toContain("E2E_TEST_GATE");
         expect(passing.output).toContain("E2E_RATCHET_GATE coverage check --lane e2e --strict --require-measured --report coverage-e2e/coverage-summary.json");
