@@ -8,11 +8,14 @@
 // | guard_warn | guard_allow), tool, guard_rule_id, guard_reason,
 // guard_warnings (string[] | null), tool_input.command.
 
+import { resolve } from "node:path";
+import { isDirectFileEditTool } from "../lib/write-tool-registry.js";
+
 export interface EvalMetrics {
 	/** Block count per rule id ("unattributed:<reason prefix>" when the event carries no rule id). */
 	blocks: Record<string, number>;
 	blocks_total: number;
-	/** Total warning strings surfaced to the agent (guard_warn/guard_allow/guard_block payloads). */
+	/** Recorded activity warning strings; NOT a count of confirmed model delivery. */
 	warnings: number;
 	/** Completed edit-tool calls (Edit/Write/MultiEdit/NotebookEdit PostToolUse events). */
 	edits: number;
@@ -46,7 +49,6 @@ interface TaskVerdict {
 	reasons: string[];
 }
 
-const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
 const VERIFIER_COMMAND_PATTERNS: readonly RegExp[] = [
 	/\bvitest\b/,
@@ -110,29 +112,55 @@ function commandOf(evt: RawEvent): string | null {
 }
 
 interface BlockRetryState {
-	tool: string;
+	target: string;
 	satisfied: boolean;
+}
+
+/** Unknown targets receive no retry credit; same tool name is not correlation. */
+function targetKey(evt: RawEvent): string | null {
+	const input = evt.tool_input;
+	if (typeof input !== "object" || input === null || Array.isArray(input)) return null;
+	const paths: string[] = [];
+	for (const key of ["file_path", "path", "notebook_path"]) {
+		if (key in input && typeof input[key as keyof typeof input] === "string") paths.push(String(input[key as keyof typeof input]));
+	}
+	if ("patch" in input && typeof input.patch === "string") {
+		for (const match of input.patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)) if (match[1]) paths.push(match[1]);
+	}
+	if (!paths.length) return null;
+	const cwd = str(evt.cwd) ?? "/";
+	return [str(evt.session), str(evt.tool), ...[...new Set(paths.map(path => resolve(cwd, path)))].sort()].join("\0");
+}
+
+function withCallContext(evt: RawEvent | null, calls: Map<string, RawEvent>): RawEvent | null {
+	if (!evt) return null;
+	const id = str(evt.tool_use_id);
+	if (!id) return evt;
+	const key = `${evt.session}\0${id}`;
+	if (evt.type === "tool_use_start") calls.set(key, evt);
+	return { ...calls.get(key), ...evt };
 }
 
 function recordBlock(evt: RawEvent, metrics: EvalMetrics, blockKeys: string[], retries: BlockRetryState[]): void {
 	const key = ruleKeyOf(evt);
 	metrics.blocks[key] = (metrics.blocks[key] ?? 0) + 1;
+	metrics.blocks_total += 1;
 	blockKeys.push(key);
-	const tool = str(evt.tool);
-	if (tool !== null) retries.push({ tool, satisfied: false });
+	const target = targetKey(evt);
+	if (target !== null) retries.push({ target, satisfied: false });
 }
 
 function recordCompletedTool(evt: RawEvent, metrics: EvalMetrics, retries: BlockRetryState[]): void {
 	const tool = str(evt.tool);
 	if (tool === null) return;
-	if (EDIT_TOOLS.has(tool)) metrics.edits += 1;
+	if (isDirectFileEditTool(tool)) metrics.edits += 1;
 	if (tool === "Bash") {
 		const command = commandOf(evt);
 		if (command !== null && isVerifierCommand(command)) metrics.verifier_runs += 1;
 	}
-	for (const pending of retries) {
-		if (!pending.satisfied && pending.tool === tool) pending.satisfied = true;
-	}
+	const target = targetKey(evt);
+	const pending = [...retries].reverse().find(row => !row.satisfied && row.target === target);
+	if (pending) pending.satisfied = true;
 }
 
 function computeBlockLoops(blockKeys: string[]): number {
@@ -140,6 +168,7 @@ function computeBlockLoops(blockKeys: string[]): number {
 	let run = 0;
 	let prev: string | null = null;
 	for (const key of blockKeys) {
+		if (!key) { run = 0; prev = null; continue; }
 		run = key === prev ? run + 1 : 1;
 		prev = key;
 		if (run === 3) loops += 1;
@@ -164,8 +193,9 @@ export function extractEvalMetrics(activityLines: string[]): EvalMetrics {
 	const metrics = emptyMetrics();
 	const blockKeys: string[] = [];
 	const retries: BlockRetryState[] = [];
+	const calls = new Map<string, RawEvent>();
 	for (const line of activityLines) {
-		const evt = parseEventLine(line);
+		const evt = withCallContext(parseEventLine(line), calls);
 		if (evt === null) continue;
 		const type = str(evt.type);
 		if (type === "tool_use_start") metrics.turns += 1;
@@ -173,9 +203,11 @@ export function extractEvalMetrics(activityLines: string[]): EvalMetrics {
 			metrics.warnings += warningCountOf(evt);
 		}
 		if (type === "guard_block") recordBlock(evt, metrics, blockKeys, retries);
-		if (type === "tool_use") recordCompletedTool(evt, metrics, retries);
+		if (type === "tool_use") {
+			recordCompletedTool(evt, metrics, retries);
+			blockKeys.push(""); // a completed call breaks a consecutive denial run
+		}
 	}
-	metrics.blocks_total = blockKeys.length;
 	metrics.block_retry_success = retries.filter((r) => r.satisfied).length;
 	metrics.block_loops = computeBlockLoops(blockKeys);
 	return metrics;

@@ -94,7 +94,7 @@ export class E2eFixture {
     private readonly daemonExit: Promise<{ code: number | null; stdout: string; stderr: string }>;
     private closed = false;
 
-    constructor(readonly cwd: string, readonly protocol: Protocol | "dual", rules: Record<string, unknown> = {}) {
+    constructor(readonly cwd: string, readonly protocol: Protocol | "dual", rules: Record<string, unknown> = {}, readonly buildRoot = PROJECT_ROOT) {
         this.paths = socketPaths(cwd);
         this.dataDir = join(cwd, ".interlinked");
         mkdirSync(this.dataDir);
@@ -109,7 +109,7 @@ export class E2eFixture {
         execFileSync("git", ["init", "--quiet", cwd], { env: this.env });
         execFileSync("git", ["add", "README.md", ".gitignore"], { cwd, env: this.env });
         execFileSync("git", ["-c", "user.name=E2E Fixture", "-c", "user.email=e2e@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "--quiet", "--no-gpg-sign", "-m", "fixture"], { cwd, env: this.env });
-        this.daemon = spawn(process.execPath, [join(PROJECT_ROOT, "dist/harness/server.js"), "--cwd", cwd,
+        this.daemon = spawn(process.execPath, [join(this.buildRoot, "dist/harness/server.js"), "--cwd", cwd,
             "--protocol", protocol, "--session-id", "default", "--idle-timeout", "0"], { cwd, env: this.env, stdio: ["ignore", "pipe", "pipe"] });
         this.daemonExit = childCompletion(this.daemon, 0);
         // Register rejection immediately; close() still observes and propagates it.
@@ -152,7 +152,7 @@ export class E2eFixture {
     ledger(name: string): unknown[] { return readLedger(join(this.dataDir, name)); }
 
     async cli(args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
-        const child = spawn(process.execPath, [join(PROJECT_ROOT, "dist/index.js"), ...args], { cwd: this.cwd, env: this.env });
+        const child = spawn(process.execPath, [join(this.buildRoot, "dist/index.js"), ...args], { cwd: this.cwd, env: this.env });
         child.stdin?.end();
         return childCompletion(child, 60_000);
     }
@@ -222,7 +222,7 @@ export class E2eFixture {
             writeFileSync(path, buildHookScript("e2e"));
             return [path];
         }
-        return [join(PROJECT_ROOT, "dist/hook-entry.js"), "--runner", "claude-code", "--event", event, "--socket", socket];
+        return [join(this.buildRoot, "dist/hook-entry.js"), "--runner", "claude-code", "--event", event, "--socket", socket];
     }
 
     assertServed(result: HookResult): void {
@@ -256,13 +256,14 @@ export class E2eFixture {
     }
 }
 
-export async function createFixture(options: { protocol?: Protocol | "dual"; rules?: Record<string, unknown> } = {}): Promise<E2eFixture> {
-    assert(existsSync(join(PROJECT_ROOT, "dist/harness/server.js")), "Run npm run build before test:e2e");
-    const built = Math.min(statSync(join(PROJECT_ROOT, "dist/harness/server.js")).mtimeMs, statSync(join(PROJECT_ROOT, "dist/hook-entry.js")).mtimeMs);
-    const stale = sourceFiles(PROJECT_ROOT).filter(isProductSource).find((path) => statSync(join(PROJECT_ROOT, path)).mtimeMs > built);
+export async function createFixture(options: { protocol?: Protocol | "dual"; rules?: Record<string, unknown>; buildRoot?: string } = {}): Promise<E2eFixture> {
+    const buildRoot = options.buildRoot ?? PROJECT_ROOT;
+    assert(existsSync(join(buildRoot, "dist/harness/server.js")), "Run npm run build before test:e2e");
+    const built = Math.min(statSync(join(buildRoot, "dist/harness/server.js")).mtimeMs, statSync(join(buildRoot, "dist/hook-entry.js")).mtimeMs);
+    const stale = options.buildRoot ? undefined : sourceFiles(PROJECT_ROOT).filter(isProductSource).find((path) => statSync(join(PROJECT_ROOT, path)).mtimeMs > built);
     assert(!stale, `Stale dist (${stale}); run npm run build before test:e2e`);
     const fixtureTempDir = process.platform === "darwin" ? "/tmp" : tmpdir();
-    const fixture = new E2eFixture(realpathSync(mkdtempSync(join(fixtureTempDir, "e2e-"))), options.protocol ?? "dual", options.rules);
+    const fixture = new E2eFixture(realpathSync(mkdtempSync(join(fixtureTempDir, "e2e-"))), options.protocol ?? "dual", options.rules, buildRoot);
     try { await fixture.ready(); return fixture; }
     catch (error) { await fixture.close(); throw error; }
 }

@@ -81,6 +81,20 @@ function cell(fields: CellFields): ArmCellSummary {
 }
 
 describe("extractEvalMetrics", () => {
+	it("correlates one retry by session and canonical target, including apply_patch edits", () => {
+		const scoped = (type: string, path: string, id: string) => ev({ type, tool: "Edit", tool_use_id: id, cwd: "/repo", tool_input: { file_path: path }, guard_rule_id: "cap" });
+		const lines = [scoped("tool_use_start", "src/a.ts", "deny"), ev({ type: "guard_block", tool: "Edit", tool_use_id: "deny", guard_rule_id: "cap" }),
+			scoped("tool_use", "src/b.ts", "other"), scoped("tool_use", "src/../src/a.ts", "retry"),
+			ev({ type: "tool_use", tool: "apply_patch", tool_input: { patch: "*** Update File: src/a.ts\n@@\n-a\n+b" } })];
+		const metrics = extractEvalMetrics(lines);
+		expect(metrics.block_retry_success).toBe(1);
+		expect(metrics.edits).toBe(3);
+	});
+	it("does not join blocks across completed calls or count clean calls as block loops", () => {
+		const denied = block({ rule: "a", tool: "Edit" });
+		expect(extractEvalMetrics([denied, denied, done("Read"), denied, denied]).block_loops).toBe(0);
+		expect(extractEvalMetrics([done("Read"), done("Read"), done("Read")]).block_loops).toBe(0);
+	});
 	it("counts blocks by rule id, total blocks, and turns (positive)", () => {
 		const m = extractEvalMetrics([
 			start("Write"),
@@ -129,14 +143,14 @@ describe("extractEvalMetrics", () => {
 		expect(m.verifier_runs).toBe(2);
 	});
 
-	it("credits block_retry_success only when the same tool later completes (positive)", () => {
+	it("does not infer a successful retry from a tool name with no target evidence", () => {
 		const m = extractEvalMetrics([
 			block({ rule: "tdd_new_file_gate", tool: "Write" }),
 			done("Write"),
 			block({ rule: "complexity_write_guard", tool: "Edit" }),
 			done("Bash", "git status"),
 		]);
-		expect(m.block_retry_success).toBe(1);
+		expect(m.block_retry_success).toBe(0);
 	});
 
 	it("detects a block loop at >=3 consecutive same-rule blocks, counting each run once (positive)", () => {

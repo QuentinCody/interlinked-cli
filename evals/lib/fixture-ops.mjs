@@ -27,11 +27,11 @@ export function agentEnv() {
 	return env;
 }
 
-export function run(command, args, cwd, timeoutS) {
+export function run(command, args, cwd, timeoutS, options = {}) {
 	return spawnSync(command, args, {
 		cwd,
 		encoding: "utf8",
-		env: agentEnv(),
+		env: { ...agentEnv(), ...options.env },
 		timeout: timeoutS * 1000,
 		killSignal: "SIGKILL",
 		maxBuffer: 64 * 1024 * 1024,
@@ -60,7 +60,8 @@ export function parseJsonFile(filePath) {
 }
 
 function tmpBase() {
-	const base = process.env.EVALS_TMPDIR || os.tmpdir();
+	// macOS's long per-user temp path can exceed the Unix socket path limit.
+	const base = process.env.EVALS_TMPDIR || (process.platform === "darwin" ? "/tmp" : os.tmpdir());
 	fs.mkdirSync(base, { recursive: true });
 	return base;
 }
@@ -90,19 +91,23 @@ export function cleanupFixture(dir) {
 	fs.rmSync(dir, { recursive: true, force: true });
 }
 
-export function enableHarness(dir, clientId) {
-	const enable = run("interlinked", ["enable", "--clients", clientId, "--sync-mode", "local"], dir, SETUP_TIMEOUT_S);
+export function harnessCommand(artifact, args, cwd, timeoutS) {
+	return artifact ? run(process.execPath, [artifact, ...args], cwd, timeoutS) : run("interlinked", args, cwd, timeoutS);
+}
+
+export function enableHarness(dir, clientId, artifact) {
+	const enable = harnessCommand(artifact, ["enable", "--clients", clientId, "--sync-mode", "local"], dir, SETUP_TIMEOUT_S);
 	if (enable.status !== 0) {
 		throw new Error(`interlinked enable failed (exit ${enable.status}): ${outputTail(enable)}`);
 	}
-	const start = run("interlinked", ["harness", "start"], dir, SETUP_TIMEOUT_S);
+	const start = harnessCommand(artifact, ["harness", "start"], dir, SETUP_TIMEOUT_S);
 	if (start.status !== 0) {
 		throw new Error(`interlinked harness start failed (exit ${start.status}): ${outputTail(start)}`);
 	}
 }
 
-export function stopHarness(dir) {
-	const result = run("interlinked", ["harness", "stop"], dir, STOP_TIMEOUT_S);
+export function stopHarness(dir, artifact) {
+	const result = harnessCommand(artifact, ["harness", "stop"], dir, STOP_TIMEOUT_S);
 	if (result.status !== 0) process.stderr.write(`warn: "interlinked harness stop" in ${dir} exited ${result.status}\n`);
 }
 

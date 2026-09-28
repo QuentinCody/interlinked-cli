@@ -42,7 +42,7 @@ const RUNNERS = {
 		buildCommand(prompt) {
 			return [
 				"claude",
-				["-p", prompt, "--model", "haiku", "--dangerously-skip-permissions", "--max-turns", MAX_AGENT_TURNS],
+				["-p", prompt, "--model", process.env.EVALS_CLAUDE_MODEL || "haiku", "--dangerously-skip-permissions", "--max-turns", MAX_AGENT_TURNS],
 			];
 		},
 	},

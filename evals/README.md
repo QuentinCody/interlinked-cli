@@ -13,6 +13,46 @@ Everything runs manually and costs real model tokens — it is not part of
 
 ## Quick start
 
+For an explicit baseline/candidate comparison, preserve each distribution (including its
+chunks, optional dependencies and `package.json`) before rebuilding. Then run:
+
+```sh
+node --test evals/compare-builds.test.mjs
+node evals/compare-builds.mjs --dry-run
+node evals/compare-builds.mjs --run --baseline /path/baseline/dist/index.js --candidate /path/candidate/dist/index.js --model claude-fable-5 --output /path/evidence
+```
+
+This defaults to six tasks × five repetitions × two counterbalanced arms. Use
+`--tasks read,probe --repeat 1` for infrastructure qualification. It verifies selected
+hook paths, uses separate fixture daemons, excludes inherited user/local hook settings,
+and retains invocation, native stream/transcript, usage, daemon status, fixture hashes,
+final diffs and evaluator-owned functional assertions. macOS fixtures use short `/tmp`
+paths to fit Unix socket limits. `--run` is required to spend model tokens.
+
+After a run, generate a scorecard from one or more evidence directories:
+
+```sh
+node evals/report-comparison.mjs /path/report /path/evidence
+node evals/fixed-feedback.mjs /path/candidate-package /path/fixed-evidence
+node --test evals/compare-builds.test.mjs evals/report-comparison.test.mjs evals/fixed-feedback.test.mjs evals/lib/native-hook-metrics.test.mjs
+```
+
+The report measures native Interlinked hook attachments preceding a later assistant
+response, including provider wrappers and deduplicating transcript UUIDs. This is a byte
+proxy for rendered model context, not tokenizer counts or billing. Missing transcripts
+remain unknown; terminal-only records and the unconsumed transcript tail are excluded.
+The fixed runner exercises native hooks without model calls, retaining transport receipts
+and unchanged blocking controls. Activity warnings are ledger strings, not delivery counts.
+The legacy `block_retry_success` metric now means a completed call
+correlated by session, tool and canonical target; unknown targets get no credit, and one
+completion satisfies only the latest pending attempt. A completed call interrupts a block
+loop. Edit counts derive from the shared tool registry, including `apply_patch`.
+
+The comparison is a pilot. Review candidate-only failures before making performance claims.
+Compare identical policy/fixture hashes and actual resolved model IDs. Changes elsewhere
+in either build confound causal attribution. Preserve failures and report correctness with
+cost; do not infer billed savings from command length or successful sessions alone.
+
 ```sh
 node evals/run-evals.mjs --dry-run          # print the plan + exact commands, run nothing
 node evals/run-evals.mjs --tasks docs-edit --runners claude   # smallest real run (2 cells)

@@ -21,6 +21,11 @@ including `novelty`, `findingCount` and server-computed `writeAttribution` where
 Newly observed means report novelty, not proven causation. Repeated advisories may be hidden
 from model feedback while remaining in each call's records; hidden findings prevent all-clean.
 
+Use `evals/compare-builds.mjs` for paired explicit-build agent pilots. It retains fixtures,
+native streams, usage categories, settings, daemon status, final diffs and evaluator-owned
+functional checks. Activity warning counts are ledger metrics. Missing native delivery/token
+data remains unknown; do not infer billed savings from shorter commands or compressed rows.
+
 `repeated_implementation` check results retain each current AST-matched group with
 a `group=<sha256>` detail identity, even when unchanged agent-facing warnings are
 suppressed. Compare these identities rather than line numbers across formatting edits.
