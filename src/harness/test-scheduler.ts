@@ -1,6 +1,6 @@
 import { setTimeout } from "node:timers/promises";
 import { collectRepositoryInventory } from "../lib/metrics/inventory.js";
-import { acquireCrossProcessCompilerLease, tryAcquireCrossProcessCompilerLease, canonicalProjectRoot } from "./project-compiler-lock.js";
+import { acquireCrossProcessCompilerLease, tryAcquireCrossProcessCompilerLease, canonicalProjectRoot, type CrossProcessCompilerLease } from "./project-compiler-lock.js";
 import { tryAcquireProjectHeavyProcessLease } from "./project-heavy-process-lock.js";
 import { acquireTestCapacity, tryAcquireForegroundCapacity } from "./test-capacity.js";
 import { loadTestPlan, normalizeTestInput, readTestDependencies } from "./test-plan-inputs.js";
@@ -9,7 +9,7 @@ import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
 import { observeTestRun } from "./test-run-observation.js";
 import { publishTestCompletion, readTestCompletion } from "./test-request-completion.js";
 import { executeTestPlan } from "./test-execution.js";
-import { completeTestRequests, hasTestRequest, pendingTests, requestTests, type PendingTests } from "./test-requests.js";
+import { completeTestRequests, hasTestRequest, pendingTests, requestTests, subscribeTestRequest, unsubscribeTestRequest, type PendingTests } from "./test-requests.js";
 import type { TestExecution } from "./test-run-receipt.js";
 import type { TestPlan } from "./test-plan.js";
 import { currentProcessSignal } from "./check-engine/process-cancellation.js";
@@ -29,6 +29,12 @@ export interface ScheduleTestsOptions {
     /** A dry run never writes the ledger. */
     dryRun?: boolean;
     session?: string;
+    /**
+     * Host-gate priority. `interactive` (CLI, pre-push) waits at the priority gate and closes admission to
+     * background work; `background` (hook-originated, recovery) never blocks a waiting interactive caller.
+     * Defaults to `background` for stage `edit`, else `interactive`.
+     */
+    priority?: "interactive" | "background";
 }
 interface ScheduledRequest extends ScheduleTestsOptions { requestId: string; }
 /** Lease-wait facts a drain hands to each batch so the executor's row carries them. */
@@ -102,40 +108,135 @@ async function runOneBatch(options: ScheduleTestsOptions, deadline: number, timi
     return changed.length ? { ...result, status: "stale", reason: "Inputs changed during execution" } : result;
 }
 
-async function runPending(options: ScheduleTestsOptions, deadline: number, first: DrainTiming): Promise<TestExecution> {
-    // Timings are per batch: only the first batch paid the lease wait, and a later batch was queued when its predecessor finished.
-    let timing = first;
-    for (;;) {
-        const result = await runOneBatch(options, deadline, timing);
-        timing = { queuedAt: Date.now(), waitCapacityMs: 0 };
-        if (result.runId) observeTestRun(options.root, result);
-        if (result.status === "deferred" || result.status === "failed" || pendingTests(options.root).ids.length === 0) return result;
-        if (Date.now() >= deadline) return { ...result, status: "stale", reason: "Newer inputs remain queued; previous result does not certify them" };
+/** The three leases one batch runs under: this root's scheduler slot, the project's heavy-process slot and the host test slot. */
+interface BatchLeases { waitedMs: number; release(): void; }
+type Priority = NonNullable<ScheduleTestsOptions["priority"]>;
+
+/** Hook-originated work (stage `edit`) is background by default; a CLI, pre-push or explicit caller is interactive. */
+function priorityOf(options: ScheduleTestsOptions): Priority {
+    return options.priority ?? (options.stage === "edit" ? "background" : "interactive");
+}
+
+function schedulerKey(root: string): string { return `interlinked-test-scheduler-v1\0${root}`; }
+
+async function acquireOwner(options: ScheduleTestsOptions, deadline: number, signal: AbortSignal): Promise<CrossProcessCompilerLease | null> {
+    const key = schedulerKey(options.root);
+    return options.waitForCapacity === false ? tryAcquireCrossProcessCompilerLease(key) : acquireCrossProcessCompilerLease(key, deadline, signal);
+}
+
+/** Project + host slots on top of a held owner lease; a background caller never blocks a waiting interactive one at the host gate. */
+async function acquireExecution(options: ScheduleTestsOptions, deadline: number, signal: AbortSignal, owner: CrossProcessCompilerLease): Promise<BatchLeases | string> {
+    const started = Date.now();
+    const project = await acquireProject(options, deadline);
+    if (!project) return "Project check capacity busy; test request retained";
+    const kind = priorityOf(options) === "interactive" ? "foreground" : "background";
+    let capacity: CrossProcessCompilerLease | null = null;
+    try {
+        capacity = options.waitForCapacity === false ? tryAcquireForegroundCapacity() : await acquireTestCapacity(kind, deadline, signal);
+    } finally {
+        // A cancelled host wait (the blocking lease wait throws on abort) must not strand the project slot.
+        if (!capacity) project();
     }
+    if (!capacity) return "Host test capacity busy; request retained";
+    const held = capacity;
+    const release = (): void => {
+        held.release();
+        project();
+        owner.release();
+    };
+    return { waitedMs: elapsedMs(started), release };
+}
+
+/** All three leases from nothing — what a drain re-acquires at a batch boundary after yielding. */
+async function acquireBatchLeases(options: ScheduleTestsOptions, deadline: number, signal: AbortSignal): Promise<BatchLeases | string> {
+    const started = Date.now();
+    const owner = await acquireOwner(options, deadline, signal);
+    if (!owner) return "Test scheduler busy; request retained";
+    let leases: BatchLeases | string | null = null;
+    try {
+        leases = await acquireExecution(options, deadline, signal, owner);
+    } finally {
+        if (typeof leases !== "object" || leases === null) owner.release();
+    }
+    if (typeof leases === "string") return leases;
+    return { ...leases, waitedMs: elapsedMs(started) };
+}
+
+type BatchTurn = { leases: BatchLeases; timing: DrainTiming } | { done: TestExecution };
+
+/**
+ * How long a drain stays out of every lease at a batch boundary. Waiters poll the on-disk leases
+ * (25 ms for the scheduler/project leases, 50 ms for background host admission); a release followed
+ * by an immediate re-acquire would win every race against them and yield nothing in practice.
+ */
+const BATCH_YIELD_MS = 60;
+
+/** After yielding every lease: re-acquire for the next batch, or finish with the result another drain produced meanwhile. */
+async function nextBatchTurn(options: ScheduledRequest, deadline: number, signal: AbortSignal, previous: TestExecution): Promise<BatchTurn> {
+    const boundary = Date.now();
+    await setTimeout(BATCH_YIELD_MS, undefined, { signal }).catch(() => undefined);
+    const next = await acquireBatchLeases(options, deadline, signal);
+    if (typeof next === "string") {
+        recordSchedulerDeferral(options, "capacity-timeout", { queuedAt: boundary, waitCapacityMs: elapsedMs(boundary) }, options.full ? "full" : "selected");
+        return { done: { ...previous, status: "deferred", reason: `${next}; newer inputs remain queued` } };
+    }
+    if (pendingTests(options.root).ids.length === 0) {
+        next.release();
+        return { done: (await readTestCompletion(options.root, options.requestId, deadline)) ?? previous };
+    }
+    return { leases: next, timing: { queuedAt: boundary, waitCapacityMs: next.waitedMs } };
+}
+
+function batchSettles(result: TestExecution, root: string): boolean {
+    return result.status === "deferred" || result.status === "failed" || pendingTests(root).ids.length === 0;
+}
+
+/** Runs batches until the queue is empty, YIELDING every lease between batches so a same-root interactive caller or another root's push can take the next slot. */
+async function runPending(options: ScheduledRequest, deadline: number, signal: AbortSignal, first: BatchLeases, queuedAt: number): Promise<TestExecution> {
+    let leases: BatchLeases | null = first;
+    let timing: DrainTiming = { queuedAt, waitCapacityMs: first.waitedMs };
+    try {
+        for (;;) {
+            const result = await runOneBatch(options, deadline, timing);
+            if (result.runId) observeTestRun(options.root, result);
+            if (batchSettles(result, options.root)) return result;
+            if (Date.now() >= deadline) return { ...result, status: "stale", reason: "Newer inputs remain queued; previous result does not certify them" };
+            leases.release();
+            leases = null;
+            const turn = await nextBatchTurn(options, deadline, signal, result);
+            if ("done" in turn) return turn.done;
+            leases = turn.leases;
+            timing = turn.timing;
+        }
+    } finally { leases?.release(); }
 }
 
 async function drain(options: ScheduledRequest): Promise<TestExecution> {
     const queuedAt = Date.now(), deadline = queuedAt + options.timeoutMs, signal = currentProcessSignal() ?? new AbortController().signal;
-    const key = `interlinked-test-scheduler-v1\0${options.root}`, wait = options.waitForCapacity !== false;
-    const busy = (denied: ReuseDeniedReason, message: string): Error => {
-        recordSchedulerDeferral(options, denied, { queuedAt, waitCapacityMs: elapsedMs(queuedAt) }, options.full ? "full" : "selected");
+    const busy = (message: string): Error => {
+        recordSchedulerDeferral(options, "capacity-timeout", { queuedAt, waitCapacityMs: elapsedMs(queuedAt) }, options.full ? "full" : "selected");
         return new Error(message);
     };
-    const owner = wait ? await acquireCrossProcessCompilerLease(key, deadline, signal) : tryAcquireCrossProcessCompilerLease(key);
-    if (!owner) throw busy("capacity-timeout", "Test scheduler busy; request retained");
+    const owner = await acquireOwner(options, deadline, signal);
+    if (!owner) throw busy("Test scheduler busy; request retained");
+    let leases: BatchLeases | string;
     try {
         const completed = await readTestCompletion(options.root, options.requestId, deadline);
-        if (completed) return completed;
+        if (completed) {
+            owner.release();
+            return completed;
+        }
         if (!hasTestRequest(options.root, options.requestId)) requestTests(options.root, options.paths, options.full === true);
-        const release = await acquireProject(options, deadline);
-        if (!release) throw busy("capacity-timeout", "Project check capacity busy; test request retained");
-        try {
-            const capacity = wait ? await acquireTestCapacity("foreground", deadline, signal) : tryAcquireForegroundCapacity();
-            if (!capacity) throw busy("capacity-timeout", "Host test capacity busy; request retained");
-            try { return await runPending(options, deadline, { queuedAt, waitCapacityMs: elapsedMs(queuedAt) }); }
-            finally { capacity.release(); }
-        } finally { release(); }
-    } finally { owner.release(); }
+        leases = await acquireExecution(options, deadline, signal, owner);
+    } catch (error) {
+        owner.release();
+        throw error;
+    }
+    if (typeof leases === "string") {
+        owner.release();
+        throw busy(leases);
+    }
+    return runPending(options, deadline, signal, { ...leases, waitedMs: elapsedMs(queuedAt) }, queuedAt);
 }
 
 /** Same-process callers subscribe to one drain; cross-process callers reconcile durable requests. */
@@ -168,8 +269,11 @@ async function withinDeadline(run: Promise<TestExecution>, deadline: number): Pr
 }
 
 export function scheduleTests(options: ScheduleTestsOptions): Promise<TestExecution> {
+    // Input validation and queueing stay synchronous: a bad input throws before any durable work exists.
     const root = canonicalProjectRoot(options.root);
     const paths = [...new Set(options.paths.map(path => normalizeTestInput(root, path)))];
     const id = requestTests(root, paths, options.full === true);
-    return awaitOwnRequest({ ...options, root, paths, requestId: id }, id);
+    // While this caller awaits the request, a wider request may not retire it; the covering run still satisfies it.
+    subscribeTestRequest(id);
+    return awaitOwnRequest({ ...options, root, paths, requestId: id }, id).finally(() => unsubscribeTestRequest(id));
 }

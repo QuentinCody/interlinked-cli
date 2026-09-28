@@ -3,10 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { scheduleTests } from "./test-scheduler.js";
-import { pendingTests, completeTestRequests } from "./test-requests.js";
+import { pendingTests, completeTestRequests, requestTests } from "./test-requests.js";
+import { currentProcessSignal } from "./check-engine/process-cancellation.js";
 import { executeTestPlan } from "./test-execution.js";
 import { loadTestPlan } from "./test-plan-inputs.js";
 import { tryAcquireProjectHeavyProcessLease } from "./project-heavy-process-lock.js";
+import { acquireTestCapacity, tryAcquireForegroundCapacity } from "./test-capacity.js";
 import { tryAcquireCrossProcessCompilerLease, canonicalProjectRoot } from "./project-compiler-lock.js";
 import { publishTestCompletion } from "./test-request-completion.js";
 import { collectRepositoryInventory } from "../lib/metrics/inventory.js";
@@ -14,6 +16,8 @@ import { captureKnownTestInputs } from "./test-runtime.js";
 import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
 
 vi.mock("./test-execution.js", () => ({ executeTestPlan: vi.fn() }));
+// Unmocked by default (returns undefined, so the scheduler polls); the abort pin installs a real signal.
+vi.mock("./check-engine/process-cancellation.js", () => ({ currentProcessSignal: vi.fn() }));
 vi.mock("./test-plan-inputs.js", async importOriginal => ({ ...await importOriginal<typeof import("./test-plan-inputs.js")>(), loadTestPlan: vi.fn(), readTestDependencies: () => ({}) }));
 const roots: string[] = [];
 // The pre-push hook exports INTERLINKED_STAGES_LEDGER; an inherited override would redirect the fixture's rows, so pin the default path.
@@ -129,8 +133,8 @@ it("records a budget-exceeded row when the plan exceeds the hook budget", async 
     expect(typeof stageRows(root)[0]?.wait_capacity_ms).toBe("number");
 });
 
-// test-contract: invariant — timings are per batch: a batch queued by a mid-run edit carries its own queue mark and no lease wait
-it("gives a second batch its own queue mark and zero lease wait", async () => {
+// test-contract: invariant — timings are per batch: a batch queued by a mid-run edit carries its own queue mark and its own (re-acquired) lease wait
+it("gives a second batch its own queue mark and its own lease wait", async () => {
     const root = fixture();
     vi.mocked(executeTestPlan).mockImplementationOnce(async plan => {
         writeFileSync(join(root, "a.ts"), "export const a = 2;");
@@ -142,9 +146,138 @@ it("gives a second batch its own queue mark and zero lease wait", async () => {
     expect(calls).toHaveLength(2);
     const [first, second] = [calls[0]?.[1], calls[1]?.[1]];
     expect(first?.waitCapacityMs).toBeGreaterThanOrEqual(0);
-    expect(second?.waitCapacityMs).toBe(0);
+    expect(typeof second?.waitCapacityMs).toBe("number");
     // The first batch slept 25 ms (a duration under test, not a wait for a condition); timer granularity allows a few ms of slack.
     expect(second?.queuedAt).toBeGreaterThanOrEqual((first?.queuedAt ?? 0) + 20);
+    expect(second?.waitCapacityMs).toBeGreaterThanOrEqual(0);
+});
+
+/**
+ * A second "process" that tries to take the given leases while a drain runs. It records how many batches the drain
+ * had executed at the moment it got in, holds briefly, and releases. Polling tryAcquire is the cross-process shape:
+ * a foreign process cannot observe this process's promise state, only the on-disk leases.
+ */
+async function interposeAtBatchBoundary(tryAcquire: () => (() => void) | null, deadlineMs: number): Promise<{ batchesSeen: number }> {
+    const deadline = Date.now() + deadlineMs;
+    for (;;) {
+        const release = tryAcquire();
+        if (release) {
+            const batchesSeen = vi.mocked(executeTestPlan).mock.calls.length;
+            await new Promise(resolve => global.setTimeout(resolve, 30));
+            release();
+            return { batchesSeen };
+        }
+        if (Date.now() >= deadline) throw new Error("Interposer never acquired the leases");
+        await new Promise(resolve => global.setTimeout(resolve, 1));
+    }
+}
+
+/** A drain whose first batch queues a second one (an edit lands mid-run) and takes long enough for an interposer to poll. */
+function twoBatchDrain(root: string): Promise<Awaited<ReturnType<typeof scheduleTests>>> {
+    vi.mocked(executeTestPlan).mockImplementation(async plan => {
+        if (vi.mocked(executeTestPlan).mock.calls.length === 1) writeFileSync(join(root, "a.ts"), "export const a = 2;");
+        await new Promise(resolve => global.setTimeout(resolve, 40));
+        return { plan, status: "passed", runId: `run-${vi.mocked(executeTestPlan).mock.calls.length}`, reused: false, durationMs: 40, reason: "", output: "" };
+    });
+    return scheduleTests({ root, paths: ["a.ts"], timeoutMs: 10_000, stage: "edit" });
+}
+
+// test-contract: invariant — a SAME-ROOT caller in another process gets the scheduler and project leases at a batch boundary, not after the whole drain
+it("yields the scheduler and project leases to a same-root caller between batches", async () => {
+    const root = fixture();
+    const drain = twoBatchDrain(root);
+    const sameRoot = (): (() => void) | null => {
+        const owner = tryAcquireCrossProcessCompilerLease(`interlinked-test-scheduler-v1\0${canonicalProjectRoot(root)}`);
+        if (!owner) return null;
+        const project = tryAcquireProjectHeavyProcessLease(root);
+        if (!project) {
+            owner.release();
+            return null;
+        }
+        return () => {
+            project();
+            owner.release();
+        };
+    };
+    // Poll only once the first batch is executing, so the interposer cannot win before the drain ever started.
+    await vi.waitFor(() => expect(executeTestPlan).toHaveBeenCalledTimes(1));
+    const { batchesSeen } = await interposeAtBatchBoundary(sameRoot, 5000);
+    expect(batchesSeen).toBe(1);
+    const result = await drain;
+    expect(result.status).toBe("passed");
+    expect(executeTestPlan).toHaveBeenCalledTimes(2);
+});
+
+// test-contract: invariant — a FOREGROUND waiter from ANOTHER root (a pre-push export blocking at the priority gate) gets the host slot at a batch boundary
+it("yields the host test slot to another root's foreground waiter between batches", async () => {
+    const root = fixture();
+    const drain = twoBatchDrain(root);
+    await vi.waitFor(() => expect(executeTestPlan).toHaveBeenCalledTimes(1));
+    // The real pre-push shape: block on the priority gate and then the host slot, exactly as runResourceCommand does.
+    const lease = await acquireTestCapacity("foreground", Date.now() + 5000, new AbortController().signal);
+    if (!lease) throw new Error("Foreground waiter never acquired the host slot");
+    const batchesSeen = vi.mocked(executeTestPlan).mock.calls.length;
+    lease.release();
+    expect(batchesSeen).toBe(1);
+    expect((await drain).status).toBe("passed");
+    expect(executeTestPlan).toHaveBeenCalledTimes(2);
+});
+
+// test-contract: invariant — even a non-blocking poller from another root gets the host slot inside the yield window
+it("leaves the host slot free for a polling caller between batches", async () => {
+    const root = fixture();
+    const drain = twoBatchDrain(root);
+    await vi.waitFor(() => expect(executeTestPlan).toHaveBeenCalledTimes(1));
+    const { batchesSeen } = await interposeAtBatchBoundary(() => {
+        const lease = tryAcquireForegroundCapacity();
+        return lease ? () => lease.release() : null;
+    }, 5000);
+    expect(batchesSeen).toBe(1);
+    expect((await drain).status).toBe("passed");
+    expect(executeTestPlan).toHaveBeenCalledTimes(2);
+});
+
+// test-contract: invariant — a request that gains a freshness path DURING a run is never discharged by that run; the drain runs it next
+it("does not complete an in-flight obligation that a mid-run request extended", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "sample.txt"), "before");
+    vi.mocked(executeTestPlan).mockImplementationOnce(async plan => {
+        writeFileSync(join(root, "sample.txt"), "after");
+        requestTests(root, ["sample.txt"], false);
+        return { plan, status: "passed", runId: "old", reused: false, runtimeVerified: false, durationMs: 1, reason: "", output: "" };
+    });
+    const result = await scheduleTests({ root, paths: [], full: true, timeoutMs: 5000 });
+    expect(result.runId).toBe("run");
+    expect(executeTestPlan).toHaveBeenCalledTimes(2);
+    expect(pendingTests(root).ids).toEqual([]);
+});
+
+// test-contract: invariant — cancelling a caller while it waits for the host slot releases the project and scheduler slots it already held
+it("releases the project and scheduler leases when host admission is aborted", async () => {
+    const root = fixture();
+    const controller = new AbortController();
+    vi.mocked(currentProcessSignal).mockReturnValue(controller.signal);
+    const host = tryAcquireForegroundCapacity();
+    if (!host) throw new Error("Fixture host slot unavailable");
+    try {
+        const waiting = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 5000 });
+        const rejection = expect(waiting).rejects.toThrow();
+        await vi.waitFor(() => {
+            const project = tryAcquireProjectHeavyProcessLease(root);
+            if (project) {
+                project();
+                throw new Error("Scheduler has not acquired the project slot yet");
+            }
+        });
+        controller.abort();
+        await rejection;
+        const project = tryAcquireProjectHeavyProcessLease(root);
+        expect(project).not.toBeNull();
+        project?.();
+        const owner = tryAcquireCrossProcessCompilerLease(`interlinked-test-scheduler-v1\0${canonicalProjectRoot(root)}`);
+        expect(owner).not.toBeNull();
+        owner?.release();
+    } finally { host.release(); }
 });
 
 // test-contract: invariant — a dry run must not move any ledger
@@ -174,6 +307,10 @@ it("consumes another owner's completion without starting a second runner", async
     expect(result.runId).toBe("other-owner");
     expect(result.shared).toBe(true);
     expect(executeTestPlan).not.toHaveBeenCalled();
+    // test-contract: invariant — consuming a shared completion releases the scheduler slot; the next drain must be able to take it
+    const reacquired = tryAcquireCrossProcessCompilerLease(`interlinked-test-scheduler-v1\0${canonicalProjectRoot(root)}`);
+    expect(reacquired).not.toBeNull();
+    reacquired?.release();
 });
 
 it.each(["a.ts", "sample.txt"])("refuses another owner's completion after %s changes", async path => {

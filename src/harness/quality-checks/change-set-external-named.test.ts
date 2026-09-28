@@ -222,7 +222,7 @@ describe("runNamedChecksAdmitted — affected tests", () => {
         await runNamed({ paths: ["/repo/src/a.ts", "/repo/src/b.test.ts"],
             affectedTests: testsCandidate({ max_dependent_tests: 2 }) });
         expect(scheduleTests).toHaveBeenCalledWith({ root: "/repo",
-            paths: ["/repo/src/a.ts", "/repo/src/b.test.ts"], timeoutMs: 5000, maxTests: 2, maxWorkers: 2, waitForCapacity: false });
+            paths: ["/repo/src/a.ts", "/repo/src/b.test.ts"], timeoutMs: 5000, maxTests: 2, maxWorkers: 2, waitForCapacity: false, stage: "edit" });
     });
     it.each(["deferred", "stale", "empty"])("records no measured check for %s", async status => {
         scheduleTests.mockResolvedValue({ status, reason: "No current verdict" });

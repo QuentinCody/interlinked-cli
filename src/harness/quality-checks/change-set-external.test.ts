@@ -246,7 +246,7 @@ describe("ChangeSet external-check batching", () => {
 		expect(scheduleTests).toHaveBeenCalledTimes(1);
 		expect(scheduleTests).toHaveBeenCalledWith({
             root: "/repo", paths: ["/repo/src/a.ts", "/repo/src/b.ts"],
-            timeoutMs: 5000, ...(recovery ? {} : { maxTests: 150 }), maxWorkers: 2, waitForCapacity: recovery,
+            timeoutMs: 5000, ...(recovery ? {} : { maxTests: 150 }), maxWorkers: 2, waitForCapacity: recovery, stage: "edit",
         });
 		expect(checksRan).toEqual(["affected_tests"]);
 		expect(recovery ? acquireHeavyProcess : tryAcquireHeavyProcess).toHaveBeenCalledTimes(1);

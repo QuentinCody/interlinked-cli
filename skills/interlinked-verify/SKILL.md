@@ -607,6 +607,24 @@ distinct from reusable passing-result caching. Hooks defer immediately when anot
 while explicit CLI runs wait within their deadline. A subscriber's timeout does not cancel
 another caller's shared work. Durable requests survive timeout and process restart. The
 queue reads at most 1,000 requests per batch and continues draining later batches.
+Requests coalesce at write time (2026-09-28): a new request that a pending one already
+covers returns that request's id, and a wider request retires the narrower pending
+requests that no caller in its process still awaits (subscriptions are reference-counted,
+so a shared id stays protected until its last caller leaves) — a full request is never
+retired by a selected one (an empty-path full request keeps its obligation), and each
+retirement is recorded in `.interlinked/test-runs/requests/superseded.jsonl`. Request
+files are immutable: a request that adds a path to covering work is stored as its own
+file (never merged into an in-flight request, whose completion would otherwise discharge
+an input it never tracked), and a replacing request absorbs the retired requests' paths,
+so no path is ever dropped — those paths are the inputs the freshness check re-hashes
+after a run. Concurrent writers in separate processes therefore cannot lose paths. Between batches the
+drain YIELDS all three leases (scheduler, project, host) for a short window, so a same-root
+`interlinked tests run` or another repository's pre-push export takes the next slot instead
+of waiting for the whole queue. Hook-originated work (stage `edit`) runs at `background`
+priority and never blocks a waiting interactive caller at the host gate; CLI and pre-push
+runs are `interactive` (`ScheduleTestsOptions.priority` overrides). A drain that cannot
+re-acquire after yielding returns `deferred` with the work retained, and a queue another
+drain emptied meanwhile resolves to that drain's shared completion.
 TypeScript hooks use `max_dependent_tests` as a cap on the complete selected test-file
 union (default 150). Full and over-budget plans defer intact; run `interlinked tests run`
 to drain them with an explicit deadline. The external-tool batch releases its project lease
