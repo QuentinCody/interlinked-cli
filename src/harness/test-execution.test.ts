@@ -6,7 +6,7 @@ vi.mock("./resource-memory.js", () => ({ readResourceMemory: () => ({ totalBytes
 vi.mock("node:os", async importOriginal => ({ ...await importOriginal<typeof import("node:os")>(), availableParallelism: () => 8, loadavg: () => [0, 0, 0] }));
 vi.mock("./test-runtime.js", () => ({ captureTestRuntime: vi.fn() }));
 vi.mock("./coverage-shards/discovery.js", () => ({ captureVitestEnvironment: () => ({ environment: {}, environmentHash: "env" }) }));
-vi.mock("./test-run-receipt.js", () => ({ readTestReceipt: vi.fn(), writeTestReceipt: vi.fn() }));
+vi.mock("./test-run-receipt.js", async importOriginal => ({ ...await importOriginal<typeof import("./test-run-receipt.js")>(), readTestReceipt: vi.fn(), writeTestReceipt: vi.fn() }));
 import { executeTestPlan, testWorkerBudget } from "./test-execution.js";
 import { captureTestRuntime } from "./test-runtime.js";
 import { readTestReceipt } from "./test-run-receipt.js";
@@ -32,6 +32,7 @@ function stageRows(root: string): Array<Record<string, unknown>> {
 }
 const selectedPlan: TestPlan = { version: 1, snapshot: "x", changedPaths: ["a.ts"], tests: [{ path: "a.test.ts", reasons: ["Test changed: a.ts"], durationMs: null }], omitted: [], mode: "selected", reasons: [], estimatedSerialMs: 0, reusable: true, runtimeHash: "h" };
 const VALIDATION_MS = 30;
+const priorReceipt = { key: "k", runId: "prior-run", durationMs: 1, identity: "k", platform: "test", toolchain: { node: "22", vitest: null, typescript: null }, stages: { exec_ms: 1, post_ms: 0 } };
 /** Runtime validation that takes a measurable time before answering. */
 function slowRuntime(answer: TestRuntime): void {
     const answerLater = (resolve: (value: TestRuntime) => void) => { global.setTimeout(() => resolve(answer), VALIDATION_MS); };
@@ -43,11 +44,21 @@ it("bounds foreground workers by memory and the requested cap", () => {
     expect(testWorkerBudget(1)).toBe(1);
 });
 describe("validation phase is measured on every validated path", () => {
+    // test-contract: invariant — a receipt hit retains the producing checkout for artifact relocation while locating its files in the requested store.
+    it("restores the artifact producer root from a receipt", async () => {
+        const root = fixture(), store = join(root, "store");
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h" });
+        const artifacts = { coverage_summary: { path: "prior-run/coverage/coverage-summary.json", sha256: "a".repeat(64) } };
+        vi.mocked(readTestReceipt).mockReturnValue({ ...priorReceipt, artifacts, artifactRoot: "/original-checkout" });
+        const result = await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, receiptStore: store });
+        expect(result).toMatchObject({ status: "passed", reused: true, artifacts, artifactStore: store, artifactRoot: "/original-checkout" });
+    });
+
     // test-contract: public-api — a receipt hit still pays runtime validation, and the row shows it as validate_ms beside lookup_ms
     it("records validate_ms and lookup_ms on a receipt hit with no exec_ms", async () => {
         const root = fixture();
         slowRuntime({ hash: "h" });
-        vi.mocked(readTestReceipt).mockReturnValue({ key: "k", runId: "prior-run", durationMs: 1 });
+        vi.mocked(readTestReceipt).mockReturnValue(priorReceipt);
         const result = await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, stage: "edit" });
         expect(result).toMatchObject({ status: "passed", reused: true, runId: "prior-run" });
         const [row] = stageRows(root);
@@ -76,7 +87,7 @@ describe("validation phase is measured on every validated path", () => {
     it("writes no row for a dry run", async () => {
         const root = fixture();
         slowRuntime({ hash: "h" });
-        vi.mocked(readTestReceipt).mockReturnValue({ key: "k", runId: "prior-run", durationMs: 1 });
+        vi.mocked(readTestReceipt).mockReturnValue(priorReceipt);
         await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, stage: "edit", dryRun: true });
         expect(stageRows(root)).toEqual([]);
     });

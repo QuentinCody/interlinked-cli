@@ -289,6 +289,62 @@ function createLease(
 	return { release };
 }
 
+/**
+ * Processes whose leases this process runs UNDER: a holder lists its pid in this variable for the
+ * children it spawns (the test executor for its vitest child, so a test that itself takes the host
+ * lease — a hook fixture, a scheduler pin — is not deadlocked by the run that hosts it). A nested
+ * grant is a no-op lease: releasing it never touches the holder's lock.
+ */
+export const LEASE_ANCESTORS_ENV = "INTERLINKED_LEASE_ANCESTORS";
+
+function leaseAncestors(): Set<number> {
+	return new Set((process.env[LEASE_ANCESTORS_ENV] ?? "").split(",").map(Number).filter(pid => Number.isSafeInteger(pid) && pid > 0));
+}
+
+/** The value a holder passes to its children: the inherited ancestors plus itself. */
+export function leaseAncestorsForChildren(): string {
+	return [...leaseAncestors(), process.pid].join(",");
+}
+
+function processAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** A no-op lease when the live holder is one of this process's lease ancestors. */
+function nestedLease(path: string): CrossProcessCompilerLease | null {
+	const ancestors = leaseAncestors();
+	if (!ancestors.size) return null;
+	let owner: LockOwner | null;
+	try {
+		owner = parseLockOwner(readFileSync(join(path, "owner.json"), "utf-8"));
+	} catch {
+		return null;
+	}
+	if (!owner || owner.pid === process.pid || !ancestors.has(owner.pid) || !processAlive(owner.pid)) return null;
+	return { release: () => undefined };
+}
+
+/** One creation attempt plus one stale-owner recovery, under the mutation fence; a live ancestor's lock is a nested grant. */
+function createOrRecoverLease(projectKey: string, path: string, options: CrossProcessCompilerLeaseOptions): CrossProcessCompilerLease | null {
+	for (let attempt = 0; attempt < 2; attempt++) {
+		try {
+			return createLease(projectKey, path, options);
+		} catch (error) {
+			if (!hasErrorCode(error, "EEXIST")) throw error;
+			const nested = nestedLease(path);
+			if (nested) return nested;
+			if (!reclaimStaleLock(path, options)) return null;
+			options.afterReclaim?.();
+		}
+	}
+	return null;
+}
+
 /** Attempt once (plus one stale-owner recovery) without waiting. */
 export function tryAcquireCrossProcessCompilerLease(
 	projectKey: string,
@@ -299,18 +355,7 @@ export function tryAcquireCrossProcessCompilerLease(
 	try {
 		return withFileMutationLock(
 			path,
-			() => {
-				for (let attempt = 0; attempt < 2; attempt++) {
-					try {
-						return createLease(projectKey, path, options);
-					} catch (error) {
-						if (!hasErrorCode(error, "EEXIST")) throw error;
-						if (!reclaimStaleLock(path, options)) return null;
-						options.afterReclaim?.();
-					}
-				}
-				return null;
-			},
+			() => createOrRecoverLease(projectKey, path, options),
 			// This public primitive is deliberately nonqueueing. The async caller
 			// retries until its own deadline; synchronous PostTool work defers.
 			{ waitMs: 0 },

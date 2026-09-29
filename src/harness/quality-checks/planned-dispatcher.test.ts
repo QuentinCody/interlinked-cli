@@ -12,7 +12,7 @@ it("submits an edited test to one shared plan instead of launching companion tes
     vi.mocked(scheduleTests).mockRejectedValue(new Error("Host capacity busy; request retained"));
     const result = await dispatcher({ profile, filePath: "src/a.test.ts", absPath: "/repo/src/a.test.ts",
         checkCwd: "/repo", timeoutMs: 5000, severity: "error", checkName: "affected_tests", maxDependentTests: 12 });
-    expect(scheduleTests).toHaveBeenCalledExactlyOnceWith({ root: "/repo", paths: ["/repo/src/a.test.ts"], timeoutMs: 5000, maxTests: 12, waitForCapacity: false });
+    expect(scheduleTests).toHaveBeenCalledExactlyOnceWith({ root: "/repo", paths: ["/repo/src/a.test.ts"], timeoutMs: 5000, maxTests: 12, waitForCapacity: false, stage: "edit" });
     expect(result).toEqual([{ name: "affected_tests_deferred", severity: "warning", file: "src/a.test.ts",
         message: "Affected tests not measured", detail: "Host capacity busy; request retained" }]);
 });

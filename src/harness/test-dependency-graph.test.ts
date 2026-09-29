@@ -21,7 +21,7 @@ it("terminates on cycles and retains unresolved imports as uncertainty", () => {
     expect(testDependencyClosure(graph, ["a.ts"])).toEqual({ paths: new Set(["a.ts", "b.ts"]), opaque: true });
 });
 
-it.each(['import(target)', 'vi.importActual(target)', 'new Date()', 'global["fetch"](url)'])("widens uncontrolled runtime dependency %s", source => {
+it.each(['import(target)', 'vi.importActual(target)', 'new Date()', 'global["fetch"](url)', 'Buffer.allocUnsafe(32)[0]'])("widens uncontrolled runtime dependency %s", source => {
     const graph = buildTestDependencyGraph(graphInventory({ "runtime.test.ts": source }));
     expect(testDependencyClosure(graph, ["runtime.test.ts"]).opaque).toBe(true);
 });

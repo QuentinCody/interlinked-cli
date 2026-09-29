@@ -1,5 +1,8 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { setTimeout } from "node:timers/promises";
-import { collectRepositoryInventory } from "../lib/metrics/inventory.js";
+import { collectRepositoryInventory, hashBytes } from "../lib/metrics/inventory.js";
+import { receiptStorePath } from "./test-run-receipt.js";
 import { acquireCrossProcessCompilerLease, tryAcquireCrossProcessCompilerLease, canonicalProjectRoot, type CrossProcessCompilerLease } from "./project-compiler-lock.js";
 import { tryAcquireProjectHeavyProcessLease } from "./project-heavy-process-lock.js";
 import { acquireTestCapacity, tryAcquireForegroundCapacity } from "./test-capacity.js";
@@ -9,7 +12,7 @@ import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
 import { observeTestRun } from "./test-run-observation.js";
 import { publishTestCompletion, readTestCompletion } from "./test-request-completion.js";
 import { executeTestPlan } from "./test-execution.js";
-import { completeTestRequests, hasTestRequest, pendingTests, requestTests, subscribeTestRequest, unsubscribeTestRequest, type PendingTests } from "./test-requests.js";
+import { completeTestRequests, hasTestRequest, pendingRequestsMet, pendingTests, requestTests, subscribeTestRequest, unsubscribeTestRequest, type PendingTests, type RunRequirements } from "./test-requests.js";
 import type { TestExecution } from "./test-run-receipt.js";
 import type { TestPlan } from "./test-plan.js";
 import { currentProcessSignal } from "./check-engine/process-cancellation.js";
@@ -35,11 +38,20 @@ export interface ScheduleTestsOptions {
      * Defaults to `background` for stage `edit`, else `interactive`.
      */
     priority?: "interactive" | "background";
+    /** Collect coverage into the run directory (part of the check identity); `reporters` are extra vitest reporter module paths. */
+    coverage?: { reporters?: string[] };
+    /** Receipt + run-artifact store to read and write instead of `<root>/.interlinked/test-runs`. */
+    receiptStore?: string;
 }
 interface ScheduledRequest extends ScheduleTestsOptions { requestId: string; }
 /** Lease-wait facts a drain hands to each batch so the executor's row carries them. */
 interface DrainTiming { queuedAt: number; waitCapacityMs: number; }
 const active = new Map<string, Promise<TestExecution>>();
+
+/** What this caller's request must PRODUCE (coverage) — recorded on the durable request so coalescing and completion honour it. */
+function requirementsOf(options: ScheduleTestsOptions): RunRequirements {
+    return options.coverage ? { coverage: { reporters: [...(options.coverage.reporters ?? [])].sort() } } : {};
+}
 
 /** A row for work the scheduler refused before any executor ran (budget or capacity); the executor writes its own rows. */
 function recordSchedulerDeferral(options: ScheduleTestsOptions, denied: ReuseDeniedReason, timing: DrainTiming, mode: string): void {
@@ -73,10 +85,12 @@ function overBudget(plan: TestPlan, options: ScheduleTestsOptions): TestExecutio
     return { plan, status: "deferred", runId: "", reused: false, durationMs: 0, output: "", reason: `Plan needs ${scope}; hook budget is ${options.maxTests}. Request retained for interlinked tests run.` };
 }
 
+/** The requests one passing batch discharges: its own, plus later ones its scope covers — but never one that required more than the batch PRODUCED (coverage). */
 function satisfiedRequests(root: string, batch: PendingTests): string[] {
     const current = pendingTests(root), paths = new Set(batch.paths);
-    if (current.full && !batch.full) return batch.ids;
-    return current.paths.every(path => paths.has(path)) ? current.ids : batch.ids;
+    const met = new Set(pendingRequestsMet(root, batch.requirements));
+    const scopeCovered = (current.full && !batch.full) ? batch.ids : current.paths.every(path => paths.has(path)) ? current.ids : batch.ids;
+    return scopeCovered.filter(id => met.has(id));
 }
 
 async function runOneBatch(options: ScheduleTestsOptions, deadline: number, timing: DrainTiming): Promise<TestExecution> {
@@ -89,17 +103,20 @@ async function runOneBatch(options: ScheduleTestsOptions, deadline: number, timi
         recordSchedulerDeferral(options, "budget-exceeded", timing, plan.mode);
         return deferred;
     }
+    // The batch PRODUCES what every pending request requires (coverage with the union of their reporters), not only what this drain's caller asked for.
+    const produced = pending.requirements;
     const result = await executeTestPlan(plan, {
         root: options.root, deadline, stage: options.stage ?? "cli", dryRun: options.dryRun === true, queuedAt: timing.queuedAt, waitCapacityMs: timing.waitCapacityMs,
         ...(options.maxWorkers === undefined ? {} : { maxWorkers: options.maxWorkers }), ...(options.session ? { session: options.session } : {}),
+        ...(produced.coverage ? { coverage: produced.coverage } : {}), ...(options.receiptStore ? { receiptStore: options.receiptStore } : {}),
     });
     const changed = [...changedDuring(before, collectRepositoryInventory(options.root)), ...changedKnownTestInputs(options.root, known)];
     if (captureVitestEnvironment().environmentHash !== environmentHash) {
-        requestTests(options.root, [], true);
+        requestTests(options.root, [], true, produced);
         return { ...result, status: "stale", reason: "Environment changed during execution" };
     }
-    if (changed.length) requestTests(options.root, changed, false);
-    if (result.status === "stale") requestTests(options.root, [], true);
+    if (changed.length) requestTests(options.root, changed, false, produced);
+    if (result.status === "stale") requestTests(options.root, [], true, produced);
     if ((result.status === "passed" || result.status === "empty") && changed.length === 0) {
         const ids = satisfiedRequests(options.root, pending);
         publishTestCompletion(options.root, ids, result, { inputHash: before.inputHash, environmentHash, known });
@@ -226,7 +243,7 @@ async function drain(options: ScheduledRequest): Promise<TestExecution> {
             owner.release();
             return completed;
         }
-        if (!hasTestRequest(options.root, options.requestId)) requestTests(options.root, options.paths, options.full === true);
+        if (!hasTestRequest(options.root, options.requestId)) requestTests(options.root, options.paths, options.full === true, requirementsOf(options));
         leases = await acquireExecution(options, deadline, signal, owner);
     } catch (error) {
         owner.release();
@@ -268,12 +285,34 @@ async function withinDeadline(run: Promise<TestExecution>, deadline: number): Pr
     } finally { timer.abort(); }
 }
 
+/**
+ * A shared run's artifacts live in the PRODUCING drain's store. Each subscriber gets its own copy — same run-relative
+ * paths, bytes verified against the receipt's sha256 — so its store is self-contained and its export never depends on
+ * another caller's store surviving. A copy that cannot be verified leaves the result pointing at the producer's store.
+ */
+function materializeArtifacts(options: ScheduleTestsOptions, result: TestExecution): TestExecution {
+    const own = receiptStorePath(options.root, options.receiptStore);
+    if (!result.artifacts || !result.artifactStore || result.artifactStore === own) return result;
+    for (const artifact of Object.values(result.artifacts)) {
+        const source = join(result.artifactStore, artifact.path), target = join(own, artifact.path);
+        try {
+            const bytes = readFileSync(source);
+            if (hashBytes(bytes) !== artifact.sha256) return result;
+            mkdirSync(dirname(target), { recursive: true });
+            writeFileSync(target, bytes);
+        } catch {
+            return result;
+        }
+    }
+    return { ...result, artifactStore: own };
+}
+
 export function scheduleTests(options: ScheduleTestsOptions): Promise<TestExecution> {
     // Input validation and queueing stay synchronous: a bad input throws before any durable work exists.
     const root = canonicalProjectRoot(options.root);
     const paths = [...new Set(options.paths.map(path => normalizeTestInput(root, path)))];
-    const id = requestTests(root, paths, options.full === true);
+    const id = requestTests(root, paths, options.full === true, requirementsOf(options));
     // While this caller awaits the request, a wider request may not retire it; the covering run still satisfies it.
     subscribeTestRequest(id);
-    return awaitOwnRequest({ ...options, root, paths, requestId: id }, id).finally(() => unsubscribeTestRequest(id));
+    return awaitOwnRequest({ ...options, root, paths, requestId: id }, id).then(result => materializeArtifacts({ ...options, root }, result)).finally(() => unsubscribeTestRequest(id));
 }

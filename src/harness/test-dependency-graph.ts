@@ -11,10 +11,22 @@ export interface TestDependencyGraph {
     incomplete: boolean;
 }
 
+/**
+ * Runtime reads that hashing repository bytes cannot see: the process (environment, cwd, argv), the network, the
+ * clock, randomness, dynamic evaluation and test-time mocking. The ONE input-eligibility rule for anything the
+ * runner executes — tests, shared setup and configuration, and external reporter code (`check-identity.ts`).
+ */
+const RUNTIME_OPACITY = /\b(eval|Function|fetch|process|global|globalThis|Buffer|crypto|WebSocket|Date|performance|setTimeout|setInterval|require|createRequire|importActual|importMock|stubGlobal|stubEnv|doMock|mock)\b|import\.meta|Math\s*\.\s*random|Math\s*\[/;
+
+/** The runtime read that makes `content` opaque, or null when none is named. */
+export function runtimeOpacity(content: string): string | null {
+    return RUNTIME_OPACITY.exec(content)?.[0] ?? null;
+}
+
 function fileDependencies(file: RepositoryInventory["files"][number], known: Set<string>): { targets: string[]; opaque: boolean } {
     const parsed = parseTsSource(file.content, file.path), targets: string[] = [];
     if (!parsed || !hasExactSyntax(parsed)) return { targets, opaque: true };
-    let opaque = /\b(eval|Function|fetch|process|global|globalThis|crypto|WebSocket|Date|performance|setTimeout|setInterval|require|importActual|importMock|stubGlobal|stubEnv|doMock|mock)\b|import\.meta|Math\s*\.\s*random|Math\s*\[/.test(file.content);
+    let opaque = runtimeOpacity(file.content) !== null;
     for (const reference of analyzeSyntax(parsed).imports) {
         const specifier = reference.specifier;
         if (!specifier?.startsWith(".")) {

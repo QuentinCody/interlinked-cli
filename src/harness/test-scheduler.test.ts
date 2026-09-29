@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ import { tryAcquireProjectHeavyProcessLease } from "./project-heavy-process-lock
 import { acquireTestCapacity, tryAcquireForegroundCapacity } from "./test-capacity.js";
 import { tryAcquireCrossProcessCompilerLease, canonicalProjectRoot } from "./project-compiler-lock.js";
 import { publishTestCompletion } from "./test-request-completion.js";
-import { collectRepositoryInventory } from "../lib/metrics/inventory.js";
+import { collectRepositoryInventory, hashBytes } from "../lib/metrics/inventory.js";
 import { captureKnownTestInputs } from "./test-runtime.js";
 import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
 
@@ -21,7 +21,11 @@ vi.mock("./check-engine/process-cancellation.js", () => ({ currentProcessSignal:
 vi.mock("./test-plan-inputs.js", async importOriginal => ({ ...await importOriginal<typeof import("./test-plan-inputs.js")>(), loadTestPlan: vi.fn(), readTestDependencies: () => ({}) }));
 const roots: string[] = [];
 // The pre-push hook exports INTERLINKED_STAGES_LEDGER; an inherited override would redirect the fixture's rows, so pin the default path.
-beforeEach(() => { vi.stubEnv("INTERLINKED_STAGES_LEDGER", ""); });
+// The host-slot pins contend on a PRIVATE slot: the run hosting this file may hold the real one and grant nested leases.
+beforeEach(() => {
+    vi.stubEnv("INTERLINKED_STAGES_LEDGER", "");
+    vi.stubEnv("INTERLINKED_TEST_CAPACITY_SCOPE", `scheduler-test-${process.pid}-${Math.random().toString(16).slice(2)}`);
+});
 afterEach(() => {
     vi.resetAllMocks();
     vi.unstubAllEnvs();
@@ -278,6 +282,50 @@ it("releases the project and scheduler leases when host admission is aborted", a
         expect(owner).not.toBeNull();
         owner?.release();
     } finally { host.release(); }
+});
+
+// test-contract: invariant — a coverage request that arrives during a plain run is not satisfied by it: the next batch runs WITH coverage and only then discharges it
+it("runs a second batch with coverage for a coverage request that a plain run cannot satisfy", async () => {
+    const root = fixture();
+    let coverageRequest: Promise<Awaited<ReturnType<typeof scheduleTests>>> | null = null;
+    vi.mocked(executeTestPlan).mockImplementation(async (plan, options) => {
+        if (!coverageRequest) coverageRequest = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 5000, coverage: { reporters: ["scope.mjs"] } });
+        return { plan, status: "passed", runId: options.coverage ? "with-coverage" : "plain", reused: false, durationMs: 1, reason: "", output: "", ...(options.coverage ? { artifacts: { coverage_summary: { path: "x", sha256: "0".repeat(64) } } } : {}) };
+    });
+    const plain = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 5000 });
+    // Same-process callers share one drain and receive its final batch's result; the plain obligation was discharged by batch 1.
+    expect(plain.status).toBe("passed");
+    const covered = await coverageRequest!;
+    expect(covered.runId).toBe("with-coverage");
+    expect(covered.artifacts).toBeDefined();
+    const calls = vi.mocked(executeTestPlan).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[1].coverage).toBeUndefined();
+    expect(calls[1]?.[1].coverage).toEqual({ reporters: ["scope.mjs"] });
+    expect(pendingTests(root).ids).toEqual([]);
+});
+
+// test-contract: invariant — a subscriber with a DIFFERENT receipt store sharing one drain gets the artifacts materialized into its own store (sha256-verified), so its export never depends on the producer's store
+it("materializes a shared run's artifacts into each subscriber's own store", async () => {
+    const root = fixture();
+    const producerStore = join(root, "store-a"), subscriberStore = join(root, "store-b");
+    const summary = '{"total":{"lines":{"pct":100}}}';
+    vi.mocked(executeTestPlan).mockImplementation(async (plan, options) => {
+        const store = options.receiptStore ?? "";
+        mkdirSync(join(store, "shared", "coverage"), { recursive: true });
+        writeFileSync(join(store, "shared", "coverage", "coverage-summary.json"), summary);
+        return { plan, status: "passed", runId: "shared", reused: false, durationMs: 1, reason: "", output: "",
+            artifacts: { coverage_summary: { path: "shared/coverage/coverage-summary.json", sha256: hashBytes(Buffer.from(summary)) } }, artifactStore: store };
+    });
+    const coverage = { reporters: ["scope.mjs"] };
+    const first = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 5000, coverage, receiptStore: producerStore });
+    const second = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 5000, coverage, receiptStore: subscriberStore });
+    const [producer, subscriber] = await Promise.all([first, second]);
+    expect(executeTestPlan).toHaveBeenCalledTimes(1);
+    expect(producer.artifactStore).toBe(producerStore);
+    expect(subscriber.artifactStore).toBe(subscriberStore);
+    expect(subscriber.artifacts).toEqual(producer.artifacts);
+    expect(readFileSync(join(subscriberStore, "shared", "coverage", "coverage-summary.json"), "utf8")).toBe(summary);
 });
 
 // test-contract: invariant — a dry run must not move any ledger

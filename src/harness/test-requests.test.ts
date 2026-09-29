@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 function exited(worker: ChildProcess): Promise<void> {
     return new Promise((done, fail) => { worker.once("exit", code => (code === 0 ? done() : fail(new Error(`worker exited ${code}`)))); });
 }
-import { completeTestRequests, hasTestRequest, pendingTests, requestTests, subscribeTestRequest, unsubscribeTestRequest } from "./test-requests.js";
+import { completeTestRequests, hasTestRequest, pendingRequestsMet, pendingTests, requestTests, subscribeTestRequest, unsubscribeTestRequest } from "./test-requests.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -48,7 +48,7 @@ describe("supersession preserves obligations", () => {
         const full = requestTests(root, ["sample.txt"], true);
         const added = requestTests(root, ["fixture.json"], false);
         expect(added).not.toBe(full);
-        expect(readFileSync(join(root, ".interlinked/test-runs/requests", `${full}.json`), "utf8")).toBe(JSON.stringify({ paths: ["a.ts", "b.ts", "sample.txt"], full: true }));
+        expect(readFileSync(join(root, ".interlinked/test-runs/requests", `${full}.json`), "utf8")).toBe(JSON.stringify({ paths: ["a.ts", "b.ts", "sample.txt"], full: true, requirements: {} }));
         expect(pendingTests(root).paths).toEqual(["a.ts", "b.ts", "fixture.json", "sample.txt"]);
     });
 
@@ -81,7 +81,7 @@ for (let round = 0; round < 20; round++) requestTests(root, [\`p\${index}-\${rou
         const widest = requestTests(root, ["a.ts", "b.ts", "c.ts"], false);
         expect(hasTestRequest(root, shared)).toBe(false);
         expect(hasTestRequest(root, wider)).toBe(false);
-        expect(pendingTests(root)).toEqual({ ids: [`${widest}.json`], paths: ["a.ts", "b.ts", "c.ts"], full: false });
+        expect(pendingTests(root)).toEqual({ ids: [`${widest}.json`], paths: ["a.ts", "b.ts", "c.ts"], full: false, requirements: {} });
     });
 
     // test-contract: public-api — a selected request that another pending selected request already covers returns that request's id
@@ -101,7 +101,7 @@ for (let round = 0; round < 20; round++) requestTests(root, [\`p\${index}-\${rou
         expect(hasTestRequest(root, narrow)).toBe(false);
         expect(hasTestRequest(root, other)).toBe(false);
         // The retired requests' paths ride on the full request so their freshness obligations survive.
-        expect(pendingTests(root)).toEqual({ ids: [`${full}.json`], paths: ["a.ts", "c.ts"], full: true });
+        expect(pendingTests(root)).toEqual({ ids: [`${full}.json`], paths: ["a.ts", "c.ts"], full: true, requirements: {} });
         // Retirement walks the queue in file-name (uuid) order, so the two rows may come in either order.
         const rows = superseded(root).sort((left, right) => left.paths.join().localeCompare(right.paths.join()));
         expect(rows).toEqual([
@@ -120,6 +120,32 @@ for (let round = 0; round < 20; round++) requestTests(root, [\`p\${index}-\${rou
             expect(hasTestRequest(root, awaited)).toBe(true);
             expect(pendingTests(root).ids.sort()).toEqual([`${awaited}.json`, `${full}.json`].sort());
         } finally { unsubscribeTestRequest(awaited); }
+    });
+
+    // test-contract: invariant — a request that must PRODUCE coverage never coalesces onto, and is never retired by, a request that does not; the reverse direction coalesces
+    it("keeps coverage requirements apart from plain requests in both directions", () => {
+        const root = fixture();
+        const plain = requestTests(root, ["a.ts"], false);
+        // A coverage request never coalesces onto a plain one; its run satisfies the plain need, so the plain request rides on it.
+        const coverage = requestTests(root, ["a.ts"], false, { coverage: { reporters: ["scope.mjs"] } });
+        expect(coverage).not.toBe(plain);
+        expect(hasTestRequest(root, plain)).toBe(false);
+        expect(pendingTests(root)).toMatchObject({ ids: [`${coverage}.json`], paths: ["a.ts"], requirements: { coverage: { reporters: ["scope.mjs"] } } });
+        // A plain request adding nothing new coalesces onto the coverage request (no new file).
+        expect(requestTests(root, ["a.ts"], false)).toBe(coverage);
+        // A coverage request with an extra reporter is not satisfied by the existing coverage request, and retires it (superset).
+        const wider = requestTests(root, ["a.ts"], false, { coverage: { reporters: ["scope.mjs", "other.mjs"] } });
+        expect(wider).not.toBe(coverage);
+        expect(hasTestRequest(root, coverage)).toBe(false);
+        expect(pendingTests(root).requirements).toEqual({ coverage: { reporters: ["other.mjs", "scope.mjs"] } });
+        // What a run PRODUCES decides which pending requests it discharges.
+        expect(pendingRequestsMet(root, {})).toEqual([]);
+        expect(pendingRequestsMet(root, { coverage: { reporters: ["scope.mjs"] } })).toEqual([]);
+        expect(pendingRequestsMet(root, { coverage: { reporters: ["scope.mjs", "other.mjs"] } })).toEqual([`${wider}.json`]);
+        // A full PLAIN request cannot retire a coverage request (it would drop what that request must produce).
+        const full = requestTests(root, [], true);
+        expect(hasTestRequest(root, wider)).toBe(true);
+        expect(hasTestRequest(root, full)).toBe(true);
     });
 
     // test-contract: invariant — a selected request never retires a pending full request (the reverse of the first case)

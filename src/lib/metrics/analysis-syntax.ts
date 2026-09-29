@@ -2,7 +2,8 @@ import type * as TS from "typescript";
 import type { ParsedTsSource } from "../../harness/checks/cyclomatic-ast.js";
 
 export interface SyntaxSpan { line: number; endLine: number; start: number; end: number; }
-export interface ImportReference { specifier: string | null; line: number; names: string[]; typeOnly: boolean; }
+/** `loader` is how the runtime resolves the specifier: ESM rules for `import`/`export … from`/`import()`, CommonJS rules for `require()`. */
+export interface ImportReference { specifier: string | null; line: number; names: string[]; typeOnly: boolean; loader: "import" | "require"; }
 export interface Declaration { name: string; line: number; exported: boolean; }
 export interface SyntaxFacts {
     statements: SyntaxSpan[]; tests: SyntaxSpan[]; imports: ImportReference[];
@@ -37,17 +38,18 @@ function staticImport(node: TS.ImportDeclaration | TS.ExportDeclaration, parsed:
         ? clause.elements.map(element => (element.propertyName ?? element.name).text) : ["*"];
     if (ts.isImportDeclaration(node) && node.importClause?.name) names.push("*");
     const typeOnly = typeOnlyImport(node, ts);
-    return { specifier: node.moduleSpecifier.text, line: syntaxSpan(node, parsed).line, names, typeOnly };
+    return { specifier: node.moduleSpecifier.text, line: syntaxSpan(node, parsed).line, names, typeOnly, loader: "import" };
 }
 
 function importReference(node: TS.Node, parsed: ParsedTsSource): ImportReference | null {
     const { ts } = parsed;
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return staticImport(node, parsed);
     if (!ts.isCallExpression(node)) return null;
-    if (node.expression.kind !== ts.SyntaxKind.ImportKeyword && !(ts.isIdentifier(node.expression) && node.expression.text === "require")) return null;
+    const dynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+    if (!dynamicImport && !(ts.isIdentifier(node.expression) && node.expression.text === "require")) return null;
     const argument = node.arguments[0];
     return { specifier: argument && ts.isStringLiteralLike(argument) ? argument.text : null,
-        line: syntaxSpan(node, parsed).line, names: ["*"], typeOnly: false };
+        line: syntaxSpan(node, parsed).line, names: ["*"], typeOnly: false, loader: dynamicImport ? "import" : "require" };
 }
 
 function topDeclarations(parsed: ParsedTsSource): Declaration[] {

@@ -620,6 +620,97 @@ distinct from reusable passing-result caching. Hooks defer immediately when anot
 while explicit CLI runs wait within their deadline. A subscriber's timeout does not cancel
 another caller's shared work. Durable requests survive timeout and process restart. The
 queue reads at most 1,000 requests per batch and continues draining later batches.
+A passing run is certified by a RECEIPT keyed by its CHECK IDENTITY (2026-09-28,
+`src/harness/check-identity.ts`): the plan snapshot and runtime hash (inputs), the logical
+runner argv (mode, workers, `--coverage`, extra reporters), the toolchain (node plus the
+installed vitest and typescript versions), the normalized environment, the platform and
+the POLICY digest (`.interlinked/coverage-baseline.json`, `coverage-edit-baseline.json`,
+`metric-caps.json` and every `vitest*.config.*` at the root). Changing any dimension is a
+new check: a raised coverage baseline re-runs the same tests. The environment component
+drops ONLY variables proven not to reach a verdict — the shell's cwd bookkeeping (`PWD`,
+`OLDPWD`, `SHLVL`, `_`), git's hook-only variables (`GIT_EXEC_PATH`, `GIT_PREFIX`,
+`GIT_CONFIG_PARAMETERS`) and this route's own bookkeeping (`INTERLINKED_STAGE`,
+`INTERLINKED_STAGES_LEDGER`, `INTERLINKED_BOUNDED_OUTCOME`, `INTERLINKED_LEASE_ANCESTORS`,
+`INTERLINKED_COVERAGE_SCOPE_FILE`, `INTERLINKED_TEST_CAPACITY_SCOPE`); `PATH`, toolchain
+paths, `CI`, `NODE_ENV`, `NODE_OPTIONS`, `TMPDIR`, every other `INTERLINKED_*` and any user
+variable stay in the hash because a test may read them. The child still receives the exact
+environment, and the shared-completion path keeps the exact hash. A full run is reusable
+evidence only when every closure resolves inside the inventory and nothing is untracked: an
+opaque test (dynamic import, `process`, `fetch`, the clock, an external fixture) or a test
+outside the inventory makes the run fresh-only, because hashing repository bytes cannot see
+what those tests read; an opaque SHARED setup or configuration file (it runs in every
+test) makes every run fresh-only, selected or full, changed or not. A reporter module run
+from outside the checkout (`--coverage-reporter`) is bound by the digest of its bytes and
+of every dependency it loads. Loads are read from the PARSED source (a specifier that is
+not one string literal — `import("./x" + ext)`, a template — is a computed load, never a
+prefix match), and each is resolved by its OWN loading mode from the importing module's
+location: `require("x")` by CommonJS rules, `from "x"` / `import "x"` / `import("x")` by
+ESM rules (a conditional `exports` map is read under the `import` condition, so the entry
+Node executes is the entry that is bound; a relative ESM import must name an exact file).
+A dependency inside `node_modules` is bound by its COMPLETE installed contents plus,
+transitively, the installed contents of every package it declares (a version pins
+nothing — an edited internal helper is a different reporter). A computed load, an
+unparseable or unresolvable module, an `exports` shape the resolver does not model
+(patterns, arrays, an unexported subpath), a declared dependency that is not installed,
+or a closure over 400 files is UNRESOLVED. And the reporter obeys the SAME
+input-eligibility rule as a test or setup file, and so does every installed code file of
+a bound package (declaration files never run): a module that names a runtime read the
+bytes cannot pin — `process`, `fetch`, `Date`, `Buffer`, timers, `require`/`createRequire`,
+`import.meta`, `Math.random`, eval — or imports a builtin OPERATION that is not pure is
+OPAQUE, because complete module hashing cannot cover external data, network responses,
+the working directory or the clock. Purity is per operation, never module-wide: whole
+modules only where every export is pure (`node:assert`,
+`node:string_decoder`, `node:querystring`, `node:util/types`); otherwise named imports
+from a short list (`path`: `join`, `basename`, `dirname`, `extname`, `normalize`,
+`parse`, `format`, `isAbsolute`, `sep`, `delimiter`; `url`: `fileURLToPath`, `URL`,
+`URLSearchParams`; `util`: `format`, `inspect`, `isDeepStrictEqual`, `promisify`,
+`inherits`, `types`). Imports from `node:buffer` and `node:events` are opaque:
+`File` defaults its timestamp from the clock, unsafe buffers expose untracked memory,
+and `EventEmitterAsyncResource` captures async context. Global `Buffer` is opaque too.
+`path.resolve` and `path.relative` read the working directory,
+`url.pathToFileURL` resolves through it, and a default or namespace import of any
+listed-by-name module reaches them, so all of those are opaque. Unresolved or opaque, the
+run executes, exports its artifacts and certifies nothing reusable. CONSEQUENCE:
+`scripts/pre-push-coverage.mjs` reads `process.env` and walks `src/` through `node:fs`
+to ask the coverage provider for its inclusion scope, so every pre-push coverage run is
+fresh-only today; a coverage run without an external reporter (vitest's own json-summary)
+reuses across a byte-identical export. Re-establishing reuse for the scope needs the
+inclusion decision computed OUTSIDE the run (the provider's `include`/`exclude` globs
+re-evaluated deterministically), not a more permissive rule. Every identity input,
+the reporter binding included, is re-read after the run: a change between hashing and
+execution is `stale` and certifies nothing. In THIS repository nearly
+every test is opaque, so full-run receipts are not produced here today. A subscriber that
+shares a run but owns a different receipt store gets the artifacts materialized into its
+own store (sha256-verified), so its export never depends on the producer's store. Receipts are v2 (`identity`, `platform`, `toolchain`,
+`stages`, optional `artifacts`), unsigned and local; a v1 receipt is ignored.
+
+`interlinked tests run --all --coverage [--coverage-reporter <module>]… [--receipt-store <dir>]
+[--artifacts-out <dir>]` collects coverage (json-summary) INSIDE the run directory of the
+receipt store, records the summary and the inclusion scope (`scripts/pre-push-coverage.mjs`
+as the reporter; without explicit targets it records every `src/` code file, so the scope
+serves any later changed-file set) as sha256-pinned artifacts on the receipt, and copies
+them into `--artifacts-out` after a passing run — fresh or reused — refusing any file whose
+bytes no longer match, and RE-ROOTED to the consuming checkout (the scope's `root` and the
+summary's file keys name the run's absolute root; a reused run may come from another export
+of the same bytes). The receipt's `artifactRoot` retains the source root even without a
+scope reporter. Export relocates JSON path fields after verifying the stored bytes;
+receipts containing artifacts but missing this root are ignored. Exit 1 is a failed run;
+75 is deferred/stale (no verdict). A request
+that needs coverage coalesces only onto a request that produces it, a batch produces what
+every pending request requires, and a completion discharges only the requests whose
+requirements the run met — a plain run never satisfies a coverage subscriber. The pre-push
+hook's coverage branch runs exactly this with `--receipt-store` pointing at the SOURCE
+checkout's `.interlinked/test-runs`, so the previous push of the SAME revision is consumed
+instead of re-run (every export is fresh, so two exports of one revision share an identity).
+A LOCAL `tests run --all --coverage` does not seed the export in practice: the runtime
+snapshot hashes every on-disk byte outside `.git`, `.interlinked` and generated
+directories, so gitignored local files (`scratch/`, `coverage/`, logs) enter the local
+identity but not the export's — and honouring gitignore alone would not prove those
+ignored inputs irrelevant, so this stays an unmet acceptance criterion (recorded in the
+campaign file). The export's `node_modules` is a symlink to the source's: the runtime
+snapshot hashes the canonical path of the mounted dependency tree, so a copied
+`node_modules` is a different runtime and never reuses. That step is not `bounded` (the
+scheduler owns admission and supervision).
 Requests coalesce at write time (2026-09-28): a new request that a pending one already
 covers returns that request's id, and a wider request retires the narrower pending
 requests that no caller in its process still awaits (subscriptions are reference-counted,

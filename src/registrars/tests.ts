@@ -151,6 +151,10 @@ export function registerTestsCommands(program: Command): void {
             .option("--all", "Run the full suite for reconciliation")
             .option("--timeout <ms>", "Total planning, admission and execution budget", "60000")
             .option("--workers <count>", "Maximum workers, also bounded by available memory", "2")
+            .option("--coverage", "Collect coverage (json-summary) into the run directory; part of the check identity")
+            .option("--coverage-reporter <path>", "Extra vitest reporter module for coverage runs (repeatable)", (value: string, previous: string[] = []) => [...previous, value])
+            .option("--receipt-store <dir>", "Read and write passing-run receipts and run artifacts here instead of <cwd>/.interlinked/test-runs")
+            .option("--artifacts-out <dir>", "Copy the certified run's artifacts (fresh or reused) into this directory after a passing run")
             .option("--json", "Machine-readable test plan or execution")
             .action(async (paths: string[], options: OptionValues) => {
                 const { testsCommand } = await import("../commands/tests.js");

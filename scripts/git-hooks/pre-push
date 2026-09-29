@@ -148,13 +148,31 @@ run_gate() {
         }
         echo "[pre-push] coverage check SKIPPED: no src/ code files in the push range."
     else
-        # Run tests once, with coverage, against this exact revision. Reusing a
-        # working-tree report by mtime can certify completely different code.
-        cov_scope="$gate_dir/.interlinked/pre-push-coverage-scope.json"
-        (cd "$gate_dir" && CI=1 INTERLINKED_PRE_PUSH_COVERAGE_SCOPE="$cov_scope" \
-            INTERLINKED_PRE_PUSH_COVERAGE_TARGETS="$cov_files" bounded npm test -- --maxWorkers="$test_workers" --coverage --testTimeout=120000 \
-            --coverage.reporter=json-summary --reporter=default --reporter="$hook_dir/../pre-push-coverage.mjs") || {
-            report_gate_failure "tests"
+        # Run tests once, with coverage, against this exact revision — through the
+        # scheduler, so the run is keyed by its CHECK IDENTITY (inventory, runtime,
+        # command, toolchain, normalized environment, platform, policy) and a
+        # receipt in the source checkout's store certifies an identical export:
+        # a local `interlinked tests run --all --coverage` (or the previous push
+        # of the same revision) is consumed instead of re-run, and its coverage
+        # summary + inclusion scope are copied out and verified by sha256. Never
+        # by mtime: a report from different bytes never matches this identity.
+        # NOT under `bounded`: the scheduler owns host admission itself (a nested
+        # host lease would wait until its deadline), and it supervises the runner
+        # tree's memory, cancellation and cleanup on its own execution path.
+        cov_scope="$gate_dir/coverage/scope.json"
+        if [ ! -f "$gate_dir/dist/index.js" ]; then
+            echo "[pre-push] Pushed revision has no built coverage checker; verification unavailable."
+            return 1
+        fi
+        (cd "$gate_dir" && node dist/index.js tests run --all --coverage --coverage-reporter "$hook_dir/../pre-push-coverage.mjs" \
+            --receipt-store "$source_root/.interlinked/test-runs" --artifacts-out "$gate_dir/coverage" --workers "$test_workers" --timeout 3600000) || {
+            # `tests run` exits 75 for a deferred or stale run (no verdict: capacity or inputs), 1 for failed tests.
+            if [ "$?" -eq 75 ]; then echo "[pre-push] NOT RUN (test scheduler produced no verdict; nothing failed): tests run --all --coverage"
+            else echo "[pre-push] tests failed for $push_sha."; fi
+            return 1
+        }
+        [ -f "$gate_dir/coverage/coverage-summary.json" ] && [ -f "$cov_scope" ] || {
+            echo "[pre-push] tests passed but left no coverage summary or scope ($gate_dir/coverage/coverage-summary.json, $cov_scope) for $push_sha; verification unavailable."
             return 1
         }
         if ! git -C "$gate_dir" diff --quiet "$push_sha" --; then

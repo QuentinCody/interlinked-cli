@@ -64,7 +64,9 @@ export async function loadTestPlan(root: string, paths: readonly string[], timeo
     try {
         const universe = await discoverVitestUniverse(inventory.root, deadline, captureVitestEnvironment().environment);
         input.tests = universe.tests; input.supportFiles = universe.supportFiles;
-        if (universe.tests.some(test => !inventory.files.some(file => file.path === test))) input.uncertainty = ["Discovered tests outside analyzed inventory"];
+        const known = new Set(inventory.files.map(file => file.path));
+        const outside = universe.tests.filter(test => !known.has(test));
+        if (outside.length) input.outsideInventory = outside;
     } catch (error) {
         input.tests = inventory.files.filter(file => isTestPath(file.path)).map(file => file.path);
         input.uncertainty = [`Native test discovery unavailable: ${error instanceof Error ? error.message : "unknown error"}`];

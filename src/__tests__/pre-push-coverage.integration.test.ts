@@ -78,6 +78,21 @@ if (process.argv.includes("--lane")) {
     console.log("E2E_RATCHET_GATE " + process.argv.slice(2).join(" "));
     process.exit(process.env.COVERAGE_E2E_FAIL === "1" ? 1 : 0);
 }
+// The scheduler route (\`tests run --all --coverage … --artifacts-out <dir>\`): the stub plays the test run and
+// leaves the summary + inclusion scope in the artifacts directory, as the real command exports them.
+if (process.argv[2] === "tests" && process.argv[3] === "run" && process.env.COVERAGE_REAL_VITEST !== "1") {
+    const out = process.argv[process.argv.indexOf("--artifacts-out") + 1];
+    console.log("TESTS_RUN_GATE " + process.argv.slice(4).join(" "));
+    // Like the real scope reporter without explicit targets: every src/ code file on disk is in the scope.
+    const fs = require("node:fs"), pathModule = require("node:path");
+    const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? walk(pathModule.join(dir, entry.name)) : [pathModule.join(dir, entry.name)]);
+    const targets = walk("src").filter(path => /\\.(ts|tsx|js|mjs|cjs)$/.test(path)).join(",");
+    const child = spawnSync(process.execPath, ["scripts/coverage-fixture.cjs"], { encoding: "utf8", env: { ...process.env,
+        INTERLINKED_PRE_PUSH_COVERAGE_SCOPE: pathModule.join(out, "scope.json"), INTERLINKED_PRE_PUSH_COVERAGE_TARGETS: targets } });
+    process.stdout.write(child.stdout || "");
+    process.stderr.write(child.stderr || "");
+    process.exit(child.status ?? 1);
+}
 require("node:fs").writeFileSync(process.env.COVERAGE_CAPTURE, JSON.stringify(process.argv.slice(2)));
 const result = spawnSync(process.execPath, [${JSON.stringify(join(REPO, "dist/index.js"))}, ...process.argv.slice(2)], { encoding: "utf8" });
 process.stdout.write(result.stdout || "");
@@ -216,7 +231,7 @@ process.exitCode = result.status ?? 1;
         const sha = commit(change);
         measurement.COVERAGE_OMIT = TARGET;
         const result = run([{ sha, remote: "main", old: base }]);
-        expect(result.status).toBe(0);
+        expect(result.status, result.output).toBe(0);
         expect(result.output).toContain("No runtime coverage targets");
     });
 
@@ -268,7 +283,7 @@ process.exitCode = result.status ?? 1;
         baseline.files[path] = { lines_pct: 90, branches_pct: 80 };
         write(".interlinked/coverage-baseline.json", JSON.stringify(baseline));
         const result = run([{ sha, remote: "main", old: base }]);
-        expect(result.status).toBe(0);
+        expect(result.status, result.output).toBe(0);
         expect(result.output).toContain("No runtime coverage targets");
     });
 
@@ -277,7 +292,9 @@ process.exitCode = result.status ?? 1;
         measurement.COVERAGE_OMIT_SCOPE = "1";
         const result = run([{ sha, remote: "main", old: base }]);
         expect(result.status).toBe(1);
-        expect(result.output).toContain("pre-push-coverage-scope.json");
+        // The scheduler route exports the scope beside the summary; a run that leaves none is unavailable, never a pass.
+        expect(result.output).toContain("coverage/scope.json");
+        expect(result.output).toContain("verification unavailable");
     });
 
     it("uses native dynamic coverage exclusions instead of requiring retained out-of-scope baseline entries", () => {
@@ -290,6 +307,7 @@ process.exitCode = result.status ?? 1;
         write("src/probe.test.ts", `import { expect, it } from "vitest"; import { value } from "./well0"; it("returns its value", () => { expect(value()).toBe(1); });`);
         write(TARGET, "export function value() { return 1; }\n");
         const sha = commit("dynamic coverage policy");
+        measurement.COVERAGE_REAL_VITEST = "1";
         measurement.COVERAGE_DYNAMIC_EXCLUDE = "1";
         const excluded = run([{ sha, remote: "main", old: base }]);
         expect(excluded.status, excluded.output).toBe(0);
@@ -313,6 +331,7 @@ process.exitCode = result.status ?? 1;
         const good = commit("fully covered revision");
         write(TARGET, `${goodSource}export function untested() {\n    return 2;\n}\n`);
         const bad = commit("uncovered additional function");
+        measurement.COVERAGE_REAL_VITEST = "1";
         // A newer working-tree report claims full coverage for both revisions.
         // It has no authority over either disposable export.
         write("coverage/coverage-summary.json", JSON.stringify({ [TARGET]: { lines: { pct: 100 }, branches: { pct: 100 }, statements: { pct: 100 }, functions: { pct: 100 } } }));
