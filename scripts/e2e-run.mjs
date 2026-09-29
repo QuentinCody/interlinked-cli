@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { assertE2eBuild, fingerprintTestInputs, hashBytes } from "./e2e-evidence.mjs";
-import { mergeChildCoverage } from "./e2e-coverage-merge.mjs";
+import { mergeChildCoverage, mergeStageRow } from "./e2e-coverage-merge.mjs";
 import { recordStage } from "./e2e-stage-ledger.mjs";
 
 /** Times one stage of this lane into the verification-stages ledger; a thrown failure is recorded before it propagates. */
@@ -82,7 +82,17 @@ async function main() {
     await timed(root, "e2e-tests", "exec_ms", () => runChild(root, ["node_modules/vitest/vitest.mjs", "run", "--config", "vitest.e2e.config.ts"], testEnv));
     await unchanged(root, buildFingerprint, testFingerprint);
     const children = readFileSync(childLedger, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-    const merged = await timed(root, "e2e-merge", "post_ms", () => mergeChildCoverage({ root, v8Directory, inventory, children }));
+    // ONE merge row: post_ms is the whole merge, and the per-phase profile (Unit 6: measure before optimizing) rides in
+    // its detail — never as further rows, which a `--sum post_ms` would add to the total a second time.
+    const mergeStarted = Date.now();
+    let merged;
+    try {
+        merged = await mergeChildCoverage({ root, v8Directory, inventory, children });
+    } catch (error) {
+        recordStage(root, mergeStageRow("failed", Date.now() - mergeStarted, {}));
+        throw error;
+    }
+    recordStage(root, mergeStageRow("passed", Date.now() - mergeStarted, merged.timings));
     await unchanged(root, buildFingerprint, testFingerprint);
     const report = `${JSON.stringify(merged.summary, null, 2)}\n`;
     const evidence = { schema: 1, lane: "e2e", passed: true, run_id: runId, build: buildFingerprint,

@@ -35,21 +35,39 @@ function childReports(v8Directory, children) {
     return files.map((file) => JSON.parse(readFileSync(join(v8Directory, file), "utf8")));
 }
 
-export async function mergeChildCoverage({ root, v8Directory, inventory, children }) {
-    assert(children.length > 0, "No child process coverage evidence");
-    const merged = mergeProcessCovs(childReports(v8Directory, children));
+/**
+ * The ONE ledger row for a merge: `post_ms` is the whole operation, and the per-phase profile travels in `detail`
+ * so the phases are never a second row that `query stages --sum post_ms` would add to the total again.
+ */
+export function mergeStageRow(status, postMs, timings) {
+    return { check: "e2e-merge", status, post_ms: postMs, detail: { ...timings } };
+}
+
+/** Milliseconds since `started`, rounded: the merger's own profile, one number per phase. */
+function elapsed(started) {
+    return Math.round(performance.now() - started);
+}
+
+/** Source-maps every merged dist script into one Istanbul map; returns the map and the sources the maps name. */
+async function convertDistScripts(root, scripts) {
     const coverage = createCoverageMap({});
     const loadedSources = new Set();
-    for (const script of merged.result) {
+    let converted = 0;
+    for (const script of scripts) {
         if (!script.url.startsWith("file:")) continue;
         const file = fileURLToPath(script.url);
         if (!file.startsWith(join(root, "dist/"))) continue;
         const code = readFileSync(file, "utf8");
         const sourceMap = JSON.parse(readFileSync(`${file}.map`, "utf8"));
         for (const source of sourceMap.sources) loadedSources.add(relative(root, resolve(file, "..", source)).replaceAll("\\", "/"));
-        const converted = await convert({ ast: parseAstAsync(code), code, coverage: script, sourceMap, wrapperLength: 0 });
-        coverage.merge(converted);
+        coverage.merge(await convert({ ast: parseAstAsync(code), code, coverage: script, sourceMap, wrapperLength: 0 }));
+        converted += 1;
     }
+    return { coverage, loadedSources, converted };
+}
+
+/** Per-inventory-file summaries and executable models from the merged map; a boundary file without a model is a failure. */
+function summarizeInventory(root, inventory, { coverage, loadedSources }) {
     const summary = {};
     const models = {};
     const byPath = new Map(coverage.files().map((file) => [relative(root, file).replaceAll("\\", "/"), file]));
@@ -63,6 +81,34 @@ export async function mergeChildCoverage({ root, v8Directory, inventory, childre
         // Zero executable lines carry an obligation but no coverage denominator.
         if (counts.lines.total > 0) summary[path] = counts;
     }
+    return { summary, models };
+}
+
+/**
+ * Merges every child's raw V8 output into one Istanbul map over the boundary inventory. `timings` (ms per phase
+ * plus the counts that explain them) is returned beside the result so the runner can ledger each phase: the
+ * numbers come first, and a fix is applied only to the phase the numbers blame.
+ */
+export async function mergeChildCoverage({ root, v8Directory, inventory, children }) {
+    assert(children.length > 0, "No child process coverage evidence");
+    const timings = {};
+    let started = performance.now();
+    const reports = childReports(v8Directory, children);
+    timings.read_ms = elapsed(started);
+    timings.read_files = reports.length;
+    timings.read_scripts = reports.reduce((count, report) => count + report.result.length, 0);
+    started = performance.now();
+    const merged = mergeProcessCovs(reports);
+    timings.merge_ms = elapsed(started);
+    timings.merged_scripts = merged.result.length;
+    started = performance.now();
+    const conversion = await convertDistScripts(root, merged.result);
+    timings.convert_ms = elapsed(started);
+    timings.converted_scripts = conversion.converted;
+    started = performance.now();
+    const { summary, models } = summarizeInventory(root, inventory, conversion);
     verifyCoverageProofs(summary, models);
-    return { summary, coverage: coverage.toJSON(), inventory: Object.keys(summary).sort() };
+    const result = { summary, coverage: conversion.coverage.toJSON(), inventory: Object.keys(summary).sort() };
+    timings.summary_ms = elapsed(started);
+    return { ...result, timings };
 }

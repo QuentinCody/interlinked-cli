@@ -422,6 +422,11 @@ restart`: the daemon serves the build it started with.
 check per pipeline stage: `stage` (`edit` from the hook path, `push` from the
 pre-push hook, `cli` otherwise), `check` (`vitest:selected`, `vitest:full`,
 `npm run typecheck:stable`, `e2e-tests`, `e2e-merge`, …), `queue_ms`,
+(the `e2e-merge` row's `detail` carries the merger's per-phase profile —
+`read_ms`, `merge_ms`, `convert_ms`, `summary_ms` plus file, script and
+conversion counts — on that ONE row, never as further rows, so `--sum post_ms`
+counts a merge once; measured 2026-09-29 the convert phase was 165 s of a
+168 s merge until `ast-v8-to-istanbul` was pinned at 1.0.7, then 2.7 s),
 `wait_capacity_ms`, `validate_ms` (runtime snapshot + hash that decides
 reuse; paid on hits, misses and early stale returns), `lookup_ms`, `exec_ms`,
 `post_ms`, `reused` and

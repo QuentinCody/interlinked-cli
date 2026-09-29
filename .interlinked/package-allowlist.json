@@ -105,6 +105,12 @@
         "approved_by": "qcody",
         "reason": "plan 31 live browser controls (chromium 1217 cached = 1.59.x)",
         "license": "Apache-2.0"
+      },
+      "ast-v8-to-istanbul": {
+        "approved_at": "2026-09-29T13:15:06.194Z",
+        "approved_by": "qcody",
+        "reason": "e2e coverage merger: 1.0.3 Locator.offsetToNeedle rescans the bundle from offset 0 on every new maximum (quadratic, 165 s over 7 MB of dist); 1.0.7 binary-searches line starts",
+        "license": "MIT"
       }
     },
     "pypi": {},
@@ -123,9 +129,9 @@
       "approved_by": "quentincody"
     },
     "package-lock.json": {
-      "sha256": "b4ec508f4c9264f62304265ef2d01bf134fb8f5fafa7482f92f7d3c4715f94c7",
-      "approved_at": "2026-09-01T00:55:50.314Z",
-      "approved_by": "quentincody"
+      "sha256": "8b8377ec698fcbf19f916fd6e7f62438d4776b085632284af10c4f35bfcff024",
+      "approved_at": "2026-09-29T13:15:45.807Z",
+      "approved_by": "qcody"
     }
   }
 }

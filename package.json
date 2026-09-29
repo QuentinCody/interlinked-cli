@@ -123,6 +123,7 @@
         "@types/node": "20.19.33",
         "@vitest/coverage-v8": "4.1.11",
         "ajv": "8.18.0",
+        "ast-v8-to-istanbul": "1.0.7",
         "eslint": "10.9.1",
         "fast-check": "4.7.0",
         "oxlint": "1.85.0",
