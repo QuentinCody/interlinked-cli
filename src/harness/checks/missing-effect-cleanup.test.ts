@@ -78,25 +78,34 @@ describe("checkMissingEffectCleanup — early-return gates", () => {
 
 describe("checkMissingEffectCleanup — positive cases (.tsx, leak flagged)", () => {
 	it("flags addEventListener with no cleanup return", () => {
-		// NB: the component's own `return <div />` must NOT be inside the
-		// effect's scan span (start → next useEffect / EOF), else the heuristic's
-		// `/^\\s*return\\s/` detector trips on it. We place the render return
-		// BEFORE the useEffect so the effect span (to EOF) has no `return`.
 		const code = [
 			"function Widget() {",
-			"  if (!ready) return null;",
 			"  useEffect(() => {",
 			"    window.addEventListener('resize', onResize);",
 			"  }, []);",
+			"  return <div />;",
 			"}",
 		].join("\n");
 		const out = checkMissingEffectCleanup(code, TSX);
 		expect(out).toHaveLength(1);
 		// The match is reported at the useEffect start line (1-based). The
-		// `useEffect(` is on source line 3.
-		expect(nonNull(out[0]).line).toBe(3);
+		// `useEffect(` is on source line 2.
+		expect(nonNull(out[0]).line).toBe(2);
 		expect(nonNull(out[0]).text).toContain("potential memory leak");
 		expect(nonNull(out[0]).text).toContain("useEffect");
+	});
+
+	// test-contract: invariant — the cleanup decision is per STATEMENT, not per line: a one-line effect whose return is bare or a value keyword still leaks, while `{ …; return cleanup; }` on one line does not (review 2026-09-30, round 10)
+	it("flags one-line effects whose return is bare or `null`, not one that returns a cleanup", () => {
+		const code = [
+			"function Widget() {",
+			"  useEffect(() => { const timer = window.setInterval(refresh, 5000); return; }, []);",
+			"  useEffect(() => { window.addEventListener('resize', onResize); return null; }, []);",
+			"  useEffect(() => { const cleanup = store.subscribe(listener); return cleanup; }, []);",
+			"  return <div />;",
+			"}",
+		].join("\n");
+		expect(checkMissingEffectCleanup(code, TSX).map((match) => match.line)).toEqual([2, 3]);
 	});
 
 	it("flags setInterval with no cleanup return", () => {
@@ -164,7 +173,7 @@ describe("checkMissingEffectCleanup — positive cases (.tsx, leak flagged)", ()
 	});
 });
 
-describe("checkMissingEffectCleanup — negative cases (cleanup present, must NOT fire)", () => {
+describe("checkMissingEffectCleanup — distinguishing cleanup from component returns", () => {
 	it("does NOT fire when a `return () => {...}` cleanup is present", () => {
 		const code = [
 			"useEffect(() => {",
@@ -195,21 +204,19 @@ describe("checkMissingEffectCleanup — negative cases (cleanup present, must NO
 		expect(checkMissingEffectCleanup(code, TSX)).toEqual([]);
 	});
 
-	it("does NOT fire for an indented bare `return` line (^\\s*return\\s branch)", () => {
-		// This return matches the second return-detector (line-start whitespace +
-		// `return `) but NOT the first (no function/arrow/identifier-semicolon
-		// after it on the trimmed line) — exercises the `/^\\s*return\\s/` branch.
+	// test-contract: bug — a component's render return does not clean up a subscription created by its effect.
+	it("still flags a subscription when the component later returns its render value", () => {
 		const code = [
-			"useEffect(() => {",
-			"  emitter.on('data', handler);",
-			"    return", // trailing space below makes `return ` match
-			"      teardown();",
-			"}, []);",
+			"function Widget() {",
+			"  useEffect(() => {",
+			"    emitter.on('data', handler);",
+			"  }, []);",
+			"  return <div />;",
+			"}",
 		].join("\n");
-		// Note: the line is "    return" with a trailing space appended next.
-		expect(checkMissingEffectCleanup(code.replace("    return", "    return "), TSX)).toEqual(
-			[],
-		);
+		const out = checkMissingEffectCleanup(code, TSX);
+		expect(out).toHaveLength(1);
+		expect(nonNull(out[0]).line).toBe(2);
 	});
 
 	it("does NOT fire when there is no subscription call (plain effect)", () => {

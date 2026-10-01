@@ -276,9 +276,9 @@ const SKIP_CHAIN_RE = /\.\s*(?:skip|todo)\b/;
 /** Find every non-skipped `it()`/`test()` call's line + body span. Modifier
  *  chains such as `.each(...)` are tolerated on the callee; `.skip`/`.todo`
  *  drop the block entirely (its assertions never run). */
-function findTestBlocks(masked: string): WildcardTestBlock[] {
+function findTestBlocks(masked: string, filePath: string): WildcardTestBlock[] {
 	const blocks: WildcardTestBlock[] = [];
-	const code = maskCommentsAndStrings(masked);
+	const code = maskCommentsAndStrings(masked, filePath);
 	TEST_CALL_RE.lastIndex = 0;
 	let m: RegExpExecArray | null = TEST_CALL_RE.exec(code);
 	while (m !== null) {
@@ -310,7 +310,7 @@ export function checkWildcardInObservable(content: string, filePath: string): In
 	const matches: InlineMatch[] = [];
 	const smokeLines = new Set(checkExportExistenceSmokeTest(content, filePath).map((match) => match.line));
 
-	for (const block of findTestBlocks(masked)) {
+	for (const block of findTestBlocks(masked, filePath)) {
 		if (matches.length >= MAX_MATCHES) break;
 		if (smokeLines.has(block.line)) continue;
 		const match = wildcardBlockMatch(block);

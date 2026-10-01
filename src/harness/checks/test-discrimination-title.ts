@@ -197,7 +197,7 @@ export function checkTestNameMatcherMismatch(content: string, filePath: string):
 	if (!isTestFile(filePath)) return [];
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 
-	const masked = maskCommentsAndStrings(content);
+	const masked = maskCommentsAndStrings(content, filePath);
 	const helperNames = collectAssertHelperNames(masked);
 	const matches: InlineMatch[] = [];
 

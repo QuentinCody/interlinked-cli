@@ -336,9 +336,9 @@ export function checkHappyPathOnlyTest(content: string, filePath: string): Inlin
 
 	// Count cases and collect their names from the original content — the
 	// names ARE string literals, so they must not be stripped.
-	const maskedContent = maskCommentsAndStrings(content);
+	const maskedContent = maskCommentsAndStrings(content, filePath);
 	const executableContent = blankNonExecutingTestCalls(content, maskedContent);
-	const executableMaskedContent = maskCommentsAndStrings(executableContent);
+	const executableMaskedContent = maskCommentsAndStrings(executableContent, filePath);
 	const names: string[] = [];
 	let caseCount = 0;
 	let firstCaseLine = 1;

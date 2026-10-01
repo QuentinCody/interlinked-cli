@@ -132,12 +132,20 @@ function appendTruncationSummary(matches: InlineMatch[], total: number): void {
 
 /** Scan formatter-shaped multi-line imports after comments are blanked. Returns
  *  how many it SAW; `pushMatch` decides how many of those get listed. */
-function pushPrivateImports(matches: InlineMatch[], content: string, lines: readonly string[]): number {
+function pushPrivateImports(matches: InlineMatch[], content: string, lines: readonly string[], filePath: string): number {
 	const commentFree = stripComments(content);
-	const codeMask = maskCommentsAndStrings(content);
+	const codeMask = maskCommentsAndStrings(content, filePath);
 	let total = 0;
-	for (const match of commentFree.matchAll(IMPORT_DECLARATION)) {
+	const declarations = new RegExp(IMPORT_DECLARATION.source, IMPORT_DECLARATION.flags);
+	for (let match = declarations.exec(commentFree); match; match = declarations.exec(commentFree)) {
 		const statement = match[0];
+		const offset = match.index + statement.indexOf("import");
+		if (codeMask.slice(offset, offset + 6) !== "import") {
+			// A masked `import` (inside a fixture string) can span up to a REAL import's `from`; resume right after
+			// the rejected start so that real declaration is matched on its own (review 2026-09-30, round 7).
+			declarations.lastIndex = offset + 1;
+			continue;
+		}
 		const source = match[1] ?? "";
 		if (!importedPrivateSurface(statement, source)) continue;
 		total++;
@@ -165,10 +173,10 @@ export function checkTestLegitimacy(content: string, filePath: string): InlineMa
 	if (!isStrictTestFile(filePath) || !JS_TS_EXTS.has(getExtension(filePath))) return [];
 
 	const lines = content.split("\n");
-	const codeLines = maskCommentsAndStrings(content).split("\n");
+	const codeLines = maskCommentsAndStrings(content, filePath).split("\n");
 	const matches: InlineMatch[] = [];
 	const mutationDirected = MUTATION_DIRECTED_PATH.test(filePath.replace(/\\/g, "/"));
-	let total = pushPrivateImports(matches, content, lines);
+	let total = pushPrivateImports(matches, content, lines, filePath);
 
 	for (let i = 0; i < codeLines.length; i++) {
 		const codeLine = codeLines[i] ?? "";

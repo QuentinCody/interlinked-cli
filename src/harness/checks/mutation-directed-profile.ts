@@ -245,7 +245,7 @@ export function evaluateMutationDirectedSignals(
 function assertionAndCaseLines(content: string, filePath: string): InlineMatch[] {
 	if (!isStrictTestFile(filePath) || !JS_TS_EXTS.has(getExtension(filePath))) return [];
 	const lines = content.split("\n");
-	const codeLines = maskCommentsAndStrings(content).split("\n");
+	const codeLines = maskCommentsAndStrings(content, filePath).split("\n");
 	const out: InlineMatch[] = [];
 	for (let i = 0; i < codeLines.length; i++) {
 		const codeLine = codeLines[i] ?? "";

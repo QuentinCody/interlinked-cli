@@ -184,7 +184,7 @@ export function checkSpyCallUnpinnedArgs(content: string, filePath: string): Inl
 	if (!isTestFile(filePath)) return [];
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 
-	const masked = maskCommentsAndStrings(content);
+	const masked = maskCommentsAndStrings(content, filePath);
 	const matches: InlineMatch[] = [];
 
 	IT_TEST_OPEN_RE.lastIndex = 0;

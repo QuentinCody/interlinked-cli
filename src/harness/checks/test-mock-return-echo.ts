@@ -117,7 +117,7 @@ export function checkMockReturnEcho(content: string, filePath: string): InlineMa
 	if (!isTestFile(filePath)) return [];
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 
-	const masked = maskCommentsAndStrings(content);
+	const masked = maskCommentsAndStrings(content, filePath);
 	const stripped = stripComments(content);
 	const sutBase = sutBaseFromPath(filePath);
 	const importMap = buildImportMap(stripped);

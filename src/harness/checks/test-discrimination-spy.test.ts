@@ -12,6 +12,12 @@ describe("checkSpyCallUnpinnedArgs — positive (must fire)", () => {
 		expect(found[0]?.text).toContain("spy_call_unpinned_args");
 	});
 
+	// test-contract: invariant — a `.test.tsx` file is masked as JSX, so a self-closing tag's slash is not a regex opener and the bare spy assertion after it is still found (review 2026-09-30, round 7)
+	it("P1b: bare toHaveBeenCalled after a JSX element in a .test.tsx file", () => {
+		const found = run(`it("calls save", () => { const view = <div />; expect(spy).toHaveBeenCalled(); });`, "widget.test.tsx");
+		expect(found).toHaveLength(1);
+	});
+
 	it("P2: toHaveBeenCalledTimes(n)", () => {
 		const found = run(`it("calls twice", () => { run(); expect(spy).toHaveBeenCalledTimes(2); });`);
 		expect(found).toHaveLength(1);

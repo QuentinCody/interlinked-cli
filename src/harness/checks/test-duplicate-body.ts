@@ -212,7 +212,7 @@ export function checkDuplicateTestBody(content: string, filePath: string): Inlin
 	if (!isStrictTestFile(filePath)) return [];
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 
-	const masked = maskCommentsAndStrings(content);
+	const masked = maskCommentsAndStrings(content, filePath);
 	const candidates = collectCandidates(content, masked, filePath);
 
 	// Group key: normalized body + setup key (exemption d) — title is

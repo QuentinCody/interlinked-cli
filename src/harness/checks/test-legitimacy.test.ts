@@ -125,6 +125,36 @@ describe("checkTestLegitimacy — black-box and source hygiene", () => {
         expect(found.map((match) => match.line)).toEqual([1, 2, 3, 4]);
     });
 
+    // test-contract: invariant — a quote inside a regex literal before an import is not a string opener; the private import that follows is still flagged (review 2026-09-30)
+    it("P8: flags a private import that follows a regex literal containing a quote", () => {
+        const found = check('const quote = /"/;\nimport { _parse } from "./private/parser";');
+        expect(found.map((match) => match.line)).toEqual([2]);
+        const returned = check('function pattern() { return /"/; }\nimport { _parse } from "./private/parser";');
+        expect(returned.map((match) => match.line)).toEqual([2]);
+    });
+    // test-contract: invariant — valid TypeScript, JSX and regex contexts never hide a finding (review 2026-09-30, round 6): a JSX closing tag, a non-null assertion, a unicode identifier and the identifier `of` before a division keep the assertion visible; a regex after a control paren or after a comment-separated keyword still lets the private import on line 2 be flagged
+    // test-contract: invariant — a fixture string holding `import(...)` at a line start is a rejected match start, and the scan resumes right after it, so the real private import that the rejected match had spanned is still flagged (review 2026-09-30, round 7)
+    it("P10: a real private import after a multiline fixture containing an import is still flagged", () => {
+        const content = ["const fixture = `", 'import("public")', "`;", 'import { _parse } from "./private/parser";'].join("\n");
+        expect(check(content).map((match) => match.line)).toEqual([4]);
+    });
+    it("P9: JSX, non-null, unicode and `of` divisions keep the truthiness finding; control-paren and comment-separated regexes keep the import finding", () => {
+        expect(check("const view = <div>{value}</div>; expect(view).toBeTruthy();", "src/lib/view.test.tsx").map((match) => match.line)).toEqual([1]);
+        for (const division of ["count! / 2", "π / 2", "of / 2"]) {
+            expect(check(`const half = ${division}; expect(half).toBeTruthy();`).map((match) => match.line), division).toEqual([1]);
+        }
+        expect(check('if (ready) /"/.test(text);\nimport { _parse } from "./private/parser";').map((match) => match.line)).toEqual([2]);
+        expect(check('function f() { return/*comment*/typeof /"/; }\nimport { _parse } from "./private/parser";').map((match) => match.line)).toEqual([2]);
+    });
+    // test-contract: invariant — a division after a postfix operator is code, not a regex opener: the assertion after it stays visible and the file is judged on it (review 2026-09-30, round 5)
+    it("N-division: a postfix-operator division does not hide the assertion that follows", () => {
+        const withAssertion = "let count = 4; const half = count++ / 2; expect(half).toBeTruthy();";
+        const withoutAssertion = "let count = 4; const half = count++ / 2;";
+        // The truthiness assertion is the finding; with the division masked as a regex opener it vanished.
+        expect(check(withAssertion).map((match) => match.line)).toEqual([1]);
+        expect(check(withoutAssertion)).toEqual([]);
+    });
+
     it("P7: flags a real require of an internal module", () => {
         const found = check("const parser = require('../internal/parser.js');");
         expect(found).toHaveLength(1);
