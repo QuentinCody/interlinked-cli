@@ -976,6 +976,13 @@ named imports such as `__test_only__`. Cast-based private-member access is a com
 automatically wrong, so this check stays heuristic: exact CLI/help/policy strings are legitimate
 compatibility assertions, while unpromised internal formatting usually is not.
 
+The React `missing_effect_cleanup` advisory recognizes cleanup-shaped returns rather
+than arbitrary component render returns. Shared full-component examples in
+`src/harness/checks/__fixtures__/effect-cleanup-cases.ts` exercise the detector and real
+hook delivery. It still scans to the next effect or EOF; unrelated cleanup-shaped
+returns can hide findings, so do not treat this heuristic as proof of correct disposal
+or promote it to a deterministic block.
+
 Two newer TS type-discipline advisories, both AST-parsed and both `[heuristic]`:
 
 - **`unknown_type_alias`** — a named alias resolving to exactly `unknown`, chased through
@@ -1059,6 +1066,17 @@ second compiler while same-project compiler work is active.
 Different project roots remain independent and may compile concurrently.
 
 ## Reviewing test discrimination
+
+Use paired examples that distinguish a real violation from similar valid code. In
+`test_legitimacy`, import-shaped text inside multiline fixture strings is not a real
+private import; an actual import after that fixture still reports its own line.
+Mutation-directed receipts must be standalone comments, and a specific rationale may
+mention “contract” without being a generic placeholder. Shared behavioral examples can
+drive both a detector unit test and a real hook/daemon e2e test: assert the finding and
+location in the unit lane, and delivery, severity and transport ownership in the e2e lane.
+Neither lane's passing result substitutes for the other. Keep examples and expected
+outcomes separate from implementation-derived values so other language adapters can
+exercise the same requirement through their own public boundaries.
 
 Check-evidence stores must preserve complete result lists. A corpus record with
 missing, non-array, or non-string `hits`, or an adversarial review with malformed

@@ -61,6 +61,11 @@ const CI_STEPS: readonly CiStep[] = [
     { name: "Build e2e coverage artifacts", mirror: "pre-push", command: "npm run build:e2e" },
     { name: "Test (e2e lane with child coverage)", mirror: "pre-push", command: "npm run test:e2e:coverage" },
     { name: "Strict e2e coverage ratchet", mirror: "pre-push", command: "coverage check --lane e2e --strict --require-measured" },
+    {
+        name: "Upload e2e coverage evidence",
+        mirror: "skip",
+        reason: "actions/upload-artifact — CI transport for the merged e2e coverage evidence (Unit 7/9 import seam); the pre-push export keeps its own coverage-e2e/ and nothing consumes the artifact yet",
+    },
 	{ name: "Checkout", mirror: "skip", reason: "git checkout — runner setup, not a check" },
 	{
 		name: "Setup Node.js 22",

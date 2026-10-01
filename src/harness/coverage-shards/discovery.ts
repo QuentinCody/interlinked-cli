@@ -6,21 +6,50 @@ import { pathToFileURL } from "node:url";
 import { isJsonObject } from "../../lib/json-types.js";
 import { runEvidenceProcess } from "../../lib/metrics/evidence-process.js";
 import { captureEvidenceEnvironment } from "../../lib/metrics/evidence-environment.js";
+import { runProcessAsync } from "../check-engine/spawn-async.js";
 import type { SpawnFn } from "../coverage-runner.js";
+import { LEASE_ANCESTORS_ENV, leaseAncestorsForChildren } from "../project-compiler-lock.js";
+import type { ResourceBudget } from "../resource-budget.js";
 import { remainingCoverageTime } from "../coverage-index/runtime-inputs.js";
 import { skipsCoverageOverlayEntry } from "../coverage-overlay.js";
 
 /** Match Vitest's prepareVitest environment before either public API loads config. */
+/**
+ * Variables the SUPERVISING route sets for itself — a bounded runner's per-export outcome record, lease ancestry,
+ * the scope file of one run, a test-capacity scope — and never for the tests. They are removed from the child
+ * environment, not merely ignored: a test cannot read a variable it does not receive, so the environment identity
+ * stays exact AND stable across pushes (each pre-push export carried a fresh outcome path and invalidated the whole
+ * index on every push — found by review 2026-09-29).
+ */
+const SUPERVISOR_ONLY_VARIABLES = ["INTERLINKED_BOUNDED_OUTCOME", "INTERLINKED_LEASE_ANCESTORS", "INTERLINKED_COVERAGE_SCOPE_FILE", "INTERLINKED_TEST_CAPACITY_SCOPE"] as const;
+/**
+ * The shell's and npm's working-directory bookkeeping. Each pre-push export is a fresh directory, so `PWD`
+ * differed between two byte-identical exports of the same revision and the index could never be reused across
+ * pushes (review 2026-09-30). They are removed, not ignored: the child's `process.cwd()` is the workspace either way.
+ */
+const SHELL_CWD_VARIABLES = ["PWD", "OLDPWD", "INIT_CWD"] as const;
+
 export function captureVitestEnvironment(inherited: NodeJS.ProcessEnv = process.env): ReturnType<typeof captureEvidenceEnvironment> {
-    return captureEvidenceEnvironment({ ...inherited, TEST: "true", VITEST: "true", NODE_ENV: inherited.NODE_ENV ?? "test" });
+    const environment: NodeJS.ProcessEnv = { ...inherited, TEST: "true", VITEST: "true", NODE_ENV: inherited.NODE_ENV ?? "test" };
+    for (const name of [...SUPERVISOR_ONLY_VARIABLES, ...SHELL_CWD_VARIABLES]) delete environment[name];
+    return captureEvidenceEnvironment(environment);
 }
 
-/** Exact child environment stays in memory; persisted index fields contain only its digest. */
-export function coverageIndexSpawn(environment: NodeJS.ProcessEnv): SpawnFn {
+/**
+ * The instrumented capture child, SUPERVISED the way the test scheduler's child is: the exact identity environment
+ * (persisted index fields carry only its digest) plus this process's lease ancestry, added at spawn time so a test
+ * that takes the host lease itself is not deadlocked by the run hosting it; the admitted memory budget is enforced
+ * over the whole child tree; a kill or an exceeded budget is an error, never a failed test verdict. A worker cap
+ * alone was no supervision (review 2026-09-30).
+ */
+export function coverageIndexSpawn(environment: NodeJS.ProcessEnv, resourceBudget: ResourceBudget): SpawnFn {
     return async (command, args, options) => {
-        const result = await runEvidenceProcess({ cwd: options.cwd, argv: [command, ...args], timeoutMs: Math.max(1, Math.floor(options.timeout)), environment });
-        return { stdout: result.output, stderr: "", status: result.outcome === "passed" ? 0 : 1,
-            ...(result.outcome === "timeout" || result.outcome === "error" || result.outcome === "cancelled" ? { error: new Error(`Coverage child ${result.outcome}`) } : {}) };
+        const result = await runProcessAsync(command, args, { cwd: options.cwd, timeout: Math.max(1, Math.floor(options.timeout)), resourceBudget,
+            exactEnv: { ...environment, [LEASE_ANCESTORS_ENV]: leaseAncestorsForChildren() } });
+        const interrupted = result.killed || result.timedOut || result.code === null;
+        if (!interrupted) return { stdout: result.stdout, stderr: result.stderr, status: result.code ?? 1 };
+        const cause = result.resourceReason ?? (result.timedOut ? "timeout" : "killed");
+        return { stdout: result.stdout, stderr: result.stderr, status: result.code ?? 1, error: new Error(`Coverage child interrupted: ${cause}`) };
     };
 }
 function discoverySource(module: string, root: string, output: string): string {

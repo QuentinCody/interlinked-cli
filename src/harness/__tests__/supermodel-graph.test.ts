@@ -1,15 +1,17 @@
 import {
 	chmodSync,
+	cpSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { CohortManager } from "../cohort.js";
 import { evaluatePreToolUse } from "../evaluator.js";
@@ -25,6 +27,15 @@ import { makeEvent, makeSession } from "./fixtures/evaluator.js";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const FIXTURES_DIR = resolve(HERE, "fixtures", "supermodel");
+// Every evaluator run is rooted at a fresh COPY of the fixture: the harness writes its ledgers under
+// `<cwd>/.interlinked/`, and rooting at the committed fixture wrote them into this checkout — the coverage
+// index then saw the tree change during the run (found 2026-09-29).
+let evalRoot: string;
+beforeEach(() => {
+	evalRoot = realpathSync(mkdtempSync(join(tmpdir(), "supermodel-fixture-")));
+	cpSync(FIXTURES_DIR, evalRoot, { recursive: true });
+});
+afterEach(() => rmSync(evalRoot, { recursive: true, force: true }));
 
 function fixtureContent(name: string): string {
 	return readFileSync(join(FIXTURES_DIR, name), "utf8");
@@ -402,7 +413,7 @@ describe("parseGraphFile", () => {
 
 describe("loadGraphForFile", () => {
 	it("loads via absolute source path", () => {
-		const sourcePath = join(FIXTURES_DIR, "high-risk.ts");
+		const sourcePath = join(evalRoot,"high-risk.ts");
 		const graph = loadGraphForFile(sourcePath);
 		expect(graph).not.toBeNull();
 		expect(graph!.impact?.risk).toBe("HIGH");
@@ -418,7 +429,7 @@ describe("loadGraphForFile", () => {
 	});
 
 	it("returns null when the shard file is missing", () => {
-		const sourcePath = join(FIXTURES_DIR, "does-not-exist.ts");
+		const sourcePath = join(evalRoot,"does-not-exist.ts");
 		expect(loadGraphForFile(sourcePath)).toBeNull();
 	});
 
@@ -506,10 +517,10 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 		const event = makeEvent({
 			tool_name: "Write",
 			tool_input: {
-				file_path: join(FIXTURES_DIR, "high-risk.ts"),
+				file_path: join(evalRoot,"high-risk.ts"),
 				content: "// stub",
 			},
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const warning = findGraphWarning(decision.warnings);
@@ -533,7 +544,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 				old_string: "a",
 				new_string: "b",
 			},
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const warning = findGraphWarning(decision.warnings);
@@ -553,7 +564,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 				file_path: "low-risk.ts",
 				content: "// stub",
 			},
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		expect(findGraphWarning(decision.warnings)).toBeUndefined();
@@ -594,7 +605,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 		const event = makeEvent({
 			tool_name: "Write",
 			tool_input: { file_path: "no-affects.ts", content: "// stub" },
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const warning = findGraphWarning(decision.warnings);
@@ -607,7 +618,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 		const event = makeEvent({
 			tool_name: "Write",
 			tool_input: { file_path: "no-such-file.ts", content: "// stub" },
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		expect(findGraphWarning(decision.warnings)).toBeUndefined();
@@ -617,7 +628,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 		const event = makeEvent({
 			tool_name: "Write",
 			tool_input: { file_path: "high-risk.ts", content: "// stub" },
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		expect(findGraphWarning(decision.warnings)).toBeDefined();
@@ -641,7 +652,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 					"*** End Patch",
 				].join("\n"),
 			},
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const graphWarnings = findAllGraphWarnings(decision.warnings);
@@ -669,7 +680,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 						"*** End Patch",
 					].join("\n"),
 				},
-				cwd: FIXTURES_DIR,
+				cwd: evalRoot,
 			});
 			const decision = evaluatePreToolUse(
 				event,
@@ -698,7 +709,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 					"*** End Patch",
 				].join("\n"),
 			},
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const warning = findGraphWarning(decision.warnings);
@@ -711,7 +722,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 		const event = makeEvent({
 			tool_name: "Write",
 			tool_input: { target_file: "high-risk.ts", content: "// stub" },
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const warning = findGraphWarning(decision.warnings);
@@ -724,7 +735,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 			tool_name: "Write",
 			tool_input: { content: "// stub" },
 			files_modified: ["high-risk.ts"],
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const warning = findGraphWarning(decision.warnings);
@@ -736,7 +747,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 		const event = makeEvent({
 			tool_name: "Read",
 			tool_input: { file_path: "high-risk.ts" },
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		expect(findGraphWarning(decision.warnings)).toBeUndefined();
@@ -746,7 +757,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 		const event = makeEvent({
 			tool_name: "Write",
 			tool_input: { file_path: "high-risk.ts", content: "// stub" },
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const graphWarnings = findAllGraphWarnings(decision.warnings);
@@ -764,7 +775,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 		const event = makeEvent({
 			tool_name: "Write",
 			tool_input: { file_path: "high-risk.ts", content: "// stub" },
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const graphWarnings = findAllGraphWarnings(decision.warnings);
@@ -781,7 +792,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 				old_string: "a",
 				new_string: "b",
 			},
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const graphWarnings = findAllGraphWarnings(decision.warnings);
@@ -794,7 +805,7 @@ describe("evaluatePreToolUse — Supermodel graph awareness", () => {
 		const event = makeEvent({
 			tool_name: "Write",
 			tool_input: { file_path: "no-affects.ts", content: "// stub" },
-			cwd: FIXTURES_DIR,
+			cwd: evalRoot,
 		});
 		const decision = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		const graphWarnings = findAllGraphWarnings(decision.warnings);

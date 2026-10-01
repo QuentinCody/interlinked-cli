@@ -3,7 +3,7 @@ import { buildTestDependencyGraph, testDependencyClosure } from "./test-dependen
 import type { RepositoryInventory } from "../lib/metrics/measurement-types.js";
 
 function graphInventory(files: Record<string, string>): RepositoryInventory {
-    return { version: "interlinked-source-roles-v2", root: "/repo", discovery: "git", gaps: [], excluded: [], issues: [], inputHash: "", sourceHash: "",
+    return { version: "interlinked-source-roles-v3", root: "/repo", discovery: "git", gaps: [], excluded: [], issues: [], inputHash: "", sourceHash: "",
         files: Object.entries(files).map(([path, content]) => ({ path, content, role: "product", language: "typescript", sha256: content })) };
 }
 

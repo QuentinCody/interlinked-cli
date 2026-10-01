@@ -1,13 +1,19 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const REPO = resolve(import.meta.dirname, "../..");
 const ZERO = "0".repeat(40);
 const TARGET = "src/well0.ts";
-const COMMIT_DATE = "2026-01-01T00:00:00Z";
+// Every case spawns the real hook (some four times) with real git and, in two cases, real Vitest. Plainly the file
+// takes ~50 s; under the coverage index's instrumented capture beside other shards it took 75 s and one case tripped
+// the global 30 s test timeout, which turned the whole index unavailable (measured 2026-09-29 in a HEAD export).
+// The cases are bounded by their own 60 s spawn timeouts; the per-test budget must exceed the heaviest of them.
+vi.setConfig({ testTimeout: 180_000, hookTimeout: 180_000 });
+
+const COMMIT_DATE ="2026-01-01T00:00:00Z";
 const FILES = Array.from({ length: 20 }, (_, index) => `src/well${index}.ts`);
 const E2E_SCRIPTS = {
     "build:e2e": "echo E2E_BUILD_GATE", "test:e2e:coverage": "echo E2E_TEST_GATE",
@@ -93,6 +99,18 @@ if (process.argv[2] === "tests" && process.argv[3] === "run" && process.env.COVE
     process.stderr.write(child.stderr || "");
     process.exit(child.status ?? 1);
 }
+// Unit 7 comparison mode (\`coverage check --from-index …\`): the stub plays the index route's verdict so the
+// hook's ledger row can be pinned without an index; COVERAGE_INDEX_STUB = agree | disagree | unavailable.
+if (process.argv.includes("--from-index")) {
+    // The hook captures this command's stdout as the JSON verdict, so the marker goes to stderr like the real CLI's notes.
+    console.error("INDEX_ROUTE " + process.argv.slice(2).join(" "));
+    const mode = process.env.COVERAGE_INDEX_STUB || "agree";
+    if (mode === "unavailable") { console.error("Coverage index produced no verdict: stubbed"); process.exit(75); }
+    const changed = process.argv[process.argv.indexOf("--changed-files") + 1].split(",");
+    const findings = mode === "disagree" ? [{ name: "coverage_decrease", severity: "warning", file: changed[0], metric: "lines", baseline_pct: 90, current_pct: 10, delta_pct: -80, message: "stubbed" }] : [];
+    console.log(JSON.stringify({ report: "coverage index (0/2 test files re-ran)", findings, stats: { files_checked: changed.length, files_new: 0, files_decreased: findings.length }, partialReport: { partial: false } }));
+    process.exit(findings.length ? 1 : 0);
+}
 require("node:fs").writeFileSync(process.env.COVERAGE_CAPTURE, JSON.stringify(process.argv.slice(2)));
 const result = spawnSync(process.execPath, [${JSON.stringify(join(REPO, "dist/index.js"))}, ...process.argv.slice(2)], { encoding: "utf8" });
 process.stdout.write(result.stdout || "");
@@ -173,6 +191,56 @@ process.exitCode = result.status ?? 1;
         expect(passing.output).toContain("E2E_RATCHET_GATE coverage check --lane e2e --strict --require-measured --report coverage-e2e/coverage-summary.json");
         report(false, true);
         expect(run(updates).status).toBe(1);
+    });
+
+    // test-contract: invariant — Unit 7 comparison mode is ADVISORY: after the authoritative full route the hook measures the export through the source checkout's coverage index, appends both verdicts to .interlinked/coverage-index-comparison.jsonl, and neither an index disagreement nor an index with no verdict changes the push's exit
+    it("records the index comparison row beside the full verdict and never lets it decide the push", () => {
+        const sha = codeCommit();
+        report();
+        const updates = [{ sha, remote: "main", old: base }];
+        const ledger = join(root, ".interlinked", "coverage-index-comparison.jsonl");
+        // SAFETY: the ledger is written only by the hook's comparison step, one JSON object per line with exactly these fields.
+        const rows = () => readFileSync(ledger, "utf8").trim().split("\n").map(line => JSON.parse(line) as { push_sha: string; agree: boolean; full: { files_checked: number }; index: { exit: number; unavailable?: boolean } });
+        const agreeing = run(updates);
+        expect(agreeing.status).toBe(0);
+        // The hook's source_root is `pwd -P`: the real path of the fixture (macOS /tmp → /private/tmp).
+        expect(agreeing.output).toContain(`INDEX_ROUTE coverage check --from-index --index-store ${realpathSync(root)} --workers 1 --strict --changed-files ${TARGET} --json`);
+        expect(agreeing.output).toContain("coverage index AGREES with the full run");
+        // The comparison runs tests in the export, so on a passing push it comes LAST — after the e2e ratchet and
+        // packaging — and no authoritative gate reads bytes it could have modified (review 2026-09-30).
+        expect(agreeing.output.indexOf("INDEX_ROUTE")).toBeGreaterThan(agreeing.output.indexOf("E2E_RATCHET_GATE"));
+        expect(rows()).toMatchObject([{ push_sha: sha, agree: true, full: { files_checked: 1 }, index: { exit: 0 } }]);
+        measurement = { ...measurement, COVERAGE_INDEX_STUB: "disagree" };
+        const disagreeing = run(updates);
+        expect(disagreeing.status).toBe(0);
+        expect(disagreeing.output).toContain("coverage index DISAGREES with the full run");
+        expect(rows()[1]).toMatchObject({ push_sha: sha, agree: false, index: { exit: 1 } });
+        measurement = { ...measurement, COVERAGE_INDEX_STUB: "unavailable" };
+        const unavailable = run(updates);
+        expect(unavailable.status).toBe(0);
+        expect(unavailable.output).toContain("coverage index: no verdict (exit 75)");
+        expect(rows()[2]).toMatchObject({ push_sha: sha, agree: false, index: { exit: 75, unavailable: true } });
+        measurement = { ...measurement, INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE: "1" };
+        expect(run(updates).status).toBe(0);
+        expect(rows()).toHaveLength(3);
+    });
+
+    // test-contract: invariant — a measured coverage REGRESSION is a valid full verdict: the push is still refused (the full route decides) but the comparison row is recorded with the full route's findings, so the ledger sees disagreements in both directions, not only agreements (review 2026-09-30); a partial full result is no verdict and records nothing
+    it("records the comparison row for a failing full verdict and still refuses the push", () => {
+        const sha = codeCommit();
+        report(false, true);
+        const updates = [{ sha, remote: "main", old: base }];
+        const ledger = join(root, ".interlinked", "coverage-index-comparison.jsonl");
+        const regression = run(updates);
+        expect(regression.status).toBe(1);
+        expect(regression.output).toContain("Coverage findings remain in the push scope.");
+        expect(regression.output).toContain("coverage index DISAGREES with the full run");
+        // SAFETY: the ledger is written only by the hook's comparison step, one JSON object per line with exactly these fields.
+        const rows = readFileSync(ledger, "utf8").trim().split("\n").map(line => JSON.parse(line) as { push_sha: string; agree: boolean; full: { findings: string[] }; index: { exit: number } });
+        expect(rows).toMatchObject([{ push_sha: sha, agree: false, full: { findings: [TARGET] }, index: { exit: 0 } }]);
+        report(true);
+        expect(run(updates).status).toBe(1);
+        expect(readFileSync(ledger, "utf8").trim().split("\n")).toHaveLength(1);
     });
 
     it("retains code from an earlier ref when the last ref changes only docs", () => {
@@ -337,9 +405,9 @@ process.exitCode = result.status ?? 1;
         write("coverage/coverage-summary.json", JSON.stringify({ [TARGET]: { lines: { pct: 100 }, branches: { pct: 100 }, statements: { pct: 100 }, functions: { pct: 100 } } }));
         const reportBefore = readFileSync(join(root, "coverage/coverage-summary.json"), "utf8");
         const cleanOlderRevision = run([{ sha: good, remote: "main", old: base }]);
-        expect(cleanOlderRevision.status).toBe(0);
+        expect(cleanOlderRevision.status, cleanOlderRevision.output).toBe(0);
         const both = run([{ sha: good, remote: "main", old: base }, { sha: bad, remote: "master", old: good }]);
-        expect(both.status).toBe(1);
+        expect(both.status, both.output).toBe(1);
         expect(both.output).toContain(`typecheck + tests pass for ${good}`);
         expect(both.output).toContain(`verification failed or unavailable for ${bad}`);
         expect(both.output).toContain('"current_pct": 50');

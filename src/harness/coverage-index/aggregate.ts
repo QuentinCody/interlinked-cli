@@ -57,6 +57,22 @@ export function unionElementSets(
 }
 
 /**
+ * Fold ONE shard's contribution into a running aggregate, in place. This is the streaming form of
+ * {@link aggregateFiles}: a 2501-shard repository could not hold every contribution at once (heap exhaustion
+ * at the default limit, 2026-09-29), so the controller folds each shard as it is read and never retains it.
+ * Union semantics are exactly {@link unionElementSets}' (key union, hits summed).
+ */
+export function foldContribution(
+	aggregate: Map<string, CanonicalCoverageElementSet>,
+	contribution: ShardCoverageContribution,
+): void {
+	for (const [file, elements] of contribution.files) {
+		const existing = aggregate.get(file);
+		aggregate.set(file, existing ? unionElementSets([existing, elements]) : unionElementSets([elements]));
+	}
+}
+
+/**
  * Build the per-file aggregate from scratch: every file any shard touched,
  * mapped to the union of all contributions for it. The full-rebuild path —
  * incremental updates go through {@link replaceShards} + {@link updateAggregate}.

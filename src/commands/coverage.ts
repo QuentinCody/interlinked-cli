@@ -39,6 +39,9 @@ import {
 	type PartialReportVerdict,
 	saveBaseline,
 } from "../harness/coverage-ratchet.js";
+import { indexedCoverageSummary } from "../harness/coverage-index/summary.js";
+import { NO_VERDICT_EXIT_CODE } from "../harness/resource-command.js";
+import { recordVerificationStage, stageFromEnvironment } from "../harness/verification-stages.js";
 import { parseChangedFiles } from "../lib/changed-files-option.js";
 import { getConfigDir } from "../lib/config.js";
 import { c, header, kvLine } from "../lib/formatter.js";
@@ -68,6 +71,11 @@ interface CoverageCheckOptions {
 	strict?: boolean;
 	cwd?: string;
 	json?: boolean;
+	/** Unit 7: measure through the coverage index instead of reading a report. */
+	fromIndex?: boolean;
+	indexStore?: string;
+	timeout?: string;
+	workers?: string;
 }
 
 export async function coverageCheckCommand(opts: CoverageCheckOptions): Promise<void> {
@@ -78,7 +86,8 @@ export async function coverageCheckCommand(opts: CoverageCheckOptions): Promise<
 
 	try {
 		if (opts.initBaseline || opts.map || opts.base) throw new Error("--init-baseline, --map and --base require --lane e2e");
-		runCoverageCheck(mode, cwd, configDir, opts);
+		if (opts.fromIndex) await runIndexedCoverageCheck(mode, cwd, configDir, opts);
+		else runCoverageCheck(mode, cwd, configDir, opts);
 	} catch (err) {
 		outputError(mode, err instanceof Error ? err.message : String(err));
 		process.exitCode = 1;
@@ -113,9 +122,69 @@ function runCoverageCheck(
 		process.exitCode = 1;
 		return;
 	}
-	const summary = loaded.summary;
-	const reportPath = reportPaths.join(" + ");
+	judgeCoverageSummary(mode, cwd, configDir, opts, loaded.summary, reportPaths.join(" + "));
+}
 
+/** Milliseconds the index route may spend; the flag is bounded so a typo cannot mean "forever". */
+function indexWorkers(value: string | undefined): number {
+	const workers = Number(value ?? 1);
+	if (!Number.isSafeInteger(workers) || workers < 1 || workers > 64) throw new Error("--workers must be 1–64");
+	return workers;
+}
+
+function indexTimeoutMs(value: string | undefined): number {
+	const timeout = Number(value ?? 3_600_000);
+	if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 3_600_000) throw new Error("--timeout must be 1–3600000 ms");
+	return timeout;
+}
+
+/**
+ * Unit 7: the ratchet over the coverage INDEX. Only the shards whose inputs changed re-run; every other
+ * shard's recorded contribution and the zeroed denominators stay, so the summary is full-shaped. One ledger row
+ * says whether anything re-ran (`reused`) and, when the index could not certify, why (`reuse_denied_reason`) —
+ * that case is NO verdict (exit 75), never a pass and never a partial report.
+ */
+async function runIndexedCoverageCheck(
+	mode: ReturnType<typeof getOutputMode>,
+	cwd: string,
+	configDir: string,
+	opts: CoverageCheckOptions,
+): Promise<void> {
+	const timeoutMs = indexTimeoutMs(opts.timeout);
+	const started = Date.now();
+	// Anything the index route throws past its own unavailable handling is still NO verdict at this boundary:
+	// the row and exit 75 are owed whatever the failure's shape (found by review 2026-09-29).
+	const outcome = await indexedCoverageSummary({ root: cwd, timeoutMs, workers: indexWorkers(opts.workers), ...(opts.indexStore !== undefined ? { storeRoot: resolve(opts.indexStore) } : {}) })
+		.catch((error: unknown) => ({ indexed: false as const, reason: error instanceof Error ? error.message : String(error), validate_ms: 0, exec_ms: Date.now() - started }));
+	const stage = stageFromEnvironment("cli");
+	if (!outcome.indexed) {
+		recordVerificationStage(cwd, { stage, check: "coverage:index", identity: null, status: "unavailable", reused: false, reuse_denied_reason: `plan-not-reusable:${outcome.reason}`, validate_ms: outcome.validate_ms, exec_ms: outcome.exec_ms });
+		outputError(mode, `Coverage index produced no verdict: ${outcome.reason}`);
+		process.exitCode = NO_VERDICT_EXIT_CODE;
+		return;
+	}
+	const result = judgeCoverageSummary(mode, cwd, configDir, opts, outcome.summary, `coverage index (${outcome.rerunTests}/${outcome.universeTests} test files re-ran)`);
+	if (result.partialReport?.partial) {
+		// The ratchet judged the index summary partial (findings are then EMPTY by construction): that is no verdict,
+		// never a pass — exit 75 like an uncertified index, whatever --strict said (found by review 2026-09-29).
+		const reason = `partial-report:${result.partialReport.reason}`;
+		recordVerificationStage(cwd, { stage, check: "coverage:index", identity: null, status: "unavailable", reused: outcome.rerunTests === 0, reuse_denied_reason: `plan-not-reusable:${reason}`, validate_ms: outcome.validate_ms, exec_ms: outcome.exec_ms });
+		outputError(mode, `Coverage index produced no verdict: ${reason}`);
+		process.exitCode = NO_VERDICT_EXIT_CODE;
+		return;
+	}
+	recordVerificationStage(cwd, { stage, check: "coverage:index", identity: null, status: result.findings.length ? "findings" : "passed", reused: outcome.rerunTests === 0, validate_ms: outcome.validate_ms, exec_ms: outcome.exec_ms });
+}
+
+/** Compare one full-shaped summary against the baseline, render, persist on request and set the exit code. */
+function judgeCoverageSummary(
+	mode: ReturnType<typeof getOutputMode>,
+	cwd: string,
+	configDir: string,
+	opts: CoverageCheckOptions,
+	summary: CoverageSummary,
+	reportPath: string,
+): CoverageRatchetResult {
 	const policy = loadCheckPolicy(cwd);
 	const baseline = loadBaseline(configDir);
 	const changedFiles = parseChangedFiles(opts.changedFiles);
@@ -150,6 +219,7 @@ function runCoverageCheck(
 	}
 
 	applyCoverageExitPolicy(result, opts);
+	return result;
 }
 
 function applyCoverageExitPolicy(result: CoverageRatchetResult, opts: CoverageCheckOptions): void {

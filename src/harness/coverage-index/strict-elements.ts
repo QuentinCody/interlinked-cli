@@ -1,16 +1,21 @@
 import type { JsonObject } from "../../lib/json-types.js";
 import { artifactSourcePath, natural, record, sourceSpan } from "../../lib/metrics/evidence-json.js";
-import { parseIstanbulEvidence } from "../../lib/metrics/evidence-coverage.js";
+import { branchOutcomeHits, parseIstanbulEvidence } from "../../lib/metrics/evidence-coverage.js";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
 import type { CanonicalCoverageElementSet, ShardCoverageContribution } from "./types.js";
 import { readFileSync } from "node:fs";
 import { containedFile } from "../../lib/metrics/inventory.js";
 import { functionLocationKey } from "./function-location.js";
-import { coverageBranchLocations } from "../../lib/metrics/coverage-span.js";
+import { coverageBranchLocations, coverageSpan } from "../../lib/metrics/coverage-span.js";
 
-/** Location identities include both endpoints; reporter-local numeric IDs never cross shards. */
+/**
+ * Location identities include both endpoints; reporter-local numeric IDs never cross shards. The V8→istanbul
+ * converter serializes an open-ended statement end as `column: null` (2 of every 3 statements in this repo's own
+ * report); `coverageSpan` keeps that boundary as end-of-line, where the strict parser refused it and the first
+ * full capture of this repository produced no index (2026-09-29).
+ */
 function spanKey(value: unknown): string {
-    const span = sourceSpan(value);
+    const span = coverageSpan(value);
     return JSON.stringify([span.line, span.column, span.endLine, span.endColumn]);
 }
 function readSpanKey(key: string): ReturnType<typeof sourceSpan> {
@@ -33,7 +38,8 @@ function branches(data: JsonObject): Map<string, number> {
         const branch = record(value, "branch"), locations = coverageBranchLocations(value), hits = counts[id];
         if (!Array.isArray(locations) || !Array.isArray(hits)) throw new Error("Invalid branch arrays");
         const context = JSON.stringify([branch.type, locations.map(spanKey)]);
-        locations.forEach((_, index) => put(output, `${context}:${index}`, hits[index]));
+        // A negative implicit-else count (converter subtraction noise) is 0 hits here as in the evidence validator.
+        locations.forEach((_, index) => put(output, `${context}:${index}`, branchOutcomeHits(hits[index])));
     }
     return output;
 }
@@ -47,12 +53,24 @@ export function strictElements(raw: unknown, root: string): Map<string, Canonica
     parseIstanbulEvidence(raw, root);
     return new Map(Object.entries(record(raw, "report")).map(([path, file]) => [artifactSourcePath(root, path), fileElements(file, readFileSync(containedFile(root, path), "utf8"), path)]));
 }
+/**
+ * A statement belongs to a function when it starts inside it and ends inside it. A statement with an OPEN-ENDED end
+ * (`column: null` → end-of-line) on the function's last line is contained too: the function's end is resolved to a
+ * finite column from the source while the statement's is not, and comparing the two excluded every terminal statement
+ * from the function's statement ratio (a two-statement function with hits [1, 0] read 100%; review 2026-09-30).
+ */
+function containsStatement(fn: ReturnType<typeof readSpanKey>, statement: ReturnType<typeof readSpanKey>): boolean {
+    const startsInside = statement.line > fn.line || statement.line === fn.line && statement.column >= fn.column;
+    // The open-ended exception applies only to a statement that BEGINS before the function's end: one starting after
+    // the closing column on that line belongs to whatever follows the function (review 2026-09-30, round 4).
+    const startsBeforeEnd = statement.line < fn.endLine || statement.line === fn.endLine && statement.column < fn.endColumn;
+    const openEnded = statement.endColumn === Number.MAX_SAFE_INTEGER && startsBeforeEnd;
+    const endsInside = statement.endLine < fn.endLine || statement.endLine === fn.endLine && (openEnded || statement.endColumn <= fn.endColumn);
+    return startsInside && endsInside;
+}
 function functionCoverage(key: string, hits: number, statements: Map<string, number>): PerFileCoverage["functions"][number] {
-    const { line, column, endLine, endColumn } = readSpanKey(key);
-    const within = [...statements].filter(([span]) => {
-        const { line: start, column: startColumn, endLine: end, endColumn: finishColumn } = readSpanKey(span);
-        return (start > line || start === line && startColumn >= column) && (end < endLine || end === endLine && finishColumn <= endColumn);
-    });
+    const fn = readSpanKey(key), { line, column, endLine } = fn;
+    const within = [...statements].filter(([span]) => containsStatement(fn, readSpanKey(span)));
     return { name: `function@${line}:${column}`, line, endLine, hits, statement_pct: within.length ? within.filter(([, count]) => count > 0).length / within.length * 100 : hits > 0 ? 100 : 0 };
 }
 export function elementsToCoverage(files: Map<string, CanonicalCoverageElementSet>): Map<string, PerFileCoverage> {

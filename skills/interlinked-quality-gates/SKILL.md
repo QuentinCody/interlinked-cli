@@ -756,6 +756,23 @@ refactor-resistance, and blinded-review protocol is currently a design workflow,
 single command; see `docs/design/session-2026-08-11-synthesis.md` Part 6. Do not claim those
 evidence layers ran merely because `mutation measure` succeeded.
 
+For survivor repair, first reproduce against current source, tests, fixtures and runner
+configuration. A live worker or HTTP health response is not proof of measurement. Retain
+the initial green test execution, full report and input identities; match the same mutant
+before/after, and keep timeouts, uncovered sites and changed-scope results separate from
+kills. A fixture missing from a runner checkout is a delivery failure: preserve and ship
+the fixture rather than excluding its test. Dispatch agents from the freshly reproduced
+survivor set; historical logs can contain mutants already killed by existing tests. Keep
+realistic failing application examples intact while investigating a source defect; do not
+remove surrounding context merely to get green tests. Document equivalent mutations with
+their supported-input reasoning instead of inventing impossible private-helper inputs.
+A collected-test inventory is not an executed
+test count. Do not add malformed inputs or private-state assertions solely to kill an
+equivalent mutant; derive the observable obligation first. Where a behavior crosses a CLI
+or hook boundary, share concrete input/expected-outcome examples between unit and e2e
+tests, with independent assertions at each boundary. Local personal runner automation
+does not establish a supported local-mutation product feature or autonomous repair service.
+
 **Baseline-integrity** — a PreToolUse block on any edit that loosens a water-line file (below).
 Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline change with
 `INTERLINKED_DISABLE_BASELINE_GUARD=1` (logged). A commit-gate backstop closes the
@@ -778,6 +795,7 @@ Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline 
 | `interlinked metrics arch [--cwd <path>] [--json]` | Import graph statistics including isolated modules; graphVersion 2 retains N² propagation cost and adds normalizedReach with N(N−1). |
 | `interlinked metrics split-plan <file>` | Where to cut one over-cap file: 2–4 cohesive modules from the intra-file reference graph. |
 | `interlinked coverage check [--strict] [--changed-files a,b] [--report <p>] [--update-baseline] [--json]` | Full-suite per-file coverage ratchet vs `coverage-baseline.json`. ADVISORY by default (exit 0 with findings); `--strict` exits 1 on any per-file drop; `--changed-files` scopes to a comma-separated list (what the pre-push hook passes). |
+| `interlinked coverage check --from-index [--index-store <root>] [--timeout <ms>] …` | The same ratchet over the coverage INDEX: only changed test shards re-run, the rest of the universe is reused (full-shaped summary). Exit 75 = no verdict (the index could not certify); one `coverage:index` stage row. The pre-push hook runs it in comparison mode only. |
 | `interlinked mutation check [--report <p>] [--update-baseline]` | Per-file mutation-score ratchet vs `mutation-baseline.json` (needs a Stryker report). |
 | `interlinked mutation measure <file> [--record]` | Measure one source file; `--record` persists a complete, conclusive measured report as an explicit manifest baseline update. Recording is not a clean verdict. |
 | `interlinked mutation survivors [--file <substr>]` | Rank open manifest survivors by file, symbol, and mutator. |
@@ -1024,6 +1042,62 @@ certify coverage. The CLI's existing advisory/partial-report exit behavior is
 unchanged. Coverage instrumentation increases source-push verification time;
 there is no second uninstrumented test run. Working-tree files and reports are
 left untouched.
+
+`coverage check --from-index [--index-store <root>] [--timeout <ms>]` (Unit 7,
+2026-09-29) is the ratchet over that index instead of a report: only the test
+shards whose transitive inputs changed re-run, every other shard's recorded
+contribution and the zeroed `@denominators` shard stay, so the summary is
+full-shaped and the ratchet can judge it (a report assembled from selected tests
+alone reads as partial and certifies nothing). `--index-store` names the checkout
+whose `.interlinked/coverage-index/` holds the index, so a disposable pre-push
+export measures against the source checkout's index the way `--receipt-store`
+reuses its receipts. When the index cannot certify (a failed or unstable shard,
+a changed runtime, quarantine, or a missing index whose full warm then failed)
+the command exits 75 — no verdict, never a pass — and the `coverage:index`
+stage row carries the reason as `reuse_denied_reason`; `reused: true` means no
+shard re-ran. The route is ADMITTED like a scheduled test run
+(`coverage-index/admission.ts`: the project's heavy-process lease, the
+foreground host slot, then a memory budget the capture's child tree is
+supervised against — a refused admission is exit 75 with its reason), and a run
+that captured shards ACCEPTS its proposal before returning (a proposal the
+current bytes no longer match is no verdict). The test child's environment
+identity excludes the supervisor's own variables and the shell's working
+directory (`PWD`, `OLDPWD`, `INIT_CWD`), so two exports of one revision share
+one identity. The pre-push hook runs this route in COMPARISON MODE — after a measured
+regression immediately (nothing follows), after a passing verdict LAST, once
+e2e and packaging have judged the export (the comparison runs tests in that
+export; no authoritative gate reads bytes it could have modified); only a
+partial or unmeasured result compares nothing — and appends `{push_sha, full, index, agree}` to
+`.interlinked/coverage-index-comparison.jsonl` (`interlinked query
+coverage-compare`); it never decides the push, and promotion waits on that
+ledger agreeing over recorded pushes (`INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE=1`
+skips it for one push). Measured on this repository (2507 test shards, an
+export, 2026-09-30, supervised, one worker — `--workers`, default 1: three
+instrumented workers exceeded the 4 GiB tree budget): the first full index
+run 1679 s (961 s unsupervised with three workers on 2026-09-29), a re-run of
+the same revision from a DIFFERENT export directory 28 s with `reused: true`
+(6 s runtime census plus 22 s folding the shard blobs), one edited source line
+1035 s with 2506/2506 test files re-run — nearly every test here is OPAQUE and an opaque shard binds
+the whole inventory, so on this repository the index buys exact-revision reuse,
+not selection, until the opacity backlog is worked down — peak RSS 3.8 GB;
+materialization STREAMS
+(each shard is persisted and folded as it is read; holding every contribution
+at once needed 11 GB), an opaque shard binds the whole inventory through ONE
+`@inventory` digest entry, and the indexed capture is worker-capped by the
+host governor. The index is 156 MB on disk. Limits: the runtime census that
+validates the index walks every file in the checkout except `.git`,
+`.interlinked`, generated and tool directories (`coverage-e2e/`, the e2e
+lane's own outputs; `node_modules/.vite`, Vite's cache; the index's own
+`.interlinked-coverage-capture-*` scratch), so a working tree carrying
+gigabytes of probe or eval bulk (`scratch/`, `evals/`) exceeds the 4 GiB bound
+and the index cannot be built there — build and measure in an export. A test
+file the runner discovers under a fixture directory is inventoried as a test
+(roles v3), because the index needs every executed test in the inventory. A
+test that writes into the checkout (a fixture-rooted harness run, a learned
+permission persisted to the daemon's cwd) makes the runtime "change" during
+the run and the index unavailable; the census error names the files. A wholly
+skipped test file is a passed, empty shard; a negative implicit-else branch
+count from the V8→istanbul converter is 0 hits.
 
 `metrics coverage warm --timeout <ms>` runs full Vitest coverage in an overlay and
 initializes an exact per-test-file contribution index. Its scoring receipt remains

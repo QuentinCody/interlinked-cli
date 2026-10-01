@@ -10,7 +10,7 @@ import type { RepositoryInventory } from "./measurement-types.js";
 
 function inventory(sources: Record<string, string>): RepositoryInventory {
     const files = Object.entries(sources).map(([path, content]) => ({ path, content, language: sourceLanguage(path), role: sourceRole(path), sha256: hashBytes(content) }));
-    return { version: "interlinked-source-roles-v2", root: "/fixture", discovery: "git", files, gaps: [], excluded: [], issues: [],
+    return { version: "interlinked-source-roles-v3", root: "/fixture", discovery: "git", files, gaps: [], excluded: [], issues: [],
         inputHash: inventoryHash(files), sourceHash: inventoryHash(files.filter(file => file.role === "product")) };
 }
 function report(sources: Record<string, string>) { return measureDiagnosticInventory(inventory(sources)); }

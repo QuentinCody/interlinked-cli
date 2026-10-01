@@ -58,6 +58,7 @@ export const DATA_CATALOG: readonly DataSource[] = [
     defineDataSource({ name: "capture-receipts", category: "runtime", description: "Producer eligibility, successful writes and failures", producer: "lib/data/capture", fields: ["source", "status", "records", "error"] }),
     defineDataSource({ name: "audit-checkpoints", category: "audit", retention: "preserve", description: "Explicit audit recovery boundaries and evidence hashes", producer: "lib/data/audit", fields: ["reason", "source", "offset", "hash"] }),
     defineDataSource({ name: "stages", path: "verification-stages.jsonl", category: "quality", description: "Per-check stage timings by pipeline stage (queue/wait/lookup/exec/post ms) and why a result could not be reused", producer: "harness/verification-stages", fields: ["stage", "check", "status", "reused", "reuse_denied_reason", "wait_capacity_ms", "exec_ms", "post_ms"] }),
+    defineDataSource({ name: "coverage-compare", path: "coverage-index-comparison.jsonl", category: "quality", description: "Pre-push comparison mode: the full coverage verdict beside the coverage-index verdict for the same pushed revision, and whether they agree (promotion evidence for the index route)", producer: "scripts/git-hooks/pre-push", fields: ["push_sha", "changed", "full", "index", "agree"] }),
 ];
 
 export function dataSourceForPath(path: string): DataSource {

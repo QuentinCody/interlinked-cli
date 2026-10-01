@@ -1,5 +1,5 @@
 import type * as TS from "typescript";
-import { record, sourceSpan } from "../../lib/metrics/evidence-json.js";
+import { record } from "../../lib/metrics/evidence-json.js";
 import { coverageFunctionSpan } from "../../lib/metrics/coverage-span.js";
 import { parseTsSource, type ParsedTsSource } from "../checks/cyclomatic-ast.js";
 import { hasExactSyntax } from "../function-tokens/ast-tokens.js";
@@ -9,18 +9,32 @@ function bodyOf(node: TS.Node, ts: typeof TS): TS.ConciseBody | undefined {
         || ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node) || ts.isConstructorDeclaration(node)) return node.body;
     return undefined;
 }
-function recoverEnd(parsed: ParsedTsSource, raw: unknown): { line: number; character: number } {
-    const fn = record(raw, "function"), decl = sourceSpan(fn.decl), location = coverageFunctionSpan(fn.loc), candidates: TS.ConciseBody[] = [];
-    const point = parsed.sf.getPositionOfLineAndCharacter(decl.line - 1, decl.column);
+/** The narrowest function body that contains `point` and ends on `endLine`, or null. */
+function bodyAt(parsed: ParsedTsSource, point: number, endLine: number): TS.ConciseBody | null {
+    const candidates: TS.ConciseBody[] = [];
     function visit(node: TS.Node): void {
         const body = bodyOf(node, parsed.ts);
-        if (body && node.getStart(parsed.sf) <= point && node.getEnd() >= point && parsed.sf.getLineAndCharacterOfPosition(body.getEnd()).line + 1 === location.endLine) candidates.push(body);
+        if (body && node.getStart(parsed.sf) <= point && node.getEnd() >= point && parsed.sf.getLineAndCharacterOfPosition(body.getEnd()).line + 1 === endLine) candidates.push(body);
         parsed.ts.forEachChild(node, visit);
     }
     visit(parsed.sf);
-    const body = candidates.sort((a, b) => a.getWidth(parsed.sf) - b.getWidth(parsed.sf))[0];
-    if (!body) throw new Error("Cannot resolve open-ended coverage function against current parser span");
-    return parsed.sf.getLineAndCharacterOfPosition(body.getEnd());
+    return candidates.sort((a, b) => a.getWidth(parsed.sf) - b.getWidth(parsed.sf))[0] ?? null;
+}
+/**
+ * Resolves an open-ended function end against the parser. The anchor is `loc.start` — istanbul's `loc` for a
+ * function is its BODY, so that point always lies inside the function node — with `decl.start` as the fallback:
+ * for an anonymous function the converter's `decl` is a one-character window at the generated start, and after
+ * source mapping it can land on the enclosing call (`.some((name) => …` mapped `decl` onto `some`), outside
+ * the arrow; anchoring there left 524 of this repository's 1994 files unresolvable (2026-09-29).
+ */
+function recoverEnd(parsed: ParsedTsSource, raw: unknown): { line: number; character: number } {
+    const fn = record(raw, "function"), decl = coverageFunctionSpan(fn.decl), location = coverageFunctionSpan(fn.loc);
+    const anchors = [location, decl].map(span => parsed.sf.getPositionOfLineAndCharacter(span.line - 1, span.column));
+    for (const point of anchors) {
+        const body = bodyAt(parsed, point, location.endLine);
+        if (body) return parsed.sf.getLineAndCharacterOfPosition(body.getEnd());
+    }
+    throw new Error("Cannot resolve open-ended coverage function against current parser span");
 }
 export function functionLocationKey(raw: unknown, content: string, path: string): string {
     const location = coverageFunctionSpan(record(raw, "function").loc);

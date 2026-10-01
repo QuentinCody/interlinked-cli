@@ -12,6 +12,16 @@ function statements(data: JsonObject): Statement[] {
     return Object.entries(map).map(([id, loc]) => ({ ...coverageSpan(loc), hits: natural(hits[id], "statement hit count") }));
 }
 
+/**
+ * The V8→istanbul converter derives an `if` statement's implicit-else count by subtraction, and V8's block ranges
+ * can make that NEGATIVE (`[23, -13]` in this repository's own report). A negative count carries no evidence of
+ * execution: it reads as 0 hits — uncovered — never as an error that discards the whole file or shard. Anything
+ * else non-natural is still malformed.
+ */
+export function branchOutcomeHits(value: unknown): unknown {
+    return typeof value === "number" && Number.isSafeInteger(value) && value < 0 ? 0 : value;
+}
+
 function branchCounts(data: JsonObject): CoverageCount {
     const map = record(data.branchMap, "branchMap"), hits = record(data.b, "branch counts");
     if (Object.keys(map).length !== Object.keys(hits).length) throw new Error("Branch map/count mismatch");
@@ -20,7 +30,7 @@ function branchCounts(data: JsonObject): CoverageCount {
         const locations = coverageBranchLocations(raw), row = hits[id];
         if (!Array.isArray(locations) || !Array.isArray(row) || row.length !== locations.length) throw new Error("Branch outcome/count mismatch");
         for (const location of locations) sourceSpan(location);
-        values.push(...row.map(value => natural(value, "branch hit count")));
+        values.push(...row.map(value => natural(branchOutcomeHits(value), "branch hit count")));
     }
     return counts(values);
 }

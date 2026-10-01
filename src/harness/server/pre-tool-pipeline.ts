@@ -232,6 +232,9 @@ export async function runPreToolPipeline(
 ): Promise<HarnessDecision> {
 	const { rules } = ctx;
 	const CWD = ctx.cwd;
+	// The session works in the project its events name; anything persisted FOR the session (a learned permission)
+	// lands there, never in the daemon's own cwd.
+	if (event.cwd) session.project_root = event.cwd;
 	// --- Effect arm: remember the water-lines BEFORE anything can return ---
 	// Must run at the entry, not the exit: the pipeline has many early returns
 	// (guard blocks, fast-path allows), and a snapshot taken at the tail is

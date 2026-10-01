@@ -68,6 +68,10 @@ export function registerCoverageCommands(program: Command): void {
 			"Comma-separated repo-relative paths; only report drops for these files",
 		)
 		.option("--update-baseline", "Persist the current coverage as the new baseline")
+		.option("--from-index", "Measure through the coverage index: re-run only the test shards whose inputs changed, keep every other shard and the full denominator (no verdict ⇒ exit 75)")
+		.option("--index-store <root>", "Checkout whose .interlinked/coverage-index/ holds the index (default: the project root); the pre-push export names its source checkout")
+		.option("--timeout <ms>", "Index measurement budget in milliseconds (default 3600000)")
+		.option("--workers <n>", "Requested worker cap for the index's instrumented capture, clamped by the host governor (default 1)")
 		.option("--lane <name>", "Named coverage lane: e2e (isolated strict policy)")
 		.option("--init-baseline", "Initialize an absent e2e baseline from a passing measured run")
 		.option("--require-measured", "Fail on a partial or unmeasured report")

@@ -12,7 +12,7 @@ vi.mock("node:child_process", async importOriginal => {
 
 function report(sources: Record<string, string>) {
     const files = Object.entries(sources).map(([path, content]) => ({ path, content, language: sourceLanguage(path), role: sourceRole(path), sha256: hashBytes(content) }));
-    return measurePythonDiagnosticInventory({ version: "interlinked-source-roles-v2", root: "/fixture", discovery: "git", files, gaps: [], excluded: [], issues: [],
+    return measurePythonDiagnosticInventory({ version: "interlinked-source-roles-v3", root: "/fixture", discovery: "git", files, gaps: [], excluded: [], issues: [],
         sourceHash: inventoryHash(files), inputHash: inventoryHash(files) });
 }
 

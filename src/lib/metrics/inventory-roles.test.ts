@@ -13,3 +13,13 @@ describe("dependency lockfile roles", () => {
         expect(sourceRole(path)).toBe("product");
     });
 });
+
+describe("test files under fixture directories (roles v3)", () => {
+    // test-contract: invariant — a test FILE the runner discovers is a test wherever it lives, so the coverage index's inventory holds every executed test; everything else a fixture directory holds stays a fixture, and scratch/evals never enter the inventory
+    it.each(["src/harness/checks/__fixtures__/weak-hash.fixtures.test.ts", "src/harness/structure/__tests__/fixtures/fixture-declared/test/client.test.ts", "fixtures/app/index.spec.tsx"])("classifies %s as a test", path => {
+        expect(sourceRole(path)).toBe("test");
+    });
+    it.each(["src/harness/checks/__fixtures__/weak-hash.ts", "src/harness/structure/__tests__/fixtures/fixture-declared/src/client.ts", "scratch/2026-09-29-unit7/probe.test.ts", "evals/suite/case.test.ts"])("keeps %s out of the test role", path => {
+        expect(sourceRole(path)).toBe("fixture");
+    });
+});

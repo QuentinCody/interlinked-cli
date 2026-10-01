@@ -78,6 +78,7 @@ export interface SessionTrajectory {
 	consecutive_pattern: { pattern: string; count: number } | null;
 	/** Permission patterns already suggested this session (avoid duplicates) */
 	suggested_permissions: Set<string>;
+	project_root?: string; // the session's project (`event.cwd`, stamped at the pre-tool pipeline entry): where a learned permission is persisted, never the daemon's own cwd (2026-09-29)
 	/**
 	 * Acknowledged check warnings this session (file::checkName pairs).
 	 * When a PostToolUse warning is shown and the user allows the agent to

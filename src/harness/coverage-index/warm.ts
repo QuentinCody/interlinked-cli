@@ -1,5 +1,7 @@
 import { collectRepositoryInventory } from "../../lib/metrics/inventory.js";
 import { createCoverageOverlay } from "../coverage-overlay.js";
+import { testWorkerBudget } from "../test-execution.js";
+import { admitIndexedRun } from "./admission.js";
 import { coverageIndexContext } from "./context.js";
 import { coverageIndexStatus, runIndexedCoverage } from "./controller.js";
 import { promoteMatchingProposal } from "./staged-state.js";
@@ -15,7 +17,14 @@ export async function warmCoverageIndex(root: string, timeoutMs: number): Promis
     const overlay = createCoverageOverlay(root, file.path, file.content);
     try {
         const context = await coverageIndexContext(inventory, new Map(), { workspace: overlay.overlayRoot, original, deadline });
-        const result = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs, full: true });
+        // The same governor as the pre-push route: one instrumented worker, or no run (three exceeded the tree budget).
+        const maxWorkers = testWorkerBudget(1);
+        if (maxWorkers < 1) throw new Error("Host CPU or memory capacity unavailable for a test worker");
+        const admission = await admitIndexedRun(overlay.overlayRoot, deadline);
+        if (!admission.admitted) throw new Error(admission.reason);
+        let result: Awaited<ReturnType<typeof runIndexedCoverage>>;
+        try { result = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs, full: true, maxWorkers, resourceBudget: admission.resourceBudget }); }
+        finally { admission.release(); }
         const current = await coverageIndexContext(collectRepositoryInventory(root), new Map(), { deadline });
         const promoted = result.indexed && current.fingerprint === context.fingerprint && await promoteMatchingProposal(current);
         if (promoted && result.artifact) recordWarmEvidence(current, result.artifact, Math.round(performance.now() - started));

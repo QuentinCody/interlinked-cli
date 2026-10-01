@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,9 +6,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { collectRepositoryInventory } from "../../lib/metrics/inventory.js";
 import { inventoryWithOverrides } from "../../lib/metrics/inventory-overrides.js";
 import { createCoverageOverlay } from "../coverage-overlay.js";
-import { coverageIndexContext, dependencyHashes } from "./context.js";
+import { coverageIndexContext, dependencyHashes, inventoryDigest, WHOLE_INVENTORY_KEY } from "./context.js";
 import { runIndexedCoverage, coverageIndexStatus } from "./controller.js";
 import { warmCoverageIndex } from "./warm.js";
+import { indexedCoverageSummary } from "./summary.js";
 import { indexStore, promoteMatchingProposal } from "./staged-state.js";
 import { readAcceptedManifest } from "./store.js";
 import { loadEvidence } from "../../lib/metrics/evidence-store.js";
@@ -19,6 +20,8 @@ import * as repositoryInventory from "../../lib/metrics/inventory.js";
 
 const roots: string[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+/** The direct controller calls here stand in for an admitted caller: a generous budget the fixture's two-test capture never nears. */
+const resourceBudget = { reserveBytes: 64 * 1024 ** 2, maxRssBytes: 4 * 1024 ** 3 };
 function fixture(): string {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "coverage-index-integration-"))); roots.push(root);
     copyVitestRuntime(root);
@@ -56,17 +59,57 @@ it("keeps a pure shard reusable when an unrelated opaque shard exists", async ()
     const root = fixture();
     writeFileSync(join(root, "io.test.ts"), 'import {test,expect} from "vitest"; import {readFileSync} from "node:fs"; test("io",()=>expect(readFileSync("a.ts","utf8")).toContain("export"));');
     expect((await warmCoverageIndex(root, 60_000)).indexed).toBe(true);
+    // An opaque shard binds the whole inventory through ONE digest entry; a pure shard still enumerates its closure.
+    // (Per-file enumeration for every opaque shard produced a manifest this repository could not even serialize.)
+    const manifest = readAcceptedManifest(indexStore(root));
+    expect(manifest?.shards["io.test.ts"]?.dependencyHashes).toEqual({ [WHOLE_INVENTORY_KEY]: inventoryDigest(collectRepositoryInventory(root)) });
+    expect(Object.keys(manifest?.shards["b.test.ts"]?.dependencyHashes ?? {}).sort()).toEqual(["b.test.ts", "b.ts"]);
     const proposed = "export function answer(value: boolean) { if (value) return 1; return 2; }\n";
     const changes = new Map([["a.ts", proposed]]), overlay = createCoverageOverlay(root, "a.ts", proposed);
     try {
         const context = await coverageIndexContext(inventoryWithOverrides(collectRepositoryInventory(root), changes), changes, { workspace: overlay.overlayRoot });
-        const selected = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 60_000 });
+        const selected = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 60_000, resourceBudget });
         expect(selected.indexed, selected.reason ?? "").toBe(true);
         expect(selected.selectedTests).toEqual(["a.test.ts", "io.test.ts"]);
-        const full = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 60_000, full: true });
+        const full = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 60_000, full: true, resourceBudget });
         const measured = [...selected.result.perFile].map(([path, { mtime: _mtime, ...coverage }]) => [path, coverage]);
         expect(measured).toEqual([...full.result.perFile].map(([path, { mtime: _mtime, ...coverage }]) => [path, coverage]));
     } finally { overlay.cleanup(); }
+}, 120_000);
+
+// test-contract: invariant — Unit 7 store seam: a byte-identical EXPORT (dependencies symlinked, no index of its own) measures against the SOURCE checkout's index; an unchanged export re-runs nothing and an edited source file re-runs exactly its shard, with the summary over the full universe and nothing written under the export
+it("measures an export against the source checkout's index through indexedCoverageSummary", async () => {
+    const source = fixture();
+    expect((await warmCoverageIndex(source, 60_000)).indexed).toBe(true);
+    const exported = realpathSync(mkdtempSync(join(tmpdir(), "coverage-index-export-"))); roots.push(exported);
+    cpSync(source, exported, { recursive: true, filter: path => !path.startsWith(join(source, "node_modules")) && !path.startsWith(join(source, ".interlinked")) });
+    symlinkSync(join(source, "node_modules"), join(exported, "node_modules"));
+    const unchanged = await indexedCoverageSummary({ root: exported, storeRoot: source, timeoutMs: 60_000 });
+    expect(unchanged).toMatchObject({ indexed: true, rerunTests: 0, universeTests: 2 });
+    if (!unchanged.indexed) throw new Error(unchanged.reason);
+    expect(Object.keys(unchanged.summary).sort()).toEqual(["a.ts", "b.ts"]);
+    expect(unchanged.summary["a.ts"]?.lines?.pct).toBe(100);
+    writeFileSync(join(exported, "a.ts"), "export function answer(value: boolean) { if (value) return 1; if (value === null) return 0; return 2; }\n");
+    const edited = await indexedCoverageSummary({ root: exported, storeRoot: source, timeoutMs: 60_000 });
+    expect(edited).toMatchObject({ indexed: true, rerunTests: 1, universeTests: 2 });
+    if (!edited.indexed) throw new Error(edited.reason);
+    expect(edited.summary["a.ts"]?.branches?.total).toBeGreaterThan(unchanged.summary["a.ts"]?.branches?.total ?? 0);
+    expect(edited.summary["b.ts"]).toEqual(unchanged.summary["b.ts"]);
+    expect(existsSync(join(exported, ".interlinked", "coverage-index"))).toBe(false);
+}, 180_000);
+
+// test-contract: invariant — a wholly skipped test file (an env-gated describe.skipIf) is a PASSED shard with an empty contribution, not a failed one: this repo carries two such files and reading "skip" as unknown made every index run unavailable (found 2026-09-29)
+it("indexes a wholly skipped test file as a passed, empty shard", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "gated.test.ts"), 'import { describe, expect, test } from "vitest"; describe.skipIf(!process.env.NEVER_SET_GATE)("gated", () => { test("never runs", () => expect(1).toBe(2)); });');
+    const warm = await warmCoverageIndex(root, 60_000);
+    expect(warm.reason).toBeNull();
+    expect(warm.indexed).toBe(true);
+    expect(warm.status.shards).toBe(3);
+    const manifest = readAcceptedManifest(indexStore(root));
+    expect(manifest?.shards["gated.test.ts"]).toMatchObject({ passed: true, testPaths: ["gated.test.ts"] });
+    const outcome = await indexedCoverageSummary({ root, timeoutMs: 60_000 });
+    expect(outcome).toMatchObject({ indexed: true, rerunTests: 0, universeTests: 3 });
 }, 120_000);
 
 it("invalidates shared setup dependencies transitively even when their imports form a cycle", async () => {
@@ -89,7 +132,7 @@ it("matches full coverage, reruns one shard and promotes only after the actual w
     const overlay = createCoverageOverlay(root, "a.ts", proposed);
     try {
         const context = await coverageIndexContext(inventoryWithOverrides(collectRepositoryInventory(root), changes), changes, { workspace: overlay.overlayRoot });
-        const measured = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 30_000 });
+        const measured = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 30_000, resourceBudget });
         expect(measured.reason).toBeNull(); expect(measured.indexed).toBe(true); expect(measured.selectedTests).toEqual(["a.test.ts"]);
         expect(measured.result.perFile.get("b.ts")?.functions[0]?.statement_pct).toBe(100);
         expect(await promoteMatchingProposal(context)).toBe(false);
@@ -97,7 +140,7 @@ it("matches full coverage, reruns one shard and promotes only after the actual w
         writeFileSync(join(root, "a.ts"), proposed);
         expect(await promoteMatchingProposal(await coverageIndexContext(collectRepositoryInventory(root)))).toBe(true);
         expect((await coverageIndexStatus(await coverageIndexContext(collectRepositoryInventory(root)))).valid).toBe(true);
-        const full = await runIndexedCoverage({ context: await coverageIndexContext(collectRepositoryInventory(root)), workspace: overlay.overlayRoot, timeoutMs: 30_000, full: true });
+        const full = await runIndexedCoverage({ context: await coverageIndexContext(collectRepositoryInventory(root)), workspace: overlay.overlayRoot, timeoutMs: 30_000, full: true, resourceBudget });
         expect(full.indexed).toBe(true);
         expect([...full.result.perFile].map(([path, cov]) => [path, [...cov.coveredLines ?? []], cov.functions.map(fn => fn.statement_pct)]))
             .toEqual([...measured.result.perFile].map(([path, cov]) => [path, [...cov.coveredLines ?? []], cov.functions.map(fn => fn.statement_pct)]));
@@ -132,15 +175,15 @@ it("discovers executable tests beside helpers and reruns all shards after ignore
     expect(warm.indexed, warm.reason ?? "").toBe(true);
     expect(warm.status.shards).toBe(2);
     const fresh = await coverageIndexContext(collectRepositoryInventory(root));
-    const reused = await runIndexedCoverage({ context: fresh, workspace: root, timeoutMs: 60_000 });
+    const reused = await runIndexedCoverage({ context: fresh, workspace: root, timeoutMs: 60_000, resourceBudget });
     expect(reused.selectedTests).toEqual([]);
     writeFileSync(join(root, ".env"), "after");
-    await expect(runIndexedCoverage({ context: fresh, workspace: root, timeoutMs: 60_000 })).rejects.toThrow("runtime inputs changed");
+    await expect(runIndexedCoverage({ context: fresh, workspace: root, timeoutMs: 60_000, resourceBudget })).rejects.toThrow("runtime inputs changed");
     const proposed = "export function answer(value: boolean) { if (value) return 1; return 2; }\n";
     const changes = new Map([["a.ts", proposed]]), overlay = createCoverageOverlay(root, "a.ts", proposed);
     try {
         const context = await coverageIndexContext(inventoryWithOverrides(collectRepositoryInventory(root), changes), changes, { workspace: overlay.overlayRoot });
-        const measured = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 60_000 });
+        const measured = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 60_000, resourceBudget });
         expect(measured.indexed, measured.reason ?? "").toBe(true);
         expect(measured.selectedTests).toBeUndefined();
         expect(measured.result.testsPassed).toBe(true);
@@ -163,7 +206,7 @@ it("rejects stale copied runtime bytes and a changed intended environment before
         const previous = process.env.INTERLINKED_INDEX_ENV_REGRESSION;
         try {
             process.env.INTERLINKED_INDEX_ENV_REGRESSION = "changed-after-context";
-            await expect(runIndexedCoverage({ context, workspace: root, timeoutMs: 30_000 })).rejects.toThrow("environment changed");
+            await expect(runIndexedCoverage({ context, workspace: root, timeoutMs: 30_000, resourceBudget })).rejects.toThrow("environment changed");
             await expect(coverageIndexStatus(context)).rejects.toThrow("environment changed");
         } finally {
             if (previous === undefined) delete process.env.INTERLINKED_INDEX_ENV_REGRESSION;
@@ -188,7 +231,7 @@ it("reruns every shard when product-named setup changes the shared test contract
     const overlay = createCoverageOverlay(root, "a.ts", proposed);
     try {
         const context = await coverageIndexContext(inventoryWithOverrides(collectRepositoryInventory(root), changes), changes, { workspace: overlay.overlayRoot });
-        const measured = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 60_000 });
+        const measured = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 60_000, resourceBudget });
         expect(measured.selectedTests).toBeUndefined();
         expect(measured.result.testsPassed).toBe(false);
         expect(measured.indexed).toBe(false);

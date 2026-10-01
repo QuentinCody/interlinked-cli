@@ -61,6 +61,8 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 		soft_blocks: new Set(),
 		fired_reminders: new Set(),
 		suggested_permissions: new Set(),
+		// The session's project is the temp fixture: a learned permission is persisted there, never in this checkout.
+		project_root: tmp,
 		consecutive_pattern: null,
 		curl_localhost_count: {},
 		injection_detected_steps: [],

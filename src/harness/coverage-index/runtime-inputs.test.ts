@@ -97,6 +97,31 @@ it("rejects a file removed after enumeration while the streamed census yields", 
     await removed;
 });
 
+// test-contract: invariant — Vite's cache under the dependency mount (`node_modules/.vite`) is written by the very runs the census brackets and is derived from inputs already hashed, so it is not an input; a dependency's own bytes next to it still are
+it("ignores Vite's cache inside the dependency mount while a dependency byte still separates", async () => {
+    const root = fixture(), options = { originalRoot: root, deadline: Date.now() + 10_000 };
+    const before = await captureCoverageRuntime(root, options);
+    mkdirSync(join(root, "node_modules", ".vite", "vitest", "da39a3ee"), { recursive: true });
+    writeFileSync(join(root, "node_modules", ".vite", "vitest", "da39a3ee", "results.json"), '{"a.test.ts":{"duration":5}}');
+    expect((await captureCoverageRuntime(root, options)).hash).toBe(before.hash);
+    writeFileSync(join(root, "node_modules", ".vite", "vitest", "da39a3ee", "results.json"), '{"a.test.ts":{"duration":9}}');
+    expect((await captureCoverageRuntime(root, options)).hash).toBe(before.hash);
+    writeFileSync(join(root, "node_modules", "dependency", "index.js"), "export const value = 2;\n");
+    expect((await captureCoverageRuntime(root, options)).hash).not.toBe(before.hash);
+});
+
+// test-contract: invariant — the index's own capture scratch at the root (`.interlinked-coverage-capture-*`, live or left by a died process) is the harness's output, never an input; a same-named directory deeper in the tree is ordinary content
+it("ignores the index's capture scratch at the root and nowhere else", async () => {
+    const root = fixture(), options = { originalRoot: root, deadline: Date.now() + 10_000 };
+    const before = await captureCoverageRuntime(root, options);
+    mkdirSync(join(root, ".interlinked-coverage-capture-abc123", "shards"), { recursive: true });
+    writeFileSync(join(root, ".interlinked-coverage-capture-abc123", "shards", "x.json"), "{}");
+    expect((await captureCoverageRuntime(root, options)).hash).toBe(before.hash);
+    mkdirSync(join(root, "nested", ".interlinked-coverage-capture-abc123"), { recursive: true });
+    writeFileSync(join(root, "nested", ".interlinked-coverage-capture-abc123", "x.json"), "{}");
+    expect((await captureCoverageRuntime(root, options)).hash).not.toBe(before.hash);
+});
+
 it("initializes Vite's bundle directory while retaining its existing bytes as inputs", async () => {
     const root = fixture(), deadline = Date.now() + 10_000, options = { originalRoot: root, deadline };
     prepareCoverageRuntime(root, deadline);

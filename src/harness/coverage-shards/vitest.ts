@@ -46,6 +46,7 @@ export { istanbulToElementSets } from "./vitest-istanbul.js";
 
 import { canonicalPath, isRecord, istanbulToElementSets } from "./vitest-istanbul.js";
 import { coverageIndexSpawn } from "./discovery.js";
+import type { ResourceBudget } from "../resource-budget.js";
 import { indexedVitestCommand } from "./index-command.js";
 
 /** Filename of the loud non-authoritative marker inside a capture directory. */
@@ -126,7 +127,11 @@ async function captureShards(provider, stashed) {
 				environment: meta.environment,
 				project: meta.projectName ?? null,
 				durationMs: typeof task?.result?.duration === "number" ? Math.round(task.result.duration) : null,
-				passed: state === "pass" ? true : state === "fail" ? false : null,
+				// A wholly skipped file (an env-gated describe.skipIf) ran no failing test: it PASSED with an empty
+				// contribution. Reading "skip" as unknown made every such file a failed shard and the whole index
+				// unavailable on this repo (2 of 2501 files, found 2026-09-29). Setting the gate variable later is
+				// an environment change and re-runs everything, so nothing hides behind the skip.
+				passed: state === "pass" || state === "skip" ? true : state === "fail" ? false : null,
 				istanbul: istanbul ?? {},
 			};
 			const name = createHash("sha256").update(key).digest("hex").slice(0, 32);
@@ -258,10 +263,14 @@ interface CaptureVitestShardsOpts {
 	selectedTests?: string[];
 	/** Per-run timeout forwarded to the runner. */
 	timeoutMs?: number;
+	/** Host governor for the indexed capture: the worker cap the resource budget allows (indexed route only). */
+	maxWorkers?: number;
 	/** Injectable spawn for tests; omit for the real async spawn. */
 	spawn?: SpawnFn;
 	/** Indexed capture freezes the effective environment and routes Vite caches to captureDir. */
 	environment?: NodeJS.ProcessEnv;
+	/** The admitted host memory budget the indexed capture's child tree is supervised under (required with `environment`). */
+	resourceBudget?: ResourceBudget;
 	/** Injectable coverage-v8 resolver for tests; omit for the real `resolveCoverageV8Url`. */
 	resolveV8Url?: (projectRoot: string) => string | null;
 }
@@ -392,12 +401,13 @@ export async function captureVitestShards(
 	const providerPath = join(opts.captureDir, "capture-provider.mjs");
 	writeFileSync(providerPath, captureProviderSource(v8Url, shardsDir), "utf-8");
 
-	const testCommand = opts.environment ? indexedVitestCommand(opts.projectRoot, opts.captureDir, opts.selectedTests) : [
+	const testCommand = opts.environment ? indexedVitestCommand(opts.projectRoot, opts.captureDir, opts.selectedTests, { ...(opts.maxWorkers !== undefined ? { maxWorkers: opts.maxWorkers } : {}) }) : [
 		...defaultJsTestCommand(coverageDir, opts.selectedTests),
 		"--coverage.provider=custom",
 		`--coverage.customProviderModule=${providerPath}`,
 	];
-	const runner = new JsCoverageRunner(opts.environment ? coverageIndexSpawn(opts.environment) : opts.spawn);
+	if (opts.environment && !opts.resourceBudget) throw new Error("Indexed capture requires an admitted resource budget");
+	const runner = new JsCoverageRunner(opts.environment && opts.resourceBudget ? coverageIndexSpawn(opts.environment, opts.resourceBudget) : opts.spawn);
 	const runResult = await runner.run({
 		projectRoot: opts.projectRoot,
 		coverageDir,

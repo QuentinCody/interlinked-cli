@@ -64,10 +64,28 @@ function unchanged(location: InputLocation): void {
     if (state(lstatSync(location.path, { bigint: true })) !== state(location.entry) ||
         (location.link !== undefined && readlinkSync(location.path) !== location.link)) throw new Error(`Coverage input changed while reading: ${location.logical}`);
 }
+/**
+ * Vite's cache at the top of a dependency mount (`node_modules/.vite`: the Vitest results cache and the dependency
+ * optimizer's output, both derived from inputs the census already hashes). It is written BY the runs the census
+ * brackets — a nested Vitest inside a test rewrote `.vite/vitest/…/results.json` mid-capture and the index was
+ * unavailable on every run (2026-09-29). `.vite-temp` stays an input: the bundled-config loader's retained bytes
+ * are pinned as verdict-relevant by runtime-inputs.test.ts.
+ */
+const MOUNT_TOOL_CACHES = new Set([".vite"]);
+
+/**
+ * The index's own capture scratch (`controller.ts` mkdtemp prefix). The live one is excluded by name; a STALE one
+ * left by a process that died mid-capture (2 × 2.6 GB after two heap-exhausted runs, 2026-09-29) is not an input
+ * either — it is the harness's output — and counting it tripped the 4 GiB census bound on every later run.
+ */
+const CAPTURE_SCRATCH_PREFIX = ".interlinked-coverage-capture-";
+
 function omitted(name: string, location: InputLocation, census: Census): boolean {
     const child = resolve(location.path, name);
-    return census.options.excluded?.some(excluded => child === resolve(excluded)) === true ||
-        (!location.mount && skipsCoverageOverlayEntry(name, location.logical ? 1 : 0));
+    if (census.options.excluded?.some(excluded => child === resolve(excluded)) === true) return true;
+    if (location.mounted) return MOUNT_TOOL_CACHES.has(name);
+    if (!location.logical && name.startsWith(CAPTURE_SCRATCH_PREFIX)) return true;
+    return !location.mount && skipsCoverageOverlayEntry(name, location.logical ? 1 : 0);
 }
 async function visitDirectory(location: InputLocation, census: Census, ancestors: ReadonlySet<string>): Promise<void> {
     const { path, logical, canonical, stat, mounted, mount } = location;

@@ -108,6 +108,10 @@ const GENERATED_ROOT_ONLY_DIRS: ReadonlySet<string> = new Set([
 	"out",
 	"target",
 	"coverage",
+	// The e2e lane's own outputs (`scripts/e2e-run.mjs`: raw V8 files, merged reports, run records —
+	// gigabytes per run); an output of a coverage run is never an input to one. Found 2026-09-29: with
+	// three runs on disk the runtime census tripped its 4 GiB bound and the index could not be built.
+	"coverage-e2e",
 	"reports",
 ]);
 /** Age past which a sibling overlay is presumed leaked (daemon killed mid-gate)

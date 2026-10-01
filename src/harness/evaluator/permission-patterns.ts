@@ -165,9 +165,11 @@ function extractCompoundBashPattern(cmd: string): string | null {
  *  pattern into the project's `.claude/settings.json` so the user no longer
  *  gets prompted for matching calls. Returns true when newly added, false
  *  on duplicate or write failure. */
-export function addPermissionToSettings(pattern: string): boolean {
+export function addPermissionToSettings(pattern: string, projectRoot: string = process.cwd()): boolean {
 	try {
-		const settingsDir = join(process.cwd(), ".claude");
+		// The project the EVENT came from, never the daemon's own cwd: a harness test rooted at a temp dir was
+		// writing `.claude/settings.json` into this checkout, which the coverage index then saw as a changed input.
+		const settingsDir = join(projectRoot, ".claude");
 		const settingsPath = join(settingsDir, "settings.json");
 
 		let settings: JsonObject = {};

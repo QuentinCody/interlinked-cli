@@ -439,6 +439,8 @@ inside its disposable export land in the source checkout through
 
 ```bash
 interlinked query stages --by reuse_denied_reason        # why results are not reused
+interlinked query stages --where check=coverage:index    # Unit 7: the index route (reused = no shard re-ran; unavailable rows carry the reason)
+interlinked query coverage-compare                       # pre-push comparison mode: full vs index verdict per pushed sha, `agree`
 interlinked query stages --by check --sum exec_ms        # where the minutes go
 interlinked query stages --where stage=push              # one push's timeline
 ```

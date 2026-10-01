@@ -112,9 +112,48 @@ report_gate_failure() {
     esac
 }
 
+# Unit 7 COMPARISON MODE (advisory, never a verdict): after the authoritative
+# full coverage route, measure the same export through the coverage INDEX held
+# by the source checkout (`--index-store`) — only the test shards whose inputs
+# changed re-run — and append both verdicts to
+# `.interlinked/coverage-index-comparison.jsonl`. Promotion of the index route
+# waits on this ledger: verdicts and file counts must agree over recorded pushes.
+# Opt out per push with INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE=1. Reads the
+# caller's gate_dir / push_sha / cov_files (bash dynamic scope).
+coverage_index_compare() {
+    local full_json="$1" index_json index_exit
+    [ "${INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE:-0}" = "1" ] && return 0
+    echo "[pre-push] coverage index comparison (advisory) for $push_sha..."
+    # stdout is the JSON verdict; the route's notes stay on stderr, visible to the pusher. NOT under `bounded`, for
+    # the same reason as `tests run` above: the route owns its admission (project lease + foreground host slot +
+    # memory budget, `coverage-index/admission.ts`) and supervises the capture's child tree against that budget
+    # itself, and a nested host lease would wait until its deadline. The supervisor-only variables `bounded` sets
+    # are stripped from the test child's environment identity either way (review 2026-09-29/30).
+    index_json="$(cd "$gate_dir" && node dist/index.js coverage check --from-index --index-store "$source_root" --workers "$test_workers" --strict --changed-files "$cov_files" --json)"
+    index_exit=$?
+    printf '%s\n' "$full_json" | INDEX_JSON="$index_json" INDEX_EXIT="$index_exit" PUSH_SHA="$push_sha" COV_FILES="$cov_files" \
+        LEDGER="$source_root/.interlinked/coverage-index-comparison.jsonl" node -e '
+    try {
+        const fs = require("node:fs");
+        const full = JSON.parse(fs.readFileSync(0, "utf8"));
+        let index = null;
+        try { index = JSON.parse(process.env.INDEX_JSON); } catch { index = null; }
+        const exit = Number(process.env.INDEX_EXIT);
+        const verdict = (findings, checked) => ({ findings: findings.map(f => f.file ?? f.path ?? String(f)).sort(), files_checked: checked });
+        const row = { ts: new Date().toISOString(), push_sha: process.env.PUSH_SHA, changed: process.env.COV_FILES.split(","),
+            full: verdict(full.findings ?? [], full.stats?.files_checked ?? null),
+            index: exit === 0 || exit === 1 ? { exit, ...verdict(index?.findings ?? [], index?.stats?.files_checked ?? null), report: index?.report ?? null } : { exit, unavailable: true } };
+        row.agree = row.index.unavailable !== true && JSON.stringify(row.full) === JSON.stringify({ findings: row.index.findings, files_checked: row.index.files_checked });
+        fs.appendFileSync(process.env.LEDGER, `${JSON.stringify(row)}\n`);
+        console.log(row.index.unavailable ? `[pre-push] coverage index: no verdict (exit ${exit}); recorded` : `[pre-push] coverage index ${row.agree ? "AGREES" : "DISAGREES"} with the full run (${row.index.report ?? "no report"}); recorded`);
+    } catch (error) { console.log(`[pre-push] coverage index comparison not recorded: ${error.message}`); }
+    ' || true
+    return 0
+}
+
 run_gate() {
     local push_sha="$1" changed_paths="$2" docs_only="$3" pkg_touched="$4"
-    local gate_dir cov_files cov_report cov_scope cov_cli cov_json cov_targets
+    local gate_dir cov_files cov_report cov_scope cov_cli cov_json cov_status cov_verdict cov_targets cov_compare_json=""
     export_dir="$(mktemp -d "${TMPDIR:-/tmp}/prepush-revision-XXXXXX")" || return 1
     if ! git worktree add --detach --quiet "$export_dir/tree" "$push_sha" \
         || [ -e "$export_dir/tree/node_modules" ] || [ -L "$export_dir/tree/node_modules" ] \
@@ -196,19 +235,33 @@ run_gate() {
             fi
             cov_cli=(node "$gate_dir/dist/index.js")
             echo "[pre-push] Running strict coverage ratchet for $push_sha..."
-            cov_json="$(cd "$gate_dir" && "${cov_cli[@]}" coverage check --strict --report "$cov_report" --changed-files "$cov_files" --json)" || { printf '%s\n' "$cov_json"; return 1; }
-            if ! printf '%s\n' "$cov_json" | node -e '
+            # A regression is a VALID full verdict (exit 1 with findings) and must reach the index comparison too —
+            # otherwise the ledger only ever records agreements (found by review 2026-09-30). Only a partial or
+            # unmeasured result (validator exit 2) is no verdict and nothing to compare. The full route's own exit
+            # remains the push decision.
+            cov_json="$(cd "$gate_dir" && "${cov_cli[@]}" coverage check --strict --report "$cov_report" --changed-files "$cov_files" --json)"
+            cov_status=$?
+            [ "$cov_status" -eq 0 ] || printf '%s\n' "$cov_json"
+            printf '%s\n' "$cov_json" | node -e '
     try {
         const result = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
         if (result.partialReport?.partial !== false || !Array.isArray(result.findings)
             || !Number.isSafeInteger(result.stats?.files_checked) || result.stats.files_checked < 0) {
-            throw new Error("Coverage is partial or unmeasured.");
-        }
-        if (result.findings.length > 0) throw new Error("Coverage findings remain in the push scope.");
-        if (result.stats.files_checked === 0) console.log("[pre-push] No runtime coverage targets in the push scope; no coverage pass certified.");
-        else console.log(`[pre-push] ✓ no coverage regressions in ${result.stats.files_checked} measured file(s)`);
-    } catch (error) { console.error(`[pre-push] ${error.message}`); process.exitCode = 1; }
-    '; then return 1; fi
+            console.error("[pre-push] Coverage is partial or unmeasured."); process.exitCode = 2;
+        } else if (result.findings.length > 0) {
+            console.error("[pre-push] Coverage findings remain in the push scope."); process.exitCode = 1;
+        } else if (result.stats.files_checked === 0) {
+            console.log("[pre-push] No runtime coverage targets in the push scope; no coverage pass certified.");
+        } else console.log(`[pre-push] ✓ no coverage regressions in ${result.stats.files_checked} measured file(s)`);
+    } catch (error) { console.error(`[pre-push] ${error.message}`); process.exitCode = 2; }
+    '
+            cov_verdict=$?
+            [ "$cov_verdict" -ne 2 ] || return 1
+            # The comparison RUNS TESTS in this export. On the passing path it is deferred to the very end of the gate,
+            # after e2e and packaging, so no authoritative gate consumes bytes a comparison run could have modified
+            # (review 2026-09-30); on the failing path nothing follows it.
+            if [ "$cov_verdict" -eq 0 ] && [ "$cov_status" -eq 0 ]; then cov_compare_json="$cov_json"
+            else coverage_index_compare "$cov_json"; return 1; fi
         fi
     fi
     if [ "${INTERLINKED_PRE_PUSH_SKIP_E2E:-0}" = "1" ]; then
@@ -229,6 +282,8 @@ NODE
         (cd "$gate_dir" && bounded bash scripts/ci-packaging.sh) || return 1
     fi
     echo "[pre-push] ✓ typecheck + tests pass for $push_sha"
+    # Advisory, and last: every authoritative verdict above was taken from the export before this run touched it.
+    [ -z "$cov_compare_json" ] || coverage_index_compare "$cov_compare_json"
     cleanup_export
 }
 

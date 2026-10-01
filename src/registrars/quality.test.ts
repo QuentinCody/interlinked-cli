@@ -275,7 +275,7 @@ describe("registerQualityCommands — structure", () => {
 		// `--changed-files` / `--cwd` were read but never registered, so
 		// commander refused `--strict` outright. See coverage-flag-parity.test.ts.
 		expect(optsOf(cov, "check")).toEqual(
-			["--base", "--changed-files", "--cwd", "--init-baseline", "--json", "--lane", "--map", "--report", "--require-measured", "--strict", "--update-baseline"].sort(),
+			["--base", "--changed-files", "--cwd", "--from-index", "--index-store", "--init-baseline", "--json", "--lane", "--map", "--report", "--require-measured", "--strict", "--timeout", "--update-baseline", "--workers"].sort(),
 		);
 		expect(optsOf(cov, "baseline")).toEqual(["--cwd", "--json", "--lane"]);
 		expect(optsOf(mut, "check")).toEqual(

@@ -1,12 +1,13 @@
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { collectRepositoryInventory } from "../../lib/metrics/inventory.js";
 import { inventoryWithOverrides } from "../../lib/metrics/inventory-overrides.js";
 import { createCoverageOverlay } from "../coverage-overlay.js";
-import { captureIndexRuntime, verifyIndexRuntime } from "./runtime-context.js";
+import { captureIndexRuntime, changedRuntimeInputs, verifyIndexRuntime } from "./runtime-context.js";
 import * as runtimeInputs from "./runtime-inputs.js";
+import type { CoverageRuntimeInput, CoverageRuntimeSnapshot } from "./runtime-inputs.js";
 
 const roots: string[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -34,7 +35,7 @@ it("permits a new proposed directory while retaining every unchanged runtime inp
         const runtime = await captureIndexRuntime(inventoryWithOverrides(inventory, changes), changes, { workspace: overlay.overlayRoot });
         await verifyIndexRuntime(root, runtime);
         writeFileSync(join(overlay.overlayRoot, ".env"), "different");
-        await expect(verifyIndexRuntime(root, runtime)).rejects.toThrow("workspace runtime inputs changed");
+        await expect(verifyIndexRuntime(root, runtime)).rejects.toThrow("workspace runtime inputs changed; index unavailable (.env)");
         expect(readFileSync(join(root, ".env"), "utf8")).toBe("before");
     } finally { overlay.cleanup(); }
 });
@@ -50,7 +51,7 @@ it("captures the same physical root once per validation and rechecks on the next
     await verifyIndexRuntime(root, runtime);
     expect(capture).toHaveBeenCalledTimes(2);
     writeFileSync(join(root, ".env"), "changed");
-    await expect(verifyIndexRuntime(root, runtime)).rejects.toThrow("Original coverage runtime inputs changed");
+    await expect(verifyIndexRuntime(root, runtime)).rejects.toThrow("Original coverage runtime inputs changed; index unavailable (.env)");
     expect(capture).toHaveBeenCalledTimes(3);
 });
 
@@ -93,4 +94,29 @@ it("shares explicit output exclusions when original and workspace are the same r
     await verifyIndexRuntime(root, runtime, root, [output]);
     expect(capture).toHaveBeenCalledTimes(1);
     await expect(verifyIndexRuntime(root, runtime)).rejects.toThrow("Original coverage runtime inputs changed");
+});
+
+function snapshot(inputs: CoverageRuntimeInput[]): CoverageRuntimeSnapshot {
+    return { inputs, hash: JSON.stringify(inputs) };
+}
+const file = (path: string, hash: string): CoverageRuntimeInput => ({ path, kind: "file", mode: 0o644, hash });
+
+describe("changedRuntimeInputs — positive (must fire)", () => {
+    // test-contract: public-api — a "runtime inputs changed" verdict names the inputs behind it (added, removed or rewritten; sorted; bounded) so an operator can find the test that wrote into the checkout instead of rerunning an eleven-minute capture blind
+    it("P1: names added, removed and rewritten inputs, sorted and bounded", () => {
+        const before = snapshot([file("a.ts", "1"), file("b.ts", "2"), file("gone.ts", "3")]);
+        const after = snapshot([file("a.ts", "1"), file("b.ts", "changed"), file(".claude/settings.json", "9")]);
+        expect(changedRuntimeInputs(before, after)).toEqual([".claude/settings.json", "b.ts", "gone.ts"]);
+        expect(changedRuntimeInputs(before, after, 1)).toEqual([".claude/settings.json"]);
+    });
+    it("P2: a mode change alone is a change", () => {
+        expect(changedRuntimeInputs(snapshot([file("a.ts", "1")]), snapshot([{ ...file("a.ts", "1"), mode: 0o755 }]))).toEqual(["a.ts"]);
+    });
+});
+
+describe("changedRuntimeInputs — negative (must not fire)", () => {
+    it("N1: identical snapshots name nothing, whatever their order", () => {
+        const a = file("a.ts", "1"), b = file("b.ts", "2");
+        expect(changedRuntimeInputs(snapshot([a, b]), snapshot([b, a]))).toEqual([]);
+    });
 });

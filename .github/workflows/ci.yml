@@ -135,6 +135,21 @@ jobs:
         run: npm run test:e2e:coverage
       - name: Strict e2e coverage ratchet
         run: node dist/index.js coverage check --lane e2e --strict --require-measured --base "$E2E_BASE" --report coverage-e2e/coverage-summary.json
+      # Unit 7/9 seam: the merged e2e coverage (istanbul JSON + summary + run
+      # record) is an artifact, so a later import path has real CI evidence to
+      # consume. Advisory only — nothing downstream reads it yet.
+      - name: Upload e2e coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage-${{ github.sha }}
+          path: |
+            coverage-e2e/coverage-final.json
+            coverage-e2e/coverage-summary.json
+            coverage-e2e/inventory.json
+            coverage-e2e/run.json
+          if-no-files-found: warn
+          retention-days: 14
 
   # Packaging is four jobs, not one. The old single `package` job ran SIX
   # sequential installs/builds (npm ci, build, publint --pack, attw --pack,

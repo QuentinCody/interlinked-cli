@@ -323,6 +323,7 @@ export function evaluatePermissionPatternDetection(
 	toolName: string,
 	toolInput: ToolInput,
 	warnings: string[],
+	projectRoot: string = session?.project_root ?? process.cwd(),
 ): void {
 	if (!session) return;
 	const pattern = extractPermissionPattern(toolName, toolInput);
@@ -337,7 +338,7 @@ export function evaluatePermissionPatternDetection(
 		session.consecutive_pattern = { pattern, count: 1 };
 	}
 	if (session.consecutive_pattern.count < PERMISSION_PATTERN_THRESHOLD) return;
-	suggestPermission(session, pattern, warnings);
+	suggestPermission(session, pattern, warnings, projectRoot);
 }
 
 /** Record the run of identical permission patterns as a settings allowlist
@@ -346,9 +347,10 @@ function suggestPermission(
 	session: SessionTrajectory,
 	pattern: string,
 	warnings: string[],
+	projectRoot: string,
 ): void {
 	session.suggested_permissions.add(pattern);
-	const added = addPermissionToSettings(pattern);
+	const added = addPermissionToSettings(pattern, projectRoot);
 	if (added) {
 		warnings.push(
 			`[interlinked:permissions] Added "${pattern}" to .claude/settings.json — you won't be prompted for this again.`,

@@ -5,12 +5,18 @@
 // would block is also blocked by the harness's evaluatePreToolUse().
 // This test is the gate for removing the old hook.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CohortManager, setActiveCohort } from "../cohort.js";
 import { evaluatePreToolUse } from "../evaluator.js";
 import { ReservationManager } from "../reservations.js";
 import { getDefaultConfig, loadRules } from "../rules-loader.js";
 import type { GuardRulesConfig, HarnessEvent, SessionTrajectory } from "../types.js";
+
+const sessionRoot = mkdtempSync(join(tmpdir(), "command-guard-parity-"));
+afterAll(() => rmSync(sessionRoot, { recursive: true, force: true }));
 
 function makeEvent(command: string): HarnessEvent {
 	return {
@@ -47,6 +53,10 @@ function makeSession(): SessionTrajectory {
 		step_limit: Number.POSITIVE_INFINITY,
 		consecutive_pattern: null,
 		suggested_permissions: new Set(),
+		// The session's project is a disposable temp dir: three git commands in a row learn `Bash(git *)` into
+		// `<project_root>/.claude/settings.json`, and with no root that landed in the checkout running the tests
+		// (the coverage index then read it as a changed runtime input — found live 2026-09-30).
+		project_root: sessionRoot,
 		acknowledged_checks: new Set(),
 		fired_reminders: new Set(),
 		soft_blocks: new Set(),

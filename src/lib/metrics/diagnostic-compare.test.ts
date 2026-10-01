@@ -7,7 +7,7 @@ import { sourceLanguage } from "./inventory-roles.js";
 
 function report(sources: Record<string, string>) {
     const files = Object.entries(sources).map(([path, content]) => ({ path, content, role: "product" as const, language: sourceLanguage(path), sha256: hashBytes(content) }));
-    return measureDiagnosticInventory({ version: "interlinked-source-roles-v2", root: "/fixture", discovery: "git", files,
+    return measureDiagnosticInventory({ version: "interlinked-source-roles-v3", root: "/fixture", discovery: "git", files,
         gaps: [], excluded: [], issues: [], inputHash: inventoryHash(files), sourceHash: inventoryHash(files) });
 }
 const complex = "function f(x: number) {\n" + Array.from({ length: 10 }, (_, i) => `if(x === ${i}) return ${i};`).join("\n") + "\nreturn -1;\n}";

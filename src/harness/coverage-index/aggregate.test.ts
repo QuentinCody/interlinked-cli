@@ -7,6 +7,7 @@ import {
 	aggregateFiles,
 	elementSetMetrics,
 	emptyElementSet,
+	foldContribution,
 	replaceShards,
 	unionElementSets,
 	updateAggregate,
@@ -36,6 +37,23 @@ function shard(shardId: string, files: Record<string, CanonicalCoverageElementSe
 function byId(contributions: ShardCoverageContribution[]): Map<string, ShardCoverageContribution> {
 	return new Map(contributions.map((c) => [c.shardId, c]));
 }
+
+describe("foldContribution", () => {
+	// test-contract: invariant — folding shards one at a time, in any order, yields exactly the aggregate that unions them all at once (key union, hits summed); the streaming materialization relies on this equivalence
+	it("equals aggregateFiles whatever the fold order (16.1)", () => {
+		const a = shard("a", { "src/x.ts": set({ lines: [[1, 1], [2, 0]], branches: [["1:0:0", 1]] }), "src/y.ts": set({ lines: [[5, 3]] }) });
+		const b = shard("b", { "src/x.ts": set({ lines: [[1, 0], [2, 2]], functions: [["f@1", 1]] }) });
+		const c = shard("c", { "src/z.ts": set({ lines: [[9, 0]] }) });
+		const whole = aggregateFiles([a, b, c]);
+		for (const order of [[a, b, c], [c, b, a], [b, a, c]]) {
+			const folded = new Map<string, CanonicalCoverageElementSet>();
+			for (const contribution of order) foldContribution(folded, contribution);
+			expect([...folded].sort()).toEqual([...whole].sort());
+		}
+		expect(whole.get("src/x.ts")?.lines.get(1)).toBe(1);
+		expect(whole.get("src/x.ts")?.lines.get(2)).toBe(2);
+	});
+});
 
 describe("unionElementSets", () => {
 	it("a line covered by two shards stays covered when one stops covering it (16.1)", () => {

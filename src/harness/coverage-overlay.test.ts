@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createCoverageOverlay, sweepStaleOverlays } from "./coverage-overlay.js";
+import { createCoverageOverlay, skipsCoverageOverlayEntry, sweepStaleOverlays } from "./coverage-overlay.js";
 
 let root: string;
 
@@ -199,12 +199,17 @@ describe("mirror skip policy — positive (must be pruned)", () => {
 		overlay.cleanup();
 	});
 
-	it("P2: does not mirror top-level report output (coverage, reports)", () => {
-		for (const d of ["coverage", "reports"]) plantDir(d);
+	it("P2: does not mirror top-level report output (coverage, coverage-e2e, reports)", () => {
+		// coverage-e2e holds the e2e lane's own run outputs (raw V8 files, gigabytes per run): an output of a
+		// coverage run is never an input to one, and mirroring it tripped the runtime census bound (2026-09-29).
+		for (const d of ["coverage", "coverage-e2e", "reports"]) plantDir(d);
 		const overlay = createCoverageOverlay(root, "src/a.ts", "export const a = 2;\n");
-		for (const d of ["coverage", "reports"]) {
+		for (const d of ["coverage", "coverage-e2e", "reports"]) {
 			expect(mirrored(overlay.overlayRoot, d)).toBe(false);
 		}
+		expect(skipsCoverageOverlayEntry("coverage-e2e", 0)).toBe(true);
+		// Root-only: a nested directory of that name is ordinary source.
+		expect(skipsCoverageOverlayEntry("coverage-e2e", 1)).toBe(false);
 		overlay.cleanup();
 	});
 
