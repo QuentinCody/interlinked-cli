@@ -590,6 +590,20 @@ inputs, incomplete discovery or an explicit full request widen to the full suite
 Named/multiple Vitest projects currently use native full execution rather than selective
 indexing. Python/Rust/Go retain their existing dispatchers; mixed-language batches defer.
 
+Selection is measured in CI before it decides anything (Unit 8, comparison mode). The
+`select-compare` job plans against the event's base (`scripts/ci-select-compare.mjs select`,
+base from the shared `resolveCiBase`) and runs only the must-run files (`run-selected`, which
+refuses an empty list: `vitest run` without filters runs everything). The full unit and
+integration lanes upload their vitest JSON reports, and `select-compare-report` writes one
+row per run: `SELECTION_MISS` when a file failed in the full lanes but was in the plan's
+omitted set; `widened` when the plan omitted nothing; `incomplete` when a lane, the
+selection or the selected run left no report (a miss already seen still reports as a miss).
+Neither job is a required check and neither fails on a miss. Promotion needs zero misses over
+at least 30 rows that are SELECTIVE and complete; a widened row proves nothing. Measured
+2026-10-01: every plan on this repository widens, because `vitest.config.ts` and the setup
+files read `process`/`Date` (opaque by the input-eligibility rule) and `__fixtures__/` files
+read as unknown inputs, so expect `widened` rows until that changes.
+
 Optional `.interlinked/test-dependencies.json` declares additive literal inputs:
 
 ```json

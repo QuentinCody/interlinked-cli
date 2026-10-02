@@ -66,6 +66,17 @@ const CI_STEPS: readonly CiStep[] = [
         mirror: "skip",
         reason: "actions/upload-artifact — CI transport for the merged e2e coverage evidence (Unit 7/9 import seam); the pre-push export keeps its own coverage-e2e/ and nothing consumes the artifact yet",
     },
+    // Unit 8 — selective CI in comparison mode. None of these gates anything: they record whether a selected
+    // subset would have caught every failure the full lanes saw, which only a CI run against an event base can.
+    { name: "Upload test report", mirror: "skip", reason: "actions/upload-artifact — CI transport for each full lane's vitest JSON report into select-compare-report; the pre-push hook runs one full suite and has nothing to compare" },
+    { name: "Build CLI", mirror: "skip", reason: "builds dist/ for the select-compare planner only; the build gate itself is package-build in CI and `npm run build` in the hook" },
+    { name: "Plan selected tests", mirror: "skip", reason: "scripts/ci-select-compare.mjs select — plans against the CI event base (resolveCiBase); comparison data, tested by ci-select-compare.test.mjs" },
+    { name: "Run selected tests", mirror: "skip", reason: "scripts/ci-select-compare.mjs run-selected — runs only the plan's must-run tests (refuses an empty list); continue-on-error, never a verdict — the full lanes stay authoritative" },
+    { name: "Upload selection", mirror: "skip", reason: "actions/upload-artifact — CI transport for the selection and the selected run's report" },
+    { name: "Download test reports", mirror: "skip", reason: "actions/download-artifact — CI transport of the full lanes' reports into the comparison job" },
+    { name: "Download selection", mirror: "skip", reason: "actions/download-artifact — CI transport of the selection into the comparison job" },
+    { name: "Compare selection with the full lanes", mirror: "skip", reason: "scripts/ci-select-compare.mjs compare — SELECTION_MISS detector; comparison only (never fails on a miss), tested by ci-select-compare.test.mjs" },
+    { name: "Upload comparison row", mirror: "skip", reason: "actions/upload-artifact — the per-run comparison row the promotion tally (>= 30 selective clean runs) is computed from" },
 	{ name: "Checkout", mirror: "skip", reason: "git checkout — runner setup, not a check" },
 	{
 		name: "Setup Node.js 22",

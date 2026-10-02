@@ -160,6 +160,10 @@ scripts/internal/*
 # The required `package (Linux / Node 22)` status check's aggregate gate;
 # ci.yml runs it after checkout, so it must ship with the repo.
 !scripts/ci-require-success.sh
+# Unit 8 selective-CI comparison: ci.yml's select-compare jobs run it after
+# checkout, so it (and its test, which the root vitest config collects) must ship.
+!scripts/ci-select-compare.mjs
+!scripts/ci-select-compare.test.mjs
 # Git hook installer + the hooks themselves ship with the repo so every
 # contributor gets the pre-push test gate (see scripts/git-hooks/pre-push).
 # Note: the parent ignore is `scripts/*` (not `scripts/`) so these re-

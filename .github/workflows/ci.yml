@@ -81,8 +81,21 @@ jobs:
       - name: Doc accuracy (landing + README vs source)
         run: npm run docs:check
 
+      # The JSON report is the Unit 8 comparison seam (select-compare-report reads
+      # every lane's failing files). Listing reporters on the CLI replaces vitest's
+      # defaults, which add `github-actions` only when none are given — so it is
+      # named here to keep the inline failure annotations.
       - name: Test (unit lane, shard ${{ matrix.shard }})
-        run: npm run test:unit -- --shard=${{ matrix.shard }}
+        run: npm run test:unit -- --shard=${{ matrix.shard }} --reporter=default --reporter=github-actions --reporter=json --outputFile.json=test-report/unit-${{ strategy.job-index }}.json
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-unit-${{ strategy.job-index }}
+          path: test-report/
+          if-no-files-found: warn
+          retention-days: 14
 
   integration:
     name: integration (Linux / Node 22)
@@ -107,7 +120,16 @@ jobs:
           rg --version
 
       - name: Test (integration lane)
-        run: npm run test:integration
+        run: npm run test:integration -- --reporter=default --reporter=github-actions --reporter=json --outputFile.json=test-report/integration.json
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-integration
+          path: test-report/
+          if-no-files-found: warn
+          retention-days: 14
 
   e2e:
     name: e2e (Linux / Node 22)
@@ -150,6 +172,92 @@ jobs:
             coverage-e2e/run.json
           if-no-files-found: warn
           retention-days: 14
+
+  # Unit 8 (scratch/CAMPAIGN-verification-pipeline.md): selective CI in
+  # COMPARISON MODE. This job plans the change against the event's base
+  # (`tests plan --base <sha>`) and runs ONLY the tests the plan says must run;
+  # the full unit and integration lanes above keep running everything. The
+  # report job then calls a test file that failed in the full lanes but was
+  # OMITTED by the selection a SELECTION_MISS. Nothing here decides a merge and
+  # neither job is a required check: promotion needs zero misses over >= 30
+  # SELECTIVE, complete runs (a widened plan omits nothing, so it proves
+  # nothing). Measured 2026-10-01: every plan on this repository still widens
+  # to the full suite (opaque vitest config/setup), so expect `widened` rows.
+  select-compare:
+    name: select-compare (Linux / Node 22)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci
+      - name: Install ripgrep (CI/dev environment parity)
+        run: sudo apt-get update -q && sudo apt-get install -y -q ripgrep
+      - name: Build CLI
+        run: npm run build
+      - name: Plan selected tests
+        id: select
+        run: node scripts/ci-select-compare.mjs select --out-dir select
+      # A failing selected test is comparison data, not this job's verdict.
+      - name: Run selected tests
+        if: steps.select.outputs.run == 'true'
+        continue-on-error: true
+        run: node scripts/ci-select-compare.mjs run-selected --out-dir select
+      - name: Upload selection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: select-compare-selection
+          path: select/
+          if-no-files-found: warn
+          retention-days: 14
+
+  select-compare-report:
+    name: select-compare report (Linux / Node 22)
+    runs-on: ubuntu-latest
+    needs: [unit, integration, select-compare]
+    if: always()
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      # A lane that died before uploading is recorded as missing (the row is
+      # `incomplete`), so an absent artifact must not fail the download.
+      - name: Download test reports
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-report-*
+          path: test-report
+          merge-multiple: true
+      - name: Download selection
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: select-compare-selection
+          path: select
+      - name: Compare selection with the full lanes
+        run: node scripts/ci-select-compare.mjs compare --selection select/selection.json --full-reports test-report --selected-report select/selected.json --expected-lanes 4 --out select-compare-row.json
+      - name: Upload comparison row
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: select-compare-row-${{ github.sha }}
+          path: select-compare-row.json
+          if-no-files-found: warn
+          retention-days: 90
 
   # Packaging is four jobs, not one. The old single `package` job ran SIX
   # sequential installs/builds (npm ci, build, publint --pack, attw --pack,
