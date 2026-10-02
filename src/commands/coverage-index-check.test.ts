@@ -72,4 +72,26 @@ describe("coverage check --from-index — negative (must not fire)", () => {
         expect(process.exitCode).toBe(1);
         expect(indexedCoverageSummary).not.toHaveBeenCalled();
     });
+    // test-contract: boundary — --workers is a bounded integer 1-64: zero, above the cap, fractional and non-numeric values are refused (exit 1) before any measurement, so a typo never reaches the host governor
+    it("N5: an invalid --workers value is refused before any measurement", async () => {
+        for (const workers of ["0", "65", "1.5", "many"]) {
+            process.exitCode = undefined;
+            await coverageCheckCommand({ fromIndex: true, cwd: root, json: true, workers });
+            expect(process.exitCode).toBe(1);
+        }
+        expect(indexedCoverageSummary).not.toHaveBeenCalled();
+    });
+    // test-contract: bug — a rejection that is not an Error object (a bare string) is still no verdict: exit 75, with the value itself as the ledger row's reason
+    it("N6: a non-Error rejection is exit 75 with its text as the reason", async () => {
+        indexedCoverageSummary.mockRejectedValue("index exploded");
+        await coverageCheckCommand({ fromIndex: true, cwd: root, strict: true, json: true });
+        expect(process.exitCode).toBe(75);
+        expect(rows()).toMatchObject([{ check: "coverage:index", status: "unavailable", reuse_denied_reason: "plan-not-reusable:index exploded" }]);
+    });
+    // test-contract: public-api — a valid --workers value is forwarded to the index measurement unchanged as a number (the upper bound 64 included)
+    it("P3: forwards a valid --workers value", async () => {
+        indexedCoverageSummary.mockResolvedValue({ indexed: true, summary: { "src/a.ts": { lines: { pct: 95, covered: 19, total: 20 }, branches: { pct: 50, covered: 1, total: 2 }, functions: { pct: 100, covered: 1, total: 1 } } }, rerunTests: 0, universeTests: 5, validate_ms: 3, exec_ms: 1 });
+        await coverageCheckCommand({ fromIndex: true, cwd: root, json: true, workers: "64" });
+        expect(indexedCoverageSummary).toHaveBeenLastCalledWith(expect.objectContaining({ workers: 64 }));
+    });
 });

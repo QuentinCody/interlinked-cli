@@ -288,6 +288,8 @@ export const effectCleanupCases = [
     },
     {
         name: "parenthesized and constrained-generic cleanup arrows",
+        // The line scanner (the fallback without `typescript`) cannot see through these; the parser route can.
+        parserOnly: true,
         path: "src/components/PollingWidget.tsx",
         content: [
             "function PollingWidget() {",

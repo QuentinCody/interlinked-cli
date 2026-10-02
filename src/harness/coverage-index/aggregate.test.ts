@@ -187,6 +187,16 @@ describe("replaceShards + updateAggregate", () => {
 	});
 });
 
+describe("replaceShards — shards that were never accepted", () => {
+	// test-contract: boundary — a replacement for a shard id the previous map never held, and a removal of an unknown id, touch only the files the NEW contribution names: no phantom affected files, and removal of an unknown id is a no-op
+	it("a brand-new shard affects only its own files and an unknown removal changes nothing", () => {
+		const prev = byId([shard("a.test.ts", { "src/m.ts": set({ lines: [[1, 1]] }) })]);
+		const { next, affectedFiles } = replaceShards(prev, [shard("b.test.ts", { "src/n.ts": set({ lines: [[2, 0]] }) })], ["ghost.test.ts"]);
+		expect([...affectedFiles]).toEqual(["src/n.ts"]);
+		expect([...next.keys()].sort()).toEqual(["a.test.ts", "b.test.ts"]);
+	});
+});
+
 describe("elementSetMetrics", () => {
 	it("computes covered/total/pct per dimension", () => {
 		const metrics = elementSetMetrics(
