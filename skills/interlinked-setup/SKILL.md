@@ -335,9 +335,11 @@ In this repository, pre-push heavy commands also use the host lane through
 and heavy commands wait at most ten minutes for admission so an existing five-minute
 daemon push check can finish first. Light diagnostics retain a five-second admission wait.
 The supervisor
-streams output, assigns at most 2560 MiB to Node's heap within the admitted tree budget,
-and limits common native thread pools. The larger heap accommodates the repository's stable
-TypeScript compiler; the 4 GiB aggregate tree ceiling remains enforced independently.
+streams output, gives a heavy command's Node heap 80% of the admitted tree budget
+(3276 MiB at the 4 GiB ceiling; light commands 512 MiB), and limits common native thread
+pools. The heap share accommodates the repository's stable TypeScript compiler (about
+2.9 GB of heap, measured 2026-10-02, past the former fixed 2560 MiB); the 4 GiB aggregate
+tree ceiling remains enforced independently by the resident-memory watcher.
 Resource interruptions exit 75 and block the push. For small diagnostic/test batches,
 `node --max-old-space-size=128 --import tsx scripts/run-resource-bounded.ts --light <command> [args...]`
 uses a stricter 1 GiB tree ceiling, a 512 MiB Node heap ceiling, and 2 GiB of host headroom.

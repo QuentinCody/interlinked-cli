@@ -139,6 +139,21 @@ it.each([["heavy", 600_000], ["light", 5000]] as const)("bounds %s admission wai
     expect(runProcessAsync).not.toHaveBeenCalled();
 });
 
+// test-contract: bug — the heavy heap limit derives from the admitted memory budget, not a fixed 2560 MB: this repository's
+// stable `tsc --noEmit` needs ~2.9 GB of heap (3.06 GB RSS, measured 2026-10-02) and died at 2560 MB inside a 4 GiB budget
+it.each([
+    ["heavy", 4 * 1024 ** 3, "--max-old-space-size=3276"],
+    ["heavy", 2 * 1024 ** 3, "--max-old-space-size=1638"],
+    ["light", 1024 ** 3, "--max-old-space-size=512"],
+] as const)("gives a %s command with a %i-byte budget %s", async (profile, maxRssBytes, heapFlag) => {
+    vi.mocked(acquireTestCapacity).mockResolvedValue({ release: vi.fn() });
+    vi.mocked(readResourceBudget).mockReturnValue({ reserveBytes: 1024 ** 3, maxRssBytes });
+    vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, killed: false, timedOut: false, stdout: "", stderr: "" });
+    vi.stubEnv("NODE_OPTIONS", "");
+    await runResourceCommand("node", ["--version"], new AbortController().signal, profile);
+    expect(vi.mocked(runProcessAsync).mock.calls[0]?.[2]?.env?.NODE_OPTIONS).toBe(heapFlag);
+});
+
 it("does not spawn when another project owns the host lane", async () => {
     vi.mocked(acquireTestCapacity).mockResolvedValue(null);
     expect(await runResourceCommand("node", [], new AbortController().signal)).toMatchObject({ kind: "capacity-timeout" });

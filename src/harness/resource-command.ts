@@ -4,6 +4,15 @@ import { runProcessAsync, type RunProcessResult } from "./check-engine/spawn-asy
 import { elapsedMs, recordVerificationStage, stageFromEnvironment, type ReuseDeniedReason } from "./verification-stages.js";
 
 const CHECK_LABEL_MAX_CHARS = 200;
+const LIGHT_HEAP_MB = 512;
+/**
+ * A heavy command's V8 heap limit as a share of the memory budget it was ADMITTED under; the rest is headroom for
+ * code, buffers and native memory. The resident-memory watcher (`watchResources`) enforces the budget itself, so the
+ * heap limit only has to stop a runaway heap before the watcher has to kill the tree. It was a fixed
+ * min(2560 MB, 62.5%): this repository's stable `tsc --noEmit` outgrew that (~2.9 GB heap, 3.06 GB RSS, measured
+ * 2026-10-02) and the pre-push typecheck died of heap exhaustion inside a 4 GiB budget it fits.
+ */
+const HEAVY_HEAP_SHARE_OF_BUDGET = 0.8;
 
 interface CommandOutcome { check: string; wait_capacity_ms: number; status: string; exec_ms?: number; denied?: ReuseDeniedReason; }
 
@@ -95,7 +104,7 @@ export async function runResourceCommand(file: string, args: string[], signal: A
         const command = process.platform === "win32" ? [file, ...args] : ["nice", "-n", "10", file, ...args];
         const executable = command.shift();
         if (!executable) return { kind: "interrupted", wait_capacity_ms };
-        const heapMb = profile === "light" ? 512 : Math.min(2560, Math.floor(resourceBudget.maxRssBytes / 1024 ** 2 * 0.625));
+        const heapMb = profile === "light" ? LIGHT_HEAP_MB : Math.floor(resourceBudget.maxRssBytes / 1024 ** 2 * HEAVY_HEAP_SHARE_OF_BUDGET);
         const execStarted = Date.now();
         const result = await runProcessAsync(executable, command, {
             cwd: process.cwd(), timeout: 3600_000, signal, resourceBudget, inheritOutput: true,
