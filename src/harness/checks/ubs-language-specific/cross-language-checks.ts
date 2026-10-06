@@ -6,6 +6,7 @@ import { nonNull } from "../../../lib/non-null.js";
 import { stripRegexLiterals } from "../../strip-helpers.js";
 import { getExtension, type InlineMatch, isTestFile } from "../shared.js";
 import { MATCH_LIMIT, stripCommentsPreservingStrings } from "./_shared.js";
+import { isIntentionalLoopbackLine } from "./localhost-exemptions.js";
 
 /**
  * `ubs_sql_string_concat` — SQL keyword in a quoted string immediately
@@ -229,7 +230,7 @@ function isExemptStrippedLocalhostLine(strippedLine: string): boolean {
 	// drops the self-FP rate to ~0 without weakening detection on real
 	// network-config bugs (`url = "http://localhost:3000"`-style).
 	const metadataAssignment =
-		/\b(?:label|noun|description|passLabel|fix_instruction|name|comment|summary|fix|msg|message)\s*[:=]\s*["'`]/;
+		/\b(?:label|noun|description|passLabel|fix_instruction|name|comment|summary|fix|msg|message|example|placeholder)\s*[:=]\s*["'`]/;
 	// `new RegExp(...)` and `RegExp(...)` invocations are by construction
 	// pattern-matchers, not endpoint configs.
 	const regExpConstructor = /\bRegExp\s*\(/;
@@ -335,7 +336,8 @@ export function checkUbsHardcodedLocalhost(content: string, filePath: string): I
 	// Strip regex literals BEFORE comments so /…localhost…/ doesn't survive into
 	// the match pass — without this, the check FPs on its own implementation
 	// (this file + checks/supply-chain.ts both contain `/…localhost…/`).
-	const strippedLines = stripCommentsPreservingStrings(stripRegexLiterals(content)).split("\n");
+	const strippedText = stripCommentsPreservingStrings(stripRegexLiterals(content));
+	const strippedLines = strippedText.split("\n");
 	const matches: InlineMatch[] = [];
 
 	for (let i = 0; i < strippedLines.length; i++) {
@@ -354,6 +356,9 @@ export function checkUbsHardcodedLocalhost(content: string, filePath: string): I
 		// Dev-gated line or guarding conditional: a declared dev-mode value,
 		// not a leaked default (see helper).
 		if (isDevGuardedLocalhostLine(strippedLines, i)) continue;
+		// Deliberate loopback: bind address, env fallback, loopback detection,
+		// or the address of a local process this file launches/binds.
+		if (isIntentionalLoopbackLine(strippedLines, i, strippedText)) continue;
 		matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 	}
 	return matches;

@@ -293,7 +293,7 @@ export const ERROR_ENTRIES: CheckRegistration[] = [
 		phase: "pre_block",
 		name: "Hardcoded Localhost",
 		description:
-			"Detects `localhost` / `127.0.0.1` baked into source outside of test/config/example/dev paths and outside of non-source extensions (.md/.txt/.yaml/.json/etc.). Dev-gated lines are exempt: a dev-named identifier on the line (`config.devPort`, `DEV_URL`) or a dev-gated conditional within the previous three lines (`if (devMode)`, `NODE_ENV` checks) marks a declared local-dev value, not a leaked default.",
+			"Detects `localhost` / `127.0.0.1` baked into source outside of test/config/example/dev paths and outside of non-source extensions (.md/.txt/.yaml/.json/etc.). Dev-gated lines are exempt: a dev-named identifier on the line (`config.devPort`, `DEV_URL`) or a dev-gated conditional within the previous three lines (`if (devMode)`, `NODE_ENV` checks) marks a declared local-dev value, not a leaked default. Deliberate loopback is exempt: server bind/listen addresses (`listen(p, \"127.0.0.1\")`, `--host=`), env-var fallbacks (`process.env.X ?? \"localhost\"`, `os.environ.get`), loopback detection/comparison, and the address of a local process the file itself launches or binds (Chrome `--remote-debugging-port` DevTools, an env-derived port, its own loopback server).",
 		tier: 1,
 		determinism: "fully_deterministic",
 		severity: "error",
