@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HookCoverageLedger } from "./hook-coverage-ledger.js";
 import { HookCoverageVerification, type HookCheckEvidence, type HookCoverageChecker } from "./hook-coverage-verification.js";
 
@@ -25,6 +25,20 @@ function deferred() {
 }
 
 describe("coverage verification evidence", () => {
+    it("persists one receipt transaction per recovery batch", async () => {
+        const owner = fixture();
+        for (let index = 0; index < 16; index++) owner.ledger.observe(`batch-${index}.ts`, "v1", "reservation");
+        const record = vi.spyOn(owner.ledger, "recordChecks"), snapshot = vi.spyOn(owner.ledger, "snapshot");
+        const verifier = new HookCoverageVerification(owner, completed);
+        verifier.start();
+        await expect.poll(() => verifier.progress()?.status).toBe("complete");
+        expect(record.mock.calls.map(([receipts]) => receipts.length)).toEqual([8, 8, 1]);
+        expect(snapshot).not.toHaveBeenCalled();
+        const saved = new HookCoverageLedger(owner.path).snapshot();
+        expect(saved.pending).toEqual([]);
+        expect(saved.checks).toHaveLength(17);
+        expect(verifier.progress()).toMatchObject({ checked: 17, findings: 17, unmeasuredCount: 0 });
+    });
     it("returns bounded progress without omitting unavailable details from full status", async () => {
         const owner = fixture(), detail = "checker unavailable: " + "x".repeat(100_000);
         const verifier = new HookCoverageVerification(owner, async entries => new Map(entries.map(entry =>

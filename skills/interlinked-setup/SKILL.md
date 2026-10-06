@@ -202,6 +202,13 @@ For `[interlinked:hook-coverage] NOT CHECKED`, run `harness coverage verify --js
 follow **interlinked-verify** for evidence scope, deferred checks and reviewed absences.
 If a running daemon predates the verifier, rebuild/restart using the normal lifecycle.
 Observing or checking protected files does not accept their policy digest.
+Current verification jobs survive normal restarts with the same ID, remaining batches
+and original deadline. `--no-wait` acknowledges the job without returning receipt
+history; use cached progress while it runs. A waiting CLI tolerates transient read-only
+status failures for up to two minutes per outage, plus any in-flight RPC. It does not
+resubmit verification. Host permission denial or malformed responses stop immediately;
+restarting Interlinked does not grant access to an OS-denied socket. Inspect status
+before retrying a mutation whose acknowledgement was lost.
 
 Local data maintenance has its own `data.config.json` in the resolved data directory.
 `interlinked data configure --auto-index on` enables bounded SessionEnd index jobs;

@@ -5,6 +5,7 @@ import { buildAllAdapters } from "../harness/adapters/index.js";
 import { ecosystemCatalog } from "../harness/adapters/ecosystem-catalog.js";
 import { describeHookCapability } from "../harness/adapters/hook-contract.js";
 import { createDaemonClient } from "../harness/daemon-client.js";
+import { hasErrorCode } from "../harness/check-engine/tool-errors.js";
 import { isHookCoverageReport, type HookCoverageReport, type HookCoverageRequest } from "../harness/hook-coverage-control.js";
 import { manifestPath, readManifestState } from "../harness/installer.js";
 import { hashHookDefinition, readHookRuntimeReceipt } from "../lib/hook-runtime-receipt.js";
@@ -24,16 +25,21 @@ export async function queryHookCoverage(cwd: string, request: HookCoverageReques
         try { const report: unknown = JSON.parse(raw.additional_context); if (isHookCoverageReport(report)) return report; }
         catch { /* Intentional: a stale raw response is not evidence; try the framed control below. */ }
     }
-    if (request.operation !== "status") return { readiness: "unmeasured", reason: "Coverage mutation response unavailable; inspect status before retrying. The operation may already have completed." };
+    if (request.operation !== "status") return { readiness: "unmeasured", retryable: false, reason: "Coverage mutation response unavailable; inspect status before retrying. The operation may already have completed." };
     return queryFramedCoverage(cwd, request);
 }
 
 async function queryFramedCoverage(cwd: string, request: HookCoverageRequest): Promise<HookCoverageReport> {
     try {
         const report = await createDaemonClient(getFramedSocketPath(cwd, undefined)).call("daemon.coverage", request, { timeout_ms: COVERAGE_CONTROL_TIMEOUT_MS });
-        return isHookCoverageReport(report) ? report : { readiness: "unmeasured", reason: "Invalid coverage daemon response; inspect status before retrying a mutation" };
+        return isHookCoverageReport(report) ? report : { readiness: "unmeasured", retryable: false, reason: "Invalid coverage daemon response; inspect status before retrying a mutation" };
     }
-    catch (error) { return { readiness: "unmeasured", reason: `Coverage daemon unavailable or response lost; inspect status before retrying a mutation: ${String(error)}` }; }
+    catch (error) {
+        if (hasErrorCode(error, "EPERM") || hasErrorCode(error, "EACCES")) {
+            return { readiness: "unmeasured", retryable: false, reason: "Host permission denied access to the Interlinked daemon socket. Run coverage controls from a host-permitted terminal or session. Restarting the daemon or changing Interlinked rules does not grant socket access." };
+        }
+        return { readiness: "unmeasured", reason: `Coverage daemon unavailable or response lost; inspect status before retrying a mutation: ${String(error)}` };
+    }
 }
 
 export function hookCapabilityInventory(cwd: string) {

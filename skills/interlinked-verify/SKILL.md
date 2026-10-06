@@ -420,16 +420,21 @@ For `[interlinked:hook-coverage] NOT CHECKED`, use `interlinked harness coverage
 for completion; `--no-wait` returns after starting it. Use `harness coverage status
 --progress --json` for cached progress: it reports generation, observation time, pending
 count and job counters without rehashing files or returning historical receipts. This
-is not a fresh coverage verdict. The waiting CLI uses this compact path and fetches a
-fresh full status before reporting completion; it still accepts older daemons that
-return full reports. Use plain `harness coverage status --json` for an explicit refresh,
-pending identities and full receipt details. Checks reuse the configured PostToolUse battery in bounded
+is not a fresh coverage verdict. The waiting CLI uses this compact path and fetches
+current pending identities and the matching job's detailed result before reporting
+completion; it still accepts older daemons that return full reports. Use plain
+`harness coverage status --json` for an explicit refresh, pending identities and bounded
+receipt history. Omitted-count metadata names the durable ledger containing older
+receipts. Checks reuse the configured PostToolUse battery in bounded
 external batches. This does not replay PreToolUse guards or certify every hook phase.
-While waiting, an unavailable status response is retried up to three consecutive
-polls without restarting verification. A responsive report resets that counter.
-Persistent unavailability exits nonzero with the original reason; the job may still
-be running. Only a ready response with a missing or different job establishes that
-the observed job changed or disappeared.
+While waiting, an unavailable read-only status response is retried for up to two
+minutes per outage, plus any in-flight RPC, without restarting verification. A healthy
+report resets the outage window. Permission denial or an invalid response stops
+immediately. Persistent unavailability exits nonzero; the job may still be running.
+Only a ready response with a missing or different job establishes that the observed
+job changed or disappeared. Normal daemon restarts resume the durable job ID, cursor,
+counters and original 30-minute deadline; shutdown cannot publish late evidence.
+An incomplete completion exits nonzero even if it has no findings or pending rows.
 On Claude and Codex Stop/SubagentStop, advisory coverage feedback stays on exit-0 stderr and
 does not request another agent turn. Only an explicit blocking decision requests
 continuation. This delivery rule does not clear pending evidence or certify checks;

@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startHookFilesystemWatch } from "./hook-filesystem-watch.js";
+import { HookCoverageLedger } from "./hook-coverage-ledger.js";
+import { controlHookCoverage } from "./hook-coverage-control.js";
 
 const cleanups: Array<() => void> = [];
 function fixture(): string {
@@ -13,6 +15,42 @@ function fixture(): string {
 afterEach(() => { vi.restoreAllMocks(); for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 describe("filesystem coverage", () => {
+    it("restores the same control-plane job when the filesystem observer is replaced", async () => {
+        const root = fixture();
+        writeFileSync(join(root, "owned.ts"), "const value = 1;");
+        let started = () => {}, release = () => {};
+        const running = new Promise<void>(resolve => { started = resolve; });
+        const held = new Promise<void>(resolve => { release = resolve; });
+        const first = startHookFilesystemWatch({ root, reservations: () => ["owned.ts"], checker: async () => {
+            started(); await held; return new Map();
+        } });
+        cleanups.push(first.stop);
+        const initial = controlHookCoverage(first, { operation: "verify", detail: "progress" });
+        await running;
+        first.stop();
+        const successor = startHookFilesystemWatch({ root, reservations: () => ["owned.ts"], checker: async entries =>
+            new Map(entries.map(entry => [entry.id, { checks: ["lint"], findings: [], unavailable: [] }])) });
+        cleanups.push(successor.stop);
+        release();
+        expect(controlHookCoverage(successor, { operation: "status", detail: "progress" }).progress?.verification?.id)
+            .toBe(initial.progress?.verification?.id);
+        await expect.poll(() => successor.verification?.progress()?.status).toBe("complete");
+        expect(controlHookCoverage(successor, { operation: "status", detail: "verification" })).toMatchObject({
+            readiness: "ready", pending: [], verification: { id: initial.progress?.verification?.id, checked: 1, unmeasured: [] },
+        });
+    });
+    it("persists one reconciliation for multiple changed paths without copying history", () => {
+        const root = fixture(), paths = ["a.ts", "b.ts"];
+        const watcher = startHookFilesystemWatch({ root, reservations: () => paths });
+        cleanups.push(watcher.stop);
+        const batch = vi.spyOn(watcher.ledger, "observeBatch"), snapshot = vi.spyOn(watcher.ledger, "snapshot");
+        for (const path of paths) writeFileSync(join(root, path), "changed");
+        watcher.reconcile();
+        expect(batch).toHaveBeenCalledTimes(1);
+        expect(snapshot).not.toHaveBeenCalled();
+        const saved = new HookCoverageLedger(join(root, ".interlinked", "hook-coverage.json"));
+        expect(saved.observation().pending.map(entry => entry.path).sort()).toEqual(paths.map(path => join(root, path)));
+    });
     it("reconciles an unchanged watch set without cloning historical receipts", () => {
         const root = fixture(), watcher = startHookFilesystemWatch({ root, reservations: () => [] });
         cleanups.push(watcher.stop);

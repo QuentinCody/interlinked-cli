@@ -254,8 +254,15 @@ remain explicitly unmeasured. A stopped or unavailable observer cannot certify c
 
 `harness coverage status --progress --json` reads cached observation time, generation
 and recovery counts without reconciling files or returning receipt history. Use it for
-progress, not to certify current bytes. Plain `harness coverage status --json` still
-reconciles and returns full evidence. Neither status command starts recovery.
+progress, not to certify current bytes. Plain `harness coverage status --json`
+reconciles and returns pending identities plus bounded receipt history: at most 100
+rows and 1 MiB per kind, newest first, with omitted counts and the durable ledger
+path. Older evidence remains on disk. Neither status command starts recovery.
+Verification acknowledgements and completion polling exclude historical receipts.
+Recovery persists the job ID, remaining batches, counters and original 30-minute
+deadline. A normal daemon restart resumes that job; it does not reset the deadline
+or make partial checks complete. External reservations are outside this repository's
+scope; unsupported paths inside it remain explicitly unmeasured.
 Receipts with nonempty `unavailable` retain completed checks as partial evidence while
 keeping the version pending. Retrying is not made unnecessary merely by having a receipt;
 safe cross-run reuse needs the relevant check input identities.

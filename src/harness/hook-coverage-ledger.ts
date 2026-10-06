@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { isJsonObject } from "../lib/json-types.js";
 import { parseHookCheckReceipts, type HookCheckReceipt } from "./hook-coverage-evidence.js";
+import { writeHookCoverageLedger } from "./hook-coverage-persistence.js";
+import { parseHookVerificationCheckpoint, type HookVerificationCheckpoint } from "./hook-coverage-job.js";
+import { historySummary, recentHistory } from "./hook-coverage-history.js";
 
 interface ObservedFile { identity: string; scope: "policy" | "reservation" }
+export interface HookFileObservation extends ObservedFile { path: string }
 export interface HookPendingCheck {
     id: string;
     path: string;
@@ -22,6 +25,7 @@ export interface LedgerState {
     acceptedPolicy: string | null;
     reviews: HookReviewReceipt[];
     checks: HookCheckReceipt[];
+    recovery?: HookVerificationCheckpoint;
 }
 
 function reviewString(raw: Record<string, unknown>, key: string): string {
@@ -65,7 +69,8 @@ function parseState(raw: unknown): LedgerState {
     if (raw.acceptedPolicy !== null && typeof raw.acceptedPolicy !== "string") throw new Error("Invalid accepted policy identity");
     return { schema: 1, generation, policyGeneration: parseGeneration(raw.policyGeneration ?? generation),
         files: Object.fromEntries(Object.entries(raw.files).map(([path, value]) => [path, parseObservedFile(value)])),
-        pending: raw.pending.map(parsePending), acceptedPolicy: raw.acceptedPolicy, reviews: parseReviews(raw.reviews), checks: parseHookCheckReceipts(raw.checks) };
+        pending: raw.pending.map(parsePending), acceptedPolicy: raw.acceptedPolicy, reviews: parseReviews(raw.reviews), checks: parseHookCheckReceipts(raw.checks),
+        ...(raw.recovery === undefined ? {} : { recovery: parseHookVerificationCheckpoint(raw.recovery) }) };
 }
 
 /** Single daemon writer; atomic replacement preserves the previous state on failure. */
@@ -76,6 +81,13 @@ export class HookCoverageLedger {
     }
 
     snapshot(): LedgerState { return structuredClone(this.state); }
+
+    /** Operator status keeps all pending work, but never copies unbounded history. */
+    statusReport() {
+        const checks = recentHistory(this.state.checks), reviews = recentHistory(this.state.reviews);
+        return { ...this.summary(), pending: structuredClone(this.state.pending), checks: checks.rows, reviews: reviews.rows,
+            history: historySummary(this.path, checks.counts, reviews.counts) };
+    }
 
     /** Current observation data without retained check/review history. */
     observation(): Pick<LedgerState, "files" | "pending"> {
@@ -88,19 +100,32 @@ export class HookCoverageLedger {
     }
 
     observe(path: string, identity: string, scope: ObservedFile["scope"]): void {
-        const previous = this.state.files[path];
-        if (previous?.identity === identity && previous.scope === scope) return;
-        const next = this.snapshot();
-        next.generation++;
-        next.files[path] = { identity, scope };
-        if (scope === "policy" || previous?.scope === "policy") next.policyGeneration++;
-        next.pending = next.pending.filter(entry => entry.path !== path);
-        // Initial absence is an observation, not an observed file version or deletion.
-        // Preserve absence in policy identity; a later creation/deletion still needs evidence.
-        if (previous || identity !== "missing") {
-            next.pending.push({ id: randomUUID(), path, identity, scope, writer: "unknown" });
+        this.observeBatch([{ path, identity, scope }]);
+    }
+
+    recovery(): HookVerificationCheckpoint | undefined { return this.state.recovery ? structuredClone(this.state.recovery) : undefined; }
+
+    saveRecovery(checkpoint: HookVerificationCheckpoint): void {
+        this.save({ ...this.state, recovery: structuredClone(parseHookVerificationCheckpoint(checkpoint)) });
+    }
+
+    /** Reconciliation is one transaction, with generations retained for every change. */
+    observeBatch(observations: readonly HookFileObservation[]): void {
+        const next = { ...this.state, files: { ...this.state.files } };
+        const pending = new Map(this.state.pending.map(entry => [entry.path, entry]));
+        for (const { path, identity, scope } of observations) {
+            const previous = next.files[path];
+            if (previous?.identity === identity && previous.scope === scope) continue;
+            next.generation++;
+            next.files[path] = { identity, scope };
+            if (scope === "policy" || previous?.scope === "policy") next.policyGeneration++;
+            pending.delete(path);
+            // Initial absence is not an observed write. Later deletion still needs evidence.
+            if (previous || identity !== "missing") {
+                pending.set(path, { id: randomUUID(), path, identity, scope, writer: "unknown" });
+            }
         }
-        this.save(next);
+        if (next.generation !== this.state.generation) this.save({ ...next, pending: [...pending.values()] });
     }
 
     policyDigest(): string {
@@ -111,7 +136,7 @@ export class HookCoverageLedger {
     /** Explicit acceptance only; observing or checking a change is not approval. */
     acceptPolicy(expectedDigest: string): boolean {
         if (this.policyDigest() !== expectedDigest) return false;
-        const next = this.snapshot();
+        const next = { ...this.state };
         next.acceptedPolicy = expectedDigest;
         next.generation++;
         this.save(next);
@@ -123,7 +148,7 @@ export class HookCoverageLedger {
         if (!receipt.evidence.trim() || receipt.generation !== this.state.generation) return false;
         const entry = this.state.pending.find(candidate => candidate.id === receipt.id);
         if (!entry || entry.identity !== receipt.identity) return false;
-        const next = this.snapshot();
+        const next = { ...this.state, reviews: [...this.state.reviews] };
         next.pending = next.pending.filter(candidate => candidate.id !== receipt.id);
         next.reviews.push({ id: entry.id, path: entry.path, identity: entry.identity, evidence: receipt.evidence, reviewedAt: new Date().toISOString(), kind: "manual_review" });
         next.generation++;
@@ -134,24 +159,31 @@ export class HookCoverageLedger {
     /** Only the daemon's checker supplies these receipts. The observation ID
      * detects replacement/ABA without invalidation by unrelated acknowledgments. */
     recordCheck(receipt: HookCheckReceipt): boolean {
-        if (!receipt.checks.length || receipt.policyDigest !== this.policyDigest()) return false;
-        if (receipt.policyGeneration !== this.state.policyGeneration) return false;
-        const entry = this.state.pending.find(candidate => candidate.id === receipt.id);
-        if (!entry || entry.path !== receipt.path || entry.identity !== receipt.identity) return false;
-        const next = this.snapshot();
-        if (!receipt.unavailable?.length) next.pending = next.pending.filter(candidate => candidate.id !== receipt.id);
-        next.checks.push(structuredClone(receipt));
-        next.generation++;
-        this.save(next);
-        return true;
+        return this.recordChecks([receipt])[0] ?? false;
+    }
+
+    /** Persist a checker batch once. Stale and partial results keep their existing semantics. */
+    recordChecks(receipts: readonly HookCheckReceipt[], checkpoint?: (outcomes: readonly boolean[]) => HookVerificationCheckpoint): boolean[] {
+        const digest = this.policyDigest();
+        const pending = new Map(this.state.pending.map(entry => [entry.id, entry]));
+        const accepted: HookCheckReceipt[] = [];
+        const outcomes = receipts.map(receipt => {
+            if (!receipt.checks.length || receipt.policyDigest !== digest) return false;
+            if (receipt.policyGeneration !== this.state.policyGeneration) return false;
+            const entry = pending.get(receipt.id);
+            if (!entry || entry.path !== receipt.path || entry.identity !== receipt.identity) return false;
+            accepted.push(structuredClone(receipt));
+            if (!receipt.unavailable?.length) pending.delete(receipt.id);
+            return true;
+        });
+        const recovery = checkpoint ? structuredClone(parseHookVerificationCheckpoint(checkpoint(outcomes))) : undefined;
+        if (accepted.length || recovery) this.save({ ...this.state, generation: this.state.generation + accepted.length,
+            pending: [...pending.values()], checks: [...this.state.checks, ...accepted], ...(recovery ? { recovery } : {}) });
+        return outcomes;
     }
 
     private save(next: LedgerState): void {
-        mkdirSync(dirname(this.path), { recursive: true });
-        const temporary = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
-        writeFileSync(temporary, `${JSON.stringify(next)}\n`, { mode: 0o600, flag: "wx" });
-        try { renameSync(temporary, this.path); }
-        catch (error) { unlinkSync(temporary); throw error; }
+        writeHookCoverageLedger(this.path, next);
         this.state = next;
     }
 }

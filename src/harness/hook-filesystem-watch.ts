@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, watch, type FSWatcher } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { HookCoverageLedger } from "./hook-coverage-ledger.js";
+import { HookCoverageLedger, type HookFileObservation } from "./hook-coverage-ledger.js";
 import { HookCoverageVerification, type HookCoverageChecker } from "./hook-coverage-verification.js";
 
 const ROOT_POLICY_FILES = ["package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", "tsconfig.json"];
@@ -75,7 +75,8 @@ class HookFilesystemWatch {
     constructor(private readonly options: WatchOptions) {
         this.ledger = new HookCoverageLedger(join(options.root, ".interlinked", "hook-coverage.json"));
         this.verification = options.checker ? new HookCoverageVerification({ ledger: this.ledger,
-            reconcile: () => this.reconcile(), ready: () => !this.stopped && this.status().readiness === "ready" }, options.checker) : undefined;
+            reconcile: () => this.reconcile(), ready: () => !this.stopped && this.status().readiness === "ready",
+            unavailableReason: () => this.status().unmeasured.slice(0, 3).join("; ") }, options.checker) : undefined;
         this.reconcile();
         this.interval = setInterval(() => this.reconcile(), options.reconcileMs ?? 2000);
         this.interval.unref();
@@ -119,10 +120,12 @@ class HookFilesystemWatch {
     }
 
     private measureSelected(): void {
+        const observations: HookFileObservation[] = [];
         for (const [path, scope] of this.selected) {
-            try { this.ledger.observe(path, identityOf(path), scope); }
+            try { observations.push({ path, identity: identityOf(path), scope }); }
             catch (error) { this.unmeasured.push(String(error)); }
         }
+        this.ledger.observeBatch(observations);
     }
 
     reconcile(): void {

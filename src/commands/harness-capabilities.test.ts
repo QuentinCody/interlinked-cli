@@ -8,6 +8,14 @@ vi.mock("../harness/daemon-client.js", () => ({ createDaemonClient: () => ({ cal
 beforeEach(() => { vi.clearAllMocks(); mocks.exists.mockReturnValue(true); mocks.raw.mockResolvedValue(null); mocks.framed.mockResolvedValue({ readiness: "ready" }); });
 
 describe("coverage control delivery", () => {
+    it.each(["EPERM", "EACCES"])("identifies host socket denial (%s) without retrying a mutation", async code => {
+        mocks.exists.mockReturnValue(false);
+        mocks.framed.mockRejectedValue(Object.assign(new Error("connect denied"), { code }));
+        const result = await queryHookCoverage("/repo", { operation: "verify" });
+        expect(result).toMatchObject({ readiness: "unmeasured", retryable: false, reason: expect.stringContaining("Host permission denied") });
+        expect(result.reason).toContain("does not grant socket access");
+        expect(mocks.framed).toHaveBeenCalledOnce();
+    });
     it("does not treat malformed framed evidence as measured", async () => {
         mocks.exists.mockReturnValue(false);
         mocks.framed.mockResolvedValue({ readiness: "ready", checks: [{}] });
