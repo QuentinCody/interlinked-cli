@@ -276,7 +276,8 @@ TypeScript syntax support it cannot establish this finding; silence is not a cle
 SQL migration checks likewise cannot prove a column absent from an interpolated column list.
 For `it.each(table)(name, callback)`, assertion checks inspect the callback, not functions
 inside the data table. An unparsed callback cannot prove assertion absence; table assertions
-also cannot satisfy an assertion-free callback.
+also cannot satisfy an assertion-free callback. A call to a same-file helper that asserts
+(directly or through another such helper), or to an `assertX(...)` function, counts as an assertion.
 
 Every warning is tagged. `[proven]` = a real compiler/linter/scanner/parser/test-runner
 produced it — authoritative, fix it. `[heuristic]` = regex/AST-shape match that could be a

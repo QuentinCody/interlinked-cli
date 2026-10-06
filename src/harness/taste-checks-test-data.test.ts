@@ -33,3 +33,54 @@ describe("assertions in parameterized test bodies", () => {
 		]);
 	});
 });
+
+describe("assertions delegated to helpers — negative (must not fire)", () => {
+	it("N1: a test that calls a same-file function whose body asserts", () => {
+		const content = [
+			"function driver(run) {",
+			"  return { verify() { assert.equal(run(), 0); } };",
+			"}",
+			'it.each(SCENARIOS)("$name", async scenario => {',
+			"  await scenario.run(driver(start));",
+			"});",
+		].join("\n");
+		expect(checkAssertionFreeTest(content, "flow.test.ts")).toEqual([]);
+	});
+
+	it("N2: an arrow helper that asserts through another asserting helper", () => {
+		const content = [
+			"const checkReport = (report) => {",
+			"  expect(report.status).toBe(\"complete\");",
+			"};",
+			"const runAndCheck = async (input) => {",
+			"  checkReport(await run(input));",
+			"};",
+			'it("completes", async () => {',
+			"  await runAndCheck(1);",
+			"});",
+		].join("\n");
+		expect(checkAssertionFreeTest(content, "flow.test.ts")).toEqual([]);
+	});
+
+	it("N3: a call to an imported assertX helper", () => {
+		const content = 'it("serves the session", async () => {\n  fixture.assertServed(await fixture.hook());\n});';
+		expect(checkAssertionFreeTest(content, "flow.test.ts")).toEqual([]);
+	});
+});
+
+describe("assertions delegated to helpers — positive (must fire)", () => {
+	it("P1: a called same-file helper that never asserts", () => {
+		const content = "function setup() {\n  return start();\n}\nit(\"starts\", () => {\n  setup();\n});";
+		expect(checkAssertionFreeTest(content, "flow.test.ts")).toEqual([{ line: 4, text: 'it("starts", () => {' }]);
+	});
+
+	it("P2: an asserting helper that the test reaches only as another object's method", () => {
+		const content = "function verify() {\n  expect(1).toBe(1);\n}\nit(\"checks\", () => {\n  client.verify();\n});";
+		expect(checkAssertionFreeTest(content, "flow.test.ts")).toEqual([{ line: 4, text: 'it("checks", () => {' }]);
+	});
+
+	it("P3: an expression-bodied arrow does not borrow the next function's assertion", () => {
+		const content = "const run = () => compute();\nfunction unused() {\n  expect(1).toBe(1);\n}\nit(\"runs\", () => {\n  run();\n});";
+		expect(checkAssertionFreeTest(content, "flow.test.ts")).toEqual([{ line: 5, text: 'it("runs", () => {' }]);
+	});
+});

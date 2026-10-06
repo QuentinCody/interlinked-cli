@@ -28,9 +28,52 @@ import {
 const ASSERT_PATTERN =
 	/\b(expect|should)\s*\(|\bassert\b\s*(?:\.\s*[A-Za-z]+)?\s*\(|\.\s*(?:toBe|toEqual|toStrictEqual|toMatch|toMatchObject|toThrow|toThrowError|toHaveBeenCalled|toHaveBeenCalledWith|toHaveBeenCalledTimes|toContain|toContainEqual|toHaveLength|toHaveProperty|toBeDefined|toBeUndefined|toBeNull|toBeTruthy|toBeFalsy|toBeInstanceOf|toBeGreaterThan|toBeLessThan|toBeCloseTo|toMatchSnapshot|toMatchInlineSnapshot|resolves|rejects)\b|\bchai\.|\bsinon\.assert/;
 
-function isAssertionFreeBody(body: string): boolean {
+/** A call to a function named `assertX(...)` (`fixture.assertServed(run)`,
+ *  `assertCompleted(report)`) — the conventional name of an assertion helper
+ *  whose body this file cannot see because it is imported. */
+const ASSERT_HELPER_CALL = /\bassert[A-Z][\w$]*\s*\(/;
+
+/** A same-file helper declaration whose body opens on the header line. The
+ *  `{` requirement keeps an expression-bodied arrow from borrowing the next
+ *  block; a header these patterns miss leaves the helper unrecognized, which
+ *  keeps the test flagged (the pre-change behavior). */
+const HELPER_HEADERS = [
+	/^\s*(?:export\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*[<(][^{]*\{/,
+	/^\s*(?:export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]*)?=\s*(?:async\s+)?(?:function\b[^{]*|\([^)]*\)[^=]*=>|[A-Za-z_$][\w$]*\s*=>)\s*\{/,
+];
+
+function callsAny(body: string, names: ReadonlySet<string>): boolean {
+	for (const name of names) {
+		if (new RegExp(String.raw`(?<![\w$.])${name.replace(/\$/g, "\\$")}\s*\(`).test(body)) return true;
+	}
+	return false;
+}
+
+/** Names of same-file helpers that assert, directly or through another
+ *  asserting helper: a test that delegates to `driver()` / `fixture()` whose
+ *  body calls `assert.equal` is not assertion-free. */
+function assertingHelpers(sLines: string[]): Set<string> {
+	const helpers = new Map<string, string>();
+	sLines.forEach((line, i) => {
+		const name = HELPER_HEADERS.map(re => line.match(re)?.[1]).find(Boolean);
+		if (name) helpers.set(name, sLines.slice(i, findBlockEnd(sLines, i) + 1).join("\n"));
+	});
+	const asserting = new Set<string>();
+	let grew = true;
+	while (grew) {
+		grew = false;
+		for (const [name, body] of helpers) {
+			if (asserting.has(name) || !(ASSERT_PATTERN.test(body) || callsAny(body, asserting))) continue;
+			asserting.add(name);
+			grew = true;
+		}
+	}
+	return asserting;
+}
+
+function isAssertionFreeBody(body: string, helpers: ReadonlySet<string>): boolean {
 	if (!body.includes("{")) return false;
-	return !ASSERT_PATTERN.test(body);
+	return !ASSERT_PATTERN.test(body) && !ASSERT_HELPER_CALL.test(body) && !callsAny(body, helpers);
 }
 
 // A case EXPLICITLY named for a smoke / not-throwing check legitimately asserts
@@ -89,6 +132,7 @@ export function checkAssertionFreeTest(content: string, filePath: string): Inlin
 	const stripped = stripCommentsAndStrings(content);
 	const lines = content.split("\n");
 	const sLines = stripped.split("\n");
+	const helpers = assertingHelpers(sLines);
 	const matches: InlineMatch[] = [];
 	let i = 0;
 	while (i < sLines.length && matches.length < 10) {
@@ -103,7 +147,7 @@ export function checkAssertionFreeTest(content: string, filePath: string): Inlin
 		}
 		// The name is read from the ORIGINAL header lines (stripped collapses it);
 		// line indices align because stripCommentsAndStrings is line-preserving.
-		if (isAssertionFreeBody(test.body) && !SMOKE_TEST_NAME_RE.test(test.name)) {
+		if (isAssertionFreeBody(test.body, helpers) && !SMOKE_TEST_NAME_RE.test(test.name)) {
 			push(matches, i, lines, 10);
 		}
 		i = test.end + 1;
