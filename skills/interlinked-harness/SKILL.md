@@ -511,3 +511,17 @@ interlinked harness restart                    # reload everything (clears traje
 - **interlinked-quality-gates** — advisory file size and the coverage/complexity/function-token ratchets.
 - **interlinked-supply-chain** — the package-install gate in detail.
 - **interlinked-setup** — starting/restarting the daemon, `doctor`, config.
+
+## Permission proposals and unavailable checks
+
+The permission learner is suggestion-only. Crossing an observation threshold does not write Claude permissions or guard rules. Proposals retain the observed command and conservative pattern; observations do not prove approval or execution. Interpreter-wide and compound-command proposals are withheld. Cross-session `learned-rules.json` is observational proposal history, including its legacy `decision: allow` field; it is not effective authorization. Existing explicit permissions remain operator-owned.
+
+Unknown `active_when` session predicates leave a distilled rule dormant with a diagnostic. The registered predicate is `active_agent_count_at_least` with `count`; do not substitute invented predicates or the legacy top-level `session_predicate` shape. See **enforce** for supported typed conditions.
+
+Existing top-level `session_predicate` fields retain their historical unconditional matching and the operator's enabled setting, with a migration diagnostic. They are not evaluated conditions. Migrate them explicitly to supported `active_when` rather than silently disabling existing guards.
+
+The baseline-effect warning records pre-call values for review. It does not guarantee that every consumer uses them: some gates still read loosened files directly. Review the exact diff and restore the prior values; the warning supplies no automatic restore command.
+
+A thrown sequence detector or failed Stop scan records NOT CHECKED evidence while healthy detectors continue. An instrumentation failure is not a source violation or a clean scan. LTL remains shadow-only: its event-clock.v1 counts PreToolUse and PostToolUse separately, including a paired tool-use ID. Open finite-trace obligations remain unknown at Stop; predicate exceptions taint that property and cannot manufacture violations. No local control-file guard is an immutable security boundary.
+
+Each throwing trajectory rule produces unavailable shadow telemetry while peer rules and the LTL monitor continue. Adapter failures also retain unavailable telemetry without changing the enforcement decision.

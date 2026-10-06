@@ -23,6 +23,14 @@ import { acquireBuildLease, buildLeasePath } from "./build-lease.mjs";
 import { BUILD_INPUT_MARKER } from "./build-publish.mjs";
 
 const roots = [];
+it("passes the frozen build fingerprint to the bundler for embedded evidence identity", async () => {
+    const root = makeRoot();
+    const fingerprints = [];
+    await buildAtomically({ root, fingerprintInputs: () => "a".repeat(64),
+        populateStage: (_root, stage, fingerprint) => { fingerprints.push(fingerprint); populateRequiredDistribution(stage); },
+        validateStage: () => {}, publishStage: () => {} });
+    expect(fingerprints).toEqual(["a".repeat(64)]);
+});
 const NODE_SHEBANG = "#!/usr/bin/env node";
 const NEW_BUILD_SOURCES = [
     "scripts/build-atomic.mjs",

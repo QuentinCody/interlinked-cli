@@ -180,7 +180,7 @@ describe("trajectoryShadowWarnings", () => {
 		expect(trajectoryShadowWarnings(event, ALLOW, CONFIG_ON)).toEqual([]);
 	});
 
-	it("fails open (returns []) when the engine throws internally", () => {
+	it("retains unavailable telemetry without blocking when the engine throws internally", () => {
 		const badInput: NonNullable<HarnessEvent["tool_input"]> = new Proxy(
 			{},
 			{
@@ -199,7 +199,8 @@ describe("trajectoryShadowWarnings", () => {
 			tool_input: badInput,
 			timestamp: "t",
 		};
-		expect(trajectoryShadowWarnings(event, ALLOW, CONFIG_ON)).toEqual([]);
+		expect(trajectoryShadowWarnings(event, ALLOW, CONFIG_ON)).toEqual([expect.stringContaining("NOT CHECKED: trajectory evaluation failed: boom")]);
+		expect(ALLOW.decision).toBe("allow");
 	});
 
 	it("evicts the oldest per-session state once SESSION_CAP is exceeded", () => {

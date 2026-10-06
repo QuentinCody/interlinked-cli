@@ -278,6 +278,14 @@ function detectCheckEvidence(file: string, before: unknown, after: unknown): Bas
 	const b = asObj(before);
 	const a = asObj(after);
 	const out: BaselineGamingFinding[] = detectEnforcedShrink(file, b, a);
+    const previousCohort = Array.isArray(b.corpus_cohort) ? b.corpus_cohort : [];
+    const currentCohort = new Set(Array.isArray(a.corpus_cohort) ? a.corpus_cohort : []);
+    for (const id of previousCohort) {
+        if (typeof id === "string" && !currentCohort.has(id)) {
+            out.push(fmt(file, `corpus-cohort-removed:${id}`, id, undefined,
+                `Removing ${id} from corpus_cohort retires a qualified check's corpus obligation. Review the exact policy change.`));
+        }
+    }
 	const bSet = new Set(Array.isArray(b.exempt) ? b.exempt : []);
 	const aList = Array.isArray(a.exempt) ? a.exempt : [];
 	for (const id of aList) {

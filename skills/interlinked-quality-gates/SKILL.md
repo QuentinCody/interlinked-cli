@@ -1515,3 +1515,11 @@ interlinked debt markers --record --reason "reviewed" # append source snapshot +
 - **interlinked-harness** — the general guard, suppression grammar, cold fallback.
 - **interlinked-observability** — `interlinked metrics` and recurrence for finding hotspots.
 - **interlinked-simplification** — advisory delete/stdlib/native/YAGNI/shrink review and audit.
+
+## Evidence qualification additions
+
+The baseline-integrity gate treats removing entries from `check-evidence-baseline.json#corpus_cohort` as weakening. Qualification requires fresh complete v2 corpus evidence and the named controls; stale or legacy zero-hit records cannot qualify. This remains local, bypassable enforcement. The broader policy-change contract is a design proposal, not an implemented external authority.
+
+Stryker adapter paths retain optional statusReason, killedBy, testsCompleted, test IDs, unknown fields and report/run hashes in `.interlinked/mutation-evidence/`. Reports exceeding the 16 MiB retention budget or failed writes emit NOT RETAINED. These are locally hashed JSON-value sidecars, not authenticated protocol-v3 extensions or original HTTP-byte attestations. Mutation score semantics are unchanged. A historical kill and applicability to current tests/helpers/fixtures/config/runtime/environment are separate; incomplete dependency closure remains unknown, and killedBy alone is not closure or causal attribution. Signed v3 payloads retain their existing strict schema; the sidecar capability design is documented separately.
+
+The cloud runner requires an explicit evidence root and never uses the process working directory as an implicit persistence target. Sidecar retention is bounded to 64 MiB, 128 reports and 30 days, retaining the current report. Run metadata keeps two generations of at most 1 MiB each. Pruning counts are recorded; unrelated files are untouched. This diagnostic store is not an indefinite audit archive, and old run metadata may reference a pruned report.

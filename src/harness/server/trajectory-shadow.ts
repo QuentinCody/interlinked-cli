@@ -141,8 +141,9 @@ export function trajectoryShadowWarnings(
 		if (!event.session_id) return [];
 		const state = getState(event.session_id, filesRead);
 		return evaluateTrajectory(state, toToolEvent(event, decision)).map(formatTrajectoryVerdict);
-	} catch {
-		return []; // fail-open: shadow telemetry never disrupts the tool loop
+	} catch (error) {
+		return [formatTrajectoryVerdict({ ruleId: "trajectory:unavailable", action: "silent_metric", severity: "low",
+			reason: `NOT CHECKED: trajectory evaluation failed: ${error instanceof Error ? error.message : String(error)}` })];
 	}
 }
 

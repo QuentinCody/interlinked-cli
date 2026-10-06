@@ -42,6 +42,7 @@
 //     sequence-checks cross-agent trio before building).
 // ---------------------------------------------------------------------------
 
+import { evaluateLtlShadow } from "./ltl/shadow.js";
 import { CHURN_RULES } from "./rules-churn.js";
 import { OBLIGATION_RULES } from "./rules-obligations.js";
 import { READ_EDIT_RULES } from "./rules-read-edit.js";
@@ -75,8 +76,14 @@ export function evaluateTrajectory(state: TrajectoryState, event: ToolEvent): Ve
 	applyEvent(state, event);
 	const verdicts: Verdict[] = [];
 	for (const rule of TRAJECTORY_RULES) {
-		const fired = rule(state, event);
-		if (fired) verdicts.push(fired);
+		try {
+			const fired = rule(state, event);
+			if (fired) verdicts.push(fired);
+		} catch (error) {
+			verdicts.push({ ruleId: `unavailable:${rule.name || "anonymous-rule"}`, action: "silent_metric", severity: "low",
+				reason: `NOT CHECKED: trajectory rule failed: ${error instanceof Error ? error.message : String(error)}` });
+		}
 	}
+	verdicts.push(...evaluateLtlShadow(state, event)); // formula rules, `ltl:`-prefixed silent metrics (ltl/shadow.ts)
 	return verdicts;
 }

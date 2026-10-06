@@ -12,64 +12,8 @@ export function registerHarnessCommands(program: Command): void {
 		.command("harness")
 		.description("Local harness server: guard evaluation, auto-reservations, agent lifecycle");
 
-	harnessCmd
-		.command("start")
-		.description("Start the harness server (background daemon by default)")
-		.option("--no-daemon", "Run in foreground instead of background")
-		.option("--protocol <mode>", "Socket protocol: raw, framed, or dual", "dual")
-		.option("--session-id <id>", "Framed socket session id", "default")
-		.option("--verbose", "Verbose logging")
-		.option("--json", "Machine-readable output")
-		.action(async (opts: OptionValues) => {
-			const { harnessStartCommand } = await import("../commands/harness.js");
-			await harnessStartCommand(opts);
-		});
-
-	harnessCmd
-		.command("stop")
-		.description("Stop the harness server")
-		.option("--json", "Machine-readable output")
-		.action(async (opts: OptionValues) => {
-			const { harnessStopCommand } = await import("../commands/harness.js");
-			await harnessStopCommand(opts);
-		});
-
-	harnessCmd
-		.command("restart")
-		.description("Stop and restart the harness server (picks up config changes)")
-		.option("--no-daemon", "Run in foreground instead of daemon")
-		.option("--protocol <mode>", "Socket protocol: raw, framed, or dual", "dual")
-		.option("--session-id <id>", "Framed socket session id", "default")
-		.option("--verbose", "Verbose output")
-		.option("--json", "Machine-readable output")
-		.action(async (opts: OptionValues) => {
-			const { harnessRestartCommand } = await import("../commands/harness.js");
-			await harnessRestartCommand(opts);
-		});
-
-	harnessCmd
-		.command("status")
-		.description("Show harness status, loaded rules, and active agents")
-		.option("--json", "Machine-readable output")
-		.action(async (opts: OptionValues) => {
-			const { harnessStatusCommand } = await import("../commands/harness.js");
-			await harnessStatusCommand(opts);
-		});
-
+	registerDaemonLifecycle(harnessCmd);
 	registerHarnessInventory(harnessCmd);
-
-	harnessCmd
-		.command("health")
-		.description(
-			"Check-health report from the recurrence log: repeat-rate per check id, probation candidates (demotion signal)",
-		)
-		.option("--json", "Machine-readable output")
-		.option("--short", "One-line summary")
-		.option("--full", "Show every check id (default: top 25 by repeat-rate)")
-		.action(async (opts: OptionValues) => {
-			const { harnessHealthCommand } = await import("../commands/harness.js");
-			await harnessHealthCommand(opts);
-		});
 
 	harnessCmd
 		.command("test [command]")
@@ -132,6 +76,61 @@ export function registerHarnessCommands(program: Command): void {
 			await harnessLatencyCommand(opts);
 		});
 
+	registerScannerCommands(program);
+}
+
+/** Daemon process lifecycle: start / stop / restart / status. Split out so
+ *  `registerHarnessCommands` stays inside the per-function token cap. */
+function registerDaemonLifecycle(harnessCmd: Command): void {
+	harnessCmd
+		.command("start")
+		.description("Start the harness server (background daemon by default)")
+		.option("--no-daemon", "Run in foreground instead of background")
+		.option("--protocol <mode>", "Socket protocol: raw, framed, or dual", "dual")
+		.option("--session-id <id>", "Framed socket session id", "default")
+		.option("--verbose", "Verbose logging")
+		.option("--json", "Machine-readable output")
+		.action(async (opts: OptionValues) => {
+			const { harnessStartCommand } = await import("../commands/harness.js");
+			await harnessStartCommand(opts);
+		});
+
+	harnessCmd
+		.command("stop")
+		.description("Stop the harness server")
+		.option("--json", "Machine-readable output")
+		.action(async (opts: OptionValues) => {
+			const { harnessStopCommand } = await import("../commands/harness.js");
+			await harnessStopCommand(opts);
+		});
+
+	harnessCmd
+		.command("restart")
+		.description("Stop and restart the harness server (picks up config changes)")
+		.option("--no-daemon", "Run in foreground instead of daemon")
+		.option("--protocol <mode>", "Socket protocol: raw, framed, or dual", "dual")
+		.option("--session-id <id>", "Framed socket session id", "default")
+		.option("--verbose", "Verbose output")
+		.option("--json", "Machine-readable output")
+		.action(async (opts: OptionValues) => {
+			const { harnessRestartCommand } = await import("../commands/harness.js");
+			await harnessRestartCommand(opts);
+		});
+
+	harnessCmd
+		.command("status")
+		.description("Show harness status, loaded rules, and active agents")
+		.option("--json", "Machine-readable output")
+		.action(async (opts: OptionValues) => {
+			const { harnessStatusCommand } = await import("../commands/harness.js");
+			await harnessStatusCommand(opts);
+		});
+}
+
+/** The PII content-scanner surface. A sibling concern to the harness daemon
+ *  (it is a `program`-level command, not a `harness` subcommand), split out so
+ *  `registerHarnessCommands` stays inside the per-function token cap. */
+function registerScannerCommands(program: Command): void {
 	const scannerCmd = program
 		.command("scanner")
 		.description("PII filter (content scanner) — toggle, inspect, audit");

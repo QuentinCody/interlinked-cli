@@ -302,7 +302,7 @@ LINE2=""
 
 # Priority 1: pending review needs the user.
 if [ "$REVIEW_COUNT" != "0" ]; then
-    LINE2="\${YELLOW}⚠ \${REVIEW_COUNT} file(s) awaiting review\${RESET}\${SEP}\${CYAN}interlinked review\${RESET}"
+    LINE2="\${YELLOW}⚠ \${REVIEW_COUNT} response(s) awaiting review\${RESET}\${SEP}\${CYAN}interlinked scanner review\${RESET}"
 
 # Priority 2: a block fired in the last 5 min. The killer screenshot moment.
 elif [ "$LAST_RESULT" = "block" ] && [ "$LAST_AGE" -lt 300 ]; then

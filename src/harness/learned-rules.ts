@@ -1,9 +1,9 @@
 // ===========================================
 // Cross-Session Learned Rules
 // ===========================================
-// Persists allow rules learned from repeated agent behavior.
-// When a command pattern is observed N times across sessions without
-// being blocked, it's auto-added to guard-rules.local.json.
+// Persists observed proposals in learned-rules.json only. No guard/settings
+// writer or evaluator consumes this store as authorization. The historical
+// decision: "allow" field describes a proposal, not effective permission.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

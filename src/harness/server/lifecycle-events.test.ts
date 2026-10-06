@@ -1191,7 +1191,7 @@ describe("Stop handler — branch coverage", () => {
 		expect(mMkdir).toHaveBeenCalledWith("/repo/.interlinked/sessions", { recursive: true });
 		const [target, body] = mWriteFile.mock.calls[0] ?? [];
 		expect(target).toBe("/repo/.interlinked/sessions/s1.trajectory.json");
-		expect(JSON.parse(String(body)).feedback_effectiveness).toEqual({ summary: "fx" });
+		expect(JSON.parse(String(body)).feedback_evidence).toEqual({ schema: "finding-outcomes.v1", source: ".interlinked/check-results.jsonl", legacy_resolution_rate: "not-computed" });
 		expect(bLog.some((l) => l.includes("Session trajectory saved: s1"))).toBe(true);
 	});
 

@@ -23,6 +23,8 @@ import { CHECK_REGISTRY } from "../check-registry/index.js";
 import { loadAdversarialStore } from "./adversarial.js";
 import { enforcedDimensions, exemptSet, loadCheckEvidenceBaseline } from "./baseline.js";
 import { loadCorpusStore } from "./corpus-scan.js";
+import { qualifyCurrentCorpus } from "./corpus-current.js";
+import { qualifyCorpusControls } from "./corpus-controls.js";
 import { failingVerdicts, staleExemptions, sweepEvidence } from "./extract.js";
 import { loadMutationScores } from "./recall.js";
 import { buildDetectorIndex } from "./resolve.js";
@@ -55,13 +57,17 @@ function loadDetectorSources(): Record<string, string> {
 	return out;
 }
 
+const corpusCohort = new Set(baseline.corpus_cohort ?? []);
+const currentCorpus = qualifyCurrentCorpus(REPO_ROOT, [...corpusCohort], CHECK_REGISTRY);
+const corpus = { ...loadCorpusStore(REPO_ROOT).checks, ...currentCorpus.records };
+const corpusBindings = currentCorpus.bindings;
 const sweep = sweepEvidence(
 	{
 		registry: CHECK_REGISTRY,
 		advisoryIds: DEFAULT_ADVISORY_SKIPS,
 		index,
 		enforced: enforcedDimensions(baseline),
-		corpus: loadCorpusStore(REPO_ROOT).checks,
+		corpus, corpusCohort, corpusBindings,
 		detectorSource: loadDetectorSources(),
 		mutationScores: loadMutationScores(REPO_ROOT),
 		adversarial: loadAdversarialStore(REPO_ROOT).checks,
@@ -70,6 +76,15 @@ const sweep = sweepEvidence(
 );
 
 describe("Check Evidence Contract", () => {
+    it("each corpus cohort member has discriminating controls and cannot be grandfathered", () => {
+        for (const id of corpusCohort) {
+            const check = CHECK_REGISTRY.find(check => check.id === id);
+            expect(check, id).toBeDefined();
+            if (!check) continue;
+            expect(exempt.has(id), id).toBe(false);
+            expect(qualifyCorpusControls(check).qualified, id).toBe(true);
+        }
+    });
 	it("every registered check is either compliant or grandfathered", () => {
 		const failures = failingVerdicts(sweep.verdicts);
 		const detail = failures

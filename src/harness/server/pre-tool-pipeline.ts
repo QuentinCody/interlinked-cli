@@ -130,7 +130,7 @@ function observeLearnedRules(
 		if (learned) {
 			const warnings = preDecision.warnings || [];
 			warnings.push(
-				`[interlinked:learned] Pattern "${pat}" observed ${learned.observation_count} times across sessions — saved as learned rule.`,
+				`[interlinked:learned] Pattern "${pat}" observed ${learned.observation_count} times across sessions — saved as a proposal only. Observation does not establish approval or execution; permissions are unchanged.`,
 			);
 			preDecision.warnings = warnings;
 			ctx.log(`Learned rule: ${pat}`);

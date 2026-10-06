@@ -142,6 +142,8 @@ export const EVIDENCE_DIMENSIONS: readonly EvidenceDimension[] = [
 
 /** Committed baseline: the shrink-only grandfather list. */
 export interface CheckEvidenceBaseline {
+    /** Named, reviewed grow-only qualification cohort. */
+    corpus_cohort?: string[];
 	/**
 	 * Check ids exempt from the contract pending backfill. SHRINK-ONLY under
 	 * the baseline-integrity gate — this is an exemption list, so removing

@@ -11,6 +11,7 @@ import {
 	unadjudicatedHits,
 } from "./corpus.js";
 
+import { corpusResultDigest } from "./corpus-integrity.js";
 describe("hitSignature — positive (must fire)", () => {
 	// test-contract: invariant — hitSignature normalizes internal whitespace runs
 	// to a single space (doc comment: "normalized line text"), so differently
@@ -213,7 +214,13 @@ describe("corpusSatisfied — positive (must fire)", () => {
 			hits: ["a", "b"],
 			adjudications: { a: { verdict: "true_positive" as const }, b: { verdict: "true_positive" as const } },
 		};
-		expect(corpusSatisfied(record)).toBe(true);
+        const provenance = { schema: "corpus-scan.v2" as const, detector: "d", configuration: "c", input: "i",
+            scope: "source", search_root: "src", run: "r", timestamp: "now", discovered: 1, eligible: 1,
+            read: 1, executed: 1, complete: true, failures: [], exclusions: [] };
+        const bound = { ...record, provenance, occurrences: {
+            a: { file: "a.ts", line: 1, text: "a" }, b: { file: "a.ts", line: 2, text: "b" },
+        } };
+		expect(corpusSatisfied({ ...bound, result_digest: corpusResultDigest(bound) }, provenance)).toBe(true);
 	});
 
 	// test-contract: bug — a record with an unadjudicated hit must be

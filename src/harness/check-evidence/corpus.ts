@@ -17,11 +17,12 @@ import { isJsonObject } from "../../lib/json-types.js";
 //
 // Note what a ZERO-hit corpus run does and does not prove. `introverted_test`
 // reported 0/791 and that reads as clean, but it is indistinguishable from a
-// detector that does not work at all. Zero hits satisfies this phase and hands
-// the recall question to Phase 3 (detector mutation), the only thing that can
-// answer it.
+// detector that does not work at all. Qualification therefore also requires
+// named positive/negative and sensitivity controls for the selected cohort.
 
 import { createHash } from "node:crypto";
+import { corpusResultIntact } from "./corpus-integrity.js";
+import { corpusProvenanceMatches, parseCorpusProvenance, type CorpusBinding, type CorpusProvenance } from "./corpus-provenance.js";
 
 /** One detector hit against real working-tree code. */
 export interface CorpusHit {
@@ -45,6 +46,12 @@ interface AdjudicationRecord {
 
 /** One check's corpus run. */
 export interface CorpusRecord {
+    /** Checksum of captured scan results, excluding subsequently reviewed verdicts/history. */
+    result_digest?: string;
+    /** Missing on historical v1 scans: historical evidence cannot qualify. */
+    provenance?: CorpusProvenance;
+    occurrences?: Record<string, CorpusHit>;
+    history?: CorpusRecord[];
 	/** Files walked, so an empty scan is distinguishable from a clean one. */
 	files_scanned: number;
 	/** Stable signatures of every hit the run produced. */
@@ -55,7 +62,7 @@ export interface CorpusRecord {
 
 /** The committed corpus store. */
 export interface CorpusStore {
-	version: 1;
+	version: 1 | 2;
 	checks: Record<string, CorpusRecord>;
 }
 
@@ -71,7 +78,8 @@ export const EMPTY_CORPUS: CorpusStore = { version: 1, checks: {} };
  * Deliberately excludes the line number. An unrelated edit above the hit would
  * otherwise invalidate every adjudication in the file and demand a re-review of
  * work already done. File plus normalized line text is drift-resistant while
- * still distinguishing separate occurrences in the same file.
+ * can collapse identical occurrences. This legacy helper cannot qualify new
+ * evidence; the v2 builder binds each occurrence to its exact scan context.
  */
 export function hitSignature(hit: Pick<CorpusHit, "file" | "text">): string {
 	const normalized = hit.text.trim().replace(/\s+/g, " ");
@@ -97,13 +105,16 @@ export function staleAdjudications(record: CorpusRecord): string[] {
 }
 
 /** Whether a record satisfies the corpus obligation. */
-export function corpusSatisfied(record: CorpusRecord | undefined): boolean {
+export function corpusSatisfied(record: CorpusRecord | undefined, current?: CorpusBinding): boolean {
 	if (!record) return false;
+    if (!corpusResultIntact(record)) return false;
 	if (!Number.isSafeInteger(record.files_scanned) || record.files_scanned <= 0) return false;
+	if (!corpusProvenanceMatches(record.provenance, current)) return false;
+	if (record.files_scanned !== record.provenance?.read || new Set(record.hits).size !== record.hits.length) return false;
 	return unadjudicatedHits(record).length === 0;
 }
 
-/** Build a corpus record from a scan's raw hits, preserving existing verdicts. */
+/** Legacy v1 builder only. New qualification scans use buildBoundCorpusRecord. */
 export function buildCorpusRecord(
 	hits: readonly CorpusHit[],
 	filesScanned: number,
@@ -124,11 +135,28 @@ function parseRecord(raw: unknown): CorpusRecord | null {
 	const o = raw;
 	if (!Array.isArray(o.hits) || !o.hits.every((hit): hit is string => typeof hit === "string")) return null;
 	const filesScanned = typeof o.files_scanned === "number" ? o.files_scanned : 0;
+    const provenance = parseCorpusProvenance(o.provenance);
 	return {
 		files_scanned: filesScanned,
+        ...(typeof o.result_digest === "string" ? { result_digest: o.result_digest } : {}),
 		hits: o.hits,
 		adjudications: parseAdjudications(o.adjudications),
+        ...(provenance ? { provenance } : {}),
+        ...(isJsonObject(o.occurrences) ? { occurrences: parseOccurrences(o.occurrences) } : {}),
+        ...(Array.isArray(o.history) ? { history: o.history.flatMap(value => {
+            const record = isJsonObject(value) ? parseRecord({ ...value, history: undefined }) : null;
+            return record ? [record] : [];
+        }) } : {}),
 	};
+}
+
+function parseOccurrences(raw: Record<string, unknown>): Record<string, CorpusHit> {
+    const out: Record<string, CorpusHit> = {};
+    for (const [id, hit] of Object.entries(raw)) {
+        if (!isJsonObject(hit) || typeof hit.file !== "string" || typeof hit.text !== "string" || typeof hit.line !== "number") continue;
+        out[id] = { file: hit.file, text: hit.text, line: hit.line };
+    }
+    return out;
 }
 
 /** Narrow the adjudication map, dropping entries with an unrecognized verdict. */
@@ -155,5 +183,5 @@ export function parseCorpusStore(raw: unknown): CorpusStore {
 		const record = parseRecord(value);
 		if (record) out[id] = record;
 	}
-	return { version: 1, checks: out };
+	return { version: raw.version === 2 ? 2 : 1, checks: out };
 }

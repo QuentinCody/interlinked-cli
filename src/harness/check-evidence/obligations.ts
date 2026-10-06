@@ -109,7 +109,7 @@ function corpusShortfalls(evidence: CheckEvidence, tier: ObligationTier): string
 			`${evidence.unadjudicated_hits} corpus hit(s) unadjudicated — mark each true_positive (fix the bug) or false_positive (add a negative case)`,
 		];
 	}
-	return ["no corpus dogfood run recorded — run the detector across the working tree"];
+	return ["no current complete corpus evidence — rescan the declared eligible scope and review every hit"];
 }
 
 /** Inputs for one evidence verdict. */

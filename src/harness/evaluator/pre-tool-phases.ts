@@ -38,7 +38,7 @@ import { recordComplexityPulse } from "./complexity-pulse.js";
 import { checkFunctionComplexityWrite } from "./complexity-write-guard.js";
 import { checkFunctionTokenWrite } from "./function-token-write-guard.js";
 import { recordFunctionTokenPulse } from "./function-token-pulse.js";
-import { addPermissionToSettings, extractPermissionPattern } from "./permission-patterns.js";
+import { extractPermissionPattern } from "./permission-patterns.js";
 import { checkTestSignalErosion } from "./pre-tool-test-integrity.js";
 import { estimateEditLine, isBash, isFileWrite, isReadOperation } from "./tool-classifiers.js";
 
@@ -314,7 +314,8 @@ export function computePostInjectionEscalation(
 
 /**
  * PERMISSION PATTERN DETECTION — tracks consecutive identical permission
- * patterns and writes a settings allowlist entry once the threshold is hit.
+ * patterns and proposes a reviewable scope once the threshold is hit.
+ * Observations are not approval or execution evidence. Never writes permissions.
  * Mutates `session` and pushes to `warnings` (both by reference), exactly as
  * the original inline block.
  */
@@ -323,7 +324,7 @@ export function evaluatePermissionPatternDetection(
 	toolName: string,
 	toolInput: ToolInput,
 	warnings: string[],
-	projectRoot: string = session?.project_root ?? process.cwd(),
+	_projectRoot: string = session?.project_root ?? process.cwd(),
 ): void {
 	if (!session) return;
 	const pattern = extractPermissionPattern(toolName, toolInput);
@@ -338,24 +339,20 @@ export function evaluatePermissionPatternDetection(
 		session.consecutive_pattern = { pattern, count: 1 };
 	}
 	if (session.consecutive_pattern.count < PERMISSION_PATTERN_THRESHOLD) return;
-	suggestPermission(session, pattern, warnings, projectRoot);
+	suggestPermission(session, pattern, warnings, readToolString(toolInput.command));
 }
 
-/** Record the run of identical permission patterns as a settings allowlist
- *  entry and reset the run counter. Called once the threshold is reached. */
+/** Deduplicate a proposal without changing the effective permission policy. */
 function suggestPermission(
 	session: SessionTrajectory,
 	pattern: string,
 	warnings: string[],
-	projectRoot: string,
+	command: string,
 ): void {
 	session.suggested_permissions.add(pattern);
-	const added = addPermissionToSettings(pattern, projectRoot);
-	if (added) {
-		warnings.push(
-			`[interlinked:permissions] Added "${pattern}" to .claude/settings.json — you won't be prompted for this again.`,
-		);
-	}
+	warnings.push(
+		`[interlinked:permissions] Repeated request ${JSON.stringify(command || pattern)}: review ${JSON.stringify(pattern)} (suggestion only). Observations are not proof of approval or execution; permissions were not changed.`,
+	);
 	session.consecutive_pattern = null;
 }
 

@@ -74,17 +74,18 @@ function runCommand(command, args, cwd) {
     throw new Error(`${basename(command)} failed (${detail})`);
 }
 
-function buildStage(root, stage, mode) {
+function buildStage(root, stage, mode, fingerprint) {
     const tsup = join(root, "node_modules", ".bin", "tsup");
     runCommand(
         tsup,
         [...ENTRY_POINTS, ...(mode === "e2e" ? ["src/harness/agent-io/store.ts", "src/harness/break-glass.ts"] : []),
             "--format", "esm", "--dts", "--clean", "--out-dir", stage,
+            "--define.__INTERLINKED_EVIDENCE_BUILD__", JSON.stringify(fingerprint),
             ...(mode === "e2e" ? ["--sourcemap", "--metafile", "--no-splitting"] : [])],
         root,
     );
     fixDistDts(stage);
-    runCommand(tsup, ["src/cowork-hook.ts", "--format", "esm", "--no-splitting", "--out-dir", join(stage, "cowork")], root);
+    runCommand(tsup, ["src/cowork-hook.ts", "--format", "esm", "--no-splitting", "--define.__INTERLINKED_EVIDENCE_BUILD__", JSON.stringify(fingerprint), "--out-dir", join(stage, "cowork")], root);
     copyRuntimeAssets(stage, root);
     for (const rel of EXECUTABLE_OUTPUTS) chmodSync(join(stage, rel), 0o755);
 }
@@ -158,7 +159,7 @@ async function runBuildWhileLeased({
 
     const stage = mkdtempSync(join(projectRoot, ".dist-build-"));
     try {
-        await populateStage(projectRoot, stage);
+        await populateStage(projectRoot, stage, inputFingerprint);
         chmodSync(stage, 0o755);
         mkdirSync(stage, { recursive: true });
         writeFileSync(join(stage, BUILD_INPUT_MARKER), `${inputFingerprint}\n`);
@@ -182,7 +183,7 @@ async function runBuildWhileLeased({
 export async function buildAtomically({
     root = process.cwd(),
     mode = "standard",
-    populateStage = (root, stage) => buildStage(root, stage, mode),
+    populateStage = (root, stage, fingerprint) => buildStage(root, stage, mode, fingerprint),
     validateStage = validateDistribution,
     fingerprintInputs = (root) => fingerprintBuildInputs(root, { mode }),
     publishStage = publishRuntimeSafe,

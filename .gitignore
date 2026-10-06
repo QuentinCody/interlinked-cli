@@ -139,6 +139,19 @@ src/lib/_write_integration/
 # blocks NEW additions. Drop a `!scripts/foo.mjs` carve-out below if a
 # new file in this directory needs to ship to the repo.
 scripts/*
+# Maintained evidence qualification and advisory audit entry points.
+!scripts/evidence-deep-audit.mts
+!scripts/evidence-deep-audit.test.mts
+!scripts/evidence-advisory-census.mts
+!scripts/evidence-advisory-census.test.mts
+!scripts/evidence-exploration-summary.mts
+!scripts/evidence-exploration-summary.test.mts
+!scripts/antithesis-terminal-pilot.mts
+!scripts/antithesis-terminal-pilot.test.mts
+!scripts/skill-token-cost.py
+!scripts/fixtures/
+scripts/fixtures/*
+!scripts/fixtures/wizard-evidence.spec.ts
 !scripts/internal/
 scripts/internal/*
 !scripts/internal/jev.mjs

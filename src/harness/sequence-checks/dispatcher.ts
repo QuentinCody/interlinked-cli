@@ -19,6 +19,7 @@
 // (cheaper to test, no fs I/O on the hot path).
 
 import type { HarnessEvent, SessionTrajectory } from "../types.js";
+import { recordUnavailableCheck } from "../check-unavailable.js";
 import { ALL_SEQUENCE_DETECTORS } from "./registry.js";
 import type {
 	SequenceDetector,
@@ -43,7 +44,7 @@ export const defaultDetectorEnabledPredicate: DetectorEnabledPredicate = (d) =>
 /**
  * Run every enabled detector for the given phase against the
  * (trajectory, candidate) pair. Returns one `SequenceFinding` per match.
- * Detectors that throw are silently skipped.
+ * Detectors that throw retain unavailable execution evidence and do not block dispatch.
  */
 export function runSequenceDetectorsForPhase(args: {
 	phase: SequenceDetectorPhase;
@@ -60,7 +61,8 @@ export function runSequenceDetectorsForPhase(args: {
 		let matches: ReturnType<SequenceDetector["fn"]>;
 		try {
 			matches = detector.fn(trajectory, candidate);
-		} catch {
+		} catch (error) {
+			recordUnavailableCheck({ cwd: candidate.cwd ?? trajectory.project_root ?? process.cwd(), event: candidate, check: detector.id, error });
 			// Per the invariant above — a buggy detector cannot break dispatch.
 			continue;
 		}

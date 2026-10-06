@@ -1066,13 +1066,13 @@ describe("phase orchestration", () => {
 // ===========================================================================
 
 describe("feedback effectiveness", () => {
-	it("records warnings issued + resolutions when actionable findings exist", async () => {
+	it("records issuance without inferring legacy Boolean resolution from actionable results", async () => {
 		mRunStructural.mockReturnValue([
 			{ check: "import_resolution", severity: "warning", message: "m", file: IN_REPO },
 		]);
 		const session = makeSession();
 		await runPerFileChecks(makeCtx(), ev(), session, IN_REPO, { decision: "allow" }, makeAcc());
-		expect(mRecordWarningResolutions).toHaveBeenCalledOnce();
+		expect(mRecordWarningResolutions).not.toHaveBeenCalled();
 		expect(mRecordWarningsIssued).toHaveBeenCalledWith(
 			session,
 			IN_REPO,
@@ -1103,7 +1103,7 @@ describe("feedback effectiveness", () => {
 		);
 	});
 
-	it("records resolutions but not issuance when only info-level findings exist", async () => {
+	it("does not infer clearance or issuance from only info-level results", async () => {
 		mSuggestionsPhase.mockImplementation((_c, _e, _p, _s, _d, acc: PerFileCheckCtx) => {
 			acc.allCheckResults.push({
 				source: "structure",
@@ -1115,7 +1115,7 @@ describe("feedback effectiveness", () => {
 		});
 		await runPerFileChecks(makeCtx(), ev(), makeSession(), IN_REPO, { decision: "allow" }, makeAcc());
 		expect(mRecordWarningsIssued).not.toHaveBeenCalled();
-		expect(mRecordWarningResolutions).toHaveBeenCalledOnce();
+		expect(mRecordWarningResolutions).not.toHaveBeenCalled();
 	});
 
 	it("records nothing when there are zero findings", async () => {

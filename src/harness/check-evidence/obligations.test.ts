@@ -166,7 +166,7 @@ describe("evaluateEvidence — staged dimensions", () => {
 		const ev = evidence({ corpus_satisfied: false });
 		const v = judge(ev, OBLIGATION_TIERS.pre_block, false, WITH_CORPUS);
 		expect(v.satisfied).toBe(false);
-		expect(v.shortfalls[0]).toMatch(/no corpus dogfood run/);
+		expect(v.shortfalls[0]).toMatch(/no current complete corpus evidence/);
 	});
 
 	it("P2: names the unadjudicated-hit count when a run exists but is unresolved", () => {

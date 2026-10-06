@@ -11,6 +11,7 @@ import type { CheckRegistration } from "../check-registry/types.js";
 import { type AdversarialRecord, adversarialGap } from "./adversarial.js";
 import { countCases, parseLabeledCases } from "./case-parser.js";
 import { type CorpusRecord, corpusSatisfied, unadjudicatedHits } from "./corpus.js";
+import type { CorpusBinding } from "./corpus-provenance.js";
 import { evaluateEvidence, tierFor } from "./obligations.js";
 import { derivedCaseFloor, detectorCyclomatic, type MutationScores } from "./recall.js";
 import { buildDetectorIndex, type DetectorIndex, type IndexRoots, resolveDetector } from "./resolve.js";
@@ -36,6 +37,8 @@ interface EvidenceSweepInput {
 	 * later phases widen this via the committed baseline's `enforced` field.
 	 */
 	enforced?: readonly EvidenceDimension[];
+    corpusCohort?: ReadonlySet<string>;
+    corpusBindings?: Readonly<Record<string, CorpusBinding>>;
 	/** Corpus dogfood runs, keyed by check id. Absent = no run recorded. */
 	corpus?: Readonly<Record<string, CorpusRecord>>;
 	/**
@@ -81,6 +84,7 @@ function gapsFor(detectorFile: string | null, testFiles: readonly string[], case
 
 /** Optional recall inputs — absent ones leave their fields UNKNOWN, not zero. */
 interface RecallInputs {
+    corpusBinding?: CorpusBinding;
 	/** This check's corpus dogfood run, if one is recorded. */
 	corpus?: CorpusRecord;
 	/** The check's tier, needed to floor the derived case count. */
@@ -129,6 +133,7 @@ function recallInputsFor(
 	const corpus = input.corpus?.[check.id];
 	return {
 		tier,
+        ...(input.corpusBindings?.[check.id] ? { corpusBinding: input.corpusBindings[check.id] } : {}),
 		...(corpus ? { corpus } : {}),
 		...(source ? { detectorSource: source } : {}),
 		...(input.mutationScores ? { mutationScores: input.mutationScores } : {}),
@@ -149,7 +154,7 @@ export function evidenceFor(
 	const cyclomatic = measureCyclomatic(detectorFile, recall.detectorSource, check.fn.name);
 
 	return {
-		corpus_satisfied: corpusSatisfied(corpus),
+		corpus_satisfied: corpusSatisfied(corpus, recall.corpusBinding),
 		unadjudicated_hits: corpus ? unadjudicatedHits(corpus).length : 0,
 		detector_cyclomatic: cyclomatic,
 		derived_case_floor: tier ? derivedCaseFloor(cyclomatic, tier) : positive + negative,
@@ -192,7 +197,9 @@ export function sweepEvidence(
 				evidence: record,
 				tier,
 				grandfathered: grandfathered.has(check.id),
-				...(input.enforced ? { enforced: input.enforced } : {}),
+                enforced: input.corpusCohort?.has(check.id)
+                    ? [...new Set([...(input.enforced ?? ["cases"]), "corpus"] as const)]
+                    : input.enforced ?? ["cases"],
 			}),
 		);
 	}

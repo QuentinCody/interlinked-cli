@@ -40,6 +40,7 @@ export function parseBaseline(raw: unknown): CheckEvidenceBaseline {
 	const enforced = parseEnforced(raw.enforced);
 	return {
 		exempt: exempt.filter((e): e is string => typeof e === "string"),
+        ...(Array.isArray(raw.corpus_cohort) ? { corpus_cohort: raw.corpus_cohort.filter((id): id is string => typeof id === "string") } : {}),
 		...(enforced ? { enforced } : {}),
 		...(typeof note === "string" ? { note } : {}),
 	};

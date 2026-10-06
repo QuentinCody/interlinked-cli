@@ -6,6 +6,7 @@ import type { CheckRegistration } from "../check-registry/types.js";
 import { detectorHash } from "./adversarial.js";
 import { evidenceFor, failingVerdicts, staleExemptions, sweepEvidence } from "./extract.js";
 import type { DetectorIndex } from "./resolve.js";
+import { corpusResultDigest } from "./corpus-integrity.js";
 
 function detectExample(): [] {
 	return [];
@@ -141,9 +142,17 @@ describe("sweepEvidence", () => {
 });
 
 describe("corpus wiring", () => {
+    const provenance = { schema: "corpus-scan.v2" as const, detector: "d", configuration: "c", input: "i",
+        scope: "source", search_root: "src", run: "r", timestamp: "now", discovered: 10, eligible: 10,
+        read: 10, executed: 10, complete: true, failures: [], exclusions: [] };
+    function cleanCorpus() {
+        const row = { files_scanned: 10, hits: [], occurrences: {}, adjudications: {}, provenance };
+        return { ...row, result_digest: corpusResultDigest(row) };
+    }
 	it("P1: records a satisfied corpus run on the evidence", () => {
 		const ev = evidenceFor(index(), check(), {
-			corpus: { files_scanned: 10, hits: [], adjudications: {} },
+			corpus: cleanCorpus(),
+            corpusBinding: provenance,
 		});
 		expect(ev.corpus_satisfied).toBe(true);
 		expect(ev.unadjudicated_hits).toBe(0);
@@ -189,7 +198,8 @@ describe("corpus wiring", () => {
 			advisoryIds: new Set(),
 			index: index(),
 			enforced: ["cases", "corpus"],
-			corpus: { example_check: { files_scanned: 3, hits: [], adjudications: {} } },
+			corpus: { example_check: cleanCorpus() },
+            corpusBindings: { example_check: provenance },
 		});
 		expect(sweep.verdicts[0]?.satisfied).toBe(true);
 	});

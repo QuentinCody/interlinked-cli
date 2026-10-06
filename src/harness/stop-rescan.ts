@@ -12,19 +12,23 @@
 // they're written) by catching findings that *persist* into a completed
 // turn. It is deterministic — no LLM call — per
 // `[[feedback_harness_deterministic_only]]`. Per
-// `[[feedback_recurring_warnings_amplify_not_silence]]` the rescan does not
-// dedup repeats: every Stop with unaddressed findings re-surfaces them, so
-// the signal stays loud until the agent fixes or defers.
+// The report deduplicates repeated messages while retaining raw observations
+// and the filtered details in the digest spool.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 
 import { buildAgentSafetyChecks } from "./check-registry/index.js";
+import { recordUnavailableCheck } from "./check-unavailable.js";
+import { appendCheckObservation, makeCheckObservation, FILE_EVIDENCE_COHORT, RAW_FILE_CHECK_CONFIGURATION } from "./check-observation-store.js";
+import type { CheckObservation, DetectorExecution } from "./finding-outcomes.js";
+import { retainStopObservations } from "./stop-rescan-observations.js";
+import { harnessNow } from "./replay/harness-clock.js";
 import { loadSubagentAttribution, type SubagentAttribution } from "./stop-actor-attribution.js";
 import { digestStopRescan } from "./stop-rescan-report.js";
 import { scanInlineDeferrals } from "./suppressions.js";
-import type { SessionTrajectory } from "./types.js";
+import type { HarnessEvent, SessionTrajectory } from "./types.js";
 
 /** One detector hit from the rescan, paired with deferral state. */
 export interface PatternRescanFinding {
@@ -46,17 +50,20 @@ export interface PatternRescanFinding {
  * Re-run the inline detector suite against the current contents of every
  * file in `session.files_written`. Returns one finding per (file, line,
  * check) tuple, annotated with whether the agent has marked that line as
- * acknowledged-deferred. Best-effort: a file that was deleted between the
- * last write and the rescan is silently skipped, and an individual buggy
- * detector cannot break the whole scan.
+ * acknowledged-deferred. Unreadable files and failed detectors retain
+ * unavailable evidence; an individual failure cannot break the whole scan.
  */
 export function rescanSessionFiles(
 	session: SessionTrajectory,
 	cwd: string,
+	opts: { onUnavailable?: (check: string, file: string, error: unknown) => void; dryRun?: boolean;
+        onObservation?: (row: CheckObservation) => void } = {},
 ): PatternRescanFinding[] {
 	const cwdResolved = resolve(cwd);
 	const findings: PatternRescanFinding[] = [];
 	const seen = new Set<string>();
+	const event: HarnessEvent = { hook_event: "Stop", session_id: session.session_id, agent_source: "harness",
+		timestamp: new Date(harnessNow()).toISOString(), dry_run: opts.dryRun ?? false };
 
 	for (const rawPath of session.files_written) {
 		// `session.files_written` stores both the path the tool reported and
@@ -65,7 +72,9 @@ export function rescanSessionFiles(
 		const absPath = isAbsolute(rawPath) ? rawPath : resolve(cwdResolved, rawPath);
 		if (seen.has(absPath)) continue;
 		seen.add(absPath);
-		appendFileFindings(absPath, cwdResolved, findings);
+		appendFileFindings({ absPath, cwdResolved, out: findings, event,
+			onUnavailable: opts.onUnavailable ?? rescanErrorReporter(cwd, session, [], opts.dryRun ?? false),
+            onObservation: opts.onObservation });
 	}
 
 	return findings;
@@ -75,25 +84,32 @@ export function rescanSessionFiles(
  *  deferral state) to the shared accumulator. Pulled out of
  *  `rescanSessionFiles` to keep nesting at two levels — the outer loop
  *  walks files, this helper walks checks-and-matches. */
-function appendFileFindings(
-	absPath: string,
-	cwdResolved: string,
-	out: PatternRescanFinding[],
-): void {
+function appendFileFindings(args: {
+	absPath: string; cwdResolved: string; out: PatternRescanFinding[]; event: HarnessEvent;
+	onUnavailable: (check: string, file: string, error: unknown) => void;
+    onObservation?: ((row: CheckObservation) => void) | undefined;
+}): void {
+	const { absPath, cwdResolved, out, event, onUnavailable } = args;
 	let content: string;
 	try {
 		content = readFileSync(absPath, "utf-8");
-	} catch (_err) {
-		// File deleted, permission denied, raced — skip silently. The
-		// harness must never block end-of-turn cleanup on a stat error.
+	} catch (error) {
+		onUnavailable("stop-rescan:read", absPath, error);
 		return;
 	}
+	const executions: DetectorExecution[] = [];
 	out.push(
 		...scanContentFindings({
 			content,
 			relPath: relative(cwdResolved, absPath) || absPath,
+			onUnavailable,
+			onExecution: (execution) => { if (FILE_EVIDENCE_COHORT.has(execution.check)) executions.push(execution); },
 		}),
 	);
+	const row = makeCheckObservation({ event, file: relative(cwdResolved, absPath), content, executions,
+		scope: "full", configuration: RAW_FILE_CHECK_CONFIGURATION });
+    if (args.onObservation) args.onObservation(row);
+    else appendCheckObservation(cwdResolved, event, row);
 }
 
 /**
@@ -105,20 +121,36 @@ function appendFileFindings(
 function scanContentFindings(args: {
 	content: string;
 	relPath: string;
+	onUnavailable?: (check: string, file: string, error: unknown) => void;
+	onExecution?: (execution: DetectorExecution) => void;
 }): PatternRescanFinding[] {
 	const { content, relPath } = args;
 	const out: PatternRescanFinding[] = [];
 	const deferrals = scanInlineDeferrals(content);
 	for (const check of buildAgentSafetyChecks(content, relPath)) {
+		const started = performance.now();
 		let matches: Array<{ line: number; text: string }>;
 		try {
 			matches = check.fn();
-		} catch (_err) {
+		} catch (error) {
+			args.onUnavailable?.(check.name, relPath, error);
+			args.onExecution?.({ check: check.name, status: "unavailable", findings: [], emitted: null, duration_ms: performance.now() - started });
 			continue;
 		}
+		args.onExecution?.({ check: check.name, status: "completed", findings: matches, emitted: null, duration_ms: performance.now() - started });
 		annotateMatches({ matches, checkId: check.name, relPath, deferrals, out });
 	}
 	return out;
+}
+
+function rescanErrorReporter(cwd: string, session: SessionTrajectory, warnings: string[] = [], dryRun = false) {
+	return (check: string, file: string, error: unknown): void => {
+		warnings.push(`[interlinked:checks-deferred] NOT CHECKED: ${check} for ${file} (Stop rescan unavailable)`);
+		recordUnavailableCheck({ cwd, check, error, event: {
+			hook_event: "Stop", session_id: session.session_id, agent_source: "harness",
+			timestamp: new Date(harnessNow()).toISOString(), tool_input: { file_path: file }, dry_run: dryRun,
+		} });
+	};
 }
 
 interface AnnotateMatchesArgs {
@@ -198,8 +230,15 @@ export function buildPatternRescanWarnings(
 	cwd: string,
 	opts: PatternRescanOpts = {},
 ): string[] {
-	const findings = rescanSessionFiles(session, cwd);
-	if (findings.length === 0) return [];
+	const unavailable: string[] = [];
+	const rows: CheckObservation[] = [];
+	const onUnavailable = rescanErrorReporter(cwd, session, unavailable, opts.dryRun ?? false);
+	const findings = rescanSessionFiles(session, cwd, { onUnavailable, dryRun: opts.dryRun ?? false,
+        onObservation: row => rows.push(row) });
+    if (findings.length === 0) {
+        retainStopObservations({ cwd, rows, findings, intended: [], dryRun: opts.dryRun ?? false });
+        return unavailable;
+    }
 
 	const sessionId = opts.sessionId ?? session.session_id;
 	const interlinkedDir = opts.interlinkedDir ?? resolve(cwd, ".interlinked");
@@ -214,13 +253,14 @@ export function buildPatternRescanWarnings(
 	const scanBaseline = headSha
 		? (relFile: string): PatternRescanFinding[] | null => {
 				const baseline = gitShow(cwd, `${headSha}:${relFile}`);
-				return baseline === null
-					? null
-					: scanContentFindings({ content: baseline, relPath: relFile });
+				if (baseline === null) return null;
+				const beforeErrors = unavailable.length;
+				const matches = scanContentFindings({ content: baseline, relPath: relFile, onUnavailable });
+				return unavailable.length === beforeErrors ? matches : null;
 			}
 		: undefined;
 
-	return digestStopRescan({
+	const report = digestStopRescan({
 		findings,
 		cwd,
 		sessionId,
@@ -228,5 +268,7 @@ export function buildPatternRescanWarnings(
 		dryRun: opts.dryRun,
 		attribution,
 		scanBaseline,
-	}).warnings;
+	});
+    retainStopObservations({ cwd, rows, findings, intended: report.intendedFindings, dryRun: opts.dryRun ?? false });
+	return [...report.warnings, ...unavailable];
 }

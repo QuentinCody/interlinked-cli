@@ -572,3 +572,15 @@ interlinked sync --dry-run               # safe: pending count, no send
 - **interlinked-coordination** — the server-backed side (tasks, messages) `watch`/`sync` reach.
 - **interlinked-simplification** — advisory opportunities whose estimated and validated impact
   must remain separate.
+
+## Finding outcomes and explanation
+
+`interlinked harness health --json` adds `finding_outcomes` and `corpus_precision`. `harness health --recheck --file src/a.ts` runs up to 20 confined files (2 MB each); omitted files come from retained finding records. Read failures remain unavailable. This explicit raw-detector recheck is independent of whether the agent edits again.
+
+The first raw file cohort is `async_promise_executor`, `nan_comparison`, and `unawaited_async_assertion`; this measurement cohort is separate from corpus qualification. Versioned `check-observations.v1` rows share the existing check-results stream. Full compatible successful rechecks with zero hits for that file/check can establish observed clearance. Partial scans, suppression, deletion, detector/config changes and missing execution cannot establish repair. The derived `finding-outcomes.v2` uses conservative file/check occurrence slots, independent of build identity. Changed text or multiplicity is ambiguous; it cannot credit a removed occurrence while that check still finds another. Counts are finding slots, not semantically unique defects. Delivery is intended/unknown, not inferred native receipt.
+
+The report shows distinct findings, emissions, follow-up coverage, recurrence, unavailable states, execution time and the observation window. Stop records individual intended emissions after filtering, capping and deduplication; a summary count is not individual delivery evidence. Inline deferrals retain acknowledgement reason/time/session and do not count as clearance. Native receipt remains unknown. Precision uses adjudicated live corpus hits only, with unsampled hits and scope visible; corpus freshness is not recomputed by health. Triage time remains unmeasured. Observed clearance is not causal fix rate. Legacy Boolean resolution scores are no longer produced or used by this report. The current reader covers the unrotated local log only; archives and legacy outcomes remain unknown.
+
+The outcome reader scans at most the newest 2 MiB and retains the newest 2,000 complete rows, with a 128 KiB per-line limit. JSON `read_window` reports omitted prefixes, records, oversized and incomplete lines. It does not claim all-time totals. Build-time identity is embedded in packaged code and combined with the Node runtime/platform; it needs neither a lockfile nor a directory hash at command startup. Source-mode identities remain process epochs and cannot establish cross-process clearance.
+
+`harness explain <topic> --client <client> --json` separates implemented, enabled here, declared client support and latest retained execution (including clean execution). Observations carry timestamp, scope, configuration and detector identity; a seven-day recency field is separate from current-runtime matching. Missing observation is unknown, not disabled.

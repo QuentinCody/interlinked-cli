@@ -20,7 +20,7 @@ import { writeAttribution } from "./post-tool-pipeline-paths.js";
 
 import { relative } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
-import { recordWarningResolutions, recordWarningsIssued } from "../feedback-effectiveness.js";
+import { recordWarningsIssued } from "../feedback-effectiveness.js";
 import { isInsideRoot } from "../large-file-policy.js";
 import type { ProjectGraph } from "../project-graph.js";
 import { type ToolBreakdownEntry } from "../quality-checks.js";
@@ -375,11 +375,8 @@ function recordFeedbackAndAck(
 		if (warningEvidence.length > 0) {
 			recordWarningsIssued(session, editedFilePath, warningEvidence);
 		}
-		recordWarningResolutions(
-			session,
-			editedFilePath,
-			new Set(allCheckResults.map((r) => r.name)),
-		);
+		// Result-name absence is diff-filtered and cannot establish a resolution.
+		// Versioned raw observations supply compatible rechecks separately.
 	}
 
 	// --- Session-ack: record shown warnings so they don't re-fire ---

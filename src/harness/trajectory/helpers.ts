@@ -48,7 +48,7 @@ const TEST_FAMILY_RE =
 const TEST_SCRIPT_RE = /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b/i;
 const BUILD_FAMILY_RE =
 	/\b(?:tsc|tsgo|tsup|webpack|rollup|esbuild|gradle|mvn)\b|\b(?:vite|cargo|go)\s+build\b/i;
-const BUILD_SCRIPT_RE = /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b/i;
+const BUILD_SCRIPT_RE = /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:build|typecheck(?::stable)?)\b/i;
 const LINT_FAMILY_RE =
 	/\b(?:eslint|biome|oxlint|ruff|clippy|rustfmt|prettier|gofmt|golangci-lint|mypy|pyright)\b/i;
 

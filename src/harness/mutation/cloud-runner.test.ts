@@ -1,4 +1,7 @@
-import { assert, describe, expect, it, vi } from "vitest";
+import { assert, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	type CloudRunnerConfig,
 	createCloudMutationRunner,
@@ -39,6 +42,25 @@ function okFetch(body: unknown): FetchLike {
 }
 
 const CFG: CloudRunnerConfig = { url: "https://worker", timeoutMs: 1000 };
+beforeEach(() => { CFG.cwd = mkdtempSync(join(tmpdir(), "cloud-evidence-")); });
+afterEach(() => { if (CFG.cwd) rmSync(CFG.cwd, { recursive: true, force: true }); });
+
+it("retains the real runner response only in its explicitly configured evidence directory", async () => {
+    await createCloudMutationRunner(CFG, okFetch(REPORT)).run("src/f.ts", SOURCE);
+    const row = JSON.parse(readFileSync(join(CFG.cwd!, ".interlinked/mutation-evidence/runs.jsonl"), "utf8"));
+    const stored = JSON.parse(readFileSync(join(CFG.cwd!, ".interlinked/mutation-evidence", row.report_sha256 + ".json"), "utf8"));
+    expect(JSON.parse(stored.report_json)).toEqual(REPORT);
+});
+
+it("does not fall back to the process working directory for evidence writes", async () => {
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(CFG.cwd!);
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+        await createCloudMutationRunner({ url: CFG.url, timeoutMs: 1000 }, okFetch(REPORT)).run("src/f.ts", SOURCE);
+        expect(() => readFileSync(join(CFG.cwd!, ".interlinked/mutation-evidence/runs.jsonl"))).toThrow();
+        expect(stderr.mock.calls.flat().join(" ")).toContain("no explicit evidence directory");
+    } finally { cwd.mockRestore(); stderr.mockRestore(); }
+});
 
 describe("readExecutedTestCount", () => {
 	it("preserves explicit successful and failed engine exit statuses", () => {
@@ -326,8 +348,8 @@ describe("MutationNotMeasurableError — 'nothing to measure' is not 'runner bro
 	it("N: an absolute requested path canonicalizes against config.cwd and matches its repo-relative entry", async () => {
 		const fetchImpl: FetchLike = () =>
 			Promise.resolve(resp({ files: { "src/a.ts": { source: "x", mutants: [] } } }));
-		const runner = createCloudMutationRunner({ ...CFG, cwd: "/repo" }, fetchImpl);
-		await expect(runner.run("/repo/src/a.ts", "x", [])).resolves.toBeDefined();
+		const runner = createCloudMutationRunner(CFG, fetchImpl);
+		await expect(runner.run(join(CFG.cwd!, "src/a.ts"), "x", [])).resolves.toBeDefined();
 	});
 
 	it("P: a colliding path SUFFIX is refused — packages/x/src/a.ts is not src/a.ts (review 2026-08-25)", async () => {

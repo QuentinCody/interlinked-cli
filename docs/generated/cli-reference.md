@@ -1340,6 +1340,16 @@ Options:
   --changed-files <list>  Comma-separated repo-relative paths; only report
                           drops for these files
   --update-baseline       Persist the current coverage as the new baseline
+  --from-index            Measure through the coverage index: re-run only the
+                          test shards whose inputs changed, keep every other
+                          shard and the full denominator (no verdict ⇒ exit 75)
+  --index-store <root>    Checkout whose .interlinked/coverage-index/ holds the
+                          index (default: the project root); the pre-push
+                          export names its source checkout
+  --timeout <ms>          Index measurement budget in milliseconds (default
+                          3600000)
+  --workers <n>           Requested worker cap for the index's instrumented
+                          capture, clamped by the host governor (default 1)
   --lane <name>           Named coverage lane: e2e (isolated strict policy)
   --init-baseline         Initialize an absent e2e baseline from a passing
                           measured run
@@ -1607,16 +1617,25 @@ Usage: interlinked tests plan [options] [paths...]
 Explain the union of affected tests without running assertions
 
 Options:
-  --cwd <path>       Project root
-  --base <ref>       Compare tracked changes against this revision (default:
-                     "HEAD")
-  --all              Run the full suite for reconciliation
-  --timeout <ms>     Total planning, admission and execution budget (default:
-                     "60000")
-  --workers <count>  Maximum workers, also bounded by available memory
-                     (default: "2")
-  --json             Machine-readable test plan or execution
-  -h, --help         display help for command
+  --cwd <path>                Project root
+  --base <ref>                Compare tracked changes against this revision
+                              (default: "HEAD")
+  --all                       Run the full suite for reconciliation
+  --timeout <ms>              Total planning, admission and execution budget
+                              (default: "60000")
+  --workers <count>           Maximum workers, also bounded by available memory
+                              (default: "2")
+  --coverage                  Collect coverage (json-summary) into the run
+                              directory; part of the check identity
+  --coverage-reporter <path>  Extra vitest reporter module for coverage runs
+                              (repeatable)
+  --receipt-store <dir>       Read and write passing-run receipts and run
+                              artifacts here instead of
+                              <cwd>/.interlinked/test-runs
+  --artifacts-out <dir>       Copy the certified run's artifacts (fresh or
+                              reused) into this directory after a passing run
+  --json                      Machine-readable test plan or execution
+  -h, --help                  display help for command
 ```
 
 ### tests run
@@ -1627,16 +1646,25 @@ Usage: interlinked tests run [options] [paths...]
 Run pending and affected tests; retain newer edits for another run
 
 Options:
-  --cwd <path>       Project root
-  --base <ref>       Compare tracked changes against this revision (default:
-                     "HEAD")
-  --all              Run the full suite for reconciliation
-  --timeout <ms>     Total planning, admission and execution budget (default:
-                     "60000")
-  --workers <count>  Maximum workers, also bounded by available memory
-                     (default: "2")
-  --json             Machine-readable test plan or execution
-  -h, --help         display help for command
+  --cwd <path>                Project root
+  --base <ref>                Compare tracked changes against this revision
+                              (default: "HEAD")
+  --all                       Run the full suite for reconciliation
+  --timeout <ms>              Total planning, admission and execution budget
+                              (default: "60000")
+  --workers <count>           Maximum workers, also bounded by available memory
+                              (default: "2")
+  --coverage                  Collect coverage (json-summary) into the run
+                              directory; part of the check identity
+  --coverage-reporter <path>  Extra vitest reporter module for coverage runs
+                              (repeatable)
+  --receipt-store <dir>       Read and write passing-run receipts and run
+                              artifacts here instead of
+                              <cwd>/.interlinked/test-runs
+  --artifacts-out <dir>       Copy the certified run's artifacts (fresh or
+                              reused) into this directory after a passing run
+  --json                      Machine-readable test plan or execution
+  -h, --help                  display help for command
 ```
 
 ### tests status
@@ -1647,16 +1675,25 @@ Usage: interlinked tests status [options] [paths...]
 Show pending requests and the last observed test job
 
 Options:
-  --cwd <path>       Project root
-  --base <ref>       Compare tracked changes against this revision (default:
-                     "HEAD")
-  --all              Run the full suite for reconciliation
-  --timeout <ms>     Total planning, admission and execution budget (default:
-                     "60000")
-  --workers <count>  Maximum workers, also bounded by available memory
-                     (default: "2")
-  --json             Machine-readable test plan or execution
-  -h, --help         display help for command
+  --cwd <path>                Project root
+  --base <ref>                Compare tracked changes against this revision
+                              (default: "HEAD")
+  --all                       Run the full suite for reconciliation
+  --timeout <ms>              Total planning, admission and execution budget
+                              (default: "60000")
+  --workers <count>           Maximum workers, also bounded by available memory
+                              (default: "2")
+  --coverage                  Collect coverage (json-summary) into the run
+                              directory; part of the check identity
+  --coverage-reporter <path>  Extra vitest reporter module for coverage runs
+                              (repeatable)
+  --receipt-store <dir>       Read and write passing-run receipts and run
+                              artifacts here instead of
+                              <cwd>/.interlinked/test-runs
+  --artifacts-out <dir>       Copy the certified run's artifacts (fresh or
+                              reused) into this directory after a passing run
+  --json                      Machine-readable test plan or execution
+  -h, --help                  display help for command
 ```
 
 ### tests suite
@@ -1885,40 +1922,44 @@ Usage: interlinked harness [options] [command]
 Local harness server: guard evaluation, auto-reservations, agent lifecycle
 
 Options:
-  -h, --help                display help for command
+  -h, --help                 display help for command
 
 Commands:
-  start [options]           Start the harness server (background daemon by
-                            default)
-  stop [options]            Stop the harness server
-  restart [options]         Stop and restart the harness server (picks up
-                            config changes)
-  status [options]          Show harness status, loaded rules, and active
-                            agents
-  checks [options]          Show the authoritative check inventory — per-family
-                            counts + total (static; no daemon needed)
-  capabilities [options]    Inspect runtime hook profiles, selected events,
-                            installation and observation evidence
-  coverage                  Inspect and review daemon-owned filesystem
-                            observations
-  health [options]          Check-health report from the recurrence log:
-                            repeat-rate per check id, probation candidates
-                            (demotion signal)
-  test [options] [command]  Fire a synthetic PreToolUse event at the running
-                            harness and show its decision. Default: a Bash
-                            command. Use --write/--edit to test a file
-                            operation.
-  reap [options]            List (default) or kill orphan harness daemons.
-                            --force to SIGTERM. --all also targets the active
-                            daemon.
-  clean [options]           Remove stale harness.sock + harness.pid (refuses if
-                            a daemon is running)
-  mode [options] [name]     Show or switch the operational tier
-                            (budget|quality|ci) — drives
-                            HARNESS_POST_TIMEOUT_MS
-  latency [options]         Show per-event latency report from
-                            .interlinked/logs/latency.jsonl
-  help [command]            display help for command
+  start [options]            Start the harness server (background daemon by
+                             default)
+  stop [options]             Stop the harness server
+  restart [options]          Stop and restart the harness server (picks up
+                             config changes)
+  status [options]           Show harness status, loaded rules, and active
+                             agents
+  health [options]           Check health: recurrence, finding outcomes,
+                             compatible rechecks and missing evidence
+  corpus                     Inspect and refresh versioned detector corpus
+                             evidence
+  explain [options] <topic>  Explain implementation, local policy, client
+                             support and observed evidence separately
+  checks [options]           Show the authoritative check inventory —
+                             per-family counts + total (static; no daemon
+                             needed)
+  capabilities [options]     Inspect runtime hook profiles, selected events,
+                             installation and observation evidence
+  coverage                   Inspect and review daemon-owned filesystem
+                             observations
+  test [options] [command]   Fire a synthetic PreToolUse event at the running
+                             harness and show its decision. Default: a Bash
+                             command. Use --write/--edit to test a file
+                             operation.
+  reap [options]             List (default) or kill orphan harness daemons.
+                             --force to SIGTERM. --all also targets the active
+                             daemon.
+  clean [options]            Remove stale harness.sock + harness.pid (refuses
+                             if a daemon is running)
+  mode [options] [name]      Show or switch the operational tier
+                             (budget|quality|ci) — drives
+                             HARNESS_POST_TIMEOUT_MS
+  latency [options]          Show per-event latency report from
+                             .interlinked/logs/latency.jsonl
+  help [command]             display help for command
 ```
 
 ### harness start

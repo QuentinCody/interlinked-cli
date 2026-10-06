@@ -49,6 +49,9 @@ vi.mock(`../commands/harness.js`, () => ({
 vi.mock(`../commands/harness-checks.js`, () => ({
 	harnessChecksCommand: (...a: unknown[]) => harnessChecksCommand(...a),
 }));
+vi.mock("../commands/harness-health.js", () => ({
+    harnessHealthCommand: (...args: unknown[]) => harnessHealthCommand(...args),
+}));
 vi.mock(`../commands/harness-reap.js`, () => ({
 	harnessReapCommand: (...a: unknown[]) => harnessReapCommand(...a),
 }));
@@ -132,7 +135,9 @@ describe("registerHarnessCommands — structure", () => {
 				"capabilities",
 				"checks",
 				"clean",
+				"corpus",
 				"coverage",
+				"explain",
 				"health",
 				"latency",
 				"mode",
@@ -264,7 +269,7 @@ describe("registerHarnessCommands — structure", () => {
 		expectHelp(
 			harness,
 			"health",
-			"Check-health report from the recurrence log: repeat-rate per check id, probation candidates (demotion signal)",
+			"Check health: recurrence, finding outcomes, compatible rechecks and missing evidence",
 			{
 				"--json": "Machine-readable output",
 				"--short": "One-line summary",
@@ -456,6 +461,10 @@ describe("harness lifecycle — action wiring", () => {
 		});
 		expect(harnessHealthCommand).toHaveBeenCalledWith({ json: true, short: true, full: true });
 	});
+    it("health forwards the explicit recheck scope", async () => {
+        await build().parseAsync(["harness", "health", "--recheck", "--file", "src/a.ts", "src/b.ts", "--json"], { from: "user" });
+        expect(harnessHealthCommand).toHaveBeenCalledWith({ recheck: true, file: ["src/a.ts", "src/b.ts"], json: true });
+    });
 
 	it("test forwards the command positional and the --tool default", async () => {
 		const program = build();

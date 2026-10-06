@@ -97,7 +97,7 @@ describe("digestStopRescan — positive (must fire)", () => {
 		const text = out.warnings.join("\n");
 		expect(text).toContain("eval(new)");
 		expect(text).not.toContain("eval(old)");
-		expect(text).toContain("0 resolved, 1 unchanged (suppressed)");
+		expect(text).toContain("0 absent from the displayed set (repair unverified), 1 unchanged (message suppressed)");
 	});
 
 	it("P7: records this Stop's open fingerprints so the next Stop can diff them", () => {

@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildTrajectoryFixture, makeCandidate } from "../__tests__/sequence-fixtures.js";
 import type { SequenceDetector } from "./types.js";
 import {
@@ -30,6 +33,16 @@ describe("defaultDetectorEnabledPredicate", () => {
 });
 
 describe("runSequenceDetectorsForPhase", () => {
+    it("retains a thrown detector through the real dispatch and serialization path", () => {
+        const cwd = mkdtempSync(join(tmpdir(), "sequence-unavailable-"));
+        try {
+            detectors.push(detector({ default_enabled: true, fn: () => { throw new Error("detector unavailable"); } }));
+            const { session, lastEvent } = buildTrajectoryFixture([{ tool_name: "Read" }]);
+            expect(runSequenceDetectorsForPhase({ phase: "stop", trajectory: session, candidate: { ...lastEvent, cwd, dry_run: false } })).toEqual([]);
+            const rows = readFileSync(join(cwd, ".interlinked/check-results.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+            expect(rows.at(-1)).toMatchObject({ actual_decision: "allow", checks: [], execution: [{ id: "fixture", status: "error" }] });
+        } finally { rmSync(cwd, { recursive: true, force: true }); }
+    });
     it("does not invoke a disabled detector", () => {
         const fn = vi.fn<SequenceDetector["fn"]>(() => [{ message: "matched" }]);
         detectors.push(detector({ fn }));

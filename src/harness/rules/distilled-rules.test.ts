@@ -76,8 +76,30 @@ const SECOND_RULE = {
 	},
 };
 
+it("keeps unknown active_when dormant but preserves legacy unconditional rule behavior", () => {
+	const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+	try {
+		writeDistilled({ rules: [
+			{ ...SAMPLE_RULE, active_when: { predicate: { name: "tests_passed_recently" } } },
+			{ ...SECOND_RULE, session_predicate: { name: "tests_run_in_session" } },
+		] });
+		const rules = loadDistilledRules(tmpRoot);
+		expect(rules).toHaveLength(2);
+		expect(rules.map((r) => r.enabled)).toEqual([false, true]);
+		expect(stderr.mock.calls.flat().join(" ")).toContain("tests_passed_recently");
+		expect(stderr.mock.calls.flat().join(" ")).toContain("remains dormant");
+		expect(stderr.mock.calls.flat().join(" ")).toContain("preserving unconditional rule behavior");
+	} finally { stderr.mockRestore(); }
+});
+
 beforeEach(() => {
 	tmpRoot = mkdtempSync(join(tmpdir(), "distilled-rules-test-"));
+});
+
+it.each([true, false])("preserves an external repo operator's legacy rule enabled override: %s", (enabled) => {
+    writeDistilled({ rules: [{ ...SAMPLE_RULE, enabled: !enabled, session_predicate: { name: "tests_run_in_session" } }] });
+    writeOverrides({ modifications: { [SAMPLE_RULE.id]: { enabled } } });
+    expect(loadDistilledRules(tmpRoot)[0]?.enabled).toBe(enabled);
 });
 
 afterEach(() => {

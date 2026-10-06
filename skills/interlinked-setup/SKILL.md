@@ -709,3 +709,9 @@ interlinked logout [--all]
 - **interlinked-observability** — inspect the activity the hooks capture (`status`, `activity`, `logs`).
 - **interlinked-coordination** — the optional server-backed side (tasks, messages, workspaces).
 - **interlinked-semantic-index** — explicitly install a model and build/query the local function index.
+
+## Permission learner behavior
+
+Repeated tool observations now generate bounded, conservative proposals only. The learner does not edit `.claude/settings.json` or expand guard permissions. Existing permission entries are left intact; repeated use, a non-blocked hook, and a proposal are not approval. No automatic migration or daemon restart is required by the schema. A running daemon continues using its loaded code until the normal explicit reload workflow.
+
+Use `interlinked harness explain <topic> --client claude --json` (or another supported client) to inspect implementation, local policy, declared client capability and retained observations separately. Registration does not prove native activation. Use the native capability probes for that claim.

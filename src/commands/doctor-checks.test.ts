@@ -239,7 +239,7 @@ describe("localFileChecks", () => {
 			{
 				name: "Local config",
 				status: "warn",
-				message: "config.local.json not found -- run 'interlinked login' or 'interlinked register'",
+				message: "config.local.json not found -- run 'interlinked login'",
 			},
 			{
 				name: "Hook script",

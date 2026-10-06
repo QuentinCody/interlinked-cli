@@ -91,12 +91,12 @@ describe("scanCorpus — positive (must produce hits)", () => {
 });
 
 describe("scanCorpus — negative (must NOT count)", () => {
-	it("N1: skips test files, which deliberately contain the pattern", () => {
+	it("N1: includes real tests in the declared source-and-tests domain", () => {
 		write("src/a.test.ts", "eval(1)");
 		write("src/a.spec.tsx", "eval(2)");
 		const r = scanCorpus(check(), join(root, "src"), root);
-		expect(r.hits).toEqual([]);
-		expect(r.files_scanned).toBe(0);
+		expect(r.hits).toHaveLength(2);
+		expect(r.files_scanned).toBe(2);
 	});
 
 	it("N2: skips __fixtures__ trees", () => {

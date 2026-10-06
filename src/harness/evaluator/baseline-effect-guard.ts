@@ -14,12 +14,10 @@
 //
 //   1. DETECTION from real values — no parser to evade, and a tightening write
 //      is provably distinguishable from a loosening one.
-//   2. REVERSIBILITY — the pre-call bytes are kept, so the agent gets a
-//      one-command undo instead of having to reconstruct a baseline by hand.
-//   3. INERTNESS — `trustedBaselineValue` serves the pre-tamper value to the
-//      ratchets, so a loosening has no effect even before it is reverted. This
-//      is the channel-independent half: it does not matter whether the write
-//      came from Bash, an editor, or a background process.
+//   2. REVIEW MATERIAL — the pre-call bytes are kept for exact manual recovery.
+//   3. OPTIONAL TRUSTED READ — `trustedBaselineValue` can serve pre-tamper
+//      bytes to a consumer that uses it. Consumers reading disk directly can
+//      still act on loosened values; detection is not universal enforcement.
 //   4. PROPORTION — `effectIsReversible` names the rule for when a
 //      pre-execution block is justified at all: only when the effect cannot be
 //      undone afterwards. A recoverable file write should never default-block;
@@ -244,9 +242,8 @@ function pendingUndoRecords(root: string): UndoRecord[] {
  * The value a ratchet should DECIDE with — the pre-tamper bytes when an
  * unreverted loosening is on record, else null ("trust the file on disk").
  *
- * This is what makes a loosening inert rather than merely detected, and it is
- * channel-independent: it does not care whether Bash, an editor, or a
- * background process wrote the file. The EARLIEST record wins, so a chain of
+ * Only callers using this helper receive the retained values. Direct disk
+ * consumers remain affected by loosening. The EARLIEST record wins, so a chain of
  * loosenings cannot walk the water-line down one undo record at a time.
  */
 export function trustedBaselineValue(root: string, relPath: string): string | null {
@@ -328,10 +325,8 @@ export function buildLooseningWarning(
 	return (
 		`[interlinked:baseline-effect] this tool call LOOSENED ${loosenings.length} ratchet ` +
 		`water-line(s):\n${lines.join("\n")}\n` +
-		"The pre-call values are still in force — the ratchets decide with them, so the change " +
-		"has no effect on any gate. Undo it with: " +
-		`interlinked baseline restore ${toolUseId}\n` +
-		"If the loosening was intentional (a deliberate reset), keep it and re-record the " +
-		"water-line through the harness so the override is released."
+		"Pre-call values were retained for review. Some consumers may still read the loosened files; " +
+		"gate protection is not guaranteed. Review this call's diff and restore the exact prior values " +
+		`in the named files. No automatic restore command is available (call ${toolUseId}).`
 	);
 }

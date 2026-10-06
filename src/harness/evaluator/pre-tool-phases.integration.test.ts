@@ -15,7 +15,7 @@ import { makeGuardRules } from "./__tests__/fixtures.js";
 
 import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { execFileSync as run } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -672,28 +672,22 @@ describe("evaluatePermissionPatternDetection", () => {
 		expect(warnings).toHaveLength(0);
 	});
 
-	it("writes the allowlist entry and warns on the third consecutive identical pattern", () => {
+	it("suggests once on the third observation without creating settings", () => {
 		const session = makeSession();
 		const warnings: string[] = [];
 		for (let i = 0; i < 3; i++) {
 			evaluatePermissionPatternDetection(session, "Bash", { command: `ls dir${i}` }, warnings);
 		}
-		// Threshold (3) hit → suggested, settings written, counter reset.
+		// Threshold hit: proposal emitted, counter reset, no policy write.
 		expect(session.suggested_permissions.has("Bash(ls *)")).toBe(true);
 		expect(session.consecutive_pattern).toBeNull();
 		expect(warnings.some((w) => w.includes("[interlinked:permissions]") && w.includes("Bash(ls *)"))).toBe(
 			true,
 		);
-		// And it really landed in .claude/settings.json under the temp cwd.
-		const written = run("cat", [join(tmp, ".claude", "settings.json")], { encoding: "utf-8" });
-		expect(written).toContain("Bash(ls *)");
+		expect(existsSync(join(tmp, ".claude", "settings.json"))).toBe(false);
 	});
 
-	it("reaches the threshold but pushes no warning when the entry already exists in settings", () => {
-		// Pre-seed .claude/settings.json with the pattern already allow-listed, so
-		// addPermissionToSettings returns false (duplicate) on the 3rd hit and the
-		// `if (added)` warning branch is skipped — while the pattern is still
-		// recorded as suggested and the counter reset.
+	it("preserves existing settings while suggesting a scope", () => {
 		mkdirSync(join(tmp, ".claude"), { recursive: true });
 		writeFileSync(
 			join(tmp, ".claude", "settings.json"),
@@ -706,7 +700,8 @@ describe("evaluatePermissionPatternDetection", () => {
 		}
 		expect(session.suggested_permissions.has("Bash(ls *)")).toBe(true);
 		expect(session.consecutive_pattern).toBeNull();
-		expect(warnings).toHaveLength(0);
+		expect(warnings).toHaveLength(1);
+		expect(JSON.parse(readFileSync(join(tmp, ".claude", "settings.json"), "utf8"))).toEqual({ permissions: { allow: ["Bash(ls *)"] } });
 	});
 
 	it("resets the counter when a different pattern interrupts the streak", () => {

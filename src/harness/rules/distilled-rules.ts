@@ -26,6 +26,7 @@ import { existsSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { looksLikeReDoS } from "../redos-validation.js";
+import { unsupportedRulePredicates } from "../evaluator/active-when.js";
 import type { GuardRule } from "../types.js";
 import { parseRuleModifications, parseRuntimeRule, stringList, type RuleModification } from "./parsed-rule.js";
 
@@ -254,6 +255,14 @@ export function loadDistilledRules(cwd: string): GuardRule[] {
 		};
 
 		applyRuleModification(rule, mod);
+		const unsupported = unsupportedRulePredicates(rule);
+		if (unsupported.length > 0) {
+			rule.enabled = false;
+			process.stderr.write(`[interlinked:rule-unavailable] ${rule.id}: unsupported predicate ${unsupported.join(", ")}; rule remains dormant\n`);
+		}
+        if (rule.session_predicate !== undefined) {
+            process.stderr.write(`[interlinked:rule-migration] ${rule.id}: legacy session_predicate is not evaluated; preserving unconditional rule behavior and operator enabled state. Migrate explicitly to a supported active_when.predicate.\n`);
+		}
 
 		out.push(rule);
 	}

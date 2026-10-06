@@ -14,6 +14,7 @@ import {
 	unadjudicatedHits,
 } from "./corpus.js";
 
+import { corpusResultDigest } from "./corpus-integrity.js";
 const HIT_A: CorpusHit = { file: "src/a.ts", line: 10, text: "  if (Date.parse(x) < now) {" };
 const HIT_B: CorpusHit = { file: "src/b.ts", line: 3, text: "const n = Number(raw);" };
 
@@ -21,7 +22,13 @@ const HIT_B: CorpusHit = { file: "src/b.ts", line: 3, text: "const n = Number(ra
 const HIT_A_MOVED: CorpusHit = { ...HIT_A, line: 999 };
 
 function record(over: Partial<CorpusRecord> = {}): CorpusRecord {
-	return { files_scanned: 100, hits: [], adjudications: {}, ...over };
+	const row: CorpusRecord = { files_scanned: 100, hits: [], adjudications: {}, provenance: {
+        schema: "corpus-scan.v2", detector: "d", configuration: "c", input: "i", scope: "source",
+        search_root: "src", run: "r", timestamp: "now", discovered: 100, eligible: 100, read: 100,
+        executed: 100, complete: true, failures: [], exclusions: [],
+    }, ...over };
+    row.occurrences = Object.fromEntries(row.hits.map((id, i) => [id, { file: "src/a.ts", line: i + 1, text: id }]));
+    return { ...row, result_digest: corpusResultDigest(row) };
 }
 
 describe("hitSignature", () => {
@@ -91,12 +98,13 @@ describe("unadjudicatedHits / corpusSatisfied", () => {
 	it("is satisfied when every hit is adjudicated", () => {
 		const r = record({ hits: ["abc"], adjudications: { abc: { verdict: "true_positive" } } });
 		expect(unadjudicatedHits(r)).toEqual([]);
-		expect(corpusSatisfied(r)).toBe(true);
+		expect(corpusSatisfied(r, r.provenance)).toBe(true);
 	});
 
 	it("is satisfied by a clean zero-hit scan", () => {
-		// Zero hits clears THIS obligation; recall is Phase 3's question.
-		expect(corpusSatisfied(record({ hits: [] }))).toBe(true);
+		// Zero hits needs current complete provenance; sensitivity is a separate obligation.
+        const r = record({ hits: [] });
+		expect(corpusSatisfied(r, r.provenance)).toBe(true);
 	});
 
 	it("is not satisfied when no run has been recorded at all", () => {
@@ -131,7 +139,7 @@ describe("parseCorpusStore", () => {
 		} });
 		expect(corpusSatisfied(store.checks.bad)).toBe(false);
 		expect(store.checks.bad).toBeUndefined();
-		expect(corpusSatisfied(store.checks.good)).toBe(true);
+		expect(corpusSatisfied(store.checks.good)).toBe(false); // Legacy evidence stays historical.
 	});
 
 	it("reads a well-formed store", () => {

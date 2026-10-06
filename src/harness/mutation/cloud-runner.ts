@@ -15,6 +15,7 @@ import type { MutationRunner, MutationRunOptions } from "./gate.js";
 import { normalizeManifestKey } from "./manifest-key.js";
 import { type AdaptedFile, type MutationRunOutput, strykerToAdapted } from "./stryker-adapter.js";
 import type { TestRunResult } from "./types.js";
+import { retainMutationReport } from "./stryker-evidence-store.js";
 
 export interface CloudRunnerConfig {
 	url: string;
@@ -327,6 +328,10 @@ async function attemptOperation(
 	if (res.status === 503) throw new MutationRunnerBusyError();
 	if (!res.ok) throw new Error(await describeErrorResponse(res));
 	const body = await res.json();
+    const retained = config.cwd
+        ? retainMutationReport({ cwd: config.cwd, report: body, run: jobId, source: "cloud-runner" })
+        : { retained: false, reason: "no explicit evidence directory configured" };
+    if (!retained.retained) process.stderr.write(`[interlinked:mutation-evidence] NOT RETAINED: ${retained.reason}\n`);
 	// A runner that knows WHY it produced nothing says so, rather than
 	// leaving the gate to report a generic failure.
 	const notMeasurable = readNotMeasurable(body);
@@ -344,6 +349,7 @@ async function attemptOperation(
 	// overlay content — see selectTargetEntry for the three refusals.
 	const entry = selectTargetEntry(adapted, file, overlayContent, config.cwd);
 	const mutants = entry.mutants;
+    const rawEvidence = entry.reportEvidence ? { reportEvidence: entry.reportEvidence } : {};
 	// Carry the parse loss to the evaluator rather than absorbing it here:
 	// the runner's job is to report what arrived, the evaluator's is to
 	// decide whether that is enough to certify.
@@ -356,8 +362,8 @@ async function attemptOperation(
 	const engineEvidence = engine === undefined ? {} : { engineExitCode: engine };
 	const executedTestCount = readExecutedTestCount(body);
 	return testRun
-		? { mutants, testRun, executedTestCount, ...dropped, ...engineEvidence }
-		: { mutants, executedTestCount, ...dropped, ...engineEvidence };
+		? { mutants, testRun, executedTestCount, ...dropped, ...engineEvidence, ...rawEvidence }
+		: { mutants, executedTestCount, ...dropped, ...engineEvidence, ...rawEvidence };
 }
 
 /** Daemon-side MutationRunner forwarding to the cloud Sandbox Worker (spec §8). */

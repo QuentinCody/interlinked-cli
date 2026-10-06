@@ -393,7 +393,7 @@ describe("doctorCommand", () => {
 		fsState.exists.add(SHARED_CFG);
 		await run();
 		expect(captured()).toContain(
-			"[warn] Local config -- config.local.json not found -- run 'interlinked login' or 'interlinked register'",
+			"[warn] Local config -- config.local.json not found -- run 'interlinked login'",
 		);
 	});
 

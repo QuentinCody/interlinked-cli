@@ -63,3 +63,5 @@ Event time and ingestion time are distinct. Raw evidence and state ledgers remai
 | `offline-spool.jsonl` | transport | state-ledger | preserve | harness/telemetry-spool | Pending local guard telemetry |
 | `capture-receipts.jsonl` | runtime | events | archive | lib/data/capture | Producer eligibility, successful writes and failures |
 | `audit-checkpoints.jsonl` | audit | events | preserve | lib/data/audit | Explicit audit recovery boundaries and evidence hashes |
+| `verification-stages.jsonl` | quality | events | archive | harness/verification-stages | Per-check stage timings by pipeline stage (queue/wait/lookup/exec/post ms) and why a result could not be reused |
+| `coverage-index-comparison.jsonl` | quality | events | archive | scripts/git-hooks/pre-push | Pre-push comparison mode: the full coverage verdict beside the coverage-index verdict for the same pushed revision, and whether they agree (promotion evidence for the index route) |

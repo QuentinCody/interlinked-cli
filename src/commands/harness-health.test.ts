@@ -80,6 +80,19 @@ afterEach(() => {
 });
 
 describe("harnessHealthCommand", () => {
+    it("--recheck executes the requested file and persists a follow-up visible in the same health response", async () => {
+        const path = join(dir, "a.ts");
+        writeFileSync(path, "export const bad = value === NaN;\n");
+        const run = async () => JSON.parse(await capture(() => harnessHealthCommand({ json: true, recheck: true, file: ["a.ts"] })));
+        const first = await run();
+        expect(first.finding_outcomes.checks.find((row: { check: string }) => row.check === "nan_comparison")).toMatchObject({ present: 1, rechecked_clean: 0 });
+        writeFileSync(path, "export const good = Number.isNaN(value);\n");
+        const second = await run();
+        expect(second.finding_outcomes.observations).toBe(2);
+        expect(second.finding_outcomes.checks.find((row: { check: string }) => row.check === "nan_comparison")).toMatchObject({ present: 0, rechecked_clean: 1 });
+        const reread = JSON.parse(await capture(() => harnessHealthCommand({ json: true })));
+        expect(reread.finding_outcomes.observations).toBe(2);
+    });
 	it("reports gracefully when no recurrence log exists yet", async () => {
 		const out = await capture(() => harnessHealthCommand({}));
 		expect(out).toContain("No recurrence log");
@@ -132,7 +145,7 @@ describe("harnessHealthCommand", () => {
 	it("--json with no recurrence log emits the empty-state json shape", async () => {
 		const out = await capture(() => harnessHealthCommand({ json: true }));
 		const parsed = parseWire(JSON.parse(out), wireObject({ "checks": wireArray(wireUnknown), "probation_candidates": wireNumber }), "test JSON value");
-		expect(parsed).toEqual({ checks: [], probation_candidates: 0 });
+		expect(parsed).toMatchObject({ checks: [], probation_candidates: 0, finding_outcomes: { observations: 0, checks: [] } });
 	});
 
 	it("--full renders every check id (no row limit) instead of the normal-mode cap", async () => {

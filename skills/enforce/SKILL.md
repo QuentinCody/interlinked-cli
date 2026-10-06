@@ -395,40 +395,36 @@ Practical consequence: **you cannot AND two positive patterns together.** If you
 
 ---
 
-## Step 6.5 — Session predicates and active-when axes the distiller can consume
+## Step 6.5 — Use only registered predicates and scope axes
 
-Most real AGENTS.md content is sequential ("always run tests before commit," "always read before edit") or scoped ("during /ship, never X," "while migrate-to-shoehorn is active, …"). The distiller has two mechanisms for these:
+Typed `active_when` axes are conjunctive conditions: a rule applies only when
+every declared axis holds. Supported axes are `skill`, `after_command`
+(`pattern`, `window_steps`), `file_scope`, `agent_source`, and `overlay`.
+Keep the imperative's action; a satisfied precondition does not reverse it.
 
-**(A) Typed `active_when` axes (preferred when applicable).** Recognized prose patterns map directly to a typed scope axis on the distilled rule. Wired into the harness; deterministic at runtime; composable.
-
-**(B) `session_predicate` escape hatch.** For prose patterns that don't match a typed axis, emit a `predicate` entry inside `active_when` with the predicate name and args. **Predicate-using rules must still set `action: "ask"`** so they degrade to a no-op on harness builds that don't recognize the predicate name (the harness fails-safe — unknown predicates keep the rule dormant, never fire).
-
-| Prose phrase | Distilled as | Reads from | Notes |
-|---|---|---|---|
-| "during /<skill>", "while <skill> is active", source is a SKILL.md body | **`active_when.skill = "<skill-name>"`** (typed axis) | `SessionTrajectory.active_skills` | Default for every rule extracted from a `<name>/SKILL.md` body. Skill-author opt-in via `interlinked skill enter` preamble. |
-| "after running /ship", "after the user invoked X" | **`active_when.after_command = { pattern, window_steps }`** (typed axis) | `SessionTrajectory.commands_run` (last N) | Default window 10. Pattern is a regex matched against recent command entries. |
-| "only when editing files matching X" | **`active_when.file_scope = "<regex>"`** (typed axis) | `event.tool_input.file_path` | AND-ed with `rule.patterns`; an extra path filter beyond `tool_match`. |
-| "only on Codex" / "only on Claude" / model-overlay file home | **`active_when.agent_source = "<runner>"`** or `active_when.overlay = "<runner>"` (typed axes) | `event.agent_source` | Use `overlay` when the source is a `model-overlays/<runner>.md` file; use `agent_source` when prose explicitly names the runner. Both resolve identically in v1. |
-| "always run tests before <X>" | `predicate: { name: "tests_passed_recently", args: { window_steps: N } }` | `test_runs.last_pass.at_step` vs `tool_call_count` | N defaults to 5. Action MUST be `"ask"`. |
-| "after running tests" | `predicate: { name: "tests_run_in_session" }` | `test_runs.size > 0` | Action MUST be `"ask"`. |
-| ~~"while RED, don't <X>"~~ | ~~`predicate: { name: "tdd_state", args: { value: "red" } }`~~ | ~~`tdd_cycles[file].state`~~ | **Harness-internal only — not emitted by the distiller.** TDD enforcement is owned by the harness's native primitives (see §2d skip-list entry for TDD skills). The `tdd_cycles` state machine exists in the runtime, but distilled rules MUST NOT reference it — drop any imperative that would. If you need a TDD policy change, edit `structural_checks.test_first_mode`, not /enforce. |
-| "before pushing" | `predicate: { name: "last_command_was", args: { pattern: "^git\\s+push\\b" } }` | `commands_run` (last entry) | Negate-form: trigger when X happens AND last_command was NOT a push. Action MUST be `"ask"`. |
-| "before editing, read the file" | `predicate: { name: "file_read_in_session" }` | `files_read` set | Trigger Edit when target file isn't in the set. Action MUST be `"ask"`. |
-| "after seeing N consecutive failures" | `predicate: { name: "consecutive_failures", args: { tool, n } }` | `consecutive_tool_failures` | Self-throttling rules. Action MUST be `"ask"`. |
-| "during cleanup" / "after compaction" | `predicate: { name: "last_event", args: { name: "PreCompact" } }` | `tool_sequence` | Phase-scoped. Action MUST be `"ask"`. |
-
-**If a predicate isn't in this table, the imperative's "always X before Y" form must route to a Pass 2 `policy.md` entry per §6 ‡ + §15.1** — and the imperative's "no observable session-state primitive" gap should be recorded in the Pass 2 entry's `rationale` so future-you can spot which predicates would benefit from being added to the table (so the LLM-side judgment can be replaced with a deterministic predicate later).
-
-**Schema addition (§7) when a predicate is used:**
+The runtime registry in `src/harness/evaluator/active-when.ts` currently exposes
+one session predicate: `active_agent_count_at_least`, with `args.count`.
+Check the current registry before emitting a predicate.
 
 ```json
-"session_predicate": {
-  "name": "tests_passed_recently",
-  "args": { "window_steps": 5 }
+"active_when": {
+  "predicate": { "name": "active_agent_count_at_least", "args": { "count": 2 } }
 }
 ```
 
-The harness evaluator must short-circuit `allow` when the predicate is satisfied (the precondition holds) and fall through to the rule's `action` when it's not. Until the harness side wires this up — track via the implementation tracker — distilled rules carrying `session_predicate` MUST also carry `action: "ask"` and the predicate description in `reason`, so they degrade gracefully on harness builds that don't understand the field.
+Do not emit a top-level `session_predicate`. The loader diagnoses that obsolete
+field while preserving historical unconditional matching and the operator's enabled
+setting. Migrate explicitly to supported typed conditions. Unknown
+`active_when.predicate` names remain dormant with a `rule-unavailable` diagnostic;
+they do not enforce prose.
+In particular, `tests_passed_recently`, `tests_run_in_session`,
+`last_command_was`, `file_read_in_session`, `consecutive_failures`, and
+`last_event` are not registered predicates.
+
+When no implemented primitive expresses the instruction, retain it as manual
+guidance with the missing capability stated explicitly. Do not claim that a
+policy entry, an `ask` action, or a dormant rule supplies runtime enforcement.
+TDD state remains owned by the harness's native test-first policy.
 
 ---
 

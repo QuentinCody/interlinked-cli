@@ -112,7 +112,18 @@ const SESSION_PREDICATES: Record<string, (args: SessionPredicateSpec["args"]) =>
 	},
 };
 
+/** The runtime registry is also the source of truth for distillation/explanation. */
+export function registeredSessionPredicates(): string[] {
+	return Object.keys(SESSION_PREDICATES).sort();
+}
+
+export function unsupportedRulePredicates(rule: GuardRule): string[] {
+	const name = rule.active_when?.predicate?.name;
+	return name && !Object.hasOwn(SESSION_PREDICATES, name) ? [name] : [];
+}
+
 function evaluatePredicateAxis(spec: SessionPredicateSpec): boolean {
+	if (!Object.hasOwn(SESSION_PREDICATES, spec.name)) return false;
 	const impl = SESSION_PREDICATES[spec.name];
 	if (!impl) return false;
 	return impl(spec.args);

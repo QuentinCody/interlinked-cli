@@ -27,7 +27,7 @@ function globalSupport(inventory: RepositoryInventory, dependencies: ReadonlyMap
     return support;
 }
 /** The manifest-validity inputs: runner, engine, configuration + support hashes, discovered tests, graph shape, environment. */
-function indexValidity(root: string, identity: ReturnType<typeof evidenceIdentity>, supportHash: string, testFiles: readonly string[], graph: ReturnType<typeof buildTestDependencyGraph>, environmentHash: string): IndexValidityInputs {
+export function indexValidity(root: string, identity: ReturnType<typeof evidenceIdentity>, supportHash: string, testFiles: readonly string[], graph: ReturnType<typeof buildTestDependencyGraph>, environmentHash: string): IndexValidityInputs {
     return { runnerId: "vitest-exact-v1", runnerVersion: runnerVersion(root), coverageEngine: "v8-location-runtime-v2",
         coverageConfigHash: hashBytes(JSON.stringify([identity.configurationHash, identity.dependencyHash, identity.supportHash, identity.scopeHash, supportHash])),
         testDiscoveryHash: hashBytes(JSON.stringify(testFiles)),
@@ -66,7 +66,7 @@ export function inventoryDigest(inventory: RepositoryInventory): string {
  * shard put 4790 hashes into each of 2501 manifest entries on this repository (~1 GB of JSON) and the manifest
  * could not even be serialized ("Invalid string length", 2026-09-29).
  */
-export function dependencyHashes(context: CoverageIndexContext, tests: string[], covered: string[]): Record<string, string> {
+export function dependencyHashes(context: TestDependencyGraph & Pick<CoverageIndexContext, "inventory">, tests: string[], covered: string[]): Record<string, string> {
     const closure = testDependencyClosure(context, [...tests, ...covered]);
     if (closure.opaque) return { [WHOLE_INVENTORY_KEY]: inventoryDigest(context.inventory) };
     const reached = closure.paths;

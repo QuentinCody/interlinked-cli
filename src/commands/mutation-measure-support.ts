@@ -13,6 +13,7 @@ import type { MeasurementScope, MeasurementSurface } from "../harness/mutation/t
 import { c, header, kvLine } from "../lib/formatter.js";
 import type { MeasureOneArgs } from "./mutation-measure-support-network.js";
 import { networkMeasure, resolveEndpoints } from "./mutation-measure-support-network.js";
+import { retainMutationReport } from "../harness/mutation/stryker-evidence-store.js";
 
 /** Ceiling on the pre-flight suite run. The probe exists to SAVE time; one that
  *  can outlast the mutation run it guards would defeat its own purpose, so it
@@ -190,6 +191,8 @@ export async function maybeRecordMeasurement(args: {
 	// skipping it would silently freeze every Stop-time consumer at the
 	// previous generation.
 	if (rec.recorded && rec.manifest) {
+        const retained = retainMutationReport({ cwd: args.cwd, report: args.outcome.rawReport, run: "measure:" + new Date().toISOString(), source: "mutation-measure-record" });
+        if (!retained.retained) process.stderr.write(`[interlinked:mutation-evidence] NOT RETAINED: ${retained.reason}\n`);
 		const { writeSurvivorsIndex } = await import("../harness/mutation/survivors-index.js");
 		saveManifest(args.configDir, rec.manifest);
 		writeSurvivorsIndex(args.configDir, rec.manifest);

@@ -3,5 +3,9 @@
 	"enforced": [
 		"cases"
 	],
+	"corpus_cohort": [
+		"async_promise_executor",
+		"nan_comparison"
+	],
 	"exempt": []
 }

@@ -193,3 +193,7 @@ keeps history available through `data search`; ordinary live-tail readers have n
 5. **Checkpoints/rewind mutate git** — never run them without explicit per-turn authorization.
 6. **Do not create worktrees** — use the current workspace; ask a human operator to provision
    an approved worktree when isolation is required. Listing and cleanup remain allowed.
+
+## Evidence integrity and capability discovery
+
+Use **interlinked-observability** for `harness health` finding outcomes and `harness explain <topic> --client <client>`. Use **interlinked-verify** for `harness corpus status|scan`, replay compatibility, and `tests e2e attempts|replay`. Use **interlinked-quality-gates** for mutation raw-evidence provenance and corpus cohort water-lines. Permission observations are proposals only; **interlinked-harness** and **interlinked-setup** describe their limits.

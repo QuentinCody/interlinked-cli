@@ -415,8 +415,7 @@ describe("call pairing and snapshot consumption", () => {
 		expect(warning).toBe(
 			`[interlinked:baseline-effect] this tool call LOOSENED 1 ratchet water-line(s):\n` +
 			`  ${CAPS_REL}: metric-caps max_cyclomatic raised 22→999. Caps may only tighten.\n` +
-			"The pre-call values are still in force — the ratchets decide with them, so the change has no effect on any gate. Undo it with: interlinked baseline restore consume-me\n" +
-			"If the loosening was intentional (a deliberate reset), keep it and re-record the water-line through the harness so the override is released.",
+			"Pre-call values were retained for review. Some consumers may still read the loosened files; gate protection is not guaranteed. Review this call's diff and restore the exact prior values in the named files. No automatic restore command is available (call consume-me).",
 		);
 		expect(consumeBaselineSnapshot("consume-me", root)).toBeNull();
 	});

@@ -94,6 +94,11 @@ describe("extractHosts", () => {
 });
 
 describe("commandFamily", () => {
+    it("recognizes the supported typecheck scripts as verifiers", () => {
+        expect(commandFamily("npm run typecheck")).toBe("build");
+        expect(commandFamily("npm run typecheck:stable")).toBe("build");
+        expect(commandFamily("pnpm typecheck")).toBe("build");
+    });
 	describe("— positive (must fire)", () => {
 		it("P1: classifies a lint-family command as lint", () => {
 			expect(commandFamily("eslint src/")).toBe("lint");

@@ -165,6 +165,8 @@ describe("installStatusLine — script generation", () => {
 		const script = nonNull(files.get("/anywhere/status.sh"));
 		expect(script).toContain("⟳ mut");
 		expect(script).toContain("mutation-24x7.status");
+		expect(script).toContain("interlinked scanner review");
+		expect(script).not.toContain("interlinked review");
 		expect(script).toContain("hardened");
 		expect(mockFs.chmodSync).toHaveBeenCalledWith("/anywhere/status.sh", 0o755);
 	});

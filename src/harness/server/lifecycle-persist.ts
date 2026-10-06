@@ -8,7 +8,6 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import { computeEffectivenessSummary } from "../feedback-effectiveness.js";
 import { deleteLiveSnapshot } from "../live-snapshot.js";
 import { sanitizeSessionId } from "../session-paths.js";
 import type { buildTurnEndSummary } from "../turn-end.js";
@@ -39,7 +38,7 @@ export async function persistSessionTrajectory(opts: {
 	session: SessionTrajectory;
 	turnSummary: ReturnType<typeof buildTurnEndSummary>;
 }): Promise<void> {
-	const { ctx, event, session, turnSummary } = opts;
+	const { ctx, event, turnSummary } = opts;
 	const trajectory = ctx.sessions.serialize(event.session_id);
 	if (!trajectory) return;
 	try {
@@ -69,7 +68,7 @@ export async function persistSessionTrajectory(opts: {
 				{
 					...trajectory,
 					turn_summary: turnSummary,
-					feedback_effectiveness: computeEffectivenessSummary(session),
+					feedback_evidence: { schema: "finding-outcomes.v1", source: ".interlinked/check-results.jsonl", legacy_resolution_rate: "not-computed" },
 				},
 				null,
 				2,

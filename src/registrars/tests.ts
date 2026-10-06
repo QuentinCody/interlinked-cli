@@ -1,4 +1,5 @@
 import { type Command, type OptionValues } from "commander";
+import { registerE2eReplay } from "./tests-replay.js";
 
 function registerContracts(tests: Command): void {
     const contracts = tests.command("contracts").description("Inspect provenance or explicitly execute portable behavioral contracts");
@@ -73,6 +74,7 @@ function registerE2eAdoption(e2e: Command): void {
 }
 function registerE2e(tests: Command): void {
     const e2e = tests.command("e2e").description("Project-aware end-to-end scenarios: declared policy, supervised runs, receipts and one qualification verdict");
+    registerE2eReplay(e2e);
     const descriptions = {
         status: "Show scenario obligations and observed results (inspection; exit 0)",
         plan: "Explain required scenarios, their generation and the next command (inspection; exit 0)",

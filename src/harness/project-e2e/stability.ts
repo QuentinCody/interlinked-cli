@@ -4,7 +4,7 @@
 // Independent qualification repetitions are not "retry until green": every
 // attempt is its own supervised run (own snapshot, data, ports, seed) and
 // every attempt is published. A cohort qualifies only when EVERY required
-// attempt passed; mixed results are a flake finding that opens a quarantine
+// attempt passed; mixed results are an unresolved finding that opens a quarantine
 // record (a diagnosis schedule, never a waiver, keyed by generation so an
 // unchanged rerun cannot erase it); a budget that ends early defers the
 // cohort with its remaining count. Three passes are a sample — the record
@@ -44,7 +44,7 @@ export function classifyCohort(record: Pick<CohortRecord, "attempts" | "required
     const remaining = Math.max(0, record.required - statuses.length);
     const failed = statuses.filter(status => status === "failed").length, passed = statuses.filter(status => status === "passed").length;
     const gaps = statuses.filter(status => status === "unavailable" || status === "stale").length;
-    if (failed && passed) return { verdict: "mixed", remaining, reasons: [`${passed} attempt(s) passed and ${failed} failed: an inconsistent result is a flake finding, not a pass; the scenario stays unresolved`] };
+    if (failed && passed) return { verdict: "mixed", remaining, reasons: [`${passed} attempt(s) passed and ${failed} failed across captured seeds/inputs; cause unknown until same-input replay distinguishes a deterministic seed-dependent defect from nondeterminism. The original failures remain unresolved.`] };
     if (failed) return { verdict: "failed", remaining, reasons: [`${failed}/${statuses.length} attempt(s) failed`] };
     if (gaps) return { verdict: "unavailable", remaining, reasons: [`${gaps} attempt(s) could not certify (infrastructure gap, not an application failure); the cohort is incomplete`] };
     if (remaining) return { verdict: "deferred", remaining, reasons: [`${passed}/${record.required} attempt(s) passed; ${remaining} remaining — partial success cannot qualify`] };

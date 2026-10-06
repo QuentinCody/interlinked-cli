@@ -123,12 +123,14 @@ describe("registerHarnessCommands — command + option descriptions (mutation-ki
 	it("harness > health", () => {
 		const cmd = child(top(build(), "harness"), "health");
 		expect(cmd.description()).toBe(
-			"Check-health report from the recurrence log: repeat-rate per check id, probation candidates (demotion signal)",
+			"Check health: recurrence, finding outcomes, compatible rechecks and missing evidence",
 		);
 		expect(optionDescriptions(cmd)).toEqual({
 			"--json": "Machine-readable output",
 			"--short": "One-line summary",
 			"--full": "Show every check id (default: top 25 by repeat-rate)",
+            "--recheck": "Recheck up to 20 files with the file-only detector cohort",
+            "--file": "Explicit files for --recheck (default: observed finding files)",
 		});
 	});
 

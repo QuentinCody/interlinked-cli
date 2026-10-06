@@ -17,8 +17,11 @@ import {
 } from "../harness/check-health.js";
 import { classifyDeterminism } from "../harness/quality-checks.js";
 import { recurrencesPath } from "../harness/recurrence.js";
+import { readFindingOutcomes } from "../harness/check-observation-reader.js";
+import { recheckFindingFiles } from "../harness/check-recheck.js";
 import { c, header, table } from "../lib/formatter.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
+import { corpusPrecision } from "./harness-health-corpus.js";
 
 /** Normal mode shows the worst offenders; --full shows every check id. */
 const NORMAL_MODE_ROW_LIMIT = 25;
@@ -29,12 +32,22 @@ export async function harnessHealthCommand(opts: OptionValues): Promise<void> {
 
 	try {
 		const logPath = recurrencesPath(cwd);
-		if (!existsSync(logPath)) {
+		let findingOutcomes = await readFindingOutcomes(cwd);
+        const precision = corpusPrecision(cwd);
+		if (opts.recheck) {
+			const files = Array.isArray(opts.file) ? opts.file.filter((file): file is string => typeof file === "string") : findingOutcomes.state.map((finding) => finding.file);
+			const followup = recheckFindingFiles(cwd, files);
+			findingOutcomes = await readFindingOutcomes(cwd);
+			if (followup.unavailable.length || followup.deferred.length) {
+				process.stderr.write(`Recheck: ${followup.unavailable.length} unavailable, ${followup.deferred.length} beyond the 20-file budget\n`);
+			}
+		}
+		if (!existsSync(logPath) && findingOutcomes.observations === 0) {
 			output(
 				mode,
-				{ checks: [], probation_candidates: 0 },
+				{ checks: [], probation_candidates: 0, finding_outcomes: findingOutcomes, corpus_precision: precision },
 				{
-					json: () => ({ checks: [], probation_candidates: 0 }),
+					json: () => ({ checks: [], probation_candidates: 0, finding_outcomes: findingOutcomes, corpus_precision: precision }),
 					normal: () =>
 						c.dim(`No recurrence log at ${logPath} — nothing to grade yet.`),
 				},
@@ -42,20 +55,31 @@ export async function harnessHealthCommand(opts: OptionValues): Promise<void> {
 			return;
 		}
 
-		const rows = await aggregateHealthFromLog(logPath);
+		const rows = existsSync(logPath) ? await aggregateHealthFromLog(logPath) : [];
 		const candidates = rows.filter((r) => r.status === "probation-candidate");
-		const result = { checks: rows, probation_candidates: candidates.length };
+		const result = { checks: rows, probation_candidates: candidates.length, finding_outcomes: findingOutcomes, corpus_precision: precision };
+		const outcomeText = renderFindingOutcomes(findingOutcomes);
 
 		output(mode, result, {
 			json: () => result,
 			short: () =>
-				`${rows.length} check ids graded, ${candidates.length} probation candidate(s)`,
-			normal: () => renderHealthReport(rows, candidates, NORMAL_MODE_ROW_LIMIT),
-			full: () => renderHealthReport(rows, candidates, rows.length),
+				`${rows.length} check ids graded, ${candidates.length} probation candidate(s); ${findingOutcomes.observations} bound observations`,
+			normal: () => renderHealthReport(rows, candidates, NORMAL_MODE_ROW_LIMIT) + outcomeText,
+			full: () => renderHealthReport(rows, candidates, rows.length) + outcomeText,
 		});
 	} catch (err) {
 		outputError(mode, err instanceof Error ? err.message : String(err));
 	}
+}
+
+function renderFindingOutcomes(report: Awaited<ReturnType<typeof readFindingOutcomes>>): string {
+	const lines = ["", "Finding outcomes (observed clearance is not causal fix rate)"];
+	for (const row of report.checks) {
+		lines.push(`${row.check}: ${row.unique_findings} finding slots, ${row.rechecked_clean} rechecked clean, ${row.not_rechecked} not rechecked, ${row.unavailable} unavailable; follow-up ${Math.round(row.followup_coverage * 100)}%`);
+	}
+	lines.push(`${report.observations} observations; ${report.measured_execution_ms.toFixed(1)} ms measured execution; window ${report.observation_window.first ?? "unknown"} to ${report.observation_window.last ?? "unknown"}.`);
+	lines.push(`${report.legacy_rows} legacy/other rows; ${report.invalid_rows} unreadable rows. Adjudicated precision/scope are in --json; triage cost remains unmeasured. ${report.coverage}`);
+	return "\n" + lines.join("\n");
 }
 
 /** Line-by-line fold over the JSONL — lazy by construction. Torn lines are

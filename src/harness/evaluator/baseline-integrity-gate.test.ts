@@ -266,6 +266,11 @@ describe("untested-files-baseline.json — INVERTED: exemption list may only shr
 });
 
 describe("check-evidence-baseline.json — INVERTED: exemption list may only shrink", () => {
+    it("requires review when a qualified corpus member is removed, including deletion of the field", () => {
+        const before = { exempt: [], corpus_cohort: ["nan_comparison"] };
+        expect(detect(EVIDENCE, before, { exempt: [] })[0]?.rule).toBe("corpus-cohort-removed:nan_comparison");
+        expect(detect(EVIDENCE, before, { ...before, corpus_cohort: ["nan_comparison", "async_promise_executor"] })).toEqual([]);
+    });
 	const base = { exempt: ["self_import", "eval_usage"] };
 
 	it("P1: BLOCKS adding a check id to the exemption list", () => {

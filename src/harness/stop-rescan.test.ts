@@ -131,11 +131,13 @@ describe("rescanSessionFiles", () => {
 		expect(findings[0]?.file).toBe("/repo");
 	});
 
-	it("silently skips a file whose read throws (deleted / permission denied)", () => {
+	it("reports unavailable when a file read throws (deleted / permission denied)", () => {
 		mockReadFileSync.mockImplementation(() => {
 			throw new Error("ENOENT");
 		});
-		const findings = rescanSessionFiles(makeSession(["gone.py"]), "/repo");
+        const unavailable = vi.fn();
+		const findings = rescanSessionFiles(makeSession(["gone.py"]), "/repo", { onUnavailable: unavailable });
+		expect(unavailable).toHaveBeenCalledWith("stop-rescan:read", "/repo/gone.py", expect.any(Error));
 		expect(findings).toEqual([]);
 		// A read failure must not call the detector builder for that file.
 		expect(mockBuildChecks).not.toHaveBeenCalled();
@@ -146,7 +148,9 @@ describe("rescanSessionFiles", () => {
 			throwingDetector("boom"),
 			detector("survivor", [{ line: 5, text: "still here" }]),
 		]);
-		const findings = rescanSessionFiles(makeSession(["x.ts"]), "/repo");
+        const unavailable = vi.fn();
+		const findings = rescanSessionFiles(makeSession(["x.ts"]), "/repo", { onUnavailable: unavailable });
+        expect(unavailable).toHaveBeenCalledWith("boom", "x.ts", expect.any(Error));
 		expect(findings.map((f) => f.checkId)).toEqual(["survivor"]);
 		expect(findings[0]?.line).toBe(5);
 	});

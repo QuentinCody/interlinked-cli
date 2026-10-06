@@ -12,13 +12,19 @@
 // in the prototype Worker), not an idealized one, so a change to that shape
 // breaks this test rather than silently passing.
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createCloudMutationRunner } from "./cloud-runner.js";
 import { runPerEditMutationGate } from "./gate.js";
 import { emptyManifest } from "./manifest.js";
 import type { MutationManifest, MutationReceipt } from "./types.js";
 
 const TARGET = "src/x.ts";
+let evidenceRoot: string;
+beforeEach(() => { evidenceRoot = mkdtempSync(join(tmpdir(), "composed-evidence-")); });
+afterEach(() => rmSync(evidenceRoot, { recursive: true, force: true }));
 const CONTENT = "export function bar(x: number): boolean {\n\treturn x > 0;\n}\n";
 
 const META = {
@@ -64,7 +70,7 @@ interface Run {
 /** Drive one HTTP body through the REAL runner, evaluator, gate and persister. */
 async function driveBody(body: unknown, status = 200): Promise<Run> {
 	const runner = createCloudMutationRunner(
-		{ url: "http://runner.test/", timeoutMs: 5_000, cwd: "/repo" },
+		{ url: "http://runner.test/", timeoutMs: 5_000, cwd: evidenceRoot },
 		async () => {
 			const stub = {
 				ok: status >= 200 && status < 300,

@@ -10,7 +10,7 @@ export const LEDGER_WRITERS = [
     "src/harness/error-history.ts", "src/harness/failure-record.ts", "src/harness/findings/corpus.ts",
     "src/harness/findings/simplification-record.ts", "src/harness/gate-reach-collect.ts", "src/harness/graph-prediction-cache.ts",
     "src/harness/guard-prediction.ts", "src/harness/latency-log.ts", "src/harness/mutation/manifest.ts", "src/harness/mutation/mutation-cloud-v3-finding-delivery.ts",
-    "src/harness/mutation/run-log.ts", "src/harness/obligation-ledger-io.ts", "src/harness/plan-capture.ts",
+    "src/harness/mutation/run-log.ts", "src/harness/mutation/stryker-evidence-retention.ts", "src/harness/obligation-ledger-io.ts", "src/harness/plan-capture.ts",
     "src/harness/policy-classifier.ts", "src/harness/project-e2e/ledger.ts", "src/harness/project-e2e/policy-changes.ts", "src/harness/project-e2e/requests.ts", "src/harness/project-e2e/stability.ts","src/harness/replay/eval-ledger.ts", "src/harness/replay/inference-store.ts",
     "src/harness/replay/state-archive.ts", "src/harness/replay/tree-snapshot.ts", "src/harness/spec/reconciliation.ts",
     "src/harness/stop-digest-state.ts", "src/harness/telemetry-spool.ts", "src/harness/test-requests.ts", "src/harness/timeline-writer.ts",
@@ -20,6 +20,7 @@ export const LEDGER_WRITERS = [
     "src/lib/hook-transport-receipt.ts", "src/lib/local-activity-sync.ts", "src/lib/local-activity.ts",
     "src/lib/manual-debt-marker-record.ts", "src/lib/mcp-recorder/writer.ts", "src/lib/metrics/evidence-run.ts",
     "src/lib/metrics/execution-journal.ts", "src/lib/settings-validator.ts", "src/lib/viz/test-events.ts",
+    "src/test-setup/fast-check-examples.ts",
 ] as const;
 const writers = new Set<string>(LEDGER_WRITERS);
 

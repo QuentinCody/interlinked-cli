@@ -1,0 +1,59 @@
+name: Weekly evidence audit
+on:
+  schedule:
+    - cron: "17 8 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: weekly-evidence-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Restore prior deduplication keys
+        uses: actions/cache/restore@v4
+        with:
+          path: .interlinked/agent-output/deep-audit/keys.json
+          key: evidence-audit-${{ github.run_id }}
+          restore-keys: evidence-audit-
+      - name: Retain prior keys
+        run: |
+          mkdir -p .interlinked/agent-output/deep-audit
+          if test -f .interlinked/agent-output/deep-audit/keys.json; then
+            cp .interlinked/agent-output/deep-audit/keys.json .interlinked/agent-output/deep-audit/previous-keys.json
+          fi
+      - name: Bounded advisory audit
+        run: node --import tsx scripts/evidence-deep-audit.mts
+      - name: Varying-seed replay exploration
+        timeout-minutes: 5
+        env:
+          INTERLINKED_FC_EXPLORE: "1"
+          INTERLINKED_FC_EXAMPLES: "off"
+        run: node --import tsx scripts/run-resource-bounded.ts npx vitest run src/harness/trajectory/ltl src/harness/coverage-index/invalidation.model.test.ts --reporter=json --outputFile=.interlinked/agent-output/deep-audit/exploration.json
+      - name: Summarize exploration outcome
+        if: always()
+        run: node --import tsx scripts/evidence-exploration-summary.mts .interlinked/agent-output/deep-audit
+      - name: Advisory calibration
+        if: always()
+        run: node --import tsx scripts/evidence-advisory-census.mts .interlinked/agent-output/deep-audit
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .interlinked/agent-output/deep-audit/keys.json
+          key: evidence-audit-${{ github.run_id }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-audit-${{ github.run_id }}
+          path: .interlinked/agent-output/deep-audit
+          retention-days: 14

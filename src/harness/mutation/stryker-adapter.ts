@@ -8,8 +8,10 @@
 
 import { isJsonObject } from "../../lib/json-types.js";
 import type { MutantStatus, RawMutant, TestRunResult } from "./types.js";
+import { mutantRawEvidence, preserveStrykerEvidence, type StrykerMutantEvidence, type StrykerReportEvidence } from "./stryker-evidence.js";
 
 export interface AdaptedMutant {
+    evidence?: StrykerMutantEvidence;
 	raw: RawMutant;
 	status: MutantStatus;
 }
@@ -23,6 +25,7 @@ export interface AdaptedMutant {
  * evidence, but it can never certify clean or adopt a baseline.
  */
 export interface MutationRunOutput {
+    reportEvidence?: StrykerReportEvidence;
 	mutants: AdaptedMutant[];
 	testRun?: TestRunResult;
 	/** How many tests actually executed for this mutation run. A green boolean
@@ -53,6 +56,7 @@ export interface MutationRunOutput {
 }
 
 export interface AdaptedFile {
+    reportEvidence?: StrykerReportEvidence;
 	file: string;
 	content: string;
 	mutants: AdaptedMutant[];
@@ -190,6 +194,7 @@ function parseOneMutant(file: string, content: string, raw: unknown): AdaptedMut
 	return {
 		raw: { file, mutator, originalLexeme: content.slice(startOffset, endOffset), replacement, startOffset },
 		status: mapStrykerStatus(status),
+        evidence: mutantRawEvidence(raw),
 	};
 }
 
@@ -212,12 +217,13 @@ function parseMutants(
 export function strykerToAdapted(report: unknown): AdaptedFile[] | null {
 	if (!isJsonObject(report) || !isJsonObject(report.files)) return null;
 	const out: AdaptedFile[] = [];
+    const reportEvidence = preserveStrykerEvidence(report);
 	for (const [file, fileResult] of Object.entries(report.files)) {
 		if (!isJsonObject(fileResult)) continue;
 		const content = str(fileResult.source);
 		if (content === null || !Array.isArray(fileResult.mutants)) continue;
 		const parsed = parseMutants(file, content, fileResult.mutants);
-		out.push({ file, content, mutants: parsed.mutants, dropped: parsed.dropped });
+		out.push({ file, content, mutants: parsed.mutants, dropped: parsed.dropped, reportEvidence });
 	}
 	return out;
 }

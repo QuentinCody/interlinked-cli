@@ -111,6 +111,8 @@ interface DigestStopRescanArgs {
 }
 
 interface StopRescanDigest {
+    /** Individual details intended for output; aggregate counts are not individual emissions. */
+    intendedFindings: RescanFindingLike[];
 	/** Warning strings for stderr — already collapsed and capped. */
 	warnings: string[];
 	/** Fingerprints open at this Stop (the next Stop's diff baseline). */
@@ -288,6 +290,12 @@ function formatFileBlock(file: string, findings: readonly RescanFindingLike[]): 
 		: [head, ...lines].join(String.fromCharCode(10));
 }
 
+function intendedDetails(main: Map<string, RescanFindingLike[]>, newIds: Set<string>): RescanFindingLike[] {
+    return [...main.values()].map(findings => findings.filter(f => newIds.has(fingerprintFinding(f))))
+        .filter(findings => findings.length > 0).slice(0, MAX_FILES_LISTED)
+        .flatMap(findings => findings.filter(f => !f.deferred).slice(0, MAX_FINDINGS_PER_FILE));
+}
+
 /**
  * Filter, attribute, diff and format one Stop's rescan findings. Persists this
  * Stop's fingerprints and spool rows (both no-ops under `dryRun`).
@@ -324,7 +332,7 @@ export function digestStopRescan(args: DigestStopRescanArgs): StopRescanDigest {
 	}
 	if (delta.resolved > 0 || delta.unchanged > 0) {
 		warnings.push(
-			`[interlinked:stop-rescan] ${delta.resolved} resolved, ${delta.unchanged} unchanged (suppressed) since the previous stop.`,
+			`[interlinked:stop-rescan] ${delta.resolved} absent from the displayed set (repair unverified), ${delta.unchanged} unchanged (message suppressed) since the previous stop.`,
 		);
 	}
 	if (subagentFiles.size > 0) {
@@ -352,5 +360,5 @@ export function digestStopRescan(args: DigestStopRescanArgs): StopRescanDigest {
 		...(args.now ? { now: args.now } : {}),
 	});
 
-	return { warnings, openIds, spoolRows };
+	return { warnings, openIds, spoolRows, intendedFindings: intendedDetails(main, newIds) };
 }

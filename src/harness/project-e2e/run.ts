@@ -38,6 +38,7 @@ import { parseStructuredReport, type StructuredReport } from "./structured-repor
 /** One attempt of a stability cohort (§9.5, Unit E1): recorded in the receipt and exported to every owned process as `INTERLINKED_E2E_*`. */
 export interface StabilityAttempt { cohortId: string; attempt: number; seed: string; /** ISO instant to freeze, or "real". */ clock: string; }
 export interface RunE2eOptions {
+    /** Diagnostic replay retains receipts but cannot reconcile or satisfy obligations/requests. */ publication?: "diagnostic";
     root: string; /** Where git refs resolve when `root` is an exported candidate tree without `.git` (CI, F-R3). */ gitRoot?: string; projectId?: string; scenarioIds?: string[]; timeoutMs: number; sessionId?: string; requestIds?: string[]; stability?: StabilityAttempt;
     /** Cancellation (C6): an aborted step is an explicit unavailable attempt, never a pass. */ signal?: AbortSignal;
     /** An automatic (scheduler-spawned) launch: refused unless the CURRENT policy still turns `scheduling.autoRun` on (review C4). */ automatic?: boolean;
@@ -365,8 +366,9 @@ function publish(ctx: SuiteRun, receipt: E2eReceipt, before: Map<string, Scenari
     receipt.finishedAt = new Date().toISOString();
     // Attribution (C4, PE-12; round 2 D1): FROZEN at publication — every request open for exactly these keys at exactly
     // these generations rides on this run, and exactly these ids are served below. A request arriving later stays open.
-    receipt.requestIds = [...new Set([...(ctx.options.requestIds ?? []), ...matchingRequests(ctx.root, certifiedGenerations(ctx, before))])].sort();
+    receipt.requestIds = ctx.options.publication === "diagnostic" ? [] : [...new Set([...(ctx.options.requestIds ?? []), ...matchingRequests(ctx.root, certifiedGenerations(ctx, before))])].sort();
     const path = writeE2eReceipt(ctx.root, receipt);
+    if (ctx.options.publication === "diagnostic") return { path, runId: receipt.runId, scenarioIds: ctx.scenarios.map(row => row.id) };
     for (const scenario of ctx.scenarios) {
         const status = attemptStatus(receipt, scenario, changedScenarios.has(scenario.id));
         const reason = status === "passed" ? "supervised run passed" : `${status}: ${receipt.completion.reasons.join("; ") || receipt.cases.filter(row => row.state !== "passed").map(row => `${row.id} ${row.state}`).join(", ")}`;
@@ -444,7 +446,8 @@ async function runSuite(ctx: SuiteRun): Promise<{ path: string; runId: string; s
     const receipt = seedReceipt(ctx, runId, before);
     const disposable = createDisposable(ctx, runId);
     // Durable from the first instant (C3): if this process dies before publication, the record makes the attempt an explicit unavailable, never silence.
-    writeAttemptRecord(ctx.root, { version: 1, runId, pid: process.pid, hostname: hostname(), startedAt: receipt.startedAt, projectId: ctx.project.id, scenarioIds: ctx.scenarios.map(row => row.id), keys: Object.keys(certifiedGenerations(ctx, before)), generations: certifiedGenerations(ctx, before) });
+    const obligations = ctx.options.publication === "diagnostic" ? {} : certifiedGenerations(ctx, before);
+    writeAttemptRecord(ctx.root, { version: 1, runId, pid: process.pid, hostname: hostname(), startedAt: receipt.startedAt, projectId: ctx.project.id, scenarioIds: ctx.scenarios.map(row => row.id), keys: Object.keys(obligations), generations: obligations });
     try { await executeSuite(ctx, receipt, disposable, before); if (receipt.completion.complete) await sensitivityStage(ctx, receipt, disposable); observationsStage(ctx, receipt, disposable); }
     finally { rmSync(disposable.snapshot, { recursive: true, force: true }); }
     return publish(ctx, receipt, before, startedMs);
@@ -461,18 +464,21 @@ function groupBySuite(selection: Selected[]): Array<{ project: E2eProject; suite
     return [...groups.values()];
 }
 function canonical(path: string): string { try { return realpathSync(path); } catch { return path; } }
+function runEvaluationOptions(options: RunE2eOptions) {
+    return { root: options.root, atMs: Date.now(), ...(options.publication === "diagnostic" ? { dryRun: true, reconcile: false } : {}), ...(options.gitRoot ? { gitRoot: options.gitRoot } : {}), ...(options.projectId ? { projectId: options.projectId } : {}), ...(options.scenarioIds ? { scenarioIds: options.scenarioIds } : {}), ...(options.sessionId ? { sessionId: options.sessionId } : {}) };
+}
 /** Explicit supervised execution. Returns the post-run evaluation plus the receipts written. */
 export async function runProjectE2e(options: RunE2eOptions): Promise<RunE2eResult> {
     if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > MAX_TIMEOUT_MS) throw new Error(`e2e: timeout must be 1–${MAX_TIMEOUT_MS} ms`);
     const loaded = loadE2ePolicy(options.root);
-    const evaluateOptions = { root: options.root, atMs: Date.now(), ...(options.gitRoot ? { gitRoot: options.gitRoot } : {}), ...(options.projectId ? { projectId: options.projectId } : {}), ...(options.scenarioIds ? { scenarioIds: options.scenarioIds } : {}), ...(options.sessionId ? { sessionId: options.sessionId } : {}) };
+    const evaluateOptions = runEvaluationOptions(options);
     if (loaded.status !== "configured") return { ...evaluateE2e(evaluateOptions), receipts: [], messages: [loaded.status === "invalid" ? `policy invalid: ${loaded.reason}` : "UNCONFIGURED: no e2e policy; nothing was run"] };
     if (options.automatic && !effectiveScheduling(loaded.policy).autoRun) return { ...evaluateE2e(evaluateOptions), receipts: [], messages: ["automatic execution is off in the current policy (scheduling.autoRun); nothing was run"] };
     const selection = selectScenarios(loaded.policy, options);
-    recoverOrphanedRuns(options.root, Date.now()); // a crashed earlier run becomes an explicit unavailable attempt before anything new starts (C3)
-    // Open the obligation at the snapshot this run will certify (§9.1 step 1): an attempt whose
-    // generation the ledger never saw would be historical evidence for nothing.
-    reconcileChanges({ root: options.root, changedPaths: "all", atMs: Date.now(), ...(options.gitRoot ? { gitRoot: options.gitRoot } : {}), ...(options.sessionId ? { sessionId: options.sessionId } : {}) });
+    if (options.publication !== "diagnostic") {
+        recoverOrphanedRuns(options.root, Date.now());
+        reconcileChanges({ root: options.root, changedPaths: "all", atMs: Date.now(), ...(options.gitRoot ? { gitRoot: options.gitRoot } : {}), ...(options.sessionId ? { sessionId: options.sessionId } : {}) });
+    }
     const out: Pick<RunE2eResult, "receipts" | "messages"> = { receipts: [], messages: [] };
     const deadline = Date.now() + options.timeoutMs;
     for (const group of groupBySuite(selection)) await runGroup({ policy: loaded.policy, digest: loaded.digest, group, options, deadline }, out);
