@@ -38,10 +38,10 @@ describe("BEHAVIORAL_CHECK_META content (mutation-kill)", () => {
 			determinism: "heuristic",
 		},
 		persistent_warning_escalation: {
-			name: "Persistent Warning Escalation",
-			description: "Same warning fires again after re-edit — escalated to error",
-			tier: 1,
-			determinism: "fully_deterministic",
+			name: "Persistent Warning Reminder",
+			description: "Repeated finding retained as advisory; repetition never increases severity or confidence",
+			tier: 2,
+			determinism: "heuristic",
 		},
 		tdd_cycle_violation: {
 			name: "TDD Cycle Violation",

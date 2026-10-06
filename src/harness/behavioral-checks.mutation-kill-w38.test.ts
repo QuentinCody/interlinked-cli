@@ -276,16 +276,17 @@ describe("checkPersistentWarningEscalation — escalated entry shape", () => {
 	it("969159ef: message reports issue_count + 1 (ADDED), not subtracted", () => {
 		const session = makeSession({ warnings_issued: priorRecord("typescript", 2) });
 		const out = checkPersistentWarningEscalation(session, "src/foo.ts", ["typescript"]);
-		expect(nonNull(out[0]).message).toContain("issued 3 times");
-		expect(nonNull(out[0]).message).not.toContain("issued 1 times");
+		expect(nonNull(out[0]).message).toContain("observed 3 times");
+		expect(nonNull(out[0]).message).not.toContain("observed 1 times");
 	});
 
-	// test-contract: public-api — determinism of the escalated entry itself must be
-	// "fully_deterministic" regardless of the underlying finding's tag
-	it("14d65dc0: escalated entry determinism is exactly 'fully_deterministic'", () => {
+	// test-contract: public-api — repetition alone does not establish a defect;
+	// repeated findings remain heuristic advice, regardless of the original tag.
+	it("repeated findings remain heuristic warnings", () => {
 		const session = makeSession({ warnings_issued: priorRecord("typescript") });
 		const out = checkPersistentWarningEscalation(session, "src/foo.ts", ["typescript"]);
-		expect(nonNull(out[0]).determinism).toBe("fully_deterministic");
+		expect(nonNull(out[0]).determinism).toBe("heuristic");
+		expect(nonNull(out[0]).severity).toBe("warning");
 	});
 });
 

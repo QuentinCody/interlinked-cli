@@ -30,6 +30,8 @@ import { TEST_QUALITY_ADVISORY_IDS } from "./advisory-test-quality.js";
  * pins the current set — update it together with this list.
  */
 export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
+    // A repeated warning adds no independent evidence of a defect.
+    "persistent_warning_escalation",
     "python_simplification",
 	// Dead-code / coverage scans — valuable in audits, too noisy for default gate.
 	"knip",

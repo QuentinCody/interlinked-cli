@@ -37,6 +37,14 @@ describe("pathMatchesCheck — skip_test_files gate", () => {
 });
 
 describe("candidateChecks — deferred classification", () => {
+    it("reserves project-wide Gitleaks for recovery and never records an edit-time pass", () => {
+        const options = { paths: ["src/a.ts"], checks: { gitleaks: makeCheck({ command: "gitleaks" }) } };
+        const foreground = candidateChecks(options);
+        expect(foreground.candidates).toEqual([]);
+        expect(foreground.deferred).toEqual([{ name: "gitleaks", reason: expect.stringContaining("background recovery") }]);
+        expect(candidateChecks({ ...options, recovery: true }).candidates.map(row => row.toolId)).toEqual(["gitleaks"]);
+        expect(candidateChecks({ ...options, recovery: true }).deferred).toEqual([]);
+    });
 	it("defers a matching, enabled check whose tool has no bounded multi-file mode", () => {
 		const result = candidateChecks({
 			paths: ["scripts/build.sh"],

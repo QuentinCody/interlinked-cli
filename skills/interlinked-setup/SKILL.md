@@ -5,10 +5,14 @@ description: "Install, operate, and troubleshoot the Interlinked CLI harness in 
 
 # interlinked-setup — install, operate & troubleshoot the harness
 
-The local guard-prediction oracle defaults to `enforced`, independently of the
+The local guard-prediction oracle defaults to `shadow`, independently of the
 optional Supermodel graph protocol. Shared `.interlinked/config.json` accepts
 `harness.guard_prediction.mode: "enforced" | "shadow" | "off"`. Use
 **interlinked-harness** for exact prediction/reconciliation receipts and limitations.
+Receipts are required only in explicit enforced mode. Edit-time function token,
+cyclomatic and cognitive cap crossings are advisory by default; shared
+`harness.edit_metrics.mode: "enforced"` restores refusal, while `"advisory"`
+states the default explicitly. Cap values and protected baselines do not change.
 Native cold fallback can run this AST oracle; standalone generated hooks need the
 daemon and report NOT CHECKED without it. Physical file size is advisory in both
 warm and cold paths; rebuilding must not revive the old line-count block.

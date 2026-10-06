@@ -60,10 +60,42 @@ function fullReasons(input: TestPlanInput, graph: TestDependencyGraph): FullReas
     return { scope, uncertainty };
 }
 
-function companion(test: string, source: string): boolean {
+function companionPrefixes(source: string): string[] {
     const stem = source.replace(/\.[cm]?[jt]sx?$/, "");
     const bases = [stem, join(dirname(stem), "__tests__", basename(stem))];
-    return bases.some(base => test.startsWith(`${base}.test.`) || test.startsWith(`${base}.spec.`));
+    return bases.flatMap(base => [`${base}.test.`, `${base}.spec.`]);
+}
+
+function companion(test: string, source: string): boolean {
+    return companionPrefixes(source).some(prefix => test.startsWith(prefix));
+}
+
+/** Invert the prefix lookup once per plan instead of scanning every source for
+ * every test. Preserve all prefix matches and the inventory's source order. */
+function indexCompanionSources(input: TestPlanInput): Map<string, string[]> {
+    const testsByPrefix = new Map<string, string[]>();
+    for (const test of new Set(input.tests)) {
+        for (const marker of [".test.", ".spec."]) {
+            let position = test.indexOf(marker);
+            while (position !== -1) {
+                const prefix = test.slice(0, position + marker.length);
+                const matches = testsByPrefix.get(prefix) ?? [];
+                matches.push(test);
+                testsByPrefix.set(prefix, matches);
+                position = test.indexOf(marker, position + 1);
+            }
+        }
+    }
+    const sources = new Map<string, string[]>();
+    for (const file of input.inventory.files) {
+        const matches = new Set(companionPrefixes(file.path).flatMap(prefix => testsByPrefix.get(prefix) ?? []));
+        for (const test of matches) {
+            const paths = sources.get(test) ?? [];
+            paths.push(file.path);
+            sources.set(test, paths);
+        }
+    }
+    return sources;
 }
 
 function selectionReasons(path: string, input: TestPlanInput, paths: Set<string>): string[] {
@@ -91,9 +123,10 @@ function selectUniverse(input: TestPlanInput, graph: TestDependencyGraph, full: 
             durationMs: input.historical?.[path]?.durationMs ?? null })), omitted: [], reusable: full.uncertainty.length === 0 && !opaque };
     }
     const tests: PlannedTest[] = [], omitted: string[] = [];
+    const companions = indexCompanionSources(input);
     let reusable = !supportOpaque;
     for (const path of [...new Set(input.tests)].sort()) {
-        const sources = input.inventory.files.filter(file => companion(path, file.path)).map(file => file.path);
+        const sources = companions.get(path) ?? [];
         const closure = testDependencyClosure(graph, [path, ...sources]);
         const why = selectionReasons(path, input, closure.paths);
         if (closure.opaque && input.changedPaths.length) why.push("Opaque dependency: rerun on any input change");

@@ -12,7 +12,16 @@ edits queue TypeScript checking until that boundary. Related edits in the same m
 message are checked against the completed tree, once per project. Existing atomic
 multi-file calls retain their shared check path. Other clients, unknown writers, and
 Claude sessions that have not demonstrated the boundary keep per-edit checking.
-Security, content guards, lint and hard complexity caps still apply per edit.
+Security, content guards and lint still apply per edit. Function-token and
+complexity caps advise by default; `harness.edit_metrics.mode: "enforced"`
+opts into their existing hard edit gate without changing limits or baselines.
+
+Deep-audit findings follow `DEFAULT_ADVISORY_SKIPS` in ordinary hook feedback as
+well as default verify. Run `verify --all-checks` for the full review; raw findings
+remain in `check-results.jsonl`. Repeated warnings never gain severity or confidence
+from repetition. Project-wide Gitleaks runs in explicit verify/background recovery,
+not the interactive ChangeSet batch. Inline secret checks remain active. A deferred
+Gitleaks scan is NOT CHECKED, never a passing security verdict.
 
 Final compiler errors arrive as batch context so Claude can repair them; a native batch
 `block` would cancel its loop. Unresolved errors and unavailable compiler work remain

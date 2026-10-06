@@ -38,6 +38,7 @@ import { recordComplexityPulse } from "./complexity-pulse.js";
 import { checkFunctionComplexityWrite } from "./complexity-write-guard.js";
 import { checkFunctionTokenWrite } from "./function-token-write-guard.js";
 import { recordFunctionTokenPulse } from "./function-token-pulse.js";
+import { applyEditMetricPolicy } from "./edit-metric-policy.js";
 import { extractPermissionPattern } from "./permission-patterns.js";
 import { checkTestSignalErosion } from "./pre-tool-test-integrity.js";
 import { estimateEditLine, isBash, isFileWrite, isReadOperation } from "./tool-classifiers.js";
@@ -269,7 +270,7 @@ export function evaluatePreChecksTail(
 	warnings: string[],
 ): HarnessDecision | null {
 	const eventCwd = event.cwd || process.cwd();
-	const metricBlock = checkFileWriteMetricCaps(event, eventCwd, toolName, toolInput);
+	const metricBlock = applyEditMetricPolicy(checkFileWriteMetricCaps(event, eventCwd, toolName, toolInput), eventCwd, warnings);
 	if (metricBlock) return metricBlock;
 	pushTailWarnings(event, session, sessions, eventCwd, toolName, toolInput, warnings);
 	return null;

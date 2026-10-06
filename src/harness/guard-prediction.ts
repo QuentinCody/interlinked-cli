@@ -47,7 +47,8 @@ export function guardReceiptPath(cwd: string, session: string, proposal: string)
 export function guardPredictionMode(config: SharedConfig | null): GuardPredictionMode {
     const policy = config?.harness?.guard_prediction;
     if (isJsonObject(policy) && (policy.mode === "off" || policy.mode === "shadow")) return policy.mode;
-    return "enforced";
+    if (isJsonObject(policy) && policy.mode === "enforced") return "enforced";
+    return "shadow";
 }
 
 function unknown(reason: string): HarnessDecision {
@@ -150,6 +151,10 @@ function reconcile(run: GuardRun, proposal: Proposal, changes: GuardChange[]): H
         return null;
     }
     if (!revealed) record(cwd, row, event.dry_run);
+    if (mode === "shadow") return {
+        decision: "allow",
+        warnings: [`${PREFIX} Advisory: ${changes.length} guard-scope change(s) in ${proposal.file}. Review the intended behavior and relevant tests. This is not a proven bug; no declaration receipt is required. Details retained in ${STATE}/guard-events.jsonl.`],
+    };
     return refusal(`Unpredicted or unreconciled if-guard change in ${proposal.file}. ` +
         `This is a scope change, not a proven bug. Correct the edit or declare the exact intended changes in ${guardReceiptPath(cwd, event.session_id, proposal.id)}. ` +
         `After this reveal include reconcile: "${proposal.id}", a rationale and a declaration nonce. ` +
@@ -198,7 +203,7 @@ function reconcileChanges(run: GuardRun, changes: ProjectedFileChange[]): Harnes
 }
 
 /** Same raw-proposal oracle for the daemon and native cold path; graph shards are irrelevant. */
-export function driveGuardPrediction(event: HarnessEvent, mode: GuardPredictionMode = "enforced"): HarnessDecision | null {
+export function driveGuardPrediction(event: HarnessEvent, mode: GuardPredictionMode = "shadow"): HarnessDecision | null {
     if (mode === "off" || event.hook_event !== "PreToolUse" || !isFileWrite(event.tool_name)) return null;
     if (!extractAllEditedFilePaths(event).some(path => /\.[cm]?[jt]sx?$/i.test(path))) return null;
     try {

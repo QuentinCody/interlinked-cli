@@ -2,9 +2,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { driveGuardPrediction, guardPredictionMode, guardProposal, guardReceiptPath } from "./guard-prediction.js";
+import { driveGuardPrediction as runGuardPrediction, guardPredictionMode, guardProposal, guardReceiptPath, type GuardPredictionMode } from "./guard-prediction.js";
 import { evaluateGraphPrediction, type PreToolCtx } from "./evaluator/pre-tool-decision-phases.js";
 import type { HarnessEvent } from "./types.js";
+
+// Existing protocol cases exercise explicit enforcement. The ordinary default
+// must advise without demanding an agent-authored declaration of intent.
+function driveGuardPrediction(event: HarnessEvent, mode: GuardPredictionMode = "enforced") {
+    return runGuardPrediction(event, mode);
+}
 
 describe("predict, reveal, reconcile guard changes", () => {
     let cwd: string;
@@ -29,8 +35,9 @@ describe("predict, reveal, reconcile guard changes", () => {
     });
     it("runs in the real prediction phase even with graph prediction disabled", () => {
         const context: PreToolCtx = { escalation: undefined, contentScan: undefined, graphPredAdditionalContext: undefined };
-        expect(evaluateGraphPrediction(event(), undefined, null, [], context)?.rule_id).toBe("guard-prediction-protocol");
-        expect(guardPredictionMode(null)).toBe("enforced");
+        const config = { version: 1 as const, server_url: "", harness: { guard_prediction: { mode: "enforced" } } };
+        expect(evaluateGraphPrediction(event(), undefined, config, [], context)?.rule_id).toBe("guard-prediction-protocol");
+        expect(guardPredictionMode(null)).toBe("shadow");
         expect(guardPredictionMode({ version: 1, server_url: "", harness: { guard_prediction: { mode: "shadow" } } })).toBe("shadow");
     });
     it("accepts an exact prior prediction and permits identical retries after unrelated gates", () => {
@@ -38,6 +45,17 @@ describe("predict, reveal, reconcile guard changes", () => {
         expect(driveGuardPrediction(event())).toBeNull();
         expect(driveGuardPrediction(event())).toBeNull(); // duplicate delivery
         expect(driveGuardPrediction(event(after, "agent-1", "edit-2"))).toBeNull();
+    });
+    it("defaults to concise advice while retaining the exact scope change for review", () => {
+        const result = runGuardPrediction(event());
+        expect(result?.decision).toBe("allow");
+        expect(result?.warnings?.join(" ")).toContain("no declaration receipt is required");
+        expect(result?.warnings?.join(" ")).not.toContain("Receipt fields");
+        expect(readFileSync(join(cwd, ".interlinked/predictions/guard-events.jsonl"), "utf8")).toContain('"kind":"reveal"');
+        const context: PreToolCtx = { escalation: undefined, contentScan: undefined, graphPredAdditionalContext: undefined };
+        const warnings: string[] = [];
+        expect(evaluateGraphPrediction(event(), undefined, null, warnings, context)).toBeNull();
+        expect(warnings.join(" ")).toContain("Advisory");
     });
     it("requires explicit reconciliation after reveal and preserves the surprise", () => {
         driveGuardPrediction(event());

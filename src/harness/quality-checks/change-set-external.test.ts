@@ -157,11 +157,12 @@ beforeEach(() => {
 });
 
 describe("ChangeSet external-check batching", () => {
-	it("runs TypeScript, lint, and security tools once and attributes findings per file", async () => {
+	it("runs TypeScript, lint, and security tools once during recovery and attributes findings per file", async () => {
 		runChecksAsync.mockResolvedValue(completedReport());
 		const checksRan: string[] = [];
 		const metrics: Array<{ tool: string; ms: number; finding_count: number }> = [];
 		const batch = createChangeSetExternalBatch({
+			recovery: true,
 			paths: ["/repo/src/a.ts", "/repo/src/b.ts"],
 			checks: {
 				typescript: config("error"),
@@ -187,7 +188,7 @@ describe("ChangeSet external-check batching", () => {
 				admissionAlreadyHeld: true,
 			}),
 		);
-		expect(tryAcquireHeavyProcess).toHaveBeenCalledTimes(1);
+		expect(acquireHeavyProcess).toHaveBeenCalledTimes(1);
 		expect(releaseHeavyProcess).toHaveBeenCalledTimes(1);
 		expect(aResults.map((result) => [result.name, result.file])).toEqual([
 			["typescript", "/repo/src/a.ts"],
@@ -387,6 +388,7 @@ describe("ChangeSet external-check batching", () => {
 
 	it("defers one aggregate result before spawning when requested work exceeds the tool cap", async () => {
 		const batch = createChangeSetExternalBatch({
+			recovery: true,
 			paths: ["/repo/src/a.ts", "/repo/src/b.ts"],
 			checks: {
 				typescript: config(),
@@ -411,6 +413,15 @@ describe("ChangeSet external-check batching", () => {
 		expect(tryAcquireHeavyProcess).not.toHaveBeenCalled();
 		expect(runChecksAsync).not.toHaveBeenCalled();
 	});
+
+    it("does not spawn a full-repository secret scan from an interactive file edit", async () => {
+        const ran: string[] = [];
+        const batch = createChangeSetExternalBatch({ paths: ["/repo/src/a.ts"], checks: { gitleaks: config("error") }, cwd: "/repo", outChecksRan: ran });
+        const findings = await batch.resultsForFile("/repo/src/a.ts");
+        expect(runChecksAsync).not.toHaveBeenCalled();
+        expect(ran).toEqual([]);
+        expect(findings).toEqual([expect.objectContaining({ name: "external_check_deferred", detail: expect.stringContaining("background recovery") })]);
+    });
 
 	it("attributes project findings only to exact normalized touched paths", async () => {
 		const report = completedReport();

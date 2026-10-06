@@ -1127,6 +1127,18 @@ describe("edited-path resolution", () => {
 // ---------------------------------------------------------------------------
 
 describe("request-owned warning spool orchestration", () => {
+	it("filters deep-audit feedback in the late spool while returning raw evidence for capture", async () => {
+		mRunPerFile.mockImplementation(async (_ctx, _ev, _se, _path, decision: HarnessDecision) => {
+			decision.warnings = ["[interlinked:complexity] extract helpers", "[interlinked:secrets] credential found"];
+		});
+		const event = ev({ tool_name: "Edit", tool_input: { file_path: "/repo/a.ts" }, post_delivery_token: "request-token-0002" });
+		const raw = await runPostToolPipeline(makeCtx(), event, makeSession());
+		expect(raw.warnings).toContain("[interlinked:complexity] extract helpers");
+		expect(mCompleteWarningSpool).toHaveBeenCalledWith(expect.any(Object), [
+			"[interlinked:secrets] credential found", expect.stringContaining("advisory-review"),
+		]);
+	});
+
 	it("begins one spool record and publishes accumulated warnings", async () => {
 		mRunPerFile.mockImplementation(
 			async (_ctx, _ev, _se, _path, decision: HarnessDecision) => {

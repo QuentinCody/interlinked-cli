@@ -2,6 +2,8 @@ import { makeGuardRules } from "./__tests__/fixtures.js";
 import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("./edit-metric-policy.js", () => ({ applyEditMetricPolicy: (result: import("../types.js").HarnessDecision | null) => result }));
+
 vi.mock("../pre-checks.js", () => ({
 	checkConcurrentEdit: vi.fn(() => null),
 	checkDirtyWorkingTree: vi.fn(() => null),

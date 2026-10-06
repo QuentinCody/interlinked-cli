@@ -290,18 +290,21 @@ describe("runToolCheckLoop — skip guards", () => {
 		expect(mockConfigNameToToolId).not.toHaveBeenCalled();
 	});
 
-	it("does NOT skip a skip_test_files check for a non-test file", async () => {
+	it("records a project-wide Gitleaks deferral for a non-test file without claiming completion", async () => {
 		mockIsLikelyTestFile.mockReturnValue(false);
 		mockConfigNameToToolId.mockReturnValue("gitleaks");
 		const run = engineReturning({ results: [] });
+		const ran: string[] = [];
 		const out = await runToolCheckLoop(
 			makeCtx({
 				checks: { gitleaks: cfg({ command: "gitleaks", skip_test_files: true }) },
 				editedFileInRepo: true,
+				outChecksRan: ran,
 			}),
 		);
-		expect(out).toEqual([]); // engine ran, found nothing
-		expect(run).toHaveBeenCalledTimes(1);
+		expect(out).toEqual([expect.objectContaining({ name: "external_check_deferred" })]);
+		expect(run).not.toHaveBeenCalled();
+		expect(ran).toEqual([]);
 		expect(mockConfigNameToToolId).toHaveBeenCalledWith("gitleaks");
 	});
 

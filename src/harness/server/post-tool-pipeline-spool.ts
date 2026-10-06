@@ -1,5 +1,6 @@
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 import type { ServerRuntime } from "./runtime-context.js";
+import { deliverNovelAdvisories } from "./advisory-delivery.js";
 import {
 	beginPostToolWarningSpool,
 	completePostToolWarningSpool,
@@ -40,9 +41,13 @@ export async function withPostToolWarningSpool(
 		throw error;
 	} finally {
 		try {
+			// The spool is a delivery surface, not the raw evidence store. Keep
+			// its novelty state separate so preparing a fallback cannot consume
+			// the synchronous response's first advisory.
+			const visible = decision ? deliverNovelAdvisories(ctx, event, decision, "late") : undefined;
 			completePostToolWarningSpool(
 				spool,
-				latePostToolMessages(decision, pipelineFailed),
+				latePostToolMessages(visible, pipelineFailed),
 			);
 		} catch (error) {
 			ctx.log(`Quality warning spool error: ${error}`);

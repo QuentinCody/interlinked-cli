@@ -78,6 +78,8 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 let tmp: string;
 beforeEach(() => {
 	tmp = mkdtempSync(join(tmpdir(), "pre-tool-phases-"));
+    mkdirSync(join(tmp, ".interlinked"));
+    writeFileSync(join(tmp, ".interlinked/config.json"), JSON.stringify({ version: 1, harness: { edit_metrics: { mode: "enforced" } } }));
 });
 afterEach(() => {
 	rmSync(tmp, { recursive: true, force: true });

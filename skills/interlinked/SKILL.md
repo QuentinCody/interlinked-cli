@@ -88,12 +88,19 @@ Everything is per-`cwd` under `<repo>/.interlinked/`. Key files:
 ## What warnings mean: `[proven]` vs `[heuristic]`
 Every message the harness sends you is tagged:
 - **`[proven]`** — a real compiler/linter/scanner/parser/test-runner produced it (tsc, biome,
-  gitleaks, semgrep, …). Authoritative — **fix it**.
+  gitleaks, semgrep, …). This identifies deterministic evidence, not proof that
+  every policy threshold or pattern match is a defect. Inspect the finding's contract.
 - **`[heuristic]`** — a regex/AST-shape match that could be a false positive. **Evaluate it.**
 - No tag — an unknown check id (never guessed).
 
 A **block reason is always surfaced.** Allow-time warnings are surfaced but easy to overlook
 (PreToolUse via `additionalContext`, PostToolUse via stderr) — read them.
+
+Guard prediction defaults to advisory shadow mode. Edit-time structural caps also
+advise unless `harness.edit_metrics.mode` is explicitly `enforced`; see
+**interlinked-harness** and **interlinked-quality-gates**. Deep-audit advice is
+retained for `verify --all-checks`, and repetition never promotes a warning to an
+error. Missing or deferred evidence still means NOT CHECKED.
 
 ## Where things run (server / auth / offline)
 | Commands | Server needed | Works offline |

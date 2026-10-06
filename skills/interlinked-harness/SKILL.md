@@ -8,12 +8,15 @@ description: "Understand and respond to the Interlinked PreToolUse guard — the
 ## Predict changes to guards
 
 The prediction phase includes a local JS/TS `if`-ownership oracle, independent of
-Supermodel and `graph_prediction.enabled`. Its default mode is `enforced`;
+Supermodel and `graph_prediction.enabled`. Its default mode is `shadow`;
 `harness.guard_prediction.mode` in shared `.interlinked/config.json` accepts
 `enforced`, `shadow` (record/reveal without refusing), or `off`.
 
-Before intentionally changing which `if` guards an existing `return` or `throw`,
-declare the expected ownership change. The raw before/after AST comparison runs
+In the default shadow mode, review concise scope-change advice and relevant tests;
+no declaration receipt is required. Repeated unchanged advice is deduplicated.
+Only with explicit `enforced` policy, before intentionally changing which `if`
+guards an existing `return` or `throw`, declare the expected ownership change.
+The raw before/after AST comparison runs
 before content checks; do not brace or format away an unexpected change.
 Unpredicted changes block as protocol mismatches, not proven bugs. Correct the
 proposal, or reconcile the exact revealed change with a rationale and behavioral
@@ -48,13 +51,18 @@ that check. Single-line guards remain valid code; brace style is a separate poli
 
 Claude's demonstrated native `PostToolBatch` boundary coalesces TypeScript checks for
 declared single-file edits. The final tree is checked before the next model request;
-security guards and hard complexity caps remain per edit. Final compiler findings are
+security guards remain per edit; metric caps advise unless `harness.edit_metrics.mode`
+is explicitly `enforced`. Final compiler findings are
 repair context, with unresolved work enforced at Stop/commit. See **interlinked-verify**
 for fallback and recovery behavior. Merely using multiple Edit calls is not evidence
 of a retry: correlate their emission time and assistant message with hook feedback.
 
 Repeated pre-edit content advice, test-evidence limitations, and unchanged coverage
 gaps are deduplicated for model delivery. Full observations remain in local evidence.
+Deep-audit style/design findings are retained in raw check evidence and available
+through `verify --all-checks`; ordinary hook feedback announces this once instead
+of sending every finding. Errors and blocking decisions remain visible. A persistent
+warning never becomes a proven error merely because it repeats.
 Changing coverage counts alone do not repeat the same instruction; a recovered gap
 that recurs or a different unavailable-check reason is announced again.
 

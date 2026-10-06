@@ -60,6 +60,13 @@ const CHECK: QualityCheckConfig = {
 };
 
 describe("runCommandCheck skipped tools — a missing config is NOT APPLICABLE, a missing binary is a deferral", () => {
+    it("records file-mode Gitleaks as deferred without running or claiming a scan", async () => {
+        const metrics: import("./result-types.js").ToolBreakdownEntry[] = [];
+        const result = await runCommandCheck({ filePath: join(dir, "a.ts"), cwd: dir, tscFilterFile: undefined, outToolMetrics: metrics }, "gitleaks", CHECK);
+        expect(mockGetOrCreateEngine).not.toHaveBeenCalled();
+        expect(metrics).toEqual([]);
+        expect(result).toEqual([expect.objectContaining({ name: "external_check_deferred", detail: expect.stringContaining("background recovery") })]);
+    });
 	it("P1: a project without the tool's config file yields a visible warning that is not an operational deferral (a compiler batch can complete)", async () => {
 		const editedFile = join(dir, "fixture/tests/orders.spec.mjs");
 		const engine = new CheckEngine(dir);

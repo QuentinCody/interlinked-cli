@@ -218,7 +218,9 @@ describe("checkPersistentWarningEscalation", () => {
 
 		const results = checkPersistentWarningEscalation(session, "src/foo.ts", ["typescript"]);
 		expect(results).toHaveLength(1);
-		expect(nonNull(results[0]).severity).toBe("error");
+		// Operator policy: repetition is evidence of persistence, not of a defect.
+		expect(nonNull(results[0]).severity).toBe("warning");
+		expect(nonNull(results[0]).determinism).toBe("heuristic");
 		expect(nonNull(results[0]).name).toBe("persistent_warning_escalation");
 		expect(nonNull(results[0]).message).toContain("typescript");
 	});
@@ -506,11 +508,11 @@ describe("checkPersistentWarningEscalation — advisory/heuristic tier gate", ()
 		expect(out).toEqual([]);
 	});
 
-	it("default-gate proven warning (typescript) repeated still escalates as before", () => {
+	it("repeating a compiler warning does not turn the reminder into an error", () => {
 		const session = makeSession({ warnings_issued: repeatedRecord("typescript", 5) });
 		const out = checkPersistentWarningEscalation(session, "src/foo.ts", ["typescript"]);
 		expect(out).toHaveLength(1);
-		expect(nonNull(out[0]).severity).toBe("error");
+		expect(nonNull(out[0]).severity).toBe("warning");
 		expect(nonNull(out[0]).message).toContain("typescript");
 	});
 

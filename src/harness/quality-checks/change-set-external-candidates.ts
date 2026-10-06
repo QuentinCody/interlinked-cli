@@ -9,6 +9,8 @@ export const MULTI_FILE_NAMED_EXTERNAL_CHECKS = new Set([
 	"dependency_audit",
 ]);
 
+export const PROJECT_SECRET_SCAN_DEFER_REASON = "project-wide Gitleaks scan belongs to background recovery or interlinked verify; inline secret checks still run on edits";
+
 const PROJECT_BATCH_TOOLS = new Set<ToolId>([
 	"tsc",
 	"biome",
@@ -102,6 +104,7 @@ export function candidateChecks(options: {
 	paths: readonly string[];
 	checks: Record<string, QualityCheckConfig>;
     maxFiles?: number;
+    recovery?: boolean;
 }): {
 	candidates: ExternalCandidate[];
 	deferred: DeferredCheck[];
@@ -132,6 +135,12 @@ export function candidateChecks(options: {
 			deferred.push({ name, reason: classified.reason });
 			continue;
 		}
+        // A project-scoped compiler batch is still an interactive edit. Do not
+        // turn it into a repository-wide secret scan merely by using project mode.
+        if (classified.toolId === "gitleaks" && !options.recovery) {
+            deferred.push({ name, reason: PROJECT_SECRET_SCAN_DEFER_REASON });
+            continue;
+        }
 		if (seenTools.has(classified.toolId)) continue;
 		seenTools.add(classified.toolId);
 		candidates.push({ name, check, toolId: classified.toolId });

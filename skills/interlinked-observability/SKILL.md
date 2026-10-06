@@ -6,6 +6,16 @@ description: "Investigate agent activity and JSONL/gzip evidence. Load for data 
 
 # interlinked-observability — inspect what agents did
 
+Ordinary hook delivery omits deep-audit style/design messages after one review
+notice, while raw check results remain intact. This applies to synchronous responses
+and the late-warning spool; their deduplication state is separate so preparing a
+fallback cannot consume the synchronous notice. Repeated guard-scope advice is
+deduplicated per session. Compare native delivered feedback separately from raw
+finding counts; fewer delivered warnings do not imply fewer findings or clean code.
+Interactive ChangeSet batches defer project-wide Gitleaks to explicit verification
+or background recovery, with an explicit non-verdict. Confirm actual tool timings
+and completion before claiming latency or security-coverage improvements.
+
 For Claude compiler batching, distinguish tool calls, scheduled checks, compiler
 executions and delivered diagnostics. `hook-observation.v1` rows record scheduled
 TypeScript work; batch results and timing are in `check-results.jsonl`. Pending work

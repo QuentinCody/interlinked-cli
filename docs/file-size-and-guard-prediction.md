@@ -20,7 +20,8 @@ callback count/depth and control-depth preferences remain advisory.
 
 Guard changes extend predict–reveal–reconcile with a local before/after AST oracle.
 An existing return/throw losing or changing its enclosing condition is a change
-to predict before a proposed edit lands. Prediction mismatch is a protocol finding,
+to review before a proposed edit lands. In explicitly enforced mode, declare it
+before editing. Prediction mismatch is a protocol finding,
 not a proof of a bug; a matching prediction declares the change, not its correctness.
 Other checks and behavioral tests still apply.
 
@@ -49,13 +50,13 @@ must agree before handoff.
 
 ## Operational contract
 
-Shared configuration accepts `harness.guard_prediction.mode`: `enforced`
-(default), `shadow` (record and reveal without refusing), or `off`. The local
+Shared configuration accepts `harness.guard_prediction.mode`: `shadow`
+(default: record and reveal without refusing), `enforced` (explicit receipts), or `off`. The local
 oracle runs in the prediction phase before write-content checks. Supermodel's
 existing graph opt-in is unchanged. Supported but unmeasurable edits receive
 NOT CHECKED; unsupported languages remain outside this first oracle.
 
-Receipts live at `.interlinked/predictions/guards/<sha256(session)>/<id>.json`.
+In enforced mode, receipts live at `.interlinked/predictions/guards/<sha256(session)>/<id>.json`.
 The ID is SHA-256 of `JSON.stringify([1, file, beforeSha256, afterSha256])`; `file`
 is canonical and repository-relative, and hashes use exact UTF-8 source content.
 Receipt fields are `version: 1`, `session`, these four proposal fields, a nonempty

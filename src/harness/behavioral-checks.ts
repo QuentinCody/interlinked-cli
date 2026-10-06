@@ -342,10 +342,10 @@ function buildEscalationFinding(
 	return {
 		source: "structural",
 		name: "persistent_warning_escalation",
-		severity: "error",
-		message: `Warning "${name}" persists after re-edit (issued ${record.issue_count + 1} times). Fix the underlying issue.`,
+		severity: "warning",
+		message: `Warning "${name}" remains after re-edit (observed ${record.issue_count + 1} times). Repetition does not establish a defect; review the original finding.`,
 		file: filePath,
-		determinism: "fully_deterministic",
+		determinism: "heuristic",
 	};
 }
 

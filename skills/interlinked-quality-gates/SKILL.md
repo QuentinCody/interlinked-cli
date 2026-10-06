@@ -5,6 +5,13 @@ description: "Configure and respond to Interlinked's metric ratchets: line-count
 
 # interlinked-quality-gates — the metric ratchets
 
+Edit-time function tokens, cyclomatic complexity and cognitive complexity now
+advise by default. Shared `.interlinked/config.json` can explicitly select
+`harness.edit_metrics.mode: "enforced"` for the existing hard cap behavior.
+The following cap-block and grandfather-ledger instructions apply in that mode;
+measurements, protected baselines, explicit verification and behavioral test gates
+remain intact. Do not add concepts merely to lower a structural count.
+
 Physical per-file size is now advisory. The `lines` setting remains a review
 preference and historical measurements remain available; it never blocks source
 edits, native cold fallback, verification or commits solely for size. Do not remove

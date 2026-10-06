@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { JsonObject } from "../../lib/json-types.js";
+import { ADVISORY_CHECK_IDS } from "../advisory-check-ids.js";
 import type { HarnessDecision } from "../types.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
@@ -46,11 +47,11 @@ export function novelCoverageLines(owner: object, event: FeedbackEvent, lines: s
 
 /** Presentation only, called after raw decisions have been captured. Blocks,
  * security warnings, and all nonselected warning families remain untouched. */
-export function deliverNovelAdvisories(ctx: Pick<ServerRuntime, "cwd" | "rules">, event: FeedbackEvent, decision: HarnessDecision): HarnessDecision {
+function deliverExistingAdvisories(ctx: Pick<ServerRuntime, "cwd" | "rules">, event: FeedbackEvent, decision: HarnessDecision, channel: string): HarnessDecision {
     if (!event.session_id) return decision;
     const warnings = decision.warnings ?? [];
     const policy = JSON.stringify(ctx.rules.quality_checks);
-    const prefix = `${sessionKey(event)}\0${ctx.cwd}\0${policy}`;
+    const prefix = `${channel}\0${sessionKey(event)}\0${ctx.cwd}\0${policy}`;
     const content = warnings.filter(line => line.startsWith("[interlinked:content-quality]"));
     const tests = warnings.filter(line => line.startsWith("[interlinked:test-evidence]"));
     const delivered = new Set<string>();
@@ -63,4 +64,32 @@ export function deliverNovelAdvisories(ctx: Pick<ServerRuntime, "cwd" | "rules">
     for (const line of fresh(ctx, `${prefix}\0test-evidence`, tests, line => line, true)) delivered.add(line);
     return { ...decision, warnings: warnings.filter(line =>
         !content.includes(line) && !tests.includes(line) || delivered.has(line)) };
+}
+
+function warningCheckId(warning: string): string | undefined {
+    return /^\[interlinked:([^\]]+)\]/.exec(warning)?.[1]
+        ?? /^\[(?:proven|heuristic)\] ([a-z_]+):/.exec(warning)?.[1];
+}
+
+/** Deep-audit policy governs ordinary hook presentation too. Raw observations
+ * have already been retained by the event loop; hiding advice is not a pass. */
+export function deliverNovelAdvisories(ctx: Pick<ServerRuntime, "cwd" | "rules">, event: FeedbackEvent, raw: HarnessDecision, channel: "synchronous" | "late" = "synchronous"): HarnessDecision {
+    const decision = deliverExistingAdvisories(ctx, event, raw, channel);
+    if (!event.session_id || decision.decision !== "allow") return decision;
+    const errors = new Set((decision.check_results ?? []).filter(row => row.severity === "error").map(row => row.name));
+    const warnings = decision.warnings ?? [];
+    const deferred = warnings.filter(warning => {
+        const id = warningCheckId(warning);
+        return id !== undefined && ADVISORY_CHECK_IDS.has(id) && !errors.has(id);
+    });
+    const ordinary = warnings.filter(warning => !deferred.includes(warning));
+    const predictions = ordinary.filter(warning => warning.startsWith("[interlinked:guard-prediction]"));
+    const scope = `${channel}\0${sessionKey(event)}\0${ctx.cwd}`;
+    const novelPredictions = new Set(fresh(ctx, `${scope}\0guard-advice`, predictions,
+        line => line.replace(/\d+ (?:unmatched|guard-scope)/g, "N guard-scope"), true));
+    const delivered = ordinary.filter(warning => !predictions.includes(warning) || novelPredictions.has(warning));
+    if (deferred.length) delivered.push(...fresh(ctx, `${scope}\0deep-audit`, [
+        "[interlinked:advisory-review] Style and design observations are retained for review; run `interlinked verify --all-checks` when useful. They do not require edits or establish defects.",
+    ], line => line, true));
+    return { ...decision, warnings: delivered };
 }

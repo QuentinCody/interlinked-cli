@@ -1,6 +1,6 @@
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { collectRepositoryInventory } from "../lib/metrics/inventory.js";
 import { buildTestPlan, type TestPlanInput } from "./test-plan.js";
@@ -94,6 +94,47 @@ it("includes a companion of an indirect importer even without a test import", ()
     writeFileSync(join(root, "helper.test.ts"), "export {};");
     const plan = buildTestPlan({ ...data, inventory: collectRepositoryInventory(root), tests: [...data.tests, "helper.test.ts"] });
     expect(plan.tests.find(test => test.path === "helper.test.ts")?.reasons).toContain("Transitive dependency changed: a.ts");
+});
+
+// test-contract: invariant — every matching companion contributes dependencies;
+// nested __tests__ collisions must retain opaque inputs and forbid result reuse.
+it("unions colocated and nested companions without matching longer source names", () => {
+    const base = transparentInput(["a.ts"]), root = base.inventory.root;
+    const files = {
+        "__tests__/helper.ts": 'import fs from "node:fs";',
+        "__tests__/helper.test.ts": "export {};",
+        "helper.test.unit.ts": "export {};",
+        "helper2.test.ts": "export {};",
+    };
+    for (const [path, content] of Object.entries(files)) {
+        mkdirSync(dirname(join(root, path)), { recursive: true });
+        writeFileSync(join(root, path), content);
+    }
+    const plan = buildTestPlan({ ...base, inventory: collectRepositoryInventory(root),
+        tests: ["__tests__/helper.test.ts", "helper.test.unit.ts", "helper2.test.ts"] });
+    expect(plan.tests.map(test => test.path)).toEqual(["__tests__/helper.test.ts", "helper.test.unit.ts"]);
+    expect(plan.tests[0]?.reasons).toEqual(["Transitive dependency changed: a.ts", "Opaque dependency: rerun on any input change"]);
+    expect(plan.omitted).toEqual(["helper2.test.ts"]);
+    expect(plan.reusable).toBe(false);
+});
+
+// test-contract: compatibility — the existing prefix rule permits markers in
+// directory names; consider every matching prefix, not only the last suffix.
+it.each(["a.ts", "b.ts"])("retains all companion prefixes for %s", changed => {
+    const base = transparentInput([changed]), root = base.inventory.root;
+    const files = {
+        "segment.ts": 'import "./a";',
+        "segment.test.folder/deep.ts": 'import "../b";',
+        "segment.test.folder/deep.spec.ts": "export {};",
+    };
+    for (const [path, content] of Object.entries(files)) {
+        mkdirSync(dirname(join(root, path)), { recursive: true });
+        writeFileSync(join(root, path), content);
+    }
+    const plan = buildTestPlan({ ...base, inventory: collectRepositoryInventory(root), tests: ["segment.test.folder/deep.spec.ts"] });
+    expect(plan.tests.map(test => test.path)).toEqual(["segment.test.folder/deep.spec.ts"]);
+    expect(plan.tests[0]?.reasons).toEqual([`Transitive dependency changed: ${changed}`]);
+    expect(plan.reusable).toBe(true);
 });
 
 it("widens an unchanged opaque global setup when another source changes", () => {

@@ -9,6 +9,7 @@ import {
 	splitIntroducedFindings,
 } from "./finding-delta.js";
 import { findProjectRoot } from "./project-root.js";
+import { PROJECT_SECRET_SCAN_DEFER_REASON } from "./change-set-external-candidates.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./result-types.js";
 
 interface CommandCheckContext {
@@ -102,6 +103,9 @@ export async function runCommandCheck(
 ): Promise<QualityCheckResult[] | null> {
 	const toolId = configNameToToolId(name);
 	if (!toolId || toolId === "dep-audit") return null;
+    // The file-mode runner intentionally skips Gitleaks. Represent that as a
+    // non-verdict rather than allowing its empty result to become a clean scan.
+    if (toolId === "gitleaks") return deferredExternalCheck(ctx.filePath, name, PROJECT_SECRET_SCAN_DEFER_REASON);
 
 	const checkCwd = findProjectRoot(ctx.filePath, ctx.cwd) || ctx.cwd;
 	const engine = getOrCreateEngine(checkCwd);
