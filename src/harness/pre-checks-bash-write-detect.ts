@@ -126,19 +126,24 @@ function collectShellAssignments(cmd: string): Map<string, string> {
 
 /** The directory a RELATIVE target resolves against, following same-command
  *  `cd` hops (`cd /tmp/x && echo hi > probe.ts` writes /tmp/x/probe.ts, not
- *  <root>/probe.ts — the cd-into-scratchpad pattern). Position-insensitive:
- *  the last `cd` wins for every target in the command. The prefix class
- *  admits a bare-space prefix (newlines are collapsed to spaces upstream,
- *  erasing the separator), so `echo cd /x` can false-match — the error
- *  direction is a missed block on a quality gate, accepted. */
+ *  <root>/probe.ts — the cd-into-scratchpad pattern). Position-SENSITIVE
+ *  since 2026-10-04: only a `cd` that appears BEFORE `beforeIndex` (the
+ *  target's own offset in the command) moves the base. The old last-cd-wins
+ *  rule resolved `sed -i … wizard.spec.ts; W=<scratchpad>; cd $W/x` to the
+ *  scratchpad and blocked an in-repo `scratch/` edit (Bombadil trial FP).
+ *  The prefix class admits a bare-space prefix (newlines are collapsed to
+ *  spaces upstream, erasing the separator), so `echo cd /x` can false-match —
+ *  the error direction is a missed block on a quality gate, accepted. */
 function resolveCdBase(
 	cmd: string,
 	vars: ReadonlyMap<string, string>,
 	projectRoot: string,
+	beforeIndex: number = Number.POSITIVE_INFINITY,
 ): string | null {
 	let base: string | null = resolve(projectRoot);
 	const re = /(?:^|[\s;&|])cd\s+(?:--\s+)?(?:"([^"]+)"|'([^']+)'|([^\s;|&]+))/g;
 	for (const m of cmd.matchAll(re)) {
+		if (m.index >= beforeIndex) break;
 		const rawTarget = m[1] ?? m[2] ?? m[3];
 		if (rawTarget === undefined || rawTarget === "-") continue;
 		// An unresolvable hop POISONS the base (null = unknown cwd) instead of
@@ -162,8 +167,19 @@ export function resolveBashWriteTarget(
 ): string | null {
 	const normalized = cmd.replace(/[\r\n]+/g, " ");
 	const vars = collectShellAssignments(normalized);
-	const base = resolveCdBase(normalized, vars, projectRoot);
+	const base = resolveCdBase(normalized, vars, projectRoot, targetOffset(normalized, target));
 	return resolveTargetForRootCheck(target, vars, base);
+}
+
+/** Where `target` sits in the command, so only EARLIER `cd` hops apply to
+ *  it. The first occurrence is used (a same-named earlier READ mis-places
+ *  the write toward the project root — the fail-closed direction for a
+ *  quality gate). A target the scanners synthesized ("(files named inside
+ *  the diff)") or quoted away is not found and keeps the whole-command
+ *  base, the pre-2026-10 behavior. */
+function targetOffset(normalized: string, target: string): number {
+	const at = normalized.indexOf(target);
+	return at === -1 ? Number.POSITIVE_INFINITY : at;
 }
 
 /** Supermodel `.graph.*` shards are owned by Supermodel's daemon —
@@ -224,7 +240,9 @@ function parseRedirectTarget(
 	// Match: "path", 'path', or bare path until whitespace/operator
 	const quoted = afterOp.match(/^(["'])([^"']+)\1/);
 	if (quoted) return { target: nonNull(quoted[2]), mechanism: `shell redirect (${operator})` };
-	const bare = afterOp.match(/^(\S+)/);
+	// A bare target ends at whitespace OR a command separator: `> a.ts; cd x`
+	// names `a.ts`, not `a.ts;` (which no extension test matched — 2026-10-04).
+	const bare = afterOp.match(/^([^\s;&|]+)/);
 	if (bare) return { target: nonNull(bare[1]), mechanism: `shell redirect (${operator})` };
 	return null;
 }
@@ -314,9 +332,16 @@ export function detectBashCodeFileWrite(
 	// `> $SCRATCH/x.ts`) — before containment. No root context ⇒ historical
 	// behavior.
 	const vars = collectShellAssignments(normalized);
-	const cdBase = projectRoot ? resolveCdBase(normalized, vars, projectRoot) : undefined;
+	// The cd base is PER TARGET: a `cd` after the write does not move it.
 	const inRoot = (target: string): boolean =>
-		withinGuardedRoot(target, projectRoot, vars, cdBase);
+		withinGuardedRoot(
+			target,
+			projectRoot,
+			vars,
+			projectRoot
+				? resolveCdBase(normalized, vars, projectRoot, targetOffset(normalized, target))
+				: undefined,
+		);
 
 	const redirect = scanRedirects(normalized, inRoot);
 	if (redirect) return redirect;

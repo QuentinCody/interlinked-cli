@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import { RouteMap } from "../route-map.js";
+import { ProjectGraph } from "../project-graph.js";
 import {
 	adaptEndpointAuthMissing,
 	adaptEndpointIdorShape,
@@ -40,10 +41,12 @@ beforeEach(() => {
 
 afterEach(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
+    vi.restoreAllMocks();
 });
 
 describe("endpoint-security-adapters: short-circuit on no endpoints", () => {
 	it("returns [] when the file has no detected endpoints", () => {
+        const initialize = vi.spyOn(ProjectGraph.prototype, "initialize");
 		const file = join(tmpRoot, "plain.ts");
 		const content = "export const greet = (name: string) => `Hello ${name}`;";
 		writeFileSync(file, content);
@@ -52,6 +55,7 @@ describe("endpoint-security-adapters: short-circuit on no endpoints", () => {
 		expect(adaptEndpointMissingTenantFilter(content, file)).toEqual([]);
 		expect(adaptEndpointSsrfShape(content, file)).toEqual([]);
 		expect(adaptEndpointMassAssignment(content, file)).toEqual([]);
+        expect(initialize).not.toHaveBeenCalled();
 	});
 });
 

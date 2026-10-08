@@ -35,6 +35,22 @@ export interface TaintSource {
 	 * {@link ../taint-tracker}.
 	 */
 	provenance: TaintProvenance;
+	/**
+	 * True when this source RAISED the session level (set by
+	 * `ratchetSensitivity`). The block reason names the latest escalated
+	 * source at the current level as the one that set it. Absent on older
+	 * snapshots and on audit-only sources (provenance records, public-origin
+	 * secret hits), which never moved the level.
+	 */
+	escalated?: boolean;
+	/**
+	 * Human-readable cause, e.g. `sig-secret-gcp-api from \`rg -o … page.html\``.
+	 * Command excerpts are capped at 120 chars with secret values redacted.
+	 */
+	detail?: string;
+	/** The actor (`actorKeyOf`) whose level this source raised. Absent on
+	 *  older snapshots and on sources applied to every actor. */
+	actor?: string;
 }
 
 export interface TaintTrackingConfig {

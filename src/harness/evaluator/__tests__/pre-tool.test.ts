@@ -100,7 +100,7 @@ describe("evaluatePreToolUse smoke", () => {
 		);
 		expect(result.decision).toBe("allow");
 		expect(result.warnings).toContain(
-			"[interlinked:budget] Step limit (5) exceeded — read-only mode. Mutations are blocked. Wrap up and commit.",
+			"[interlinked:budget] Step limit (5) exceeded — read-only mode. Mutations are blocked. Wrap up and hand off.",
 		);
 	});
 

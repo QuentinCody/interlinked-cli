@@ -96,6 +96,36 @@ describe("classifyBashCommandProvenance", () => {
 	});
 });
 
+// 2026-10-05: leg 2 is a source only when the command actually fetches
+// (network-intent.ts). A URL a local command merely names is not content the
+// agent ingested from the internet.
+describe("classifyBashCommandProvenance — network-intent leg 2 (positive, must fire)", () => {
+	it("P1: a curl inside a for-loop body is a fetch", () => {
+		expect(classifyBashCommandProvenance("for s in a b; do curl -s https://example.com/$s; done")).toBe("fetched_external");
+	});
+	it("P2: a python program that calls urlopen on a literal public URL is a fetch", () => {
+		expect(classifyBashCommandProvenance("python3 -c \"import urllib.request as u; print(u.urlopen('https://example.com').read())\"")).toBe("fetched_external");
+	});
+	it("P3: yt-dlp on a public URL is a fetch", () => {
+		expect(classifyBashCommandProvenance("yt-dlp --skip-download https://www.youtube.com/watch?v=x")).toBe("fetched_external");
+	});
+});
+
+describe("classifyBashCommandProvenance — network-intent leg 2 (negative, must not fire)", () => {
+	it("N1: echo of a URL is not a fetch", () => {
+		expect(classifyBashCommandProvenance("echo https://example.com/probe > /dev/null")).toBeNull();
+	});
+	it("N2: rg over notes that name a URL is not a fetch", () => {
+		expect(classifyBashCommandProvenance("rg -n 'https://antithesis.com/blog/' notes.md")).toBeNull();
+	});
+	it("N3: a python program that only rewrites URL strings is not a fetch", () => {
+		expect(classifyBashCommandProvenance("python3 -c \"print('https://a.example.com/x'.replace('https://a.example.com',''))\"")).toBeNull();
+	});
+	it("N4: a curl to a private LAN host is not public content", () => {
+		expect(classifyBashCommandProvenance("curl http://192.168.1.20:8080/health")).toBeNull();
+	});
+});
+
 describe("recordBashTaintSource", () => {
 	function makeSession(): SessionTrajectory {
 		return ({ ...completeSessionFixture(), ...{

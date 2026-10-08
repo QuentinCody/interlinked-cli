@@ -28,6 +28,7 @@
 //     decides; it does not mutate dispatch output in place.
 
 import type { JsonObject } from "../lib/json-types.js";
+import { classifyNetworkIntent, isExternalNetworkIntent } from "./network-intent.js";
 import type {
 	SequenceDetectorFamily,
 	SequenceFinding,
@@ -81,12 +82,6 @@ const UNTRUSTED_PROVENANCE: ReadonlySet<TaintProvenance> = new Set<TaintProvenan
 	"user_provided",
 ]);
 
-/** Non-localhost http(s) URL — parity with `NON_LOCALHOST_HTTP_URL`
- *  in `sequence-checks/injection.ts`. localhost / loopback is dev-server
- *  traffic and not exfiltration-capable. */
-const NON_LOCALHOST_HTTP_URL =
-	/https?:\/\/(?!localhost|127\.0\.0\.1|0\.0\.0\.0|::1|\[::1\])[^\s'"]+/i;
-
 /** MCP tool-name shape: `mcp__<server>__<tool>`. */
 const MCP_TOOL_NAME = /^mcp__.*__/;
 
@@ -124,17 +119,19 @@ function inputContainsUrl(
 	return false;
 }
 
-/** True when the candidate event is an external-comm tool: Bash with a
- *  non-localhost http(s) URL, WebFetch, or an MCP tool whose input carries
- *  a URL. Mirrors the leg-3 definition of `lethal_trifecta_structural`
- *  with the Bash branch but broader on the WebFetch / MCP side. */
+/** True when the candidate event is an external-comm tool: a Bash command
+ *  that actually opens an outbound connection to a public or unknown host,
+ *  WebFetch, or an MCP tool whose input carries a URL. The Bash branch IS the
+ *  leg-3 definition of `lethal_trifecta_structural` — both call the one
+ *  network-intent predicate (2026-10-05; before, this mirrored a URL-literal
+ *  regex, so `echo <url>` counted as external comm). */
 function isExternalCommCandidate(candidate: Readonly<HarnessEvent>): boolean {
 	const toolName = candidate.tool_name;
 	if (!toolName) return false;
 	if (toolName === "WebFetch") return true;
 	if (toolName === "Bash") {
 		const cmd = getCommand(candidate.tool_input);
-		return NON_LOCALHOST_HTTP_URL.test(cmd);
+		return isExternalNetworkIntent(classifyNetworkIntent(cmd));
 	}
 	if (MCP_TOOL_NAME.test(toolName)) {
 		return inputContainsUrl(candidate.tool_input);

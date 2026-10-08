@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addToAllowlist } from "../harness/package-allowlist.js";
+import { addToAllowlist, hashLockfile, loadAllowlist, saveAllowlist } from "../harness/package-allowlist.js";
 import { verifyAllowlistCommand } from "./allowlist-verify.js";
 
 let workspace: string;
@@ -37,6 +37,70 @@ function capture(fn: () => void): string {
 	}
 	return out;
 }
+
+// Hegel trial 2026-10-03: the lockfile is the first artifact naming the
+// transitive closure the install gate never saw.
+describe("verifyAllowlistCommand — root lockfile transitive packages", () => {
+	const LOCK = JSON.stringify({
+		lockfileVersion: 3,
+		packages: {
+			"": { name: "p" },
+			"node_modules/koffi": { version: "3.3.2", hasInstallScript: true },
+			"node_modules/@koromix/koffi-darwin-arm64": { version: "3.3.2", os: ["darwin"], cpu: ["arm64"], optional: true },
+		},
+	});
+
+	it("P: reports an unapproved transitive package once, with native evidence, and the approved direct dep not at all", () => {
+		writeFileSync(join(workspace, "package.json"), JSON.stringify({ dependencies: { koffi: "3.3.2" } }));
+		writeFileSync(join(workspace, "package-lock.json"), LOCK);
+		addToAllowlist(workspace, "npm", "koffi", { approved_by: "x" });
+		const out = capture(() => verifyAllowlistCommand({ cwd: workspace }));
+		expect(out).toContain("1 unapproved dep(s):");
+		expect(out).toContain(
+			"npm:@koromix/koffi-darwin-arm64 — transitive in package-lock.json: @koromix/koffi-darwin-arm64@3.3.2 [NATIVE: platform package (os darwin, cpu arm64); optionalDependency]; not on the allowlist",
+		);
+		expect(out).not.toMatch(/npm:koffi/);
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("P: an unapproved DIRECT dep is reported by the manifest row only (no duplicate lockfile row)", () => {
+		writeFileSync(join(workspace, "package.json"), JSON.stringify({ dependencies: { koffi: "3.3.2" } }));
+		writeFileSync(join(workspace, "package-lock.json"), LOCK);
+		addToAllowlist(workspace, "npm", "@koromix/koffi-darwin-arm64", { approved_by: "x" });
+		const out = capture(() => verifyAllowlistCommand({ cwd: workspace }));
+		expect(out.match(/npm:koffi/g)?.length).toBe(1);
+		expect(out).toContain("1 unapproved dep(s):");
+	});
+
+	it("P: an unparseable lockfile is a named issue, never silently clean", () => {
+		writeFileSync(join(workspace, "package-lock.json"), "{ broken");
+		const out = capture(() => verifyAllowlistCommand({ cwd: workspace }));
+		expect(out).toContain("could not parse package-lock.json");
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("N: a matching lockfile snapshot grant approves the whole resolved set", () => {
+		writeFileSync(join(workspace, "package-lock.json"), LOCK);
+		const al = loadAllowlist(workspace);
+		al.lockfile_snapshots["package-lock.json"] = {
+			sha256: hashLockfile(join(workspace, "package-lock.json")) ?? "",
+			approved_at: "2026-10-04T00:00:00Z",
+			approved_by: "x",
+		};
+		saveAllowlist(workspace, al);
+		const out = capture(() => verifyAllowlistCommand({ cwd: workspace }));
+		expect(out).toMatch(/all approved/);
+		expect(process.exitCode).toBeUndefined();
+	});
+
+	it("N: every lockfile package approved per-package ⇒ clean", () => {
+		writeFileSync(join(workspace, "package-lock.json"), LOCK);
+		addToAllowlist(workspace, "npm", "koffi", { approved_by: "x" });
+		addToAllowlist(workspace, "npm", "@koromix/koffi-darwin-arm64", { approved_by: "x" });
+		const out = capture(() => verifyAllowlistCommand({ cwd: workspace }));
+		expect(out).toMatch(/all approved/);
+	});
+});
 
 describe("verifyAllowlistCommand — *.csproj (SDK-style NuGet)", () => {
 	it("flags an unapproved <PackageReference> in a variably-named .csproj", () => {

@@ -151,7 +151,77 @@ describe("formatTaintSources", () => {
 	});
 });
 
+describe("formatTaintSources — names the source that set the level", () => {
+	it("P1: leads with the escalated source at the current level, with detail and step", () => {
+		const session = makeSession();
+		session.tool_call_count = 12;
+		ratchetSensitivity(session, "<command-output>", "Confidential", DEFAULT_TAINT_CONFIG, undefined, "sig-secret-gcp-api from `rg -o x page.html`");
+		session.taint_sources.push({ file: "<bash:gh issue view 1>", level: "Public", at_step: 13, provenance: "fetched_external" });
+		expect(formatTaintSources(session)).toBe(
+			"set by <command-output: sig-secret-gcp-api from `rg -o x page.html`> at step 12; recent: <command-output>, <bash:gh issue view 1>",
+		);
+	});
+
+	it("P2: after a second escalation the newer source at the current level is named", () => {
+		const session = makeSession();
+		ratchetSensitivity(session, "config.local.json", "Internal", DEFAULT_TAINT_CONFIG);
+		session.tool_call_count = 3;
+		ratchetSensitivity(session, ".env", "Confidential", DEFAULT_TAINT_CONFIG);
+		expect(formatTaintSources(session)).toBe("set by .env at step 3; recent: config.local.json, .env");
+	});
+
+	it("P3: a legacy snapshot with no escalated flag names its earliest source at the level, marked inferred", () => {
+		const session = makeSession();
+		session.sensitivity_level = "Confidential";
+		session.taint_sources = [
+			{ file: "<command-output>", level: "Confidential", at_step: 769, provenance: "local_read" },
+			{ file: "<command-output>", level: "Confidential", at_step: 900, provenance: "local_read" },
+		];
+		expect(formatTaintSources(session)).toBe(
+			"set by (inferred) <command-output> at step 769; recent: <command-output>, <command-output>",
+		);
+	});
+
+	it("N1: no source at the current level yields the recent-only format", () => {
+		const session = makeSession();
+		ratchetSensitivity(session, "config.local.json", "Internal", DEFAULT_TAINT_CONFIG);
+		session.sensitivity_level = "Confidential";
+		expect(formatTaintSources(session)).toBe("config.local.json");
+	});
+
+	it("N2: a source at the current level does not become the setter when a later one is flagged", () => {
+		const session = makeSession();
+		session.sensitivity_level = "Confidential";
+		session.taint_sources = [
+			{ file: "<command-output>", level: "Confidential", at_step: 769, provenance: "local_read" },
+			{
+				file: ".env",
+				level: "Confidential",
+				at_step: 900,
+				provenance: "local_read",
+				escalated: true,
+			},
+		];
+		expect(formatTaintSources(session)).toBe(
+			"set by .env at step 900; recent: <command-output>, .env",
+		);
+	});
+});
+
 describe("ratchetSensitivity", () => {
+	it("P-detail: records escalated=true and the detail on the pushed source", () => {
+		const session = makeSession();
+		ratchetSensitivity(session, "<command-output>", "Confidential", DEFAULT_TAINT_CONFIG, "local_read", "d");
+		expect(session.taint_sources[0]).toMatchObject({ escalated: true, detail: "d" });
+	});
+
+	it("N-detail: a no-op ratchet (level not higher) pushes nothing", () => {
+		const session = makeSession();
+		session.sensitivity_level = "Confidential";
+		expect(ratchetSensitivity(session, "x", "Internal", DEFAULT_TAINT_CONFIG, undefined, "d")).toBe(false);
+		expect(session.taint_sources).toEqual([]);
+	});
+
 	it("escalates from Public to Confidential", () => {
 		const session = makeSession();
 		const escalated = ratchetSensitivity(session, ".env", "Confidential", DEFAULT_TAINT_CONFIG);

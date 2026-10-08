@@ -585,6 +585,114 @@ describe("PROCESS_AND_FILESYSTEM_RULES — negative (quoted mentions are data, n
 });
 
 // ---------------------------------------------------------------------------
+// Heredoc bodies: a QUOTED-delimiter body fed to a non-shell runtime (python3,
+// node) or a data sink (cat) is neither expanded nor run by the shell, so a
+// kill mention there is data. A body fed to a shell is code and still blocks.
+// An UNQUOTED body to python3 also still blocks, by decision: the shell runs
+// every $() and backtick in that body before python3 reads it, so the
+// substitution is a real execution even though `kill` is only Python text.
+// Origin: a python3 <<'PYEOF' analysis script with the prose
+// "mark the kill `stale` and re-measure" was blocked by
+// builtin-kill-substitution (2026-10-02).
+// ---------------------------------------------------------------------------
+
+const HEREDOC_DATA_BODIES: Array<{ label: string; command: string }> = [
+	{
+		label: "quoted heredoc to python3 with kill + backtick prose",
+		command:
+			"python3 - <<'PYEOF'\nnotes = []\nnotes.append(\"mark the kill `stale` and re-measure\")\nprint(notes)\nPYEOF\n",
+	},
+	{
+		label: "quoted heredoc to cat with kill + backtick prose",
+		command: "cat <<'EOF' > notes.md\nmark the kill `stale` and re-measure\nEOF\n",
+	},
+	{
+		label: "quoted heredoc to node with kill + backtick prose",
+		command: "node - <<'EOF'\nconsole.log('mark the kill `stale` and re-measure');\nEOF\n",
+	},
+	{
+		label: "quoted heredoc to python3 with 2>&1 before the operator",
+		command: "python3 - 2>&1 <<'EOF'\nprint(\"mark the kill `stale` and re-measure\")\nEOF\n",
+	},
+	{
+		label: "quoted heredoc to npx tsx",
+		command: "npx tsx - <<'EOF'\nconsole.log('mark the kill `stale` and re-measure');\nEOF\n",
+	},
+	{
+		label: 'quoted heredoc to python3 after a balanced cd "$( )"',
+		command:
+			"cd \"$(git rev-parse --show-toplevel)\" && python3 - <<'PYEOF'\nprint(\"mark the kill `stale` and re-measure\")\nPYEOF\n",
+	},
+];
+
+describe("PROCESS_AND_FILESYSTEM_RULES — negative (quoted heredoc bodies to data readers)", () => {
+	for (const hd of HEREDOC_DATA_BODIES) {
+		it(`N: ${hd.label} does not block`, () => {
+			expect(evaluate(hd.command).decision).toBe("allow");
+		});
+	}
+});
+
+const HEREDOC_EXECUTED_KILLS: Array<{ label: string; command: string }> = [
+	{ label: "plain kill $(pgrep node)", command: "kill $(pgrep node)" },
+	{ label: "plain kill `pgrep node`", command: "kill `pgrep node`" },
+	{ label: "plain pgrep node | xargs kill", command: "pgrep node | xargs kill" },
+	{ label: "quoted heredoc to bash", command: "bash <<'EOF'\nkill $(pgrep x)\nEOF\n" },
+	{ label: "quoted heredoc to sh -s", command: "sh -s <<'EOF'\nkill $(pgrep x)\nEOF\n" },
+	{ label: "unquoted heredoc to bash", command: "bash <<EOF\nkill $(pgrep x)\nEOF\n" },
+	{
+		label: "unquoted heredoc to python3 (shell expands the body)",
+		command: "python3 - <<PYEOF\nprint('kill $(pgrep x)')\nPYEOF\n",
+	},
+	{
+		label: "kill on the header line of a quoted python3 heredoc",
+		command: "python3 - <<'EOF' && kill $(pgrep x)\nprint('hi')\nEOF\n",
+	},
+	// Repair round: the four bypass shapes a verifier found (bash runs each).
+	{ label: "here-string, then a kill line", command: "python3 <<<'x'\nkill $(pgrep node)" },
+	{
+		label: "`EOF)` closer inside $( ), then a kill line",
+		command: "x=$(python3 - <<'EOF'\nprint(1)\nEOF)\nkill $(pgrep node)",
+	},
+	{
+		label: "python3 output piped to sh",
+		command: "python3 - <<'EOF' | sh\nprint(\"kill $(pgrep node)\")\nEOF",
+	},
+	{
+		label: "sudo -u node bash heredoc",
+		command: "sudo -u node bash <<'EOF'\nkill $(pgrep node)\nEOF",
+	},
+	// Repair round 2: the runtime's output reaches a shell (each shape ran an
+	// echo payload under zsh 5).
+	{
+		label: 'eval "$( )" hidden by a quote the span scanner pairs wrongly',
+		command: "eval \"$(: '\"'\\'; python3 - <<'EOF'\nprint(\"kill $(pgrep node)\")\nEOF\n)\"",
+	},
+	{
+		label: "case pattern `)` inside eval $( )",
+		command: "eval $(case x in x) ;; esac; python3 - <<'EOF'\nprint(\"kill $(pgrep node)\")\nEOF\n)",
+	},
+	{
+		label: "zsh coproc fed by >&p",
+		command: "coproc sh\npython3 - <<'EOF' >&p\nprint(\"kill $(pgrep node)\")\nEOF",
+	},
+	{
+		label: "zsh foreach … end piped to sh",
+		command: "foreach i (1)\npython3 - <<'EOF'\nprint(\"kill $(pgrep node)\")\nEOF\nend | sh",
+	},
+];
+
+describe("PROCESS_AND_FILESYSTEM_RULES — positive (executed kill substitutions still block)", () => {
+	for (const hk of HEREDOC_EXECUTED_KILLS) {
+		it(`P: ${hk.label} blocks`, () => {
+			const result = evaluate(hk.command);
+			expect(result.decision).toBe("block");
+			expect(["builtin-kill-substitution", "builtin-pgrep-xargs-kill"]).toContain(result.rule_id);
+		});
+	}
+});
+
+// ---------------------------------------------------------------------------
 // Near misses: the non-destructive sibling of each blocked verb, and the
 // exemptions the regexes spell out. These are the precision payload.
 // ---------------------------------------------------------------------------

@@ -70,6 +70,9 @@ import {
 	readWarnings,
 	serializeCapturedPlan,
 } from "./session-snapshot-codec.js";
+import { restoreExternalOrigins, serializeExternalOrigins } from "./external-origin-store.js";
+import { restoreTaintedFiles, serializeTaintedFiles } from "./taint-file-lineage.js";
+import { restoreLineage, serializeLineage } from "./taint-lineage.js";
 // Per-event trajectory mutators + session-ack helpers live in
 // session-state-mutators.ts (a line-cap split). The SessionTracker class below
 // drives them; acknowledgeChecks/isAcknowledged are re-exported because external
@@ -81,6 +84,7 @@ import {
 	mergeVerificationObserved,
 	trackCommand,
 	trackErrorOutcome,
+	trackActorLineage,
 	trackFileOperations,
 	trackToolCall,
 } from "./session-state-mutators.js";
@@ -140,6 +144,9 @@ export class SessionTracker {
 			session.agent_name = event.agent_name;
 		}
 
+		// Before every tracker: a spawned actor must carry its inherited taint
+		// level before the event it arrived with is judged (taint-lineage.ts).
+		trackActorLineage(session, event);
 		trackToolCall(session, event);
 		trackErrorOutcome(session, event);
 		trackFileOperations(session, event);
@@ -364,8 +371,18 @@ export class SessionTracker {
 			git_session_baseline: readGitSessionBaseline(snapshot.git_session_baseline),
 		};
 
-		this.sessions.set(sessionId, session);
-		this.seqCounters.set(sessionId, readNumber(snapshot.last_seq, 0));
+		return this.installHydrated(session, snapshot);
+	}
+
+	/** Register a hydrated session and the snapshot state that lives outside
+	 *  the trajectory object: the seq counter and the fetched-file registry
+	 *  (whose entries are dropped when their file changed while the daemon was down). */
+	private installHydrated(session: SessionTrajectory, snapshot: JsonObject): SessionTrajectory {
+		restoreExternalOrigins(session, snapshot.external_origin_files);
+		restoreLineage(session, snapshot.taint_actors);
+		restoreTaintedFiles(session, snapshot.taint_files);
+		this.sessions.set(session.session_id, session);
+		this.seqCounters.set(session.session_id, readNumber(snapshot.last_seq, 0));
 		return session;
 	}
 
@@ -414,6 +431,12 @@ function serializeSessionExtrasFileState(s: SessionTrajectory): JsonObject {
 		tdd_cycles: Object.fromEntries([...s.tdd_cycles.entries()].map(([k, v]) => [k, { ...v }])),
 		consecutive_tool_failures: Object.fromEntries(s.consecutive_tool_failures),
 		actor_tool_calls: Object.fromEntries(s.actor_tool_calls ?? []),
+		external_origin_files: serializeExternalOrigins(s),
+		// Per-actor taint lineage + the files tainted actors wrote (B3 + B5).
+		// Absent on older snapshots: every actor then inherits the stored
+		// session level and no file is tainted (fail safe).
+		taint_actors: serializeLineage(s),
+		taint_files: serializeTaintedFiles(s),
 		non_doc_files_edited_since_commit: s.non_doc_files_edited_since_commit
 			? [...s.non_doc_files_edited_since_commit]
 			: [],

@@ -125,7 +125,7 @@ describe("evaluateTaintGuards", () => {
 			const warnings = result.decision.warnings ?? [];
 			expect(warnings).toHaveLength(2);
 			expect(warnings.at(-1)).toBe(
-				"[interlinked:budget] Step limit (5) exceeded — read-only mode. Mutations are blocked. Wrap up and commit.",
+				"[interlinked:budget] Step limit (5) exceeded — read-only mode. Mutations are blocked. Wrap up and hand off.",
 			);
 			expect(warnings[0]).toContain("CRITICAL: -5 steps remaining");
 		}
@@ -212,6 +212,27 @@ describe("evaluateTaintGuards", () => {
 		]);
 	});
 
+	it("P-setter: the network block reason names the source that set the level", () => {
+		const session = makeSession({
+			sensitivity_level: "Confidential",
+			taint_sources: [
+				{ file: "<command-output>", level: "Confidential", at_step: 5, provenance: "local_read", escalated: true, detail: "sig-secret-gcp-api from `cat creds.json`" },
+			],
+		});
+		const result = evaluateTaintGuards({
+			toolName: "Bash",
+			toolInput: { command: "curl https://example.com" },
+			rules: makeRules(),
+			session,
+			pendingEscalation: undefined,
+		});
+		expect(result.kind).toBe("block");
+		const reason = result.kind === "block" ? result.decision.reason : "";
+		expect(reason).toContain(
+			"(tainted by: set by <command-output: sig-secret-gcp-api from `cat creds.json`> at step 5; recent: <command-output>)",
+		);
+	});
+
 	it("does not block a non-network Bash command from a tainted session", () => {
 		const session = makeSession({ sensitivity_level: "Confidential" });
 		const result = evaluateTaintGuards({
@@ -241,7 +262,9 @@ describe("evaluateTaintGuards", () => {
 		const escalation = result.kind === "ok" ? result.escalation : undefined;
 		expect(escalation?.trigger).toBe("tainted_network_internal");
 		expect(escalation?.summary).toBe(
-			"Network command while session is tainted at Internal level (tainted by: unknown)",
+			// Per-actor wording since the lineage ratchet (taint-lineage.ts): the
+			// level reported is the ACTING actor's, not the session max.
+			"Network command while this agent is tainted at Internal level (tainted by: unknown)",
 		);
 		expect(escalation?.tool_input_redacted).toEqual({ command: "[REDACTED — network command]" });
 		expect(escalation?.recent_tool_sequence).toEqual(
@@ -728,5 +751,38 @@ describe("evaluateTaintGuards — per-actor step budget", () => {
 			pendingEscalation: undefined,
 		});
 		expect(result.kind).toBe("block");
+	});
+});
+
+// 2026-10-05: the hard block asks the one network-intent predicate
+// (network-intent.ts). Shapes the old segment-head check missed must block;
+// local shapes must not.
+describe("evaluateTaintGuards — network-intent hard block", () => {
+	const kindFor = (command: string): string =>
+		evaluateTaintGuards({
+			toolName: "Bash",
+			toolInput: { command },
+			rules: makeRules(),
+			session: makeSession({ sensitivity_level: "Confidential" }),
+			pendingEscalation: undefined,
+		}).kind;
+
+	it("P1: blocks a curl inside a for-loop body (segment head `do`)", () => {
+		expect(kindFor('for u in a b; do curl -sL "https://example.com/$u"; done')).toBe("block");
+	});
+	it("P2: blocks a python heredoc that opens an environment URL", () => {
+		expect(kindFor("python3 - <<'X'\nimport os, urllib.request\nurllib.request.urlopen(os.environ['U'])\nX")).toBe("block");
+	});
+	it("P3: blocks node -e fetch of an environment URL", () => {
+		expect(kindFor('node -e "fetch(process.env.U)"')).toBe("block");
+	});
+	it("N1: allows echo of a URL", () => {
+		expect(kindFor("echo https://example.com")).toBe("ok");
+	});
+	it("N2: allows an nc -U probe of a local Unix socket", () => {
+		expect(kindFor("printf '%s' x | nc -U .interlinked/harness.sock")).toBe("ok");
+	});
+	it("N3: allows a local rsync copy", () => {
+		expect(kindFor("rsync -a src/ /tmp/backup/")).toBe("ok");
 	});
 });

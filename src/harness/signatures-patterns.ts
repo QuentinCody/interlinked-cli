@@ -28,6 +28,11 @@ export interface SignatureRule {
 	severity: SignatureSeverity;
 	description: string;
 	patterns: RegExp[];
+	/** True only when NO issued token of this signature can contain regex
+	 *  metasyntax (`[ ] { } \ |` or `(?`), so a match whose own span carries it
+	 *  is regex source text, not a secret (signatures.ts). Default false: set it
+	 *  only with a proof from the token's grammar. */
+	literal_metachar_safe?: boolean;
 }
 
 // ===========================================

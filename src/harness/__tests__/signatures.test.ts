@@ -166,6 +166,29 @@ describe("signatures — secrets detection", () => {
 	});
 });
 
+// Review 3b item 5: a match whose own span carries regex metasyntax is regex
+// SOURCE, not an issued token — but only for signatures whose token alphabet
+// provably excludes that syntax (`literal_metachar_safe`). Adjacent regex text
+// never hides a real token.
+describe("signatures — regex-source spans (literal_metachar_safe)", () => {
+	it("N1: a connection-string or URL-credential REGEX is not a secret", () => {
+		expect(scanSecrets('const DB = "postgres://[^:]+:[^@]+@[^/]+/db";')).toEqual([]);
+		expect(scanSecrets("re: https://[^:/\\s]+:[^@/\\s]{4,}@ (url credentials)")).toEqual([]);
+		expect(scanSecrets("mongodb(+srv)?://(?:[^:]+):(?:[^@]+)@")).toEqual([]);
+	});
+	it("P1: a real connection string next to regex text still matches", () => {
+		const ids = scanSecrets("postgres://[^:]+:[^@]+@ then postgres://admin:hunter2pw@db.example.com/x").map((m) => m.rule_id);
+		expect(ids).toContain("sig-secret-db-connection");
+		expect(scanSecrets("postgres://admin:hunter2pw@db.example.com/x [^@]+").map((m) => m.rule_id)).toContain("sig-secret-db-connection");
+	});
+	it("P2: a dropped regex span that swallows a real token does not hide it", () => {
+		expect(scanSecrets("postgres://{a}:x\npostgres://admin:hunter2pw@db").map((m) => m.rule_id)).toContain("sig-secret-db-connection");
+	});
+	it("P3: a fixed-alphabet token followed by a character class still matches (no flag needed)", () => {
+		expect(scanSecrets(`${["AKIA", "IOSFODNN7EXAMPLQ"].join("")}[0-9]{16}`).map((m) => m.rule_id)).toContain("sig-secret-aws-key");
+	});
+});
+
 // Provider tokens ported from sanctum-oss
 // (reference-repos/sanctum-oss/crates/sanctum-firewall/src/patterns.rs).
 describe("signatures — secrets detection (provider tokens)", () => {

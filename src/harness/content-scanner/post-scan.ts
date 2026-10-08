@@ -15,7 +15,8 @@
 // limited to what the model then *does*. The taint ratchet is how we stop
 // that downstream.
 
-import { ratchetSensitivity } from "../taint-tracker.js";
+import { actorKeyOf } from "../session-state-mutators.js";
+import { ratchetActorSensitivity } from "../taint-tracker.js";
 import type {
 	GuardRulesConfig,
 	HarnessEvent,
@@ -155,11 +156,11 @@ export async function runPostToolScan(args: PostScanArgs): Promise<PostScanResul
 	// Pick sensitivity level — `secret`/`account_number` → HighlyConfidential.
 	const ratchetLevel = computeRatchetLevel(keptFindings);
 	const filePath = (typeof event.tool_input?.file_path === "string" ? event.tool_input?.file_path : "") || `<${toolName}-response>`;
-	const ratcheted = applyTaintRatchetIfEnabled(session, rules, filePath, ratchetLevel);
+	const ratcheted = applyTaintRatchetIfEnabled(session, rules, filePath, ratchetLevel, event);
 
 	const warning =
 		`[interlinked:content-scanner] ${toolName} returned sensitive content ` +
-		`(session sensitivity → ${ratchetLevel}). ${summary.replace(/^BLOCKED: /, "")}`;
+		`(reader sensitivity → ${ratchetLevel}). ${summary.replace(/^BLOCKED: /, "")}`;
 
 	return { warnings: [warning], findings: keptFindings, ratcheted_to: ratcheted };
 }
@@ -232,10 +233,12 @@ function applyTaintRatchetIfEnabled(
 	rules: PostScanRules,
 	filePath: string,
 	ratchetLevel: SensitivityLevel,
+	event: HarnessEvent,
 ): SensitivityLevel | undefined {
 	const taintTracking = rules.taint_tracking;
 	if (!session || !taintTracking?.enabled) return undefined;
-	const changed = ratchetSensitivity(session, filePath, ratchetLevel, taintTracking);
+	const changed = ratchetActorSensitivity(session, actorKeyOf(event, session),
+		{ file: filePath, level: ratchetLevel }, taintTracking);
 	session.pii_detected_steps.push(session.tool_call_count);
 	return changed ? ratchetLevel : undefined;
 }

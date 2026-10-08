@@ -16,21 +16,13 @@
 // or verb-pair that fetches attacker-controllable content from the open
 // internet OR a public package registry.
 
+import { classifyNetworkIntent, fetchesPublicContent } from "./network-intent.js";
 import type { SessionTrajectory, TaintProvenance } from "./types.js";
 
 /** Maximum length of the `file` field on the synthesized taint source. The
  *  raw Bash command can be long; bound it to keep `taint_sources` memory
  *  use linear in invocation count, not command length. */
 const TAINT_FILE_MAX_LENGTH = 200;
-
-/** Test for a URL the user explicitly directed at localhost / loopback.
- *  Localhost fetches are not attacker-controllable and should not be tagged
- *  `fetched_external` — dev-server probing is normal agent activity. */
-const LOCALHOST_URL = /https?:\/\/(?:localhost|127\.0\.0\.1)\b/i;
-
-/** Test for a non-localhost http(s) URL. The localhost check above runs
- *  first; this confirms a URL is present at all. */
-const NON_LOCALHOST_HTTP_URL = /https?:\/\/[^\s]+/i;
 
 /** GitHub CLI verbs that fetch attacker-controllable content (issue / PR /
  *  gist bodies or raw API responses). Not `gh auth status`, `gh repo list`,
@@ -75,12 +67,13 @@ export function classifyBashCommandProvenance(command: string): TaintProvenance 
 	for (const verb of REGISTRY_QUERY_VERBS) {
 		if (verb.test(command)) return "fetched_external";
 	}
-	// curl / wget / http (httpie) — only when targeting a non-localhost URL.
-	if (/\b(?:curl|wget|http|https)\b/.test(command)) {
-		if (LOCALHOST_URL.test(command)) return null;
-		if (NON_LOCALHOST_HTTP_URL.test(command)) return "fetched_external";
-	}
-	return null;
+	// A fetch that actually runs (curl / wget / httpie / yt-dlp head, or an
+	// interpreter inline program calling a network API) from a literal PUBLIC
+	// host. Before 2026-10-05 this was a word test for curl|wget|http|https plus
+	// any non-localhost URL, so every local command that merely NAMED a URL
+	// (`echo <url>`, `rg '<url>'`, a python string) added a fetched_external
+	// source and inflated leg 2 of the lethal trifecta.
+	return fetchesPublicContent(classifyNetworkIntent(command)) ? "fetched_external" : null;
 }
 
 /**

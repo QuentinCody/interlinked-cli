@@ -86,13 +86,6 @@ function getProjectState(filePath: string): ProjectState {
 	let state = PROJECT_STATE_CACHE.get(projectRoot);
 	if (!state) {
 		const projectGraph = new ProjectGraph(projectRoot);
-		try {
-			projectGraph.initialize();
-		} catch {
-			// Fail-open: an empty graph still answers reachability queries
-			// (always "unreachable"), the annotator surfaces that and the
-			// pipeline keeps running.
-		}
 		state = {
 			routeMap: new RouteMap(projectRoot),
 			config: loadSecurityConfig(projectRoot),
@@ -152,6 +145,13 @@ interface AnnotationContext {
  *      so the code-block fence is the final thing in the message. */
 function applyAnnotations(ctx: AnnotationContext): DetectorFinding[] {
 	if (ctx.findings.length === 0) return ctx.findings;
+	// A content-only no-match must not trigger a repository traversal. The graph
+	// is needed only to annotate findings that the endpoint detector produced.
+	try {
+		ctx.state.projectGraph.initialize();
+	} catch {
+		// Preserve the existing best-effort reachability annotation on I/O failure.
+	}
 
 	let result = annotateReachability(ctx.findings, {
 		projectGraph: ctx.state.projectGraph,

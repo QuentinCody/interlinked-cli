@@ -6,12 +6,13 @@
 // Outbound network commands are blocked when sensitivity reaches threshold.
 
 import { nonNull } from "../lib/non-null.js";
-import { isLoopbackNetworkCommand } from "./network-loopback.js";
-import { shellSplit, splitSegments, stripLeadingPrefix } from "./shell-structure.js";
+import { classifyNetworkIntent } from "./network-intent.js";
+import { actorLevel, raiseActorLevel, SENSITIVITY_ORDER } from "./taint-lineage.js";
 import type {
 	SensitivityLevel,
 	SessionTrajectory,
 	TaintProvenance,
+	TaintSource,
 	TaintTrackingConfig,
 } from "./types.js";
 
@@ -19,13 +20,9 @@ import type {
 // Sensitivity Level Ordering
 // ===========================================
 
-/** Numeric ordering for monotone sensitivity ratcheting (Bell-LaPadula MLS model) */
-export const SENSITIVITY_ORDER: Record<SensitivityLevel, number> = {
-	Public: 0,
-	Internal: 1,
-	Confidential: 2,
-	HighlyConfidential: 3,
-};
+// The ordering lives with the per-actor lineage (taint-lineage.ts), which needs
+// it without importing this module; re-exported here for every existing caller.
+export { SENSITIVITY_ORDER };
 
 // ===========================================
 // Default Configuration
@@ -81,66 +78,24 @@ export const DEFAULT_TAINT_CONFIG: TaintTrackingConfig = {
 // Network Command Detection
 // ===========================================
 // Classification is POSITIONAL — a network verb counts only as the HEAD command
-// of a shell segment (segments split on ; | && || newline), never as a
-// substring. The previous `\b(curl|…|nc|…|ssh|…)\b` regex matched `nc` inside
-// `grep -nc` and `ssh` inside `~/.ssh/config`, because `-` and `.` are
-// non-word chars so `\b` fired right before the verb (finding 2026-06, round
-// 7) — the flag-attached / path-embedded false-positive class. Tokenizing
-// through the blessed shell-structure contract is the same fix round 6 applied
-// to the coverage/install/commit classifiers; isNetworkCommand is enrolled in
-// the shared adversarial command corpus alongside them.
+// of a shell segment, never as a substring (the old `\b(curl|…|nc|…)\b` regex
+// matched `nc` inside `grep -nc`; finding 2026-06, round 7). Since 2026-10-05
+// both functions below delegate to the ONE network-intent predicate
+// (network-intent.ts): loop/compound bodies (`do curl …`), wrappers, shell
+// functions, command substitutions and interpreter inline programs that call a
+// network API are all read the same way for every gate. The verb table lives in
+// network-verbs.ts; loopback exemption stays in network-loopback.ts.
 
-/** Verbs whose mere invocation opens a network connection. */
-const NETWORK_VERBS = new Set([
-	"curl", "wget", "ssh", "scp", "sftp", "rsync", "nc", "ncat", "netcat", "socat", "telnet", "ftp",
-]);
-
-/** `head subcommand` pairs that publish to a remote registry. */
-const PUBLISH_SUBCOMMANDS: Record<string, ReadonlySet<string>> = {
-	npm: new Set(["publish"]),
-	pnpm: new Set(["publish"]),
-	yarn: new Set(["publish"]),
-	cargo: new Set(["publish"]),
-	pip: new Set(["upload"]),
-	twine: new Set(["upload"]),
-	gem: new Set(["push"]),
-};
-
-/** Last path segment of a command token, so `/usr/bin/curl` reads as `curl`. */
-function commandHead(token: string): string {
-	return (token.split("/").pop() ?? token).toLowerCase();
-}
-
-/** Check if a shell command involves network communication. A verb is counted
- *  only when it is the actual command being run in some segment — the head
- *  token (after env/sudo prefixes strip), or a publish subcommand of it. */
+/** True when some segment runs a network command, loopback peers included. */
 export function isNetworkCommand(command: string): boolean {
-	for (const segment of splitSegments(command)) {
-		const tokens = stripLeadingPrefix(shellSplit(segment));
-		if (tokens.length === 0) continue;
-		const head = commandHead(nonNull(tokens[0]));
-		if (NETWORK_VERBS.has(head)) return true;
-		const sub = PUBLISH_SUBCOMMANDS[head];
-		if (sub && tokens[1] !== undefined && sub.has(tokens[1].toLowerCase())) return true;
-	}
-	return false;
+	return classifyNetworkIntent(command).segments.length > 0;
 }
 
 /** Network guard classification: exempt understood loopback invocations only.
  * Each shell segment is checked independently, so one local request cannot
  * exempt a later remote request. Dynamic shell text retains the guard. */
 export function isOutboundNetworkCommand(command: string): boolean {
-    for (const segment of splitSegments(command)) {
-        if (!isNetworkCommand(segment)) continue;
-        if (/[$`\\]/.test(segment)) return true;
-        const rawTokens = shellSplit(segment);
-        const tokens = stripLeadingPrefix(rawTokens);
-        const prefixes = rawTokens.slice(0, rawTokens.length - tokens.length);
-        if (prefixes.some((token) => /^(?:https?_proxy|all_proxy|CURL_HOME|HOME|XDG_CONFIG_HOME|WGETRC)=/i.test(token))) return true;
-        const head = commandHead(nonNull(tokens[0]));
-        if (!isLoopbackNetworkCommand(head, tokens.slice(1))) return true;
-    }
-    return false;
+	return classifyNetworkIntent(command).network;
 }
 
 // ===========================================
@@ -246,12 +201,49 @@ export function classifyProvenance(
 // Taint Ratchet
 // ===========================================
 
+/** One taint source to apply: what was read and at what level. */
+export interface TaintRatchet {
+	file: string;
+	level: SensitivityLevel;
+	provenance?: TaintProvenance | undefined;
+	detail?: string | undefined;
+}
+
 /**
- * Ratchet session sensitivity upward if the new level is higher.
- * The optional `provenance` parameter records where the data originated
- * (default: classified from `file` extension as a local read). Older
- * call sites that don't pass it get the inferred classification, which
- * matches the v1 default behaviour for backward compatibility.
+ * Ratchet the ACTING actor (and, through taint-lineage.ts, every ancestor up
+ * to the session root) to `source.level` if that is higher than the actor's
+ * level. `actor` is `session-state-mutators.ts::actorKeyOf`; undefined raises
+ * every actor (the legacy session-wide behavior, fail safe). A source is
+ * recorded only when the actor's level rose. Returns that fact.
+ */
+export function ratchetActorSensitivity(
+	session: SessionTrajectory,
+	actor: string | undefined,
+	source: TaintRatchet,
+	config: TaintTrackingConfig,
+): boolean {
+	const { actorRose, sessionRose } = raiseActorLevel(session, actor, source.level);
+	if (sessionRose) session.step_limit = config.step_limits[source.level];
+	if (!actorRose) return false;
+	session.taint_sources.push({
+		file: source.file,
+		level: source.level,
+		at_step: session.tool_call_count,
+		// Inferred from the file extension when the caller does not know it.
+		provenance: source.provenance ?? classifyProvenance("Read", source.file),
+		// Every push raised a level: the block reason names the latest one at
+		// the acting actor's level as the source that SET it.
+		escalated: true,
+	});
+	const pushed = nonNull(session.taint_sources.at(-1));
+	if (source.detail !== undefined) pushed.detail = source.detail;
+	if (actor !== undefined) pushed.actor = actor;
+	return true;
+}
+
+/**
+ * Ratchet with no named actor: raises EVERY actor (session-wide, the original
+ * semantics). Callers that know the acting actor use `ratchetActorSensitivity`.
  */
 export function ratchetSensitivity(
 	session: SessionTrajectory,
@@ -259,39 +251,23 @@ export function ratchetSensitivity(
 	level: SensitivityLevel,
 	config: TaintTrackingConfig,
 	provenance?: TaintProvenance,
+	detail?: string,
 ): boolean {
-	const currentOrder = SENSITIVITY_ORDER[session.sensitivity_level];
-	const newOrder = SENSITIVITY_ORDER[level];
-
-	if (newOrder > currentOrder) {
-		session.sensitivity_level = level;
-		session.step_limit = config.step_limits[level];
-		session.taint_sources.push({
-			file,
-			level,
-			at_step: session.tool_call_count,
-			// When the caller doesn't specify provenance, infer from the file
-			// extension. The Read-of-source-file path passes filePath only;
-			// the file extension is enough to discriminate doc vs code.
-			provenance: provenance ?? classifyProvenance("Read", file),
-		});
-		return true; // Sensitivity was escalated
-	}
-	return false;
+	return ratchetActorSensitivity(session, undefined, { file, level, provenance, detail }, config);
 }
 
 // ===========================================
 // Taint Checks
 // ===========================================
 
-/** Check if outbound network should be blocked at current sensitivity */
+/** Check if outbound network should be blocked for the acting actor (no
+ *  actor ⇒ the session level, which is the max over every actor). */
 export function shouldBlockNetwork(
-	session: SessionTrajectory,
+	session: Readonly<SessionTrajectory>,
 	config: TaintTrackingConfig,
+	actor?: string,
 ): boolean {
-	const sessionOrder = SENSITIVITY_ORDER[session.sensitivity_level];
-	const blockOrder = SENSITIVITY_ORDER[config.network_block_at];
-	return sessionOrder >= blockOrder;
+	return SENSITIVITY_ORDER[actorLevel(session, actor)] >= SENSITIVITY_ORDER[config.network_block_at];
 }
 
 /**
@@ -309,32 +285,68 @@ export function actorStepCount(session: SessionTrajectory, actor?: string): numb
 }
 
 /** Check if the actor (or, without one, the session) has exceeded its step limit */
-export function isStepLimitExceeded(session: SessionTrajectory, actor?: string): boolean {
-	return actorStepCount(session, actor) > session.step_limit;
+export function isStepLimitExceeded(session: SessionTrajectory, actor?: string, limit = session.step_limit): boolean {
+	return actorStepCount(session, actor) > limit;
 }
 
 /** Get step budget warning if approaching the limit. Returns null if no warning needed. */
-export function getStepBudgetWarning(session: SessionTrajectory, actor?: string): string | null {
-	if (session.step_limit === Number.POSITIVE_INFINITY) return null;
+export function getStepBudgetWarning(session: SessionTrajectory, actor?: string, limit = session.step_limit): string | null {
+	if (limit === Number.POSITIVE_INFINITY) return null;
 	const steps = actorStepCount(session, actor);
-	const pct = steps / session.step_limit;
-	const remaining = session.step_limit - steps;
+	const pct = steps / limit;
+	const remaining = limit - steps;
+	const level = actorLevel(session, actor);
 	if (pct >= 0.95) {
-		return `[interlinked:budget] CRITICAL: ${remaining} steps remaining (${Math.round(pct * 100)}% of ${session.step_limit} limit at ${session.sensitivity_level} sensitivity). Wrap up current work and commit.`;
+		return `[interlinked:budget] CRITICAL: ${remaining} steps remaining (${Math.round(pct * 100)}% of ${limit} limit at ${level} sensitivity). Wrap up current work and hand off.`;
 	}
 	if (pct >= 0.8) {
-		return `[interlinked:budget] WARNING: ${remaining} steps remaining (${Math.round(pct * 100)}% of ${session.step_limit} limit at ${session.sensitivity_level} sensitivity). Prioritize remaining work.`;
+		return `[interlinked:budget] WARNING: ${remaining} steps remaining (${Math.round(pct * 100)}% of ${limit} limit at ${level} sensitivity). Prioritize remaining work.`;
 	}
 	return null;
 }
 
-/** Format taint sources for display in block/warning messages */
-export function formatTaintSources(session: SessionTrajectory): string {
+/**
+ * The source that SET the session's current level.
+ *
+ * Two formats exist on disk. New snapshots mark the raising source with
+ * `escalated: true`, so the latest escalated source at the current level is
+ * the setter — proven. Snapshots written before that flag carry no mark at
+ * all; there the EARLIEST source whose level equals the current level is the
+ * one that raised it (every later source at that level found the level
+ * already there), so it is reported as `inferred`. Without the fallback an
+ * old snapshot's level is opaque and nothing can re-judge it — which is how
+ * one false ratchet became permanent (2026-10-02).
+ */
+export function findTaintSetter(
+	sources: readonly TaintSource[],
+	level: SensitivityLevel,
+): { source: TaintSource; inferred: boolean } | null {
+	for (let i = sources.length - 1; i >= 0; i--) {
+		const candidate = sources[i];
+		if (candidate?.escalated === true && candidate.level === level) {
+			return { source: candidate, inferred: false };
+		}
+	}
+	const earliest = sources.find((s) => s.level === level);
+	return earliest ? { source: earliest, inferred: true } : null;
+}
+
+/** Format taint sources for display in block/warning messages. Leads with the
+ *  source that SET the acting actor's level (no actor ⇒ the session level),
+ *  then the last three sources. A setter recovered from a pre-`escalated`
+ *  snapshot is marked `(inferred)`. */
+export function formatTaintSources(session: SessionTrajectory, actor?: string): string {
 	if (session.taint_sources.length === 0) return "unknown";
-	return session.taint_sources
+	const recent = session.taint_sources
 		.map((s) => s.file)
 		.slice(-3) // Show last 3 sources
 		.join(", ");
+	const found = findTaintSetter(session.taint_sources, actorLevel(session, actor));
+	if (!found) return recent;
+	const { source: setter, inferred } = found;
+	const label = setter.detail ? `${setter.file.replace(/>$/, "")}: ${setter.detail}>` : setter.file;
+	const prefix = inferred ? "set by (inferred)" : "set by";
+	return `${prefix} ${label} at step ${setter.at_step}; recent: ${recent}`;
 }
 
 // ===========================================

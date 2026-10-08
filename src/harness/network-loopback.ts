@@ -14,7 +14,9 @@ const CURL_VALUES = new Set([
     "--connect-timeout", "--max-time", "--write-out", "--url",
 ]);
 
-function isLoopbackHost(host: string): boolean {
+/** Loopback only (`localhost`, `127.0.0.0/8`, `::1`) — the strict notion the
+ *  outbound guard exempts. Private/LAN ranges still leave the machine. */
+export function isLoopbackHost(host: string): boolean {
     const bare = host.toLowerCase().replace(/^\[|\]$/g, "");
     return bare === "localhost" || bare === "localhost." || bare === "::1" ||
         (isIP(bare) === 4 && bare.startsWith("127."));

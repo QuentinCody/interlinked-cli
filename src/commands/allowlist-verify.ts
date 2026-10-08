@@ -31,8 +31,19 @@ import {
 	extractNugetDeps,
 	extractPomDeps,
 } from "../harness/manifest-dep-extract.js";
+import {
+	describeLockfilePackage,
+	JS_LOCKFILE_NAMES,
+	nativeEvidenceOnDisk,
+	parseLockfilePackages,
+} from "../harness/lockfile-packages.js";
 import { findManifestFiles } from "../harness/manifest-file-walk.js";
-import { type Allowlist, isPackageAllowed, loadAllowlist } from "../harness/package-allowlist.js";
+import {
+	type Allowlist,
+	isPackageAllowed,
+	loadAllowlist,
+	matchSnapshot,
+} from "../harness/package-allowlist.js";
 import type { Ecosystem } from "../harness/package-install-parser.js";
 import { isJsonObject } from "../lib/json-types.js";
 
@@ -48,6 +59,7 @@ export function verifyAllowlistCommand(opts: VerifyOpts): void {
 	for (const spec of EXTRACTORS) checkExtracted(opts.cwd, al, issues, spec);
 	checkCsprojFiles(opts.cwd, al, issues);
 	checkVersionCatalog(opts.cwd, al, issues);
+	checkRootLockfile(opts.cwd, al, issues);
 	if (issues.length === 0) {
 		process.stdout.write("all approved — manifest deps clean\n");
 		return;
@@ -193,6 +205,45 @@ function checkCsprojFiles(cwd: string, al: Allowlist, issues: string[]): void {
 		for (const dep of extractNugetDeps(content).keys()) names.add(dep);
 	}
 	for (const dep of names) reportUnapproved(al, "nuget", dep, issues);
+}
+
+/** Most transitive packages listed per lockfile before one summary row. */
+const MAX_LOCKFILE_ROWS = 25;
+
+// The ROOT JS lockfile (package-lock / npm-shrinkwrap / pnpm-lock / yarn.lock /
+// bun.lock) names the RESOLVED closure — the transitive native deps the
+// manifest never mentions and the install gate never saw (Hegel trial
+// 2026-10-03: `koffi` pulled `@koromix/koffi-darwin-arm64`). A matching
+// `lockfile_snapshots` grant approves the whole set, as designed; otherwise
+// every unapproved package is a row, direct deps already reported above are
+// skipped, and native evidence (lockfile fields + the installed tree) is
+// called out. Root only, matching what `allowlist snapshot` hashes.
+function checkRootLockfile(cwd: string, al: Allowlist, issues: string[]): void {
+	const file = JS_LOCKFILE_NAMES.find((name) => existsSync(join(cwd, name)));
+	if (!file) return;
+	if (matchSnapshot(al, file, join(cwd, file))) return;
+	const content = readIfPresent(join(cwd, file));
+	const inventory = content === null ? null : parseLockfilePackages(file, content);
+	if (!inventory) {
+		issues.push(`  could not parse ${file} — its transitive packages are NOT screened`);
+		return;
+	}
+	let hidden = 0;
+	for (const pkg of inventory.values()) {
+		if (isPackageAllowed(al, "npm", { kind: "registry", name: pkg.name }).allowed) continue;
+		if (issues.some((row) => row.startsWith(`  npm:${pkg.name} —`))) continue;
+		if (issues.filter((row) => row.includes(`transitive in ${file}`)).length >= MAX_LOCKFILE_ROWS) {
+			hidden += 1;
+			continue;
+		}
+		const described = describeLockfilePackage(pkg, nativeEvidenceOnDisk(cwd, pkg.name));
+		issues.push(`  npm:${pkg.name} — transitive in ${file}: ${described}; not on the allowlist`);
+	}
+	if (hidden > 0) {
+		issues.push(
+			`  … ${hidden} more unapproved transitive package(s) in ${file} — approve the resolved set with \`interlinked allowlist snapshot --lockfile ${file} --by <you>\``,
+		);
+	}
 }
 
 // Gradle version catalog: deps live in libs.versions.toml [libraries]. The

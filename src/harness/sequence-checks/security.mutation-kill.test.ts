@@ -79,7 +79,7 @@ describe("detector object metadata (kills StringLiteral/BooleanLiteral field mut
 	it("sameCommandThriceNoObserve metadata is intact", () => {
 		expect(sameCommandThriceNoObserve.id).toBe("same_command_thrice_no_observe");
 		expect(sameCommandThriceNoObserve.description).toBe(
-			"Third identical Bash command with no intervening Read of its output",
+			"Repeated non-observational Bash command in recent session history",
 		);
 		expect(sameCommandThriceNoObserve.family).toBe("security-shape");
 		expect(sameCommandThriceNoObserve.phase).toBe("pre_warn");
@@ -399,10 +399,10 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 	// Kills: ConditionalExpression `!isBashCandidate(...) -> false`.
 	it("does not fire when tool_name is not Bash even though tool_input carries a real command", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
-		const candidate = makeCandidate({ tool_name: "Write", tool_input: { command: "ls /tmp", file_path: "x" } });
+		const candidate = makeCandidate({ tool_name: "Write", tool_input: { command: "npm run repair", file_path: "x" } });
 		expect(sameCommandThriceNoObserve.fn(session, candidate)).toEqual([]);
 	});
 
@@ -415,10 +415,10 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 	it("fires on the third identical command even with an earlier non-Bash tool call in the session", () => {
 		const { session } = buildTrajectoryFixture([
 			{ tool_name: "Read", tool_input: { file_path: ".env" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
-		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "ls /tmp" } });
+		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "npm run repair" } });
 		expect(sameCommandThriceNoObserve.fn(session, candidate).length).toBe(1);
 	});
 
@@ -430,11 +430,11 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 	// false-positive fire.
 	it("does not fire when tool_sequence is empty even though commands_run has 2 matching entries", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
 		session.tool_sequence = [];
-		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "ls /tmp" } });
+		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "npm run repair" } });
 		expect(sameCommandThriceNoObserve.fn(session, candidate)).toEqual([]);
 	});
 
@@ -447,10 +447,10 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 		const { session } = buildTrajectoryFixture([
 			{ tool_name: "Bash", tool_input: { command: "pwd" } },
 			{ tool_name: "Bash", tool_input: { command: "whoami" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
-		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "ls /tmp" } });
+		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "npm run repair" } });
 		expect(sameCommandThriceNoObserve.fn(session, candidate).length).toBe(1);
 	});
 
@@ -464,10 +464,10 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 	// overall result from "no fire" to "fire".
 	it("does not fire when only the second-to-last of the two commands differs", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /var" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run reset" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
-		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "ls /tmp" } });
+		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "npm run repair" } });
 		expect(sameCommandThriceNoObserve.fn(session, candidate)).toEqual([]);
 	});
 
@@ -475,10 +475,10 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 	// Mirror of the above with the mismatch on the OTHER index.
 	it("does not fire when only the last of the two commands differs", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /var" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run reset" } },
 		]);
-		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "ls /tmp" } });
+		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "npm run repair" } });
 		expect(sameCommandThriceNoObserve.fn(session, candidate)).toEqual([]);
 	});
 
@@ -487,20 +487,20 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 	// `evidence`.
 	it("prior_summary, message, and evidence are exactly the expected values", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
-		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "ls /tmp" } });
+		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "npm run repair" } });
 		const matches = sameCommandThriceNoObserve.fn(session, candidate);
 		expect(matches.length).toBe(1);
 		expect(matches[0]?.prior_event_count).toBe(2);
-		expect(matches[0]?.prior_summary).toBe("same Bash command run 2 prior times");
+		expect(matches[0]?.prior_summary).toBe("2 matching command observations in recent session history");
 		expect(matches[0]?.message).toBe(
-			"Same Bash command about to run for the third time: `ls /tmp…`. " +
-				"No intervening file read between runs — agent is repeating without observing the result. " +
-				"Read the output of the previous run before re-issuing, or rephrase the goal.",
+			"Repeated Bash command: `npm run repair…`. " +
+				"Recent history contains two matching command observations; these are hook events, not proof of separate executions. " +
+				"Check the prior outcome before retrying a command that changes state.",
 		);
-		expect(matches[0]?.evidence).toEqual(["ls /tmp"]);
+		expect(matches[0]?.evidence).toEqual(["npm run repair"]);
 	});
 
 	// Kills: MethodExpression `normCmd.slice(0, 80) -> normCmd`.
@@ -508,7 +508,7 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 		// A unique marker well past char 80, not a periodic filler (a
 		// repeated token can alias itself at any offset, defeating a
 		// not.toContain(tail) check even when truncation IS happening).
-		const longCmd = `echo ${"x".repeat(90)}TAIL_MARKER_ZQ`;
+		const longCmd = `npm run ${"x".repeat(90)}TAIL_MARKER_ZQ`;
 		const { session } = buildTrajectoryFixture([
 			{ tool_name: "Bash", tool_input: { command: longCmd } },
 			{ tool_name: "Bash", tool_input: { command: longCmd } },
@@ -526,10 +526,10 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 	// prior command.
 	it("normalizes leading/trailing whitespace on the candidate command before comparing", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
-		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "  ls /tmp  " } });
+		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "  npm run repair  " } });
 		expect(sameCommandThriceNoObserve.fn(session, candidate).length).toBe(1);
 	});
 
@@ -540,10 +540,10 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 	// normalize to match a single-spaced prior command.
 	it("collapses multiple internal spaces on the candidate command before comparing", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
-		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "ls   /tmp" } });
+		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "npm   run repair" } });
 		expect(sameCommandThriceNoObserve.fn(session, candidate).length).toBe(1);
 	});
 
@@ -577,8 +577,8 @@ describe("same_command_thrice_no_observe — content + edge cases", () => {
 	// command" (empty string), not passed through as-is.
 	it("does not fire when tool_input.command is a number, not a string", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
 		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: 12345 } });
 		expect(sameCommandThriceNoObserve.fn(session, candidate)).toEqual([]);

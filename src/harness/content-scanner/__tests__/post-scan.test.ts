@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
+import { actorLevel, registerActor } from "../../taint-lineage.js";
 import type { HarnessEvent, SessionTrajectory } from "../../types.js";
 import { compileAllowlist } from "../allowlist.js";
 import { runPostToolScan, type PostScanRules } from "../post-scan.js";
@@ -132,6 +133,21 @@ function makeScanner(findings: ScanFinding[]): ContentScanner {
 // ===========================================
 
 describe("runPostToolScan — applicability", () => {
+	it("raises the reader and its ancestors without tainting a running sibling", async () => {
+		const session = makeSession();
+		registerActor(session, "reader");
+		registerActor(session, "sibling");
+		const result = await runPostToolScan({
+			event: makeEvent({ subagent_id: "reader", tool_response: "sensitive text" }),
+			session, rules: makeRules(makeScannerConfig()), compiledAllowlist: NO_ALLOWLIST,
+			scanner: makeScanner([{ label: "secret", start: 0, end: 9, text: "sensitive", source: "Read" }]),
+		});
+		expect(result.ratcheted_to).toBe("HighlyConfidential");
+		expect(actorLevel(session, "reader")).toBe("HighlyConfidential");
+		expect(session.sensitivity_level).toBe("HighlyConfidential");
+		expect(actorLevel(session, "sibling")).toBe("Public");
+		expect(session.taint_sources.at(-1)?.actor).toBe("reader");
+	});
 	it("returns empty when scanner is undefined", async () => {
 		const r = await runPostToolScan({
 			event: makeEvent(),

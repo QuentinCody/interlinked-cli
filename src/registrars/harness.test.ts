@@ -146,6 +146,7 @@ describe("registerHarnessCommands — structure", () => {
 				"start",
 				"status",
 				"stop",
+				"taint",
 				"test",
 			].sort(),
 		);

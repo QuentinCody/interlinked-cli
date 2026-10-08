@@ -39,6 +39,7 @@ const EXPECTED_PROVEN_MEMBERS = [
 	"export_ripple",
 	"gitleaks",
 	"lockfile_drift",
+	"lockfile_transitive_deps",
 	"missing_return_types",
 	"no_test_file",
 	"package_json_consistency",

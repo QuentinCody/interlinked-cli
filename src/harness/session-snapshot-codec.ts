@@ -189,12 +189,19 @@ export function readTaintSources(v: unknown): TaintSource[] {
 		if (!isPlainObject(item)) continue;
 		const file = readString(item.file);
 		if (!file) continue;
-		out.push({
+		const source: TaintSource = {
 			file,
 			level: readSensitivity(item.level),
 			at_step: readNumber(item.at_step, 0),
 			provenance: readProvenance(item.provenance),
-		});
+		};
+		// Optional diagnostics (2026-10): which source SET the level, and why.
+		if (item.escalated === true) source.escalated = true;
+		const detail = readString(item.detail);
+		if (detail !== null) source.detail = detail;
+		const actor = readString(item.actor);
+		if (actor !== null) source.actor = actor;
+		out.push(source);
 	}
 	return out;
 }

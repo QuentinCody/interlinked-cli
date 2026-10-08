@@ -176,6 +176,13 @@ describe("detectInterpreterWrite — positive (must fire)", () => {
 		expect(hit?.indirect).toBe(true);
 		expect(hit?.resolved).toBe(`${ROOT}/src/harness/gen.ts`);
 	});
+
+	it("P13: an interpreter inside a loop body (segment head `do`) is still the program's interpreter", () => {
+		// 2026-10-05: compound keywords became transparent in the shared
+		// interpreter-programs.ts leaf (with the network-intent predicate).
+		const hit = detect(`for f in a b; do python3 -c "open('src/lib/config.ts','w').write(f)"; done`);
+		expect(hit?.target).toBe("src/lib/config.ts");
+	});
 });
 
 describe("detectInterpreterWrite — negative (must not fire)", () => {

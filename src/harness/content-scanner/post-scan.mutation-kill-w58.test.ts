@@ -30,14 +30,14 @@ vi.mock("../taint-tracker.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../taint-tracker.js")>();
 	return {
 		...actual,
-		ratchetSensitivity: vi.fn(actual.ratchetSensitivity),
+		ratchetActorSensitivity: vi.fn(actual.ratchetActorSensitivity),
 	};
 });
 
 const { runPostToolScan } = await import("./post-scan.js");
 const { filterFindingsByScore, decideFromFindings } = await import("./policy.js");
 const { applyAllowlist } = await import("./allowlist.js");
-const { ratchetSensitivity } = await import("../taint-tracker.js");
+const { ratchetActorSensitivity } = await import("../taint-tracker.js");
 
 function makeCfg(overrides: Partial<ContentScannerConfig> = {}): ContentScannerConfig {
 	return {
@@ -116,7 +116,7 @@ beforeEach(() => {
 	vi.mocked(filterFindingsByScore).mockClear();
 	vi.mocked(decideFromFindings).mockClear();
 	vi.mocked(applyAllowlist).mockClear();
-	vi.mocked(ratchetSensitivity).mockClear();
+	vi.mocked(ratchetActorSensitivity).mockClear();
 });
 
 afterEach(() => {
@@ -291,8 +291,8 @@ describe("runPostToolScan — mutation kill w58", () => {
 			scanner,
 			compiledAllowlist: [],
 		});
-		expect(ratchetSensitivity).toHaveBeenCalledTimes(1);
-		const filePathArg = vi.mocked(ratchetSensitivity).mock.calls[0]?.[1];
+		expect(ratchetActorSensitivity).toHaveBeenCalledTimes(1);
+		const filePathArg = vi.mocked(ratchetActorSensitivity).mock.calls[0]?.[2].file;
 		expect(filePathArg).toBe("<Read-response>");
 	});
 
@@ -307,7 +307,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			compiledAllowlist: [],
 		});
 		expect(result.ratcheted_to).toBeUndefined();
-		expect(ratchetSensitivity).not.toHaveBeenCalled();
+		expect(ratchetActorSensitivity).not.toHaveBeenCalled();
 	});
 
 	it("does not throw when session exists but taint_tracking config is absent", async () => {
@@ -322,7 +322,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			compiledAllowlist: [],
 		});
 		expect(result.ratcheted_to).toBeUndefined();
-		expect(ratchetSensitivity).not.toHaveBeenCalled();
+		expect(ratchetActorSensitivity).not.toHaveBeenCalled();
 	});
 
 	it("includes the tool name and sensitivity level in the emitted warning", async () => {
@@ -337,8 +337,8 @@ describe("runPostToolScan — mutation kill w58", () => {
 		expect(result.warnings[0]).toMatch(/^\[interlinked:content-scanner\] Grep returned sensitive content /);
 	});
 
-	it("does not set ratcheted_to when ratchetSensitivity reports no change", async () => {
-		vi.mocked(ratchetSensitivity).mockReturnValueOnce(false);
+	it("does not set ratcheted_to when the actor ratchet reports no change", async () => {
+		vi.mocked(ratchetActorSensitivity).mockReturnValueOnce(false);
 		const scanner = makeScanner(ONE_FINDING);
 		const session = makeSession();
 		const rules = makeRules({ taint_tracking: { enabled: true } });

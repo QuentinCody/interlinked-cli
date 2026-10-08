@@ -43,6 +43,10 @@ export const PROVEN_TOOL_CHECKS: ReadonlySet<string> = new Set([
 	"per-edit-mutation",
 	// Parser-driven file-state checks
 	"lockfile_drift",
+	// PostToolUse lockfile diff against the PreToolUse snapshot — an exact
+	// set difference over parsed lockfiles, not a shape guess
+	// (evaluator/lockfile-install-check.ts).
+	"lockfile_transitive_deps",
 	"package_json_consistency",
 	"missing_return_types",
 	"export_ripple",

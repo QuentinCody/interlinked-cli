@@ -129,6 +129,140 @@ describe("heredoc data-sink masking", () => {
 		expect(out).toContain("os.system");
 	});
 
+	// Quoted delimiter + non-shell runtime: the shell neither expands nor runs the
+	// body, and the runtime reads it as its own language, not as shell. Found as a
+	// builtin-kill-substitution BLOCK on Python prose "the kill `stale`".
+	it("masks a quoted-delimiter heredoc fed to a non-shell runtime (python3 -)", () => {
+		const cmd = "python3 - <<'PYEOF'\nprint(\"mark the kill `stale` and re-measure\")\nPYEOF\n";
+		expect(extractScannableText(cmd)).not.toContain("kill `stale`");
+	});
+
+	it("masks a double-quoted delimiter and <<- for node / env python3", () => {
+		expect(extractScannableText('node - <<"EOF"\nconst s = "kill `x`";\nEOF\n')).not.toContain(
+			"kill `x`",
+		);
+		expect(
+			extractScannableText("env FOO=1 python3 <<-'EOF'\n\tprint('kill $(x)')\n\tEOF\n"),
+		).not.toContain("kill $(x)");
+	});
+
+	it("keeps an UNQUOTED heredoc to a non-shell runtime scannable (the shell expands $() in it)", () => {
+		const cmd = "python3 - <<PYEOF\nprint('kill $(pgrep x)')\nPYEOF\n";
+		expect(extractScannableText(cmd)).toContain("kill $(pgrep x)");
+	});
+
+	it("keeps a quoted-delimiter heredoc to a SHELL scannable (bash / sh -s run it)", () => {
+		expect(extractScannableText("bash <<'EOF'\nkill $(pgrep x)\nEOF\n")).toContain("kill $(pgrep x)");
+		expect(extractScannableText("sh -s <<'EOF'\nkill $(pgrep x)\nEOF\n")).toContain("kill $(pgrep x)");
+	});
+
+	it("keeps the header line of a masked runtime heredoc executed", () => {
+		const cmd = "python3 - <<'EOF' && kill $(pgrep x)\nprint('hi')\nEOF\n";
+		expect(extractScannableText(cmd)).toContain("kill $(pgrep x)");
+	});
+
+	// Repair round (2026-10-02): each bypass a verifier found in the first
+	// runtime-mask cut. bash executes every one of these shapes.
+	const KILL = "kill $(pgrep node)";
+	it.each([
+		["here-string is not a heredoc header", `python3 <<<'x'\n${KILL}\n`],
+		["double-quoted here-string after `-`", `python3 - <<<"hi"\n${KILL}\n`],
+		["here-string to a data sink", `cat <<<'x'\n${KILL}\n`],
+		["`EOF)` closes a python3 body inside $( )", `x=$(python3 - <<'EOF'\nprint(1)\nEOF)\n${KILL}\n`],
+		["`EOF)` closes a node body inside $( )", `x=$(node - <<'EOF'\nconsole.log(1)\nEOF)\n${KILL}\n`],
+		["`EOF)` closes a cat body inside $( )", `x=$(cat <<'EOF'\nhi\nEOF)\n${KILL}\n`],
+		["runtime output piped to sh", `python3 - <<'EOF' | sh\nprint("${KILL}")\nEOF\n`],
+		["runtime output in <( ) run by bash", `bash <(python3 - <<'EOF'\nprint("${KILL}")\nEOF\n)\n`],
+		["runtime output in eval $( )", `eval $(python3 - <<'EOF'\nprint("${KILL}")\nEOF\n)\n`],
+		["runtime output piped from a for loop", `for i in 1; do python3 - <<'EOF'\nprint("${KILL}")\nEOF\ndone | sh\n`],
+		["runtime output piped from a brace group", `{ python3 - <<'EOF'\nprint("${KILL}")\nEOF\n} | sh\n`],
+		["header line continued into a pipe", `python3 - <<'EOF' \\\n| sh\nprint("${KILL}")\nEOF\n`],
+		["stdout redirected to >(sh) earlier", `exec > >(sh)\npython3 - <<'EOF'\nprint("${KILL}")\nEOF\n`],
+		["sudo -u node bash (option argument is not the command)", `sudo -u node bash <<'EOF'\n${KILL}\nEOF\n`],
+		["sudo -u node sh -s", `sudo -u node sh -s <<'EOF'\n${KILL}\nEOF\n`],
+		["exec -a python3 bash", `exec -a python3 bash <<'EOF'\n${KILL}\nEOF\n`],
+	])("P: keeps the kill scannable — %s", (_label, cmd) => {
+		expect(extractScannableText(cmd)).toContain(KILL);
+	});
+
+	const PROSE = "the kill `stale`";
+	it.each([
+		["python3 with 2>&1 before the operator", `python3 - 2>&1 <<'EOF'\nprint("${PROSE}")\nEOF\n`],
+		["npx tsx", `npx tsx - <<'EOF'\nconsole.log("${PROSE}")\nEOF\n`],
+		["uv run python", `uv run python - <<'EOF'\nprint("${PROSE}")\nEOF\n`],
+		["python3 after cd &&", `cd /tmp && python3 - <<'PYEOF'\nprint("${PROSE}")\nPYEOF\n`],
+		["python3 with a file redirect and || true", `python3 - <<'EOF' > out.txt || true\nprint("${PROSE}")\nEOF\n`],
+		["python3 after a closed for loop", `for i in 1; do echo $i; done\npython3 - <<'EOF'\nprint("${PROSE}")\nEOF\n`],
+		["bare sudo python3", `sudo python3 - <<'EOF'\nprint("${PROSE}")\nEOF\n`],
+	])("N: masks a top-level quoted runtime heredoc — %s", (_label, cmd) => {
+		expect(extractScannableText(cmd)).not.toContain(PROSE);
+	});
+
+	// Repair round 2 (2026-10-02): shapes where the runtime's output still
+	// reaches a shell. Each one ran an `echo` payload under zsh 5 (the Bash
+	// tool's shell); the double-quote shape also ran under /bin/bash 3.2.
+	it.each([
+		[
+			"`$(` hidden by a quote the span scanner pairs wrongly",
+			`eval "$(: '"'\\'; python3 - <<'EOF'\nprint("${KILL}")\nEOF\n)"\n`,
+		],
+		[
+			"a case pattern `)` inside eval $( )",
+			`eval $(case x in x) ;; esac; python3 - <<'EOF'\nprint("${KILL}")\nEOF\n)\n`,
+		],
+		[
+			"an earlier heredoc body holds a `)` inside eval $( )",
+			`eval $(cat <<'A'\n)\nA\npython3 - <<'EOF'\nprint("${KILL}")\nEOF\n)\n`,
+		],
+		["zsh coproc fed by >&p", `coproc sh\npython3 - <<'EOF' >&p\nprint("${KILL}")\nEOF\n`],
+		[
+			"zsh coproc fed by >&p before the operator",
+			`coproc sh\npython3 - >&p <<'EOF'\nprint("${KILL}")\nEOF\n`,
+		],
+		[
+			"bash coproc fed by >&${COPROC[1]}",
+			`coproc sh\npython3 - <<'EOF' >&\${COPROC[1]}\nprint("${KILL}")\nEOF\n`,
+		],
+		["output to a descriptor path", `python3 - <<'EOF' > /dev/fd/3\nprint("${KILL}")\nEOF\n`],
+		["output to descriptor 3", `python3 - <<'EOF' >&3\nprint("${KILL}")\nEOF\n`],
+		[
+			"output to a fifo that a background shell reads",
+			`mkfifo ff; sh < ff &\npython3 - <<'EOF' > ff\nprint("${KILL}")\nEOF\n`,
+		],
+		[
+			"zsh foreach … end piped to sh",
+			`foreach i (1)\npython3 - <<'EOF'\nprint("${KILL}")\nEOF\nend | sh\n`,
+		],
+	])("P: keeps the kill scannable — %s", (_label, cmd) => {
+		expect(extractScannableText(cmd)).toContain(KILL);
+	});
+
+	it.each([
+		[
+			'python3 after a balanced cd "$( )"',
+			`cd "$(git rev-parse --show-toplevel)" && python3 - <<'PYEOF'\nprint("${PROSE}")\nPYEOF\n`,
+		],
+		[
+			"python3 after a comment with an open paren",
+			`# note (draft\npython3 - <<'EOF'\nprint("${PROSE}")\nEOF\n`,
+		],
+		[
+			"python3 after an arithmetic shift",
+			`x=$((1<<2))\npython3 - <<'EOF'\nprint("${PROSE}")\nEOF\n`,
+		],
+		[
+			"python3 after an apostrophe in double quotes",
+			`echo "it's" && python3 - <<'EOF'\nprint("${PROSE}")\nEOF\n`,
+		],
+		[
+			"python3 after a cat heredoc whose body has a paren",
+			`cat <<'A' > n.md\n(open paren prose\nA\npython3 - <<'EOF'\nprint("${PROSE}")\nEOF\n`,
+		],
+		["python3 with stdout sent to stderr", `python3 - <<'EOF' >&2\nprint("${PROSE}")\nEOF\n`],
+	])("N: masks a top-level quoted runtime heredoc — %s", (_label, cmd) => {
+		expect(extractScannableText(cmd)).not.toContain(PROSE);
+	});
+
 	it("treats unknown targets as executing (fails toward recall)", () => {
 		const cmd = "mystery-tool <<EOF\nrm -rf /\nEOF\n";
 		const out = extractScannableText(cmd);

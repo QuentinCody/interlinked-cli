@@ -6,6 +6,7 @@
 
 import { type Command, type OptionValues } from "commander";
 import { registerHarnessInventory } from "./harness-inventory.js";
+import { registerHarnessTaint } from "./harness-taint.js";
 
 export function registerHarnessCommands(program: Command): void {
 	const harnessCmd = program
@@ -14,6 +15,7 @@ export function registerHarnessCommands(program: Command): void {
 
 	registerDaemonLifecycle(harnessCmd);
 	registerHarnessInventory(harnessCmd);
+	registerHarnessTaint(harnessCmd);
 
 	harnessCmd
 		.command("test [command]")

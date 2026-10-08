@@ -143,6 +143,10 @@ export const SECRETS_RULES: SignatureRule[] = [
 			/mysql:\/\/[^:]+:[^@]+@/,
 			/redis:\/\/:[^@]+@/,
 		],
+		// The span is `scheme://userinfo@`. RFC 3986 §3.2.1 userinfo is
+		// unreserved / pct-encoded / sub-delims / ":" — never `[ ] { } \ |`
+		// or `?`. A span carrying them is regex or template source.
+		literal_metachar_safe: true,
 	},
 	{
 		id: "sig-secret-generic-password",
@@ -180,6 +184,8 @@ export const SECRETS_RULES: SignatureRule[] = [
 			// Catches https://user:pass@host but excludes DB connection strings (already covered)
 			/https?:\/\/[^:/\s]+:[^@/\s]{4,}@(?!localhost|127\.0\.0\.1)/,
 		],
+		// Same RFC 3986 §3.2.1 userinfo grammar as sig-secret-db-connection.
+		literal_metachar_safe: true,
 	},
 	{
 		id: "sig-secret-docker-auth",

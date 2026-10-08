@@ -10,7 +10,14 @@
 
 import { isOutboundNetworkCommand } from "../taint-tracker.js";
 import { nonNull } from "../../lib/non-null.js";
-import { CONFIDENTIAL_LEVELS, getCommand, isBashCandidate } from "./candidate-helpers.js";
+import { classifyCommand } from "../tool-class-classifier.js";
+import {
+	candidateSensitivity,
+	candidateTaintSources,
+	CONFIDENTIAL_LEVELS,
+	getCommand,
+	isBashCandidate,
+} from "./candidate-helpers.js";
 import type { SequenceDetector } from "./types.js";
 
 /** Localhost mention heuristic for the development-server nudge below. */
@@ -20,8 +27,8 @@ const LOCALHOST_RE = /\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0|::1)\b/;
 // §3.1 secret_read_then_network_call
 // ============================================================
 
-/** Fires when the session is at Confidential+ sensitivity AND the candidate
- *  is a Bash network call targeting a non-localhost destination. */
+/** Fires when the ACTING ACTOR is at Confidential+ sensitivity AND the
+ *  candidate is a Bash network call targeting a non-localhost destination. */
 export const secretReadThenNetworkCall: SequenceDetector = {
 	id: "secret_read_then_network_call",
 	description: "Network call after sensitive read; potential exfiltration",
@@ -34,8 +41,11 @@ export const secretReadThenNetworkCall: SequenceDetector = {
 		const cmd = getCommand(candidate.tool_input);
 		if (!cmd) return [];
 		if (!isOutboundNetworkCommand(cmd)) return [];
-		if (!CONFIDENTIAL_LEVELS.has(trajectory.sensitivity_level)) return [];
-		const sources = trajectory.taint_sources
+		// Per-actor (B3): the level of the actor making THIS call, not the
+		// session max that every spawned agent contributes to.
+		const level = candidateSensitivity(trajectory, candidate);
+		if (!CONFIDENTIAL_LEVELS.has(level)) return [];
+		const sources = candidateTaintSources(trajectory, candidate)
 			.filter((s) => CONFIDENTIAL_LEVELS.has(s.level))
 			.slice(-3)
 			.map((s) => s.file);
@@ -44,7 +54,7 @@ export const secretReadThenNetworkCall: SequenceDetector = {
 				prior_event_count: sources.length,
 				prior_summary: `read ${sources.length} confidential source(s) earlier`,
 				message:
-					`Outbound network call after reading confidential data (sensitivity=${trajectory.sensitivity_level}). ` +
+					`Outbound network call after reading confidential data (sensitivity=${level}). ` +
 					"This is the textbook secret-exfiltration shape. If the destination is legitimate, " +
 					"acknowledge with `// interlinked: defer secret_read_then_network_call -- <reason>`.",
 				evidence: sources,
@@ -142,10 +152,16 @@ function normalizeCmd(cmd: string): string {
 	return cmd.replace(/\s+/g, " ").trim();
 }
 
+/** Reading a log or status is itself observation. This advisory-only exception
+ * excludes shell composition, expansion and redirection; it grants no execution permission. */
+function isSimpleObservation(command: string): boolean {
+    return !/[;&|`$<>\r\n]/.test(command) && classifyCommand(command) === "read";
+}
+
 export const sameCommandThriceNoObserve: SequenceDetector = {
 	id: "same_command_thrice_no_observe",
 	description:
-		"Third identical Bash command with no intervening Read of its output",
+		"Repeated non-observational Bash command in recent session history",
 	family: "security-shape",
 	phase: "pre_warn",
 	default_enabled: true,
@@ -153,7 +169,7 @@ export const sameCommandThriceNoObserve: SequenceDetector = {
 	fn: (trajectory, candidate) => {
 		if (!isBashCandidate(candidate.tool_name)) return [];
 		const cmd = getCommand(candidate.tool_input);
-		if (!cmd) return [];
+		if (!cmd || isSimpleObservation(cmd)) return [];
 		const normCmd = normalizeCmd(cmd);
 		const tail = trajectory.tool_sequence.slice(-2);
 		if (tail.length < 2) return [];
@@ -167,11 +183,11 @@ export const sameCommandThriceNoObserve: SequenceDetector = {
 		return [
 			{
 				prior_event_count: 2,
-				prior_summary: `same Bash command run 2 prior times`,
+				prior_summary: "2 matching command observations in recent session history",
 				message:
-					`Same Bash command about to run for the third time: \`${normCmd.slice(0, 80)}…\`. ` +
-					"No intervening file read between runs — agent is repeating without observing the result. " +
-					"Read the output of the previous run before re-issuing, or rephrase the goal.",
+					`Repeated Bash command: \`${normCmd.slice(0, 80)}…\`. ` +
+					"Recent history contains two matching command observations; these are hook events, not proof of separate executions. " +
+					"Check the prior outcome before retrying a command that changes state.",
 				evidence: [normCmd],
 			},
 		];

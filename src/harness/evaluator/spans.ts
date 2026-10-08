@@ -27,6 +27,7 @@
 //     because missing a real payload is worse than scanning prose.
 
 import { nonNull } from "../../lib/non-null.js";
+import { isRuntimeDataHeredoc } from "./heredoc-runtime-mask.js";
 
 type SpanKind = "executed" | "inline_code" | "quoted" | "comment" | "heredoc";
 
@@ -176,6 +177,15 @@ function effectiveCommandWord(tokens: string[]): string | null {
  *  `bash`, not `cat` (the unbounded-backward-scan soundness bug dcg fixed
  *  in their #136). Checks left of the operator first, then right (bash
  *  permits `<<EOF cmd` as well as `cmd <<EOF`). */
+/** `;` `|` `(` `&` end a command segment, except the `&` of a redirect
+ *  (`2>&1`, `<&3`, `&>log`), which belongs to the same command. */
+function isSegmentSeparator(cmd: string, i: number): boolean {
+	const ch = cmd[i];
+	if (ch === ";" || ch === "|" || ch === "(") return true;
+	if (ch !== "&") return false;
+	return cmd[i - 1] !== ">" && cmd[i - 1] !== "<" && cmd[i + 1] !== ">";
+}
+
 /** Scan backward from `lineStart` to `operatorIndex` to find where the
  *  current pipe/chain segment starts, honoring quotes with a minimal
  *  scanner (the slice is one line) so separators inside strings don't
@@ -188,8 +198,7 @@ function findHeredocSegmentStart(cmd: string, lineStart: number, operatorIndex: 
 		const ch = cmd[i];
 		if (ch === "'" && !inDouble) inSingle = !inSingle;
 		else if (ch === '"' && !inSingle) inDouble = !inDouble;
-		else if (!inSingle && !inDouble && (ch === ";" || ch === "|" || ch === "&" || ch === "("))
-			segStart = i + 1;
+		else if (!inSingle && !inDouble && isSegmentSeparator(cmd, i)) segStart = i + 1;
 	}
 	return segStart;
 }
@@ -285,12 +294,33 @@ function scanEscapedQuoteBody(cmd: string, i: number, closer: string): number {
  *  line after the header to the closer line — is `heredoc`; the rest of the
  *  header line (pipes, redirects) stays executed. Bodies whose target is not
  *  a known data sink are marked `scannable`. */
+/** Where a heredoc body ends. `<<-` strips leading tabs from the closer
+ *  line. A `TAG)` line also ends it: bash closes a body there inside
+ *  `$( … )`, and a body read past that point would hide the shell code
+ *  after it. `exactCloser` is false for `TAG)` and for end of input. */
+function findHeredocBodyEnd(
+	cmd: string,
+	bodyStart: number,
+	tag: string,
+	dashed: boolean,
+): { bodyEnd: number; exactCloser: boolean } {
+	const indent = dashed ? "\\t*" : "";
+	const closerMatch = cmd.slice(bodyStart).match(new RegExp(`(^|\\n)${indent}${tag}(\\)|\\n|$)`));
+	if (!closerMatch || closerMatch.index === undefined) {
+		return { bodyEnd: cmd.length, exactCloser: false };
+	}
+	return {
+		bodyEnd: bodyStart + closerMatch.index + (closerMatch[1] ? 1 : 0),
+		exactCloser: closerMatch[2] !== ")",
+	};
+}
+
 function scanHeredoc(cmd: string, i: number, flush: FlushFn): number | null {
 	if (cmd.slice(i, i + 2) !== HEREDOC_TOKEN) return null;
+	// `<<<` is a here-string, not a heredoc header.
+	if (cmd[i - 1] === "<" || cmd[i + 2] === "<") return null;
 	const m = cmd.slice(i).match(/^<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\2/);
 	if (!m) return null;
-	const dashed = m[1] === "-";
-	const tag = nonNull(m[3]);
 	const headerEnd = i + m[0].length;
 
 	// Body begins after the header line's newline — `cat <<EOF > out.txt`
@@ -301,25 +331,21 @@ function scanHeredoc(cmd: string, i: number, flush: FlushFn): number | null {
 		return headerEnd;
 	}
 	const bodyStart = headerNewline + 1;
+	const { bodyEnd, exactCloser } = findHeredocBodyEnd(cmd, bodyStart, nonNull(m[3]), m[1] === "-");
 
 	const target = resolveHeredocTarget(cmd, i, headerEnd);
-	const masked = target !== null && HEREDOC_DATA_SINKS.has(target);
+	const lineStart = cmd.lastIndexOf("\n", i - 1) + 1;
+	const dataSink = target !== null && HEREDOC_DATA_SINKS.has(target);
+	const runtimeData = isRuntimeDataHeredoc({
+		quotedTag: m[2] !== "",
+		exactCloser,
+		segmentBefore: cmd.slice(findHeredocSegmentStart(cmd, lineStart, i), i),
+		headerRest: cmd.slice(headerEnd, headerNewline),
+		shellPrefix: cmd.slice(0, i),
+	});
+	const masked = dataSink || runtimeData;
 
-	if (masked) {
-		flush(bodyStart, "heredoc", bodyStart);
-	} else {
-		flush(bodyStart, "heredoc", bodyStart, true);
-	}
-	// `<<-` strips leading tabs from the closer line.
-	const closer = new RegExp(dashed ? `(^|\\n)\\t*${tag}(\\n|$)` : `(^|\\n)${tag}(\\n|$)`);
-	const after = cmd.slice(bodyStart);
-	const closerMatch = after.match(closer);
-	let bodyEnd: number;
-	if (closerMatch && closerMatch.index !== undefined) {
-		bodyEnd = bodyStart + closerMatch.index + (closerMatch[1] ? 1 : 0);
-	} else {
-		bodyEnd = cmd.length;
-	}
+	flush(bodyStart, "heredoc", bodyStart, !masked);
 	flush(bodyEnd, "executed", bodyEnd);
 	return bodyEnd;
 }

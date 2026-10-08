@@ -1,5 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { fcAssert } from "../../../test-setup/fc-assert.js";
 import {
 	measureToolInputBytes,
 	TOOL_INPUT_MAX_DEPTH,
@@ -29,12 +30,29 @@ const ESCAPE_CODE_POINTS: readonly number[] = [
 	0x20, // first character escaping never touches
 	0x22, // quote — two bytes
 	0x5c, // backslash — two bytes
-	0x7f, // DEL: NOT escaped by JSON.stringify, and one raw byte
+	0x7f, // DEL: NOT escaped by JSON.stringify, and one raw byte — last 1-byte unit
+	0x80, // first 2-byte unit (UTF-8 width boundary)
 	0xe9, // é — two raw bytes
+	0x7ff, // last 2-byte unit
+	0x800, // first 3-byte unit — a `code <= 0x800` mutant survived until this row (Hegel trial 2026-10-03)
 	0x65e5, // 日 — three raw bytes
 	0xd800, // a LONE high surrogate — six bytes, no UTF-8 encoding of its own
 	0xdfff, // a lone LOW surrogate
+	0xffff, // last 3-byte unit (BMP ceiling)
+	0x10000, // first astral code point — a surrogate PAIR, four raw bytes
 	0x1f600, // an astral code point — a surrogate PAIR, four raw bytes
+	0x10ffff, // the last code point
+];
+
+/** Surrogate SEQUENCES the table's single code points cannot express: the
+ *  pairing logic must take a well-formed pair as four bytes and every other
+ *  arrangement as lone six-byte escapes. */
+const SURROGATE_SEQUENCES: readonly string[] = [
+	String.fromCharCode(0xd800, 0xd800), // high, high — two lone escapes
+	String.fromCharCode(0xdc00, 0xd800), // low, high — reversed, both lone
+	String.fromCharCode(0xd800, 0x41), // high then a BMP unit — lone + 1 byte
+	`a${String.fromCharCode(0xdbff)}`, // high surrogate at the end of the string
+	String.fromCharCode(0xd83d, 0xde00, 0xdc00), // valid pair then a trailing lone low
 ];
 
 const ESCAPE_CASES: readonly string[] = [
@@ -96,8 +114,18 @@ describe("measureToolInputBytes — positive (must accept)", () => {
 		}
 	});
 
+	it("P7b: lone and mis-paired surrogates cost six bytes each; only a well-formed pair costs four", () => {
+		// fast-check's `binary` unit never draws a surrogate (P8b), so this
+		// EXAMPLE case is the only place the pairing arithmetic is pinned.
+		for (const text of SURROGATE_SEQUENCES) {
+			expect(measureToolInputBytes(text, CAP)).toEqual({ ok: true, bytes: serializedBytes(text) });
+		}
+		expect(measureToolInputBytes(String.fromCharCode(0xd800), CAP)).toEqual({ ok: true, bytes: 2 + 6 });
+		expect(measureToolInputBytes(String.fromCodePoint(0x10000), CAP)).toEqual({ ok: true, bytes: 2 + 4 });
+	});
+
 	it("P8: the measurement is EXACT — it equals JSON.stringify's byte length for random JSON", () => {
-		fc.assert(
+		fcAssert(
 			fc.property(fc.jsonValue(), (value) => {
 				expect(measureToolInputBytes(value, CAP)).toEqual({ ok: true, bytes: serializedBytes(value) });
 			}),
@@ -105,11 +133,15 @@ describe("measureToolInputBytes — positive (must accept)", () => {
 		);
 	});
 
-	it("P8b: exactness holds for arbitrary UTF-16 text, lone surrogates included", () => {
-		// `unit: "binary"` draws raw code units, so the generator reaches the
-		// escape paths a printable-ASCII arbitrary never would.
+	it("P8b: exactness holds for arbitrary NON-surrogate Unicode text (control, BMP and astral)", () => {
+		// `unit: "binary"` draws code POINTS from [0, 0xd7ff] ∪ [0xe000, 0x10ffff]
+		// (fast-check 4.7 `binary` ranges), so it reaches the escape paths a
+		// printable-ASCII arbitrary never would — but it NEVER draws a surrogate,
+		// lone or paired-by-accident (measured 0/2,000, Hegel trial 2026-10-03).
+		// Lone surrogates are pinned by the ESCAPE_CODE_POINTS rows (P7) and
+		// the SURROGATE_SEQUENCES examples (P7b), not here.
 		const text = fc.string({ unit: "binary" });
-		fc.assert(
+		fcAssert(
 			fc.property(fc.dictionary(text, text), (record) => {
 				expect(measureToolInputBytes(record, CAP)).toEqual({ ok: true, bytes: serializedBytes(record) });
 			}),

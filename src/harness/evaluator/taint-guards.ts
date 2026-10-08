@@ -18,6 +18,7 @@
 
 import { readToolString } from "./tool-input-values.js";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { actorLevel, isSubagentActor } from "../taint-lineage.js";
 import {
 	actorStepCount,
 	classifyFileSensitivity,
@@ -25,10 +26,11 @@ import {
 	getStepBudgetWarning,
 	isOutboundNetworkCommand,
 	isStepLimitExceeded,
-	ratchetSensitivity,
+	ratchetActorSensitivity,
 	SENSITIVITY_ORDER,
 	shouldBlockNetwork,
 } from "../taint-tracker.js";
+import { ratchetOnTaintedFileRead } from "./taint-lineage-flow.js";
 import type {
 	EscalationRequest,
 	GuardRulesConfig,
@@ -181,16 +183,18 @@ function applySensitivityRatchet(
 	taint: TaintTrackingConfig,
 	session: SessionTrajectory,
 	warnings: string[],
+	actor: string | undefined,
 ): void {
 	if (!isReadOperation(toolName)) return;
 	const filePath = readToolString(toolInput.file_path);
 	if (!filePath) return;
 	const fileSensitivity = classifyFileSensitivity(filePath, taint);
-	if (SENSITIVITY_ORDER[fileSensitivity] <= SENSITIVITY_ORDER[session.sensitivity_level]) {
+	// Per-actor (B3): compare against the READER's level, not the session max.
+	if (SENSITIVITY_ORDER[fileSensitivity] <= SENSITIVITY_ORDER[actorLevel(session, actor)]) {
 		return;
 	}
-	ratchetSensitivity(session, filePath, fileSensitivity, taint);
-	const blockStatus = shouldBlockNetwork(session, taint) ? "BLOCKED" : "monitored";
+	ratchetActorSensitivity(session, actor, { file: filePath, level: fileSensitivity }, taint);
+	const blockStatus = shouldBlockNetwork(session, taint, actor) ? "BLOCKED" : "monitored";
 	warnings.push(
 		`[interlinked:taint] Sensitivity escalated to ${fileSensitivity} after reading ${filePath}. Outbound network commands will be ${blockStatus}.`,
 	);
@@ -207,15 +211,17 @@ function checkTaintedNetworkBlock(
 	taint: TaintTrackingConfig,
 	session: SessionTrajectory,
 	warnings: string[],
+	actor: string | undefined,
 ): TaintGuardsResult | null {
-	if (!isBash(toolName) || !shouldBlockNetwork(session, taint)) return null;
+	if (!isBash(toolName) || !shouldBlockNetwork(session, taint, actor)) return null;
 	const cmd = readToolString(toolInput.command);
 	if (!isOutboundNetworkCommand(cmd)) return null;
+	const who = isSubagentActor(session, actor) ? `this agent (${actor})` : "this session";
 	return {
 		kind: "block",
 		decision: {
 			decision: "block",
-			reason: `BLOCKED: Outbound network command while session is tainted at ${session.sensitivity_level} level (tainted by: ${formatTaintSources(session)}). Sensitive data may be exfiltrated.`,
+			reason: `BLOCKED: Outbound network command while ${who} is tainted at ${actorLevel(session, actor)} level (tainted by: ${formatTaintSources(session, actor)}). Sensitive data may be exfiltrated.`,
 			warnings,
 		},
 	};
@@ -231,17 +237,19 @@ function buildTaintedNetworkInternalEscalation(
 	toolInput: JsonObject,
 	taint: TaintTrackingConfig,
 	session: SessionTrajectory,
+	actor: string | undefined,
 ): EscalationRequest | null {
-	if (!isBash(toolName) || shouldBlockNetwork(session, taint)) return null;
-	if (SENSITIVITY_ORDER[session.sensitivity_level] < SENSITIVITY_ORDER.Internal) return null;
+	if (!isBash(toolName) || shouldBlockNetwork(session, taint, actor)) return null;
+	const level = actorLevel(session, actor);
+	if (SENSITIVITY_ORDER[level] < SENSITIVITY_ORDER.Internal) return null;
 	const cmd = readToolString(toolInput.command);
 	if (!isOutboundNetworkCommand(cmd)) return null;
 	return {
 		trigger: "tainted_network_internal",
-		summary: `Network command while session is tainted at ${session.sensitivity_level} level (tainted by: ${formatTaintSources(session)})`,
+		summary: `Network command while this agent is tainted at ${level} level (tainted by: ${formatTaintSources(session, actor)})`,
 		tool_name: toolName,
 		tool_input_redacted: { command: "[REDACTED — network command]" },
-		sensitivity_level: session.sensitivity_level,
+		sensitivity_level: level,
 		step_number: session.tool_call_count,
 		recent_tool_sequence: session.tool_sequence.slice(-ESCALATION_TAIL_LENGTH),
 	};
@@ -257,20 +265,21 @@ function buildHighStepBudgetEscalation(
 	toolInput: JsonObject,
 	session: SessionTrajectory,
 	actor: string | undefined,
+	limit: number,
 ): EscalationRequest | null {
 	const steps = actorStepCount(session, actor);
 	const overThreshold =
-		session.step_limit !== Number.POSITIVE_INFINITY &&
-		steps > session.step_limit * HIGH_BUDGET_THRESHOLD;
+		limit !== Number.POSITIVE_INFINITY &&
+		steps > limit * HIGH_BUDGET_THRESHOLD;
 	if (!overThreshold) return null;
 	if (!isFileWrite(toolName) && !isBash(toolName)) return null;
 	const filePath = readToolString(toolInput.file_path);
 	return {
 		trigger: "high_step_budget",
-		summary: `Agent at ${Math.round((steps / session.step_limit) * 100)}% of step budget (${steps}/${session.step_limit}) with state-changing tool`,
+		summary: `Agent at ${Math.round((steps / limit) * 100)}% of step budget (${steps}/${limit}) with state-changing tool`,
 		tool_name: toolName,
 		tool_input_redacted: filePath ? { file_path: filePath } : { command: "[REDACTED]" },
-		sensitivity_level: session.sensitivity_level,
+		sensitivity_level: actorLevel(session, actor),
 		step_number: session.tool_call_count,
 		recent_tool_sequence: session.tool_sequence.slice(-ESCALATION_TAIL_LENGTH),
 	};
@@ -286,11 +295,12 @@ function checkStepLimitDegradation(
 	session: SessionTrajectory,
 	warnings: string[],
 	actor: string | undefined,
+	limit: number,
 ): TaintGuardsResult | null {
-	if (!isStepLimitExceeded(session, actor)) return null;
+	if (!isStepLimitExceeded(session, actor, limit)) return null;
 	if (READ_ONLY_TOOLS_ON_BUDGET.has(toolName)) {
 		warnings.push(
-			`[interlinked:budget] Step limit (${session.step_limit}) exceeded — read-only mode. Mutations are blocked. Wrap up and commit.`,
+			`[interlinked:budget] Step limit (${limit}) exceeded — read-only mode. Mutations are blocked. Wrap up and hand off.`,
 		);
 		return { kind: "allow-readonly", decision: { decision: "allow", warnings } };
 	}
@@ -298,7 +308,7 @@ function checkStepLimitDegradation(
 		kind: "block",
 		decision: {
 			decision: "block",
-			reason: `BLOCKED: Step limit (${session.step_limit}) exceeded at ${session.sensitivity_level} sensitivity level. Read-only tools (Read, Glob, Grep) are still allowed.`,
+			reason: `BLOCKED: Step limit (${limit}) exceeded at ${actorLevel(session, actor)} sensitivity level. Read-only tools (Read, Glob, Grep) are still allowed.`,
 			warnings,
 		},
 	};
@@ -330,10 +340,14 @@ export function evaluateTaintGuards(args: TaintGuardsArgs): TaintGuardsResult {
 	const taint = rules.taint_tracking;
 
 	// Stage 1 — on file read, check sensitivity and ratchet (mutates session/warnings).
-	applySensitivityRatchet(toolName, toolInput, taint, session, warnings);
+	applySensitivityRatchet(toolName, toolInput, taint, session, warnings, actor);
+
+	// Stage 1b — B5: reading a file a tainted actor WROTE ratchets the reader,
+	// before the network check below, so a read-and-send in one command blocks.
+	warnings.push(...ratchetOnTaintedFileRead({ toolName, toolInput, taint, session, actor }));
 
 	// Stage 2 — hard block on network commands when tainted.
-	const networkBlock = checkTaintedNetworkBlock(toolName, toolInput, taint, session, warnings);
+	const networkBlock = checkTaintedNetworkBlock(toolName, toolInput, taint, session, warnings, actor);
 	if (networkBlock) return networkBlock;
 
 	// Stage 3 — provenance axis (orthogonal to sensitivity): an external-action
@@ -355,22 +369,26 @@ export function evaluateTaintGuards(args: TaintGuardsArgs): TaintGuardsResult {
 	// call for the classifier. First escalation wins (precedence over stage 5).
 	if (!escalation) {
 		escalation =
-			buildTaintedNetworkInternalEscalation(toolName, toolInput, taint, session) ?? undefined;
+			buildTaintedNetworkInternalEscalation(toolName, toolInput, taint, session, actor) ??
+			undefined;
 	}
 
 	// Stage 5 — step budget warnings (at 80% and 95%) against the ACTOR's count.
-	const budgetWarning = getStepBudgetWarning(session, actor);
+	// A sibling's ratchet lowers the root's stored limit, not this actor's.
+	// Unknown/legacy actors retain the session limit until lineage is known.
+	const limit = isSubagentActor(session, actor) ? taint.step_limits[actorLevel(session, actor)] : session.step_limit;
+	const budgetWarning = getStepBudgetWarning(session, actor, limit);
 	if (budgetWarning) warnings.push(budgetWarning);
 
 	// Stage 5b — ESCALATION high_step_budget: approaching step limit with a
 	// state-changing tool (only if no escalation was raised in stage 4).
 	if (!escalation) {
-		escalation = buildHighStepBudgetEscalation(toolName, toolInput, session, actor) ?? undefined;
+		escalation = buildHighStepBudgetEscalation(toolName, toolInput, session, actor, limit) ?? undefined;
 	}
 
 	// Stage 6 — step limit check: graceful degradation (block mutations, allow
 	// reads) so the agent can investigate and hand off cleanly.
-	const stepLimitResult = checkStepLimitDegradation(toolName, session, warnings, actor);
+	const stepLimitResult = checkStepLimitDegradation(toolName, session, warnings, actor, limit);
 	if (stepLimitResult) return stepLimitResult;
 
 	return { kind: "ok", warnings, escalation };

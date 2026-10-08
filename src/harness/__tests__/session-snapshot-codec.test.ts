@@ -264,6 +264,29 @@ describe("readTaintSources", () => {
 		});
 	});
 
+	it("P1: preserves the escalated flag and detail of a source that set the level", () => {
+		const out = readTaintSources([
+			{ file: "<command-output>", level: "Confidential", at_step: 7, escalated: true, detail: "sig-secret-gcp-api from `cat a.json`" },
+		]);
+		expect(out[0]).toStrictEqual({
+			file: "<command-output>",
+			level: "Confidential",
+			at_step: 7,
+			provenance: "local_read",
+			escalated: true,
+			detail: "sig-secret-gcp-api from `cat a.json`",
+		});
+	});
+
+	it("N1: a legacy source hydrates without escalated/detail keys; malformed values are dropped", () => {
+		const out = readTaintSources([
+			{ file: "a.ts", level: "Public", at_step: 1 },
+			{ file: "b.ts", level: "Public", at_step: 2, escalated: "yes", detail: 42 },
+		]);
+		expect(Object.keys(out[0] ?? {})).toEqual(["file", "level", "at_step", "provenance"]);
+		expect(Object.keys(out[1] ?? {})).toEqual(["file", "level", "at_step", "provenance"]);
+	});
+
 	it("preserves each valid explicit provenance (not just the local_read default)", () => {
 		for (const provenance of ["fetched_external", "mcp_remote", "document_content", "user_provided", "local_read"] as const) {
 			const out = readTaintSources([{ file: "a.ts", level: "Public", at_step: 1, provenance }]);

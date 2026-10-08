@@ -12,10 +12,12 @@
 // consume trajectory state directly, so they remain effective against
 // rephrased / paraphrased injection attempts.
 
-import { hasPublicHttpUrl } from "../evaluator/network-hosts.js";
 import { nonNull } from "../../lib/non-null.js";
+import { classifyNetworkIntent, isExternalNetworkIntent } from "../network-intent.js";
 import type { TaintProvenance } from "../types.js";
 import {
+	candidateSensitivity,
+	candidateTaintSources,
 	CONFIDENTIAL_LEVELS,
 	getCommand,
 	isBashCandidate,
@@ -30,15 +32,25 @@ const UNTRUSTED_PROVENANCE: ReadonlySet<TaintProvenance> = new Set<TaintProvenan
 	"user_provided",
 ]);
 
-// External-URL classification is delegated to `hasPublicHttpUrl`
-// (evaluator/network-hosts.ts): loopback, RFC-1918, link-local, AND
+// Host publicness is delegated to the canonical classifier (host-class.ts,
+// through network-verbs.ts isPublicHost; every IPv4 encoding and IPv6 form):
+// loopback, RFC-1918, link-local, AND
 // CGNAT/tailnet 100.64.0.0/10 are all non-routable — a LAN mutation runner
 // or tailnet peer is not an exfiltration edge. The old inline regex here
 // excluded only loopback, which false-blocked every tailnet runner call
 // once the session carried taint (repair-followups #trifecta-tailnet-FP).
-
-/** Network-capable Bash verbs that talk to the outside world. */
-const NETWORK_VERB = /\b(?:curl|wget|nc|ncat|netcat|socat|http|https|ssh|scp|sftp|rsync)\b/i;
+//
+// Leg 3 is the ONE network-intent predicate (network-intent.ts, 2026-10-05):
+// the command must actually open an outbound connection (verb head, or an
+// interpreter inline program calling a network API) AND reach a public host or
+// a host it cannot name. The old `NETWORK_VERB` word regex matched the `https`
+// scheme of every URL literal, so `echo <url>`, `rg '<url>' notes.md` and a
+// python program parsing an XML namespace URI all blocked as "about to make an
+// external network call" (session c698b9a9: 43 of 78 trifecta blocks).
+// Review 3b restored the old coverage for code the classifier cannot read: a
+// script file, module run or unknown binary handed a public URL is external
+// too (`opaque`); only the known-local tools in network-verbs.ts LOCAL_TOOLS
+// and scanned inline programs are exempt.
 
 /** Public-writeable destinations that we can decide locally: gists default
  *  to public on most installs, and the named webhook/paste hosts are
@@ -56,9 +68,7 @@ function isReadCandidate(toolName: string | undefined): boolean {
 }
 
 function isExternalNetworkCommand(cmd: string): boolean {
-	if (!NETWORK_VERB.test(cmd)) return false;
-	if (!hasPublicHttpUrl(cmd) && !/\b(?:ssh|scp|sftp)\b/.test(cmd)) return false;
-	return true;
+	return isExternalNetworkIntent(classifyNetworkIntent(cmd));
 }
 
 // ============================================================
@@ -74,22 +84,22 @@ export const lethalTrifectaStructural: SequenceDetector = {
 	default_enabled: true,
 	determinism: "fully_deterministic",
 	fn: (trajectory, candidate) => {
-		// Leg 1: private data access.
+		// Leg 1: private data access BY THIS ACTOR (B3) — its own level, plus
+		// the sources no actor was recorded for.
+		const level = candidateSensitivity(trajectory, candidate);
+		const ownSources = candidateTaintSources(trajectory, candidate);
 		const leg1 =
-			CONFIDENTIAL_LEVELS.has(trajectory.sensitivity_level) ||
-			trajectory.taint_sources.some((s) => CONFIDENTIAL_LEVELS.has(s.level));
+			CONFIDENTIAL_LEVELS.has(level) || ownSources.some((s) => CONFIDENTIAL_LEVELS.has(s.level));
 		if (!leg1) return [];
 		// Leg 2: untrusted content exposure.
-		const untrustedSources = trajectory.taint_sources.filter((s) =>
-			UNTRUSTED_PROVENANCE.has(s.provenance),
-		);
+		const untrustedSources = ownSources.filter((s) => UNTRUSTED_PROVENANCE.has(s.provenance));
 		if (untrustedSources.length === 0) return [];
 		// Leg 3: external comm in the candidate.
 		if (!isBashCandidate(candidate.tool_name)) return [];
 		const cmd = getCommand(candidate.tool_input);
 		if (!isExternalNetworkCommand(cmd)) return [];
 
-		const privateSources = trajectory.taint_sources
+		const privateSources = ownSources
 			.filter((s) => CONFIDENTIAL_LEVELS.has(s.level))
 			.map((s) => s.file)
 			.slice(-3);
@@ -101,11 +111,11 @@ export const lethalTrifectaStructural: SequenceDetector = {
 			{
 				prior_event_count: privateSources.length + untrustedSources.length,
 				prior_summary:
-					`leg 1: ${privateSources.join(", ") || trajectory.sensitivity_level}; ` +
+					`leg 1: ${privateSources.join(", ") || level}; ` +
 					`leg 2: ${untrustedDescriptors.join(", ")}`,
 				message:
-					"BLOCKED: lethal trifecta — session has accessed private data (" +
-					`${trajectory.sensitivity_level}), ingested untrusted content ` +
+					"BLOCKED: lethal trifecta — this agent has accessed private data (" +
+					`${level}), ingested untrusted content ` +
 					`(${untrustedSources.length} source(s)), and is about to make an external network call. ` +
 					"This is the textbook exfiltration shape regardless of intent. " +
 					"Break one leg (re-fetch over an authed channel, scrub the untrusted content, or stay local) " +
@@ -177,9 +187,10 @@ export const exfilToPublicWriteable: SequenceDetector = {
 		if (!isBashCandidate(candidate.tool_name)) return [];
 		const cmd = getCommand(candidate.tool_input);
 		if (!cmd) return [];
+		const level = candidateSensitivity(trajectory, candidate);
 		const confidential =
-			CONFIDENTIAL_LEVELS.has(trajectory.sensitivity_level) ||
-			trajectory.taint_sources.some((s) => CONFIDENTIAL_LEVELS.has(s.level));
+			CONFIDENTIAL_LEVELS.has(level) ||
+			candidateTaintSources(trajectory, candidate).some((s) => CONFIDENTIAL_LEVELS.has(s.level));
 		if (!confidential) return [];
 		let surface: string | null = null;
 		if (GIST_CREATE_RE.test(cmd)) {
@@ -192,10 +203,10 @@ export const exfilToPublicWriteable: SequenceDetector = {
 		return [
 			{
 				prior_event_count: 1,
-				prior_summary: `sensitivity=${trajectory.sensitivity_level}`,
+				prior_summary: `sensitivity=${level}`,
 				message:
-					`BLOCKED: write to public-writeable surface (${surface}) while session is at ` +
-					`${trajectory.sensitivity_level} sensitivity. Use an authed/private channel or ` +
+					`BLOCKED: write to public-writeable surface (${surface}) while this agent is at ` +
+					`${level} sensitivity. Use an authed/private channel or ` +
 					"acknowledge with `// interlinked: defer exfil_to_public_writeable -- <reason>`.",
 				evidence: [surface],
 			},

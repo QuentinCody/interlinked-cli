@@ -64,6 +64,7 @@
 
 import { join, resolve, sep } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
+import { collectFlagPrograms, collectHeredocPrograms, type InlineProgram } from "../interpreter-programs.js";
 import { CODE_FILE_EXT_RE, resolveBashWriteTarget } from "../pre-checks-bash-write-detect.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 import { isEphemeralTempPath } from "./filesystem-guards.js";
@@ -89,119 +90,18 @@ interface InterpreterWriteHit {
 	indirect?: boolean;
 }
 
-/** An inline program plus how it reached the interpreter. */
-interface InlineProgram {
-	interpreter: string;
-	form: string;
-	body: string;
-}
-
 /** One-command bypass, mirroring INTERLINKED_DISABLE_PATCH_APPLIER_GUARD. Kept
  *  separate from the sibling hatches so opening one channel never opens another. */
 export function isInterpreterWriteGuardDisabled(): boolean {
 	return process.env.INTERLINKED_DISABLE_INTERPRETER_WRITE_GUARD === "1";
 }
 
-/** Interpreters whose inline programs can write files. `sh`/`bash` are absent on
- *  purpose: a shell heredoc's writes are redirects, which the sibling gate owns. */
-const INTERPRETER_WORD_RE = /^(?:[\w.\-/]*\/)?(python3(?:\.\d+)?|python|node|perl|ruby)$/;
-
-/** Command words that precede the real verb without replacing it. */
-const TRANSPARENT_PREFIXES = new Set(["env", "command", "exec", "nohup", "time"]);
-
-/** `VAR=value` prefix assignment (bash evaluates these before the verb). */
-const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
-
-/** Characters that end one command segment and start the next. */
-const SEGMENT_BREAKS = ["\n", ";", "&", "|", "("] as const;
-
-/** How far past a segment start we need to look to find its command word. */
-const COMMAND_WORD_LOOKAHEAD = 80;
+// Interpreter recognition and inline-program extraction (interpreterOf,
+// collectHeredocPrograms, collectFlagPrograms) live in ../interpreter-programs.ts,
+// shared with the network-intent predicate since 2026-10-05.
 
 /** Longest write-call fragment quoted back in the block reason. */
 const EVIDENCE_MAX = 90;
-
-/**
- * The interpreter a command SEGMENT invokes, or null for every other verb.
- * Only the segment's own command word counts — skipping `VAR=` assignments and
- * transparent prefixes — so `cat <<EOF` is not a program and neither is a
- * `python3 -c …` line quoted inside an `echo` argument.
- */
-function interpreterOf(segment: string): string | null {
-	for (const word of segment.trim().split(/\s+/)) {
-		if (word === "") continue;
-		if (ASSIGNMENT_RE.test(word)) continue;
-		if (TRANSPARENT_PREFIXES.has(word)) continue;
-		const m = INTERPRETER_WORD_RE.exec(word);
-		return m ? nonNull(m[1]) : null; // the first real word decides, either way
-	}
-	return null;
-}
-
-/** The interpreter of the segment containing `atIdx`, or null. `atIdx` points at
- *  the heredoc operator (whose segment head precedes it) or at the interpreter
- *  word itself; a bounded look-ahead covers both without scanning a whole body. */
-function segmentInterpreter(cmd: string, atIdx: number): string | null {
-	const head = cmd.slice(0, atIdx);
-	let segStart = -1;
-	for (const ch of SEGMENT_BREAKS) segStart = Math.max(segStart, head.lastIndexOf(ch));
-	return interpreterOf(cmd.slice(segStart + 1, atIdx + COMMAND_WORD_LOOKAHEAD));
-}
-
-/** Heredoc operator + delimiter: `<<EOF`, `<<-EOF`, `<<'PY'`, `<< "SH"`. */
-const HEREDOC_RE = /<<-?\s*(?:"([A-Za-z_][\w.-]*)"|'([A-Za-z_][\w.-]*)'|([A-Za-z_][\w.-]*))/g;
-
-/** Body of a heredoc: the lines after the operator up to the line whose trimmed
- *  text is the delimiter. A missing terminator yields the rest of the command —
- *  a truncated payload still carries the write. */
-function heredocBody(cmd: string, afterOp: number, delimiter: string): string {
-	const nl = cmd.indexOf("\n", afterOp);
-	if (nl === -1) return "";
-	const lines = cmd.slice(nl + 1).split("\n");
-	const end = lines.findIndex((line) => line.trim() === delimiter);
-	return (end === -1 ? lines : lines.slice(0, end)).join("\n");
-}
-
-/** Programs fed to an interpreter on stdin via a heredoc. */
-function collectHeredocPrograms(cmd: string): InlineProgram[] {
-	const programs: InlineProgram[] = [];
-	for (const m of cmd.matchAll(HEREDOC_RE)) {
-		const delimiter = m[1] ?? m[2] ?? m[3];
-		if (delimiter === undefined) continue;
-		const idx = m.index;
-		const interpreter = segmentInterpreter(cmd, idx);
-		if (!interpreter) continue;
-		programs.push({
-			interpreter,
-			form: `heredoc (<<${delimiter})`,
-			body: heredocBody(cmd, idx + m[0].length, delimiter),
-		});
-	}
-	return programs;
-}
-
-/** `python3 -c "…"` / `node -e '…'`, with optional flags before the script. */
-const INLINE_FLAG_RE =
-	/(?:[\w.\-/]*\/)?(python3(?:\.\d+)?|python|node|perl|ruby)\s+(?:-[A-Za-z-]\S*\s+){0,6}?-([ce])\s+("(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*')/g;
-
-/** Programs passed inline with `-c` / `-e`. */
-function collectFlagPrograms(cmd: string): InlineProgram[] {
-	const programs: InlineProgram[] = [];
-	for (const m of cmd.matchAll(INLINE_FLAG_RE)) {
-		const quoted = m[3];
-		if (quoted === undefined) continue;
-		// The interpreter must be the segment's command word, not a word inside
-		// another command's quoted argument (`echo "python3 -c …"` is data).
-		const interpreterIdx = m.index + m[0].indexOf(nonNull(m[1]));
-		if (!segmentInterpreter(cmd, interpreterIdx)) continue;
-		programs.push({
-			interpreter: nonNull(m[1]),
-			form: `-${nonNull(m[2])}`,
-			body: quoted.slice(1, -1),
-		});
-	}
-	return programs;
-}
 
 /** A filesystem-write call whose destination is a string literal. `path` is the
  *  capture group holding that literal; `mode`, when set, is a group that must
@@ -376,6 +276,34 @@ export function detectInterpreterWrite(cmd: string, projectRoot: string): Interp
 		if (hit) return hit;
 	}
 	return null;
+}
+
+/** Literal write destinations one pattern finds in one program body. */
+function patternWriteTargets(body: string, pattern: WritePattern): string[] {
+	const found: string[] = [];
+	for (const m of body.matchAll(pattern.re)) {
+		const target = m[pattern.path];
+		if (target === undefined) continue;
+		if (pattern.mode !== undefined && !WRITE_MODE_RE.test(m[pattern.mode] ?? "")) continue;
+		found.push(target);
+	}
+	return found;
+}
+
+/**
+ * Every literal write destination of this command's inline programs, resolved
+ * to an absolute path — WITHOUT the gate's own filters (tracked extension, in
+ * repo, not a temp root). The gate decides what it may block; the taint-flow
+ * recorder (`taint-lineage-flow.ts`) needs every file an actor wrote, whatever
+ * its extension or location. One write-pattern table serves both.
+ */
+export function interpreterWriteTargets(cmd: string, cwd: string): string[] {
+	if (!cmd) return [];
+	const programs = [...collectHeredocPrograms(cmd), ...collectFlagPrograms(cmd)];
+	const literals = programs.flatMap((p) => WRITE_PATTERNS.flatMap((pat) => patternWriteTargets(p.body, pat)));
+	return literals
+		.map((target) => resolveBashWriteTarget(cmd, target, cwd))
+		.filter((resolved): resolved is string => resolved !== null);
 }
 
 /** Write tokens whose FIRST argument is computed (not a string literal) — the

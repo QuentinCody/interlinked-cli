@@ -11,7 +11,7 @@
 import { readToolString } from "./tool-input-values.js";
 import { isAbsolute, resolve } from "node:path";
 import { loadAllowlist } from "../package-allowlist.js";
-import { parseInstallCommands } from "../package-install-parser.js";
+import { type InstallCommand, parseInstallCommands } from "../package-install-parser.js";
 import { checkSupermodelShardWrite } from "../supermodel-shard-write-guard.js";
 import type {
 	GuardRulesConfig,
@@ -26,6 +26,7 @@ import { analyzeApplyPatchDoom, analyzeStrReplaceDoom, formatDoomReason } from "
 import { evaluateProtectedFiles, evaluateRepoConfinement } from "./filesystem-guards.js";
 import { evaluateGitScopeGateSync } from "./git-session-scope-gate.js";
 import { isInspectionWrapperCall } from "./inspection-wrapper.js";
+import { recordLockfileBaseline } from "./lockfile-install-check.js";
 import { evaluateManifestEdit } from "./manifest-edit-guard.js";
 import { evaluatePackageInstall } from "./package-install-guard.js";
 import { computeFullNewContent, containsSecrets } from "./pre-tool-helpers.js";
@@ -79,6 +80,18 @@ export function evaluateSupermodelShardGuard(event: HarnessEvent): HarnessDecisi
 	return null;
 }
 
+/** Snapshot the lockfile BEFORE the install so PostToolUse can diff the
+ *  transitive closure (`lockfile_transitive_deps`, lockfile-install-check.ts).
+ *  A simulation (`harness test`) must not seed a real session's stash. */
+function snapshotLockfileForPostToolDiff(
+	event: HarnessEvent,
+	evalCwd: string,
+	installCommands: readonly InstallCommand[],
+): void {
+	if (event.dry_run) return;
+	recordLockfileBaseline(event.session_id, evalCwd, installCommands);
+}
+
 /**
  * GUARD: Supply-chain — block package-install shell commands whose
  * packages are not on the per-ecosystem allowlist. Runs before the main
@@ -97,6 +110,7 @@ export function evaluatePackageInstallGuard(
 			const installCommands = parseInstallCommands(cmd);
 			if (installCommands.length > 0) {
 				const evalCwd = event.cwd || process.cwd();
+				snapshotLockfileForPostToolDiff(event, evalCwd, installCommands);
 				const allowlist = loadAllowlist(evalCwd);
 				const supplyDecision = evaluatePackageInstall(installCommands, evalCwd, allowlist);
 				if (supplyDecision && supplyDecision.decision === "block") {
