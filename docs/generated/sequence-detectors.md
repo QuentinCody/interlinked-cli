@@ -90,7 +90,7 @@ Supply-chain, env injection, and repetition shapes — secret-then-network, down
 - **Phase:** `pre_warn`
 - **Default:** `enabled`
 - **Determinism:** `fully_deterministic`
-- **Description:** Third identical Bash command with no intervening Read of its output
+- **Description:** Repeated non-observational Bash command in recent session history
 
 ### `secret_read_then_network_call`
 - **Phase:** `pre_block`

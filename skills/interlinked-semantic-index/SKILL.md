@@ -5,6 +5,33 @@ description: "Install and operate Interlinked's optional local semantic function
 
 # interlinked-semantic-index — local function retrieval
 
+## Separate decision-metrics research index
+
+`metrics decisions embed|geometry|retrieve|candidates` uses a separate Ollama pipeline
+under `.interlinked/decision-metrics/`; it does not reuse or change `semantic.json`,
+the GGUF manifest, or `index/functions/`. Load **interlinked-quality-gates** for its
+measurement, ledger and audit commands. `retrieve` defaults to BM25; embedding and
+hybrid modes are explicit. Historical neighbors require fix provenance and exclude
+future data; current-consumer candidate discovery retains retrieval misses.
+`geometry` takes at most 200 records with one pinned embedding identity, retaining
+uncalibrated churn, group dispersion and nearest-neighbor distances. It is not a
+quality score; supply the same model identity for any prior embedding.
+The default is the full `embeddinggemma-2:740m-bf16`, with all encoders retained and
+768-dimensional output. Retrieval uses Google's code-query/document prompts;
+geometry uses symmetric similarity prompts. Profile identity travels with the
+model digest; do not mix those populations. Requests use 8K context and reject
+truncation. Ollama 0.35.1 cannot pull this model; use a compatible newer runtime.
+The current evidence path is text; selecting full weights does not certify image
+or audio ingestion. Qwen remains available by explicit `embeddingModel` config.
+
+The decision runtime serializes cooperating local jobs, checks resident models,
+switches between the two configured models and unloads after each stage. It refuses
+unrelated resident models. Embeddings are cached by exact input and model digest;
+they are retrieval/ranking evidence, not calibrated quality probabilities. The
+short PostToolUse advisory path does not perform repository-wide retrieval.
+See `docs/decision-metrics.md` for budgets and explicit remote decision configuration;
+the existing `semantic` commands below remain local-only.
+
 Interlinked can embed complete functions into a repository-local vector index and search them by
 meaning or similarity. The v1 subsystem is **experimental, explicit, and local-only**: no source,
 query, vector, or model inference is sent to the Interlinked MCP Server or a cloud provider.

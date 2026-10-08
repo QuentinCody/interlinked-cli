@@ -5,6 +5,12 @@ description: "Overview and router for the Interlinked CLI — a local guard, qua
 
 # interlinked — overview & skill router
 
+For experimental `metrics decisions` measurements, ThinkThen/Clef/Jev adapters,
+calibration audits, relational ledgers and `[interlinked:decision-metrics]` advice,
+load **interlinked-quality-gates**. For Qwen embedding retrieval/resource policy,
+also load **interlinked-semantic-index**. These unvalidated judgments are advisory;
+they do not participate in deterministic PreToolUse blocking.
+
 For repeated implementation advice (`repeated_implementation`), load
 **interlinked-verify**. This is an advisory AST comparison for Python and JS/TS,
 reported after a changeset and in the Stop/verification review. It is not a hard gate.
@@ -45,7 +51,9 @@ it. This skill orients you and points to the right focused skill.
 Jev semantic review is internal research only. The public Interlinked CLI has no
 `jev` command, and its harness never invokes Jev at Stop. Legacy `jev` guard
 settings do not enable it. Internal evaluation belongs to the source-checkout
-runner documented in `docs/internal/jev.md`; it is not a customer BYOK feature.
+runner documented in `docs/internal/jev.md`. The separate experimental
+`metrics decisions` pipeline supports explicitly configured System One backends;
+its opt-in PostToolUse advice is not the legacy Jev Stop reviewer.
 
 | Surface | Role |
 |---|---|
@@ -111,6 +119,10 @@ error. Missing or deferred evidence still means NOT CHECKED.
 | `checkpoint`, `rewind`, `resume`, `guard` | no | yes |
 
 ## Which skill to load for what
+
+For OS-denied connections, DNS/HTTPS failures, `interlinked network check`, or reusable
+`network codex-profile` setup, use **interlinked-setup**. Probe from the affected runtime;
+an allowed Interlinked decision cannot grant access denied by the host sandbox.
 
 Route `coverage check --lane e2e`, e2e evidence refusals and
 `coverage-e2e-baseline.json` to **interlinked-quality-gates**. Route

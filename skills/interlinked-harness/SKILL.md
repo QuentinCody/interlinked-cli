@@ -5,6 +5,14 @@ description: "Understand and respond to the Interlinked PreToolUse guard — the
 
 # interlinked-harness — the guard: what blocks you & how to respond
 
+`[interlinked:decision-metrics]` is opt-in PostToolUse semantic advice. It can report
+an adverse judgment, uncertainty, failure or missing evidence, but it never sets a
+pre-execution block or authorizes an action. Both flags in
+`.interlinked/decision-metrics.json` default off. The short inference deadline can
+be followed by up to five seconds of local-model unload verification. Load
+**interlinked-quality-gates** for configuration, replay and calibration; do not
+weaken deterministic policy to satisfy a model's judgment.
+
 ## Predict changes to guards
 
 The prediction phase includes a local JS/TS `if`-ownership oracle, independent of
@@ -91,6 +99,12 @@ Inspect the intended targets using the available tools; this heuristic does not 
 particular invocation. Deterministic destructive-command, reservation and protected-file
 decisions still apply. Do not infer safe deletion merely from a recent unrelated read.
 
+The legacy `same_command_thrice_no_observe` advisory excludes simple read commands
+such as `tail`, `rg`, and `git status`: polling their output is observation. Compound
+commands, shell expansion and output redirection remain eligible. The advisory reports
+matching command observations in session history; hook events do not prove distinct
+executions or whether the agent read the output. This exception changes no execution gates.
+
 Guard audit records retain references for repeated warning text. Use `interlinked data search
 --source warning-occurrences` to inspect full first/changed messages, hashes and occurrence
 counts; `data show ID` opens their raw evidence. This bounds repetition in the activity mirror
@@ -176,6 +190,13 @@ Host file policies require explicit bridge mapping and matching file snapshots.
 | **Content pre_block** (introduced-only) | edit that *introduces* merge-conflict markers, `eval()`, and other zero-FP checks | pre-existing instances (warn, not block) |
 
 ## When you're BLOCKED: what to do
+
+Distinguish a hook rejection from a command that executed and then failed. OS `EPERM`,
+DNS failure or a host proxy denial after Interlinked allowed a command requires runtime
+network diagnosis: `interlinked network check <http(s)-endpoints...> --json` in that agent
+shell. Follow **interlinked-setup** for reusable host permission profiles. Do not clear
+guard state, disable hooks or restart the daemon to repair an external sandbox restriction.
+
 For selected-hunk staging, prepare and review a patch, then run `git apply --cached <patch>`.
 It changes only the index and preserves other working-tree edits. `git add -p`, `-i`, and `-e`
 remain blocked as interactive operations; use `git add <paths>` for whole files.
@@ -231,6 +252,27 @@ environment assignments selecting proxies or client configuration also retain gu
 This is a static command classifier; it does not inspect ambient client configuration or
 prove what a local service does with received data. Other guards continue to apply.
 
+Sensitivity and step budgets follow the acting worker and its ancestors. An already-running
+clean sibling keeps its own sensitivity and configured step limit; new children inherit
+their parent's current sensitivity. This also applies to the optional content scanner.
+Unknown actors and legacy state retain the conservative session-level fallback. Exhausted
+workers receive handoff guidance; the guard does not suggest a commit it would block.
+
+Git scope checks normalize absolute session write paths and Git's repository-relative
+paths against the repository root, including commands invoked from subdirectories.
+Unowned files still require review; matching a path does not authorize a commit by itself.
+
+**Inspecting the sensitivity level.** `interlinked harness taint status [--session <id>]
+[--json]` reports the level, the step limit, the source that SET the level (proven from the
+`escalated` flag, or `inferred` as the earliest source at that level on a pre-flag snapshot)
+and the last sources; it reads live daemon state when a daemon answers, otherwise
+`.interlinked/sessions/<id>.live.json`, and says which.
+Lowering a level is **operator-only**: `interlinked harness taint clear --session <id>
+--reason "<text>"` needs a real terminal on stdin and stdout plus a typed session-id prefix,
+has no `--yes`/`--force`, and appends an audit row to `.interlinked/taint-clears.jsonl` — so
+ask the operator to run it from their own shell rather than trying to clear your own taint
+(like every local check, the TTY gate is a convenience, not a trust boundary).
+
 **Commit-risk nudge.** On a real Bash `git commit`, `[interlinked:jit][heuristic]` warns
 when the currently staged diff ranks at p90 or above against recent commits in this repo.
 It is advisory, never blocks, and does not replace subsequent commit gates. Inspect it with
@@ -254,18 +296,34 @@ remain explicitly unmeasured. A stopped or unavailable observer cannot certify c
 
 `harness coverage status --progress --json` reads cached observation time, generation
 and recovery counts without reconciling files or returning receipt history. Use it for
-progress, not to certify current bytes. Plain `harness coverage status --json`
-reconciles and returns pending identities plus bounded receipt history: at most 100
-rows and 1 MiB per kind, newest first, with omitted counts and the durable ledger
-path. Older evidence remains on disk. Neither status command starts recovery.
-Verification acknowledgements and completion polling exclude historical receipts.
-Recovery persists the job ID, remaining batches, counters and original 30-minute
-deadline. A normal daemon restart resumes that job; it does not reset the deadline
-or make partial checks complete. External reservations are outside this repository's
-scope; unsupported paths inside it remain explicitly unmeasured.
+progress, not to certify current bytes. Plain `harness coverage status --json` still
+reconciles and returns full evidence. Neither status command starts recovery.
+Starting verification returns a compact job acknowledgement. The waiting CLI refreshes
+current pending versions and the matching job's detailed results before declaring success,
+without copying historical receipts into each recovery response. An unmeasured check is
+not a successful verification, even if no findings or pending versions remain.
+While waiting, transient control outages are retried read-only for up to two
+minutes per outage (plus an in-flight RPC deadline), rather than failing after
+three timeouts. Terminal stderr reports the outage; JSON stdout remains one final
+document. A responsive report resets that outage window. Host permission denial
+and invalid control responses stop immediately; verification mutations are never
+automatically resubmitted after an ambiguous response.
 Receipts with nonempty `unavailable` retain completed checks as partial evidence while
 keeping the version pending. Retrying is not made unnecessary merely by having a receipt;
 safe cross-run reuse needs the relevant check input identities.
+
+Background coverage recovery runs ShellCheck and Taplo in file mode, sequentially
+under one project lease, with at most 32 inputs and a 30-second shared deadline
+per tool. Interactive multi-file requests still defer these file-only runners.
+Missing tools, truncated output, process failures and unparsed nonzero exits
+remain unavailable evidence; they cannot clear a pending version. Recovery may
+finish with pending versions when native test scopes or tools are missing, or
+when an observed file was deleted. Inspect the retained reasons before retrying;
+a completed job is not a claim that every version was checked.
+If a nested project's imported lint policy belongs to an ancestor project,
+background recovery waits for that policy project's lease within the existing
+tool deadline. Foreground checks still report contention immediately. Time spent
+waiting reduces the analyzer's remaining budget; it does not extend the job.
 
 `harness coverage accept-policy <digest>` records an explicitly reviewed current
 policy identity. It neither runs checks nor restores old policy bytes. A later
@@ -538,6 +596,6 @@ Existing top-level `session_predicate` fields retain their historical unconditio
 
 The baseline-effect warning records pre-call values for review. It does not guarantee that every consumer uses them: some gates still read loosened files directly. Review the exact diff and restore the prior values; the warning supplies no automatic restore command.
 
-A thrown sequence detector or failed Stop scan records NOT CHECKED evidence while healthy detectors continue. An instrumentation failure is not a source violation or a clean scan. LTL remains shadow-only: its event-clock.v1 counts PreToolUse and PostToolUse separately, including a paired tool-use ID. Open finite-trace obligations remain unknown at Stop; predicate exceptions taint that property and cannot manufacture violations. No local control-file guard is an immutable security boundary.
+A thrown sequence detector or failed Stop scan records NOT CHECKED evidence while healthy detectors continue. Stop rescans are confined to the selected repository, including resolved symlink targets. External memory/config writes retained in session history are reported out of scope; they cannot launch another project's scan or receive repository check receipts. Project-aware detectors receive absolute paths in that repository. Endpoint checks build a project graph only when a finding requires reachability annotation. An instrumentation failure is not a source violation or a clean scan. LTL remains shadow-only: its event-clock.v1 counts PreToolUse and PostToolUse separately, including a paired tool-use ID. Open finite-trace obligations remain unknown at Stop; predicate exceptions taint that property and cannot manufacture violations. No local control-file guard is an immutable security boundary.
 
 Each throwing trajectory rule produces unavailable shadow telemetry while peer rules and the LTL monitor continue. Adapter failures also retain unavailable telemetry without changing the enforcement decision.

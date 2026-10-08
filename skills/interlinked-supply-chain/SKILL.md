@@ -115,7 +115,28 @@ Re-snapshot whenever the manifest/lockfile changes — the gate matches on exact
 | `interlinked allowlist remove <eco> <pkg>` | Delete an entry. |
 | `interlinked allowlist list [--ecosystem <e>] [--json]` | Show approved packages + snapshots. |
 | `interlinked allowlist snapshot --by <name> [--lockfile <n>]` | Hash + store manifest/lockfile state. |
-| `interlinked allowlist verify` | Diff every committed manifest's deps vs the allowlist; **exits 1** on any unapproved (CI-gateable). |
+| `interlinked allowlist verify` | Diff every committed manifest's deps vs the allowlist AND screen the root JS lockfile's resolved (transitive) packages; **exits 1** on any unapproved (CI-gateable). |
+
+## Transitive packages (added 2026-10-04)
+The install gate sees only the packages NAMED on the command line. The registry resolves the
+rest, so a transitive dependency — including a native one (`koffi` pulled
+`@koromix/koffi-darwin-arm64`, a 1.2 MB `.node`) — reaches `node_modules` with no entry and
+no block. Two surfaces close that gap:
+- **After an install** (`lockfile_transitive_deps`, PostToolUse, warn-only, `[proven]`): the
+  harness diffs the lockfile before and after the command and warns for every NEW package not on
+  the allowlist, native ones first. It cannot block: the bytes are already on disk. An unparseable
+  lockfile or a missing before-snapshot is reported as NOT MEASURED, never clean.
+- **`allowlist verify`** now fails when the root lockfile (`package-lock.json`,
+  `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`) holds a package that is not
+  on the allowlist, EVEN WHEN every direct dependency is approved. A matching
+  `lockfile_snapshots` grant for that exact lockfile approves the whole resolved set. Rows are
+  capped at 25 per lockfile plus one summary row; an unparseable lockfile is reported as NOT
+  screened. Only the root lockfile is screened (the same scope `allowlist snapshot` hashes).
+
+Remediation: review the transitive packages that verify lists (native evidence is called out),
+then have a human approve the resolved set with
+`interlinked allowlist snapshot --lockfile <file> --by <name>`, or approve individual packages
+with `allowlist add`. An agent must not snapshot to silence the check on its own.
 
 ## Allowlist file format — `.interlinked/package-allowlist.json` (committed, PR-reviewed)
 ```json

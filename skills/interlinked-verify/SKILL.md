@@ -5,6 +5,13 @@ description: "Run `interlinked verify`, understand the PostToolUse quality check
 
 # interlinked-verify — check your work & land edits through the gates
 
+The experimental `metrics decisions` pipeline is separate from `verify` and its
+check registry. Its opt-in PostToolUse warnings are advisory, use actual pre-edit
+hashes, and retain failures/budget exclusions as unmeasured outcomes. They do not
+clear type, coverage, mutation or e2e obligations and do not change
+`DEFAULT_ADVISORY_SKIPS`. Use **interlinked-quality-gates** and
+`docs/decision-metrics.md` for pilot labels, five-arm audits and model drift.
+
 ## Claude compiler batches
 
 After a Claude session has delivered a native `PostToolBatch`, declared single-file
@@ -203,6 +210,13 @@ obligations; a repository without it pays nothing.
   yourself (the command never edits it), `tests e2e run`, then `tests e2e
   qualify --scenario <id>` for a stability cohort, then `tests e2e check`.
   A deliberate failure is CASE_FAILED, never a pass.
+- A `qualified` cohort is a sample, not a flake-free claim. Its reason states
+  the one-sided 95% upper bound on the per-run failure rate, 1 − 0.05^(1/n):
+  the default 3/3 bounds it only to ≤ 63.2%, 5/5 to ≤ 45.1%. The bound
+  assumes independent attempts; each attempt declares its own seed, but
+  whether a run consumed it is not checked. A `mixed` cohort states its
+  observed failure rate. Quote the bound, never "qualified" alone, when you
+  report stability.
 - Completion gates judge EXACT bytes, never "the repository": `tests e2e
   check --staged` judges the index (an unstaged fix does not count),
   `--revision <rev>` an exact commit; both are materialized from git's object
@@ -420,21 +434,33 @@ For `[interlinked:hook-coverage] NOT CHECKED`, use `interlinked harness coverage
 for completion; `--no-wait` returns after starting it. Use `harness coverage status
 --progress --json` for cached progress: it reports generation, observation time, pending
 count and job counters without rehashing files or returning historical receipts. This
-is not a fresh coverage verdict. The waiting CLI uses this compact path and fetches
-current pending identities and the matching job's detailed result before reporting
-completion; it still accepts older daemons that return full reports. Use plain
-`harness coverage status --json` for an explicit refresh, pending identities and bounded
-receipt history. Omitted-count metadata names the durable ledger containing older
-receipts. Checks reuse the configured PostToolUse battery in bounded
+is not a fresh coverage verdict. Verification starts with a compact job acknowledgement.
+When stderr is a terminal, the waiting command prints progress immediately and every ten
+seconds, including in `--json` mode; stdout remains one final JSON document. Batch counters
+can stay unchanged while a large test plan runs. The latest project test observation is
+shown separately: it may belong to another request and is not a liveness or success claim.
+Imported lint uses its asynchronous project runner during recovery; it is not a file-only
+deferral. Its ordinary tool timeout and resource admission still apply.
+Redirected stderr stays quiet. Ctrl-C stops the waiting CLI, not the daemon-owned job;
+inspect it from another terminal with `harness coverage status --progress --json`.
+The waiting CLI refreshes pending identities and the matching job's detailed results before
+reporting completion, without copying historical receipts. Older daemons returning full
+reports remain supported. Incomplete or unmeasured checks exit nonzero even when findings
+and pending counts are zero. Use plain `harness coverage status --json` for an explicit refresh,
+all pending identities and recent receipt details. Status considers the newest 100 automated
+receipts and 100 manual reviews, returning at most 1 MiB per kind. Oversized rows are omitted
+whole; `history` reports total, returned and omitted counts, ordering, limits and `ledgerPath`.
+Complete history stays in that on-disk ledger; omission from a status response never deletes
+evidence or acknowledges pending work. Checks reuse the configured PostToolUse battery in bounded
 external batches. This does not replay PreToolUse guards or certify every hook phase.
-While waiting, an unavailable read-only status response is retried for up to two
-minutes per outage, plus any in-flight RPC, without restarting verification. A healthy
-report resets the outage window. Permission denial or an invalid response stops
-immediately. Persistent unavailability exits nonzero; the job may still be running.
-Only a ready response with a missing or different job establishes that the observed
-job changed or disappeared. Normal daemon restarts resume the durable job ID, cursor,
-counters and original 30-minute deadline; shutdown cannot publish late evidence.
-An incomplete completion exits nonzero even if it has no findings or pending rows.
+The test scheduler collapses wholly ignored dependency/build directories during checkout
+pollution scans, while retaining individually ignored files such as `.claude/settings.json`.
+It does not enumerate `node_modules` into the Git status buffer before every test batch.
+While waiting, an unavailable status response is retried up to three consecutive
+polls without restarting verification. A responsive report resets that counter.
+Persistent unavailability exits nonzero with the original reason; the job may still
+be running. Only a ready response with a missing or different job establishes that
+the observed job changed or disappeared.
 On Claude and Codex Stop/SubagentStop, advisory coverage feedback stays on exit-0 stderr and
 does not request another agent turn. Only an explicit blocking decision requests
 continuation. This delivery rule does not clear pending evidence or certify checks;
@@ -443,13 +469,29 @@ turn ended. Writer identity remains unknown after recovery.
 An initially absent watched path contributes to policy identity but creates no write-check
 obligation. Creation or deletion after observation still requires evidence; previously
 recorded historical gaps are not cleared by this rule.
+Repository recovery observes only reservations lexically inside that repository. Reservations
+for external memory files or other checkouts do not make this repository unmeasured and gain
+no coverage receipt from it. In-repository symlinks and unsupported glob reservations remain
+explicitly unmeasured.
+When observer readiness interrupts recovery, the failed job retains the observer's
+first three concrete reasons rather than only a generic filesystem-unavailable message.
 Recovery groups pending files by project and applicable checks, then checks up to 32
 compatible files together. Documentation does not inherit an unrelated source-test
-timeout, and nested projects acquire their own admission lane sequentially. Each
-recovery related-test process gets at least 15 minutes and at most two workers, with
-the complete union of related tests for up to 32 sources. This reduces repeated broad
-suites without selecting a passing subset. Ordinary hook deadlines and source-count
-limits remain unchanged; recovery still defers honestly on capacity or timeout.
+timeout, and nested projects acquire their own admission lane sequentially. Receipt
+batches share one fresh test scheduling request per project, language and check configuration
+over the job's complete planned input cohort. This prevents an opaque full-suite plan
+from running again for every 32 files. The shared request is queued once; later receipt
+batches do not recreate completed test requests. The scheduler may retry actual input
+drift within that request's deadline; unrelated requests arriving later cannot hold its
+validated completion open or replace its result. Each recovery test process gets at
+least 15 minutes and at most two workers within the original 30-minute job deadline.
+Source inventory, all planned inputs, declared fixtures and environment must still
+match before a later batch receives the result; a claimed validated runtime is checked
+again too. Changed inputs remain pending for a fresh job. Failed and unavailable results
+are retained for this job without repeated execution and are never promoted into passes.
+This is one job's execution evidence, not a persistent test cache: another job or daemon
+replacement executes a fresh test cohort for its remaining inputs. Ordinary hook deadlines,
+source-count limits and unavailable-result semantics remain unchanged.
 
 Explicit recovery now waits up to 30 seconds for each external batch's existing project
 lease. Its affected-test scheduler waits within the configured recovery deadline and
@@ -463,6 +505,13 @@ Go covers the project packages. These project suites produce fresh execution evi
 reusable dependency-closure receipts. Missing runners, empty/unrecognized successful output,
 and pytest collection/configuration errors are unmeasured. Current non-TS suite failures are
 warnings; without a before result they are not classified as introduced regressions.
+Automatic non-TS suites require a marker for their own language at the selected root.
+A Python file under a TypeScript repository without a Python project marker stays
+unmeasured rather than launching pytest over unrelated scratch projects. `pytest.ini`
+and `.pytest.ini` identify Python project roots, alongside the existing Python markers.
+Python/Rust/Go files are not enqueued as Vitest requests. Explicit `tests suite` commands
+retain their selected-project contract; declare the intended test project before retrying
+an automatic check with no qualified root.
 The external path cap applies separately to each check's applicable paths in the selected project.
 An inapplicable binary path does not consume a TypeScript check slot; an applicable security
 target still counts. This is not a blanket dependency/cache exclusion.
@@ -483,11 +532,26 @@ shared scope evidence. Recovery has a 30-minute job budget; cancellation reaches
 owned asynchronous subprocesses and capacity waits. Earlier recorded evidence survives.
 Unavailable checks, unreadable/excluded/absent files, and file or policy changes during
 verification stay pending. With waiting enabled, findings or remaining pending versions
-produce exit 1. Re-run after the reported capacity/tool problem is resolved. A daemon
-restart interrupts the job; recorded receipts survive and unchecked entries remain pending.
+produce exit 1. Re-run after the reported capacity/tool problem is resolved.
+The current verification job is durable in `.interlinked/hook-coverage.json`: its exact
+input plan, job ID, batch cursor, findings, unavailable details and original deadline
+survive daemon replacement. The successor automatically resumes an interrupted batch
+under the same job ID; completed batches are not repeated. File identities and current
+policy are checked again before accepting new evidence. Receipts and batch progress
+commit atomically, so a crash cannot advance progress without saving its evidence.
+Completed job results also survive restart for waiting clients. Restart does not renew
+the 30-minute budget; an expired job finishes with unmeasured work and pending versions.
+An older daemon's memory-only job cannot be reconstructed during this upgrade: its saved
+receipts survive, but a new verification run is needed after activating the updated daemon.
+Filesystem reconciliation persists all observed changes in one atomic transaction, and
+recovery persists each checker batch once. These writes retain the full receipt history
+without cloning it or serializing it into one giant string. Generations still advance for
+each changed observation or accepted receipt; partial and stale evidence cannot clear gaps.
 Active recovery keeps the raw and framed listeners out of idle shutdown and delays
 automatic build handover within its normal freshness deadline. Explicit restarts and
-memory safety shutdowns still interrupt recovery; inspect status and retry afterward.
+memory safety shutdowns still cancel owned subprocesses; the successor resumes durable
+work within its original deadline. The CLI keeps following the same job across a short
+transport interruption and still refuses a genuinely missing or different job.
 
 Released reservations remain watched while pending, so review cannot acknowledge a stale
 historical hash. `harness coverage acknowledge <id> <generation> <identity> <evidence>`
@@ -596,11 +660,42 @@ Plan loads the project's Vitest configuration in a bounded child but runs no ass
 Status returns pending inputs and the last observed job ID, PID, snapshot and state; a
 retained running observation is not proof its owner is still alive.
 
+**Static selection and result reuse are OFF by default (operator decision 2026-10-06).** Three
+review rounds found escapes in the effect classifier below (`mkdirSync`, aliased or
+parenthesized `vi.importActual`, escaped `Function`/`eval`, `import.meta["url"]`, environment
+keys the receipt identity does not hash) that produced false-green plans: a cached pass for a
+test that now fails, or an affected test left out. So every `tests run` / scheduled run executes
+the whole universe and certifies nothing reusable; the run is still validated before and after
+(runtime hash) and still binds measured sources for the commit coverage gate. The classifier
+remains TELEMETRY: `tests plan` prints `Classifier estimate (not applied unless
+--static-selection)`, and the CI comparison job (`scripts/ci-select-compare.mjs`) plans with
+`--static-selection` to keep measuring it. Pass `--static-selection` only to experiment; do not
+make it the default before a runtime-traced design exists.
+
+Planning indexes companion prefixes once and retains a bounded, process-local cache
+of module-analysis summaries keyed by source bytes and path. Imports are resolved
+against the current inventory on every plan; changed/deleted files, extra fixtures,
+syntax failures and uncertainty retain their existing behavior. This cache holds
+neither test results nor reusable execution evidence and does not enable static
+selection. The first plan after a daemon restart still pays the analysis cost.
+
 The TypeScript/Vitest hook paths use this same union: edited tests, static transitive
 consumers, colocated and `__tests__` companions, declared inputs, and historical coverage
 consumers. Estimates use existing per-shard durations and otherwise say unmeasured.
-An opaque test runs on any input change; shared opaque setup/configuration, unknown/deleted
-inputs, incomplete discovery or an explicit full request widen to the full suite.
+Each module is classified per OPERATION (`src/harness/runtime-effects.ts`, 2026-10-02):
+OPAQUE when executing it may read inputs the identity does not hash (an `fs` READ —
+`readFileSync`, `existsSync`, `stat`, a namespace or default `fs` import; `child_process`,
+`worker_threads`, `vm`, `module`, network builtins, `fetch`; package code; dynamic
+`import()`/`require`, `eval`, `Function`; a computed `global[...]` access);
+NONDETERMINISTIC when its result may not repeat (the clock, `performance`, `Math.random`,
+crypto randomness, timers, `Buffer.allocUnsafe`); neither for the environment (`process.env`,
+`cwd()`, `os.*` — already in the identity's environment hash), pure builtins, and `fs`
+WRITES (outputs, not inputs). An opaque test runs on any input change; a nondeterministic
+one is selected only by its real dependencies but its run is never reused. src/ fixture
+modules (`__fixtures__/`, `fixtures/`) are import targets in the graph, so a changed fixture
+selects its importers instead of widening; they are outside the identity hash, so a closure
+that reaches one is never reused. Shared opaque setup/configuration, unknown/deleted inputs,
+incomplete discovery or an explicit full request widen to the full suite.
 Named/multiple Vitest projects currently use native full execution rather than selective
 indexing. Python/Rust/Go retain their existing dispatchers; mixed-language batches defer.
 
@@ -614,9 +709,10 @@ omitted set; `widened` when the plan omitted nothing; `incomplete` when a lane, 
 selection or the selected run left no report (a miss already seen still reports as a miss).
 Neither job is a required check and neither fails on a miss. Promotion needs zero misses over
 at least 30 rows that are SELECTIVE and complete; a widened row proves nothing. Measured
-2026-10-01: every plan on this repository widens, because `vitest.config.ts` and the setup
-files read `process`/`Date` (opaque by the input-eligibility rule) and `__fixtures__/` files
-read as unknown inputs, so expect `widened` rows until that changes.
+2026-10-02 in a clean clone after the per-operation rule: the setup and config are
+transparent and the last three commits each plan `selected`, running 1978 and omitting 547
+of 2526 test files (most remaining closures are opaque through `fs` reads); a commit that
+changes shared configuration still widens.
 
 Optional `.interlinked/test-dependencies.json` declares additive literal inputs:
 
@@ -633,6 +729,10 @@ stability, but no exact runtime or coverage verdict exists. A failed bounded run
 also disables reuse and widens selection. No runtime values are persisted in receipts.
 Failed, interrupted, missing-report, all-skipped and empty runs never create passing receipts.
 Edits during execution trigger another plan; stale evidence cannot clear pending work.
+If the execution itself fails or is deferred, concurrent source/environment changes
+do not trigger an automatic retry: the command returns that result with the input-change
+reason and retains pending requests. Fix the reported failure or capacity issue before
+retrying. A failure observed on older inputs does not certify the current checkout.
 
 For Python, check prerequisites in the selected project interpreter after creating a
 venv. System pytest/coverage packages are not available in an ordinary isolated venv.
@@ -647,7 +747,10 @@ results also require a fresh matching runtime census. This request-specific shar
 distinct from reusable passing-result caching. Hooks defer immediately when another process occupies capacity,
 while explicit CLI runs wait within their deadline. A subscriber's timeout does not cancel
 another caller's shared work. Durable requests survive timeout and process restart. The
-queue reads at most 1,000 requests per batch and continues draining later batches.
+queue reads at most 1,000 requests per batch. A caller returns once its own request has
+a validated completion; it does not wait for unrelated requests added during its run.
+Later subscribers schedule their remaining work separately, and unattended requests
+stay queued for the next drain. Actual input drift still requires a fresh execution.
 A passing run is certified by a RECEIPT keyed by its CHECK IDENTITY (2026-09-28,
 `src/harness/check-identity.ts`): the plan snapshot and runtime hash (inputs), the logical
 runner argv (mode, workers, `--coverage`, extra reporters), the toolchain (node plus the
@@ -663,11 +766,13 @@ drops ONLY variables proven not to reach a verdict — the shell's cwd bookkeepi
 paths, `CI`, `NODE_ENV`, `NODE_OPTIONS`, `TMPDIR`, every other `INTERLINKED_*` and any user
 variable stay in the hash because a test may read them. The child still receives the exact
 environment, and the shared-completion path keeps the exact hash. A full run is reusable
-evidence only when every closure resolves inside the inventory and nothing is untracked: an
-opaque test (dynamic import, `process`, `fetch`, the clock, an external fixture) or a test
-outside the inventory makes the run fresh-only, because hashing repository bytes cannot see
-what those tests read; an opaque SHARED setup or configuration file (it runs in every
-test) makes every run fresh-only, selected or full, changed or not. A reporter module run
+evidence only when every closure resolves inside the inventory, repeats and nothing is
+untracked: an opaque test (an `fs` read, dynamic import, `fetch`, package code), a
+nondeterministic one (the clock, randomness, timers), a closure that reaches a fixture
+module, or a test outside the inventory makes the run fresh-only, because hashing repository
+bytes cannot see what those tests read or pin what they draw; an opaque or nondeterministic
+SHARED setup or configuration file (it runs in every test) makes every run fresh-only,
+selected or full, changed or not. A reporter module run
 from outside the checkout (`--coverage-reporter`) is bound by the digest of its bytes and
 of every dependency it loads. Loads are read from the PARSED source (a specifier that is
 not one string literal — `import("./x" + ext)`, a template — is a computed load, never a
@@ -680,9 +785,10 @@ transitively, the installed contents of every package it declares (a version pin
 nothing — an edited internal helper is a different reporter). A computed load, an
 unparseable or unresolvable module, an `exports` shape the resolver does not model
 (patterns, arrays, an unexported subpath), a declared dependency that is not installed,
-or a closure over 400 files is UNRESOLVED. And the reporter obeys the SAME
-input-eligibility rule as a test or setup file, and so does every installed code file of
-a bound package (declaration files never run): a module that names a runtime read the
+or a closure over 400 files is UNRESOLVED. And the reporter is held to a STRICTER rule
+than a test or setup file (the pre-2026-10-02 text rule, `runtimeOpacity`), and so is every
+installed code file of a bound package (declaration files never run); a stricter reporter
+rule can only make a run fresh-only, never reuse wrong bytes: a module that names a runtime read the
 bytes cannot pin — `process`, `fetch`, `Date`, `Buffer`, timers, `require`/`createRequire`,
 `import.meta`, `Math.random`, eval — or imports a builtin OPERATION that is not pure is
 OPAQUE, because complete module hashing cannot cover external data, network responses,
@@ -706,8 +812,9 @@ reuses across a byte-identical export. Re-establishing reuse for the scope needs
 inclusion decision computed OUTSIDE the run (the provider's `include`/`exclude` globs
 re-evaluated deterministically), not a more permissive rule. Every identity input,
 the reporter binding included, is re-read after the run: a change between hashing and
-execution is `stale` and certifies nothing. In THIS repository nearly
-every test is opaque, so full-run receipts are not produced here today. A subscriber that
+execution is `stale` and certifies nothing. In THIS repository about 1,980 of 2,526
+test closures are still opaque (mostly through `fs` reads), so full-run receipts are not
+produced here today. A subscriber that
 shares a run but owns a different receipt store gets the artifacts materialized into its
 own store (sha256-verified), so its export never depends on the producer's store. Receipts are v2 (`identity`, `platform`, `toolchain`,
 `stages`, optional `artifacts`), unsigned and local; a v1 receipt is ignored.
@@ -951,6 +1058,14 @@ correctness/bug-class, agent-clarity, complexity, test-quality, comment/spec dri
   `write_without_mkdir`, `unvalidated_json_boundary`, `magic_literal_in_conditional`,
   `non_null_assertion` ratchet, `introverted_test`, …).
 
+**Comment and string stripping is parser-backed.** The shared `stripComments` /
+`stripCommentsAndStrings` that most inline checks read first go through the TypeScript parser
+when the content parses as TS or TSX. Other content (Python, Rust, Go, fragments, an install
+without `typescript`) uses the line scanner. `INTERLINKED_STRIP_PARSER=0` sends every caller to
+the line scanner, as a rollback or to compare fire rates. The advisory `hand_rolled_lexer`
+check names a new function that lexes JS by hand (a character loop with quote or comment
+state). Mark a deliberate fallback with a `lexer-fallback: <reason>` comment.
+
 **Type assertions.** `unjustified_cast` uses the TypeScript AST when available, including
 angle-bracket assertions, literal targets, and anonymous object targets. `as const` is excluded.
 A justification must be an actual comment with a nonempty `SAFETY:` explanation on the
@@ -1024,6 +1139,18 @@ Every finding is tagged `[proven]` (a real tool ran it — fix it) or
 `[heuristic]` (regex/AST shape — evaluate it). See **interlinked-harness** for
 the suppression grammar (`// interlinked-ignore: <check> — reason` /
 `verify-suppressions.json`).
+
+**Stale suppressions (2026-10-05).** The `suppression hygiene` row lists
+suppressions that matched nothing. It is report-only and does not change the
+exit code. The two kinds have different strength:
+- `stale_file_suppression` `[proven]`: a `verify-suppressions.json` entry whose
+  literal path does not exist. Remove the entry. Glob keys are not judged.
+- `unused_inline_suppression` `[heuristic]`: an `interlinked-ignore` directive
+  that suppressed no finding within ±1 line in this run. verify does not record
+  which checks ran on each file, so this means EITHER the finding is gone OR
+  verify does not run that check here (hook-only checks, advisory checks
+  without `--all-checks`). Before you remove the directive, run the named
+  detector on the file; remove it only when the detector finds nothing.
 
 **Checker availability is a first-class state (2026-08-27).** The tsc overlay
 returns one of three outcomes: `ok` (it RAN — empty findings = checked clean),
@@ -1229,8 +1356,8 @@ Convention: one date-prefixed subdir per effort (`scratch/2026-07-19-<slug>/`). 
 
 ### Verify writes observed outside tool gates
 
-`interlinked harness coverage status --json` shows pending exact file identities,
-watcher readiness, automated check receipts and manual review receipts. Run
+`interlinked harness coverage status --json` shows all pending exact file identities,
+watcher readiness and bounded recent check/review receipts with explicit history counts. Run
 `interlinked harness coverage verify --json` to check the pending versions through
 the daemon's configured PostToolUse checks; `--no-wait` starts the job and returns.
 Polling status reports progress. A completed job can still contain findings or

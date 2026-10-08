@@ -342,10 +342,12 @@ function sanitizeHelpOutput(output: string): string {
 
 // Commands with subcommands — mirror the groups registered in src/index.ts.
 const CLI_COMMAND_SUBCOMMANDS: Record<string, string[]> = {
+	network: ["check", "codex-profile"],
 	data: ["catalog", "health", "status", "index", "scan", "lab", "search", "show", "investigate", "sessions", "files", "checks", "usage", "schema", "suggestions", "recurrence-inventory", "configure", "maintain", "audit"],
 	structure: ["init", "scan", "status", "accept", "doctor", "baseline"],
 	lint: ["scan", "import", "check"],
-	metrics: ["coupling", "arch", "rework", "complexity", "split-plan", "score", "diagnostics", "diagnostics compare", "catalog", "explain", "compare", "corpus", "gates", "deletions", "deletions validate", "evidence", "evidence status", "evidence identity", "evidence import", "evidence run", "coverage", "coverage status", "coverage warm"],
+	metrics: ["coupling", "arch", "rework", "complexity", "split-plan", "score", "diagnostics", "diagnostics compare", "catalog", "explain", "compare", "corpus", "gates", "deletions", "deletions validate", "evidence", "evidence status", "evidence identity", "evidence import", "evidence run", "coverage", "coverage status", "coverage warm", "decisions",
+        ...["init", "catalog", "prepare", "snapshot", "candidates", "retrieve", "pilot", "labels", "join-labels", "probe", "measure", "review", "embed", "geometry", "audit", "replay", "diff"].map(action => `decisions ${action}`)],
     simplify: ["scan", "review", "audit", "status"],
     tests: ["plan", "run", "status", "suite", "readiness", "review", "contracts", "contracts import", "contracts inspect", "contracts run"],
     allowlist: ["add", "propose", "remove", "list", "snapshot", "verify"],
@@ -377,6 +379,7 @@ function generateCliReference(): string {
 
 	// Extract top-level command names from help output
 	const commandNames = [
+		"network",
 		"data",
 		"structure",
 		"verify",

@@ -111,9 +111,30 @@
         "approved_by": "qcody",
         "reason": "e2e coverage merger: 1.0.3 Locator.offsetToNeedle rescans the bundle from offset 0 on every new maximum (quadratic, 165 s over 7 MB of dist); 1.0.7 binary-searches line starts",
         "license": "MIT"
+      },
+      "isomorphic-git": {
+        "approved_at": "2026-10-07T17:10:53.747Z",
+        "approved_by": "quentincody",
+        "reason": "Weft contest probe P2: git writes from a Cloudflare Worker over Artifacts smart HTTP (user-authorized probes 2026-10-07)",
+        "license": "MIT"
       }
     },
-    "pypi": {},
+    "pypi": {
+      "asgiref": {
+        "approved_at": "2026-10-07T14:30:13.729Z",
+        "approved_by": "QuentinCody",
+        "reason": "User approved asgiref==3.8.1 for the isolated fresh-verification Python 3.9 research environment; no global install or project dependency changes.",
+        "version_range": "3.8.1",
+        "license": "BSD-3-Clause"
+      },
+      "pytz": {
+        "approved_at": "2026-10-07T14:31:14.378Z",
+        "approved_by": "QuentinCody",
+        "reason": "User approved pytz==2025.2 for the isolated fresh-verification Python 3.9 research environment; no global install or project dependency changes.",
+        "version_range": "2025.2",
+        "license": "MIT"
+      }
+    },
     "cargo": {},
     "rubygems": {},
     "go": {},

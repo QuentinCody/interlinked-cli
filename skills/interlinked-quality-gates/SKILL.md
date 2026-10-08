@@ -5,6 +5,49 @@ description: "Configure and respond to Interlinked's metric ratchets: line-count
 
 # interlinked-quality-gates — the metric ratchets
 
+## Experimental decision-model measurements
+
+`metrics decisions` is an experimental research/advice namespace, not a ratchet.
+Read `docs/decision-metrics.md` for the full contract. `init` writes disabled
+`.interlinked/decision-metrics.json`; manual commands explicitly request inference.
+Defaults are local Ollama Clef Flash 9B through ThinkThen's CLI and the full
+EmbeddingGemma 2 740M BF16 (`embeddinggemma-2:740m-bf16`) at 768 dimensions. Qwen3 Embedding 4B is an explicit
+comparison model. No weights or binaries are downloaded automatically.
+
+Use `catalog`, `prepare --unit function|hunk|all`, `measure --plan`, then `measure`.
+The source extractor pins native metrics; optional bca needs `--bca-command` and
+the exact `--bca-version`. Keep bca values separate from native counters.
+`snapshot` and `candidates [--retrieval lexical|embedding|hybrid]` prepare consumer
+cohorts. `review --analysis obligations|atomicity|faithfulness|compare|coupling|rework`
+runs the relational protocols. Atomicity and faithfulness require one revision.
+Supply literal claims with `--claims`; otherwise description lines are the lexical
+baseline. Verification-only obligations do not require unnecessary edits.
+Use hunk records for contract changes to types, interfaces and enums; function-only
+extraction omits those declarations. `embed` then `geometry` produces provisional
+distances on a bounded population, never calibrated quality probabilities.
+
+`pilot` collects commits; `labels` creates blind templates; `join-labels` requires
+the complete labeled population; `audit --cutoff DATE` uses a time split. Add
+`--comparison` for matched direct/retrieval cohorts and five-arm reporting.
+Independent reviewer labels, comparable features and clone/fork grouping remain
+operator responsibilities. `replay --band LOW:HIGH` is offline; `diff --after RUN`
+reports drift; `probe` performs fresh meaning/stability tests. An audit diagnostic
+never promotes a question to a blocking gate.
+Audit band suggestions use training labels only. Preserve full distributions and
+question contracts when joining labels; mixed rubric versions are rejected.
+
+Preserve all five states: answered, insufficient evidence, abstained, failed and
+unassessed. CLI exits are 0 completed/plan, 2 usage/configuration, 3 uncertain or
+insufficient, 4 failed runtime/all failed, 6 partial failure and 7 unassessed.
+Raw score distributions and exact wire exchanges stay in the private local run
+store. `--fresh` preserves earlier observations. Model probabilities are marked
+unvalidated on code; do not describe their sums as expected defect counts.
+
+Automatic advice requires both `enabled` and `hook.enabled`, permits only
+function contracts, and uses exact observed source hashes for pre-edit baselines.
+Missing baselines and short deadlines produce explicit missing assessments.
+Keep existing deterministic coverage, mutation and e2e obligations in force.
+
 Edit-time function tokens, cyclomatic complexity and cognitive complexity now
 advise by default. Shared `.interlinked/config.json` can explicitly select
 `harness.edit_metrics.mode: "enforced"` for the existing hard cap behavior.
@@ -850,6 +893,37 @@ the current staged diff and warns at p90 or above. It never blocks and remains s
 measurement is unavailable. For `git commit -a` or commands that construct the index later,
 the staged snapshot is advisory context, not a measurement of the eventual commit.
 
+The commit-time session checks read the files this SESSION edited, not the commit. Since
+2026-10-05 three of them — `prod_delta_no_test_delta`, `tpp_leapfrog`,
+`reintroduces_removed_code`, whose `file` is the file they judged — are narrowed to the files the
+commit captures (`evaluator/commit-file-set.ts`). The scope is used only when git alone makes it
+certain: the WHOLE command is one `git commit` (the index) or `git commit -a` (plus tracked edits)
+with only message/author/quiet/no-verify-style flags, in the session directory. Any other command
+in the same line (`git add`, `git apply --cached`, `cd`), an environment or `git -c` override, a
+pathspec, `--amend`, `-p` or a heredoc leaves the scope unknown, and every finding is reported
+session-wide. The capped
+`reintroduces_removed_code` detector gets the committed files as its INPUT, so unstaged files
+cannot use up its result limit. Every other commit-time check is reported session-wide as before,
+because its `file` can be an example or a cycle's source rather than the evidence. Errors are
+never narrowed.
+
+A second warn-only commit-time backstop, `[interlinked:commit-shippability]`, checks that the
+commit would work in a clean checkout. It warns when a staged `.ts/.tsx/.js/.mjs/.cjs/.mts`
+file imports a relative file that exists on disk but is untracked or gitignored, and when a
+`.github/workflows/*.yml|yaml` `run:` line names a `scripts|src|bin|tools` path that is
+ignored, untracked or missing. The workflow scan uses a documented regex, not a YAML parser,
+and runs only when the commit stages a workflow or a file under those directories. It inspects
+at most 200 staged files and reports any git failure as one `NOT CHECKED` line. It never blocks.
+
+A third warn-only backstop, `[interlinked:commit-coverage]`, echoes the pre-push per-file
+coverage ratchet at commit time. A passed coverage run writes `coverage/sources.json` in its run
+directory: the sha256 of each file it measured, with its percentages. At `git commit` the gate
+hashes each staged product code file (the line-cap scope, at most 50). If a recent run measured
+exactly those bytes below `.interlinked/coverage-baseline.json`, the gate names the file and the
+metrics. Staged bytes that no run measured get one `NOT MEASURED` line with the command that
+measures them (`interlinked tests run --all --coverage`). A match binds the source bytes only,
+not the staged tests, so the pre-push ratchet stays the gate. It never blocks.
+
 ### Function-token inventory
 
 `interlinked metrics --top 10` shows the stable function bands, percentile summaries, the ten
@@ -1078,7 +1152,12 @@ partial or unmeasured result compares nothing — and appends `{push_sha, full, 
 `.interlinked/coverage-index-comparison.jsonl` (`interlinked query
 coverage-compare`); it never decides the push, and promotion waits on that
 ledger agreeing over recorded pushes (`INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE=1`
-skips it for one push). Measured on this repository (2507 test shards, an
+skips it for one push). Since 2026-10-02 the comparison runs in a DETACHED
+background job that owns the export: the push returns as soon as the
+authoritative gates finish, the job appends the same row, writes its notes to
+`.interlinked/coverage-index-compare.log` and removes the export when done
+(`INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND=1` keeps it inline; the hook tests use
+that). Measured on this repository (2507 test shards, an
 export, 2026-09-30, supervised, one worker — `--workers`, default 1: three
 instrumented workers exceeded the 4 GiB tree budget): the first full index
 run 1679 s (961 s unsupervised with three workers on 2026-09-29), a re-run of

@@ -179,6 +179,32 @@ interlinked install-hooks --runner claude-code --scope project
 
 ## Native shell sandbox posture
 
+For command-network failures, run `interlinked network check <http(s)-endpoints...> --json`
+inside the affected agent shell. It makes bounded, credential-free HEAD requests to the
+origins with curl, honors host proxy settings, and never follows redirects or performs
+inference. HTTP 4xx/5xx from the service proves transport access, not service health or
+authentication. Recognized proxy denials remain failures. The report records the current
+thread/runtime markers; success in a host terminal does not attest another agent session.
+DNS, OS permission, connection, timeout, TLS and missing-curl failures stay distinct.
+
+Prepare a reusable Codex profile with:
+`interlinked network codex-profile research --allow http://127.0.0.1:11434 https://api.typesafe.ai`.
+The command previews by default; `--write` creates `$CODEX_HOME/research.config.toml`
+(default `~/.codex`). It preserves existing differing files and rejects profile-file
+symlinks. The profile extends `:workspace`, enables hooks and the native network proxy,
+and allows only the supplied exact host rules (all ports for each host). No broad local
+network exception or approval bypass is added. Other loaded configuration and managed
+requirements can still affect the effective policy. Current Codex config-file profiles
+and permission-profile support are required; validate against the installed CLI's help.
+
+Select it with `codex --profile research`, or `codex --profile research resume <session-id>`.
+Creating it does not change a running session or the user's default config. Legacy
+`sandbox_mode`/`sandbox_workspace_write` settings and `--sandbox` can override profiles;
+review those conflicts on the host instead of silently rewriting them. Managed requirements
+remain authoritative. Recheck access from the resumed agent before claiming it unblocked.
+Hook installation, daemon restarts and clearing Interlinked state cannot lift an OS sandbox.
+See https://learn.chatgpt.com/docs/permissions for the native permission contract.
+
 Enable each client's strictest usable native sandbox separately; Interlinked hook installation does
 not turn the provider sandbox on. Bash PreToolUse reports `[interlinked:sandbox]` as `attested`,
 `configured`, `disabled`, or `unknown`. Treat `configured` as weaker than per-call attestation because
@@ -195,20 +221,27 @@ for interpreting the warning.
 `interlinked harness capabilities --json` reports runtime hook profiles, installation
 and emission evidence, and filesystem coverage. `harness coverage status --json` shows
 pending identities, manual reviews, automated check receipts, and any recovery job.
-Coverage control calls allow ten seconds per transport for reconciliation and retained
-receipts. A timeout still means no verdict; inspect status before retrying a mutation,
+Coverage control calls allow ten seconds per transport. Verification start and final-job
+responses omit retained receipt history; explicit full status still includes it.
+Coverage persistence also batches filesystem observations and recovery receipts, retaining
+history without copying it for each changed file. Repeated `rss-ceiling` exits during
+recovery require fixing/updating the daemon, not repeatedly starting the same verification:
+the memory ceiling remains enforced. Verification jobs now persist their plan, progress
+and original deadline with batch receipts. A successor resumes an interrupted job under
+the same ID, including after an explicit restart; expired jobs report incomplete evidence.
+Completed results remain available after restart. Jobs started by older, memory-only
+daemons need one new verification after upgrade; their existing receipts are preserved.
+Inspect the recent daemon lifecycle log for the exit cause before treating a missing job
+as a new session-policy block.
+A timeout still means no verdict; inspect status before retrying a mutation,
 since the daemon may have completed it before the response was lost.
+`EPERM` / `EACCES` on a daemon socket is a host permission failure, not evidence that the
+daemon or session policy needs resetting. Use a host-permitted terminal/session; changing
+Interlinked rules cannot grant socket or `.git` access denied by the native sandbox.
 For `[interlinked:hook-coverage] NOT CHECKED`, run `harness coverage verify --json` and
 follow **interlinked-verify** for evidence scope, deferred checks and reviewed absences.
 If a running daemon predates the verifier, rebuild/restart using the normal lifecycle.
 Observing or checking protected files does not accept their policy digest.
-Current verification jobs survive normal restarts with the same ID, remaining batches
-and original deadline. `--no-wait` acknowledges the job without returning receipt
-history; use cached progress while it runs. A waiting CLI tolerates transient read-only
-status failures for up to two minutes per outage, plus any in-flight RPC. It does not
-resubmit verification. Host permission denial or malformed responses stop immediately;
-restarting Interlinked does not grant access to an OS-denied socket. Inspect status
-before retrying a mutation whose acknowledgement was lost.
 
 Local data maintenance has its own `data.config.json` in the resolved data directory.
 `interlinked data configure --auto-index on` enables bounded SessionEnd index jobs;

@@ -63,6 +63,7 @@ Commands:
   mode [options] [name]                      Show current enforcement mode, or switch to balanced / strict / lenient
   multi-edit [options] [path]                Apply N old/new string edits atomically to one or more files. Gate runs once on final content. Ambiguity evaluated after prior edits.
   mutation                                   Mutation testing: report-score ratchet, local runner measurement, and experimental durable cloud jobs
+  network                                    Diagnose command-network access and prepare host permission profiles
   plan                                       Show agent-emitted plans captured from TaskCreate / ExitPlanMode / structured prompts
   query [options] [source]                   Bounded query over .interlinked JSONL logs (blocks/checks/recurrences/costs/… or a .jsonl path)
   recurrence                                 Surface repeating agent behaviors (harness_caught / harness_missed / codebase_existing / tool_failure)
@@ -100,6 +101,51 @@ Commands:
   watch [options]                            Monitor server for pending work (messages, tasks, agents)
   workspace                                  Registry workspace management (ws_ IDs)
   write [options] [path]                     Write file(s) through the content-quality gate (pre_block + biome + tsc diff-overlay). Supports --stdin, --from-file, and --batch <manifest.json> with rollback protection.
+```
+
+## Network
+
+```
+Usage: interlinked network [options] [command]
+
+Diagnose command-network access and prepare host permission profiles
+
+Options:
+  -h, --help                      display help for command
+
+Commands:
+  check [options] <endpoints...>  Probe HTTP(S) origins from this process,
+                                  without credentials or inference
+  codex-profile [options] <name>  Preview a reusable workspace-restricted Codex
+                                  network profile
+  help [command]                  display help for command
+```
+
+### network check
+
+```
+Usage: interlinked network check [options] <endpoints...>
+
+Probe HTTP(S) origins from this process, without credentials or inference
+
+Options:
+  --json      Machine-readable runtime evidence
+  -h, --help  display help for command
+```
+
+### network codex-profile
+
+```
+Usage: interlinked network codex-profile [options] <name>
+
+Preview a reusable workspace-restricted Codex network profile
+
+Options:
+  --allow <endpoints...>  HTTP(S) endpoints whose exact hosts may be reached
+  --write                 Create $CODEX_HOME/<name>.config.toml; refuse
+                          conflicting existing files
+  --json                  Machine-readable output
+  -h, --help              display help for command
 ```
 
 ## Data
@@ -913,6 +959,9 @@ Commands:
                                       and survivor review candidates
   evidence                            Bound coverage and mutation evidence to
                                       source, tests, runner and artifact hashes
+  decisions                           Experimental semantic measurements with
+                                      local decision models, ThinkThen, and
+                                      auditable uncertainty
 ```
 
 ### metrics coupling
@@ -1297,6 +1346,751 @@ Options:
   -h, --help      display help for command
 ```
 
+### metrics decisions
+
+```
+Usage: interlinked metrics decisions [options] [command]
+
+Experimental semantic measurements with local decision models, ThinkThen, and
+auditable uncertainty
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  init [options]                 Write a disabled, local-first decision
+                                 configuration
+  catalog [options]              Show versioned metric contracts and the
+                                 ThinkThen question set
+  prepare [options]              Extract touched function/hunk evidence from
+                                 git without checkout
+  snapshot [options]             Index function evidence and import edges at a
+                                 pinned Git revision
+  candidates [options] <input>   Build an obligation cohort including consumers
+                                 not retrieved
+  retrieve [options] <input>     Attach time-safe BM25, embedding, or hybrid
+                                 historical neighbors
+  pilot [options]                Sample real changes and retain unavailable
+                                 revision counts
+  labels [options] <input>       Create a blind independent-review label
+                                 template from a run
+  join-labels [options] <input>  Join complete adjudicated labels with saved
+                                 probabilities
+  probe [options] <input>        Run fresh perturbation, repetition, and
+                                 batch-composition probes
+  measure [options] <input>      Measure an evidence population and retain raw
+                                 probabilities
+  review [options] <input>       Run relational obligations, atomicity,
+                                 faithfulness, or comparison
+  embed [options] <input>        Embed evidence locally, then unload the model
+  geometry [options] <input>     Measure provisional embedding churn,
+                                 dispersion, and nearest-neighbor outliers
+  audit [options] <input>        Evaluate a full labeled cohort with a temporal
+                                 split and baselines
+  replay [options] <input>       Reinterpret a retained run at a new
+                                 uncertainty band, offline
+  diff [options] <input>         Compare retained answers and report
+                                 model/question drift
+  help [command]                 display help for command
+```
+
+### metrics decisions init
+
+```
+Usage: interlinked metrics decisions init [options]
+
+Write a disabled, local-first decision configuration
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions catalog
+
+```
+Usage: interlinked metrics decisions catalog [options]
+
+Show versioned metric contracts and the ThinkThen question set
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions prepare
+
+```
+Usage: interlinked metrics decisions prepare [options]
+
+Extract touched function/hunk evidence from git without checkout
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions snapshot
+
+```
+Usage: interlinked metrics decisions snapshot [options]
+
+Index function evidence and import edges at a pinned Git revision
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions candidates
+
+```
+Usage: interlinked metrics decisions candidates [options] <input>
+
+Build an obligation cohort including consumers not retrieved
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions retrieve
+
+```
+Usage: interlinked metrics decisions retrieve [options] <input>
+
+Attach time-safe BM25, embedding, or hybrid historical neighbors
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions pilot
+
+```
+Usage: interlinked metrics decisions pilot [options]
+
+Sample real changes and retain unavailable revision counts
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions labels
+
+```
+Usage: interlinked metrics decisions labels [options] <input>
+
+Create a blind independent-review label template from a run
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions join-labels
+
+```
+Usage: interlinked metrics decisions join-labels [options] <input>
+
+Join complete adjudicated labels with saved probabilities
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions probe
+
+```
+Usage: interlinked metrics decisions probe [options] <input>
+
+Run fresh perturbation, repetition, and batch-composition probes
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions measure
+
+```
+Usage: interlinked metrics decisions measure [options] <input>
+
+Measure an evidence population and retain raw probabilities
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions review
+
+```
+Usage: interlinked metrics decisions review [options] <input>
+
+Run relational obligations, atomicity, faithfulness, or comparison
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions embed
+
+```
+Usage: interlinked metrics decisions embed [options] <input>
+
+Embed evidence locally, then unload the model
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions geometry
+
+```
+Usage: interlinked metrics decisions geometry [options] <input>
+
+Measure provisional embedding churn, dispersion, and nearest-neighbor outliers
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions audit
+
+```
+Usage: interlinked metrics decisions audit [options] <input>
+
+Evaluate a full labeled cohort with a temporal split and baselines
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions replay
+
+```
+Usage: interlinked metrics decisions replay [options] <input>
+
+Reinterpret a retained run at a new uncertainty band, offline
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
+### metrics decisions diff
+
+```
+Usage: interlinked metrics decisions diff [options] <input>
+
+Compare retained answers and report model/question drift
+
+Options:
+  --cwd <path>          Project root
+  --config <file>       Explicit decision configuration
+  --output <file>       Write an immutable JSON artifact
+  --metrics <ids>       Comma-separated metric contract IDs
+  --band <low:high>     Uncertainty band; probabilities are reusable
+  --command <path>      ThinkThen executable
+  --max-records <n>     Record budget; excluded records remain unassessed
+  --plan                Print native request plans without inference
+  --fresh               Fresh inference; preserve the previous cached
+                        observation
+  --base <ref>          Git base revision
+  --revision <ref>      Committed revision; default is working tree
+  --file <paths...>     Restrict changed source files
+  --message <text>      Description of a working-tree change
+  --analysis <kind>     atomicity, faithfulness, obligations, compare,
+                        coupling, rework
+  --claims <file>       Literal description claims as a JSON array
+  --cutoff <date>       Train before this date; evaluate at/after it
+  --after <file>        Second retained run for diff
+  --corpus <file>       Snapshot or historical function corpus
+  --retrieval <method>  lexical, embedding, or hybrid
+  --count <n>           Pilot commit budget (1..1000)
+  --before <date>       Pilot history upper date bound
+  --labels <file>       Independent adjudicated label file
+  --max-files <n>       Snapshot file budget (1..10000)
+  --unit <kind>         Prepared evidence: function, hunk, or all
+  --bca-command <path>  Optional pinned bca executable for preparation
+  --bca-version <text>  Exact required bca --version stdout
+  --comparison <file>   Matched retrieval-arm labeled cohort for five-arm audit
+  --json                Machine-readable output (always enabled)
+  -h, --help            display help for command
+```
+
 ## Coverage
 
 ```
@@ -1635,6 +2429,9 @@ Options:
   --artifacts-out <dir>       Copy the certified run's artifacts (fresh or
                               reused) into this directory after a passing run
   --json                      Machine-readable test plan or execution
+  --static-selection          Let the effect classifier omit unaffected tests
+                              and reuse passing results (off by default: it
+                              cannot prove either safe)
   -h, --help                  display help for command
 ```
 
@@ -1664,6 +2461,9 @@ Options:
   --artifacts-out <dir>       Copy the certified run's artifacts (fresh or
                               reused) into this directory after a passing run
   --json                      Machine-readable test plan or execution
+  --static-selection          Let the effect classifier omit unaffected tests
+                              and reuse passing results (off by default: it
+                              cannot prove either safe)
   -h, --help                  display help for command
 ```
 
@@ -1693,6 +2493,9 @@ Options:
   --artifacts-out <dir>       Copy the certified run's artifacts (fresh or
                               reused) into this directory after a passing run
   --json                      Machine-readable test plan or execution
+  --static-selection          Let the effect classifier omit unaffected tests
+                              and reuse passing results (off by default: it
+                              cannot prove either safe)
   -h, --help                  display help for command
 ```
 
@@ -1945,6 +2748,8 @@ Commands:
                              installation and observation evidence
   coverage                   Inspect and review daemon-owned filesystem
                              observations
+  taint                      Session sensitivity label: inspect which source
+                             set it, or clear it (operator)
   test [options] [command]   Fire a synthetic PreToolUse event at the running
                              harness and show its decision. Default: a Bash
                              command. Use --write/--edit to test a file

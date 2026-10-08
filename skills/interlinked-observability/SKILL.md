@@ -290,6 +290,13 @@ emits root, completed flag, bytes read, entries visited and duration even on fai
 Subscribers must be in the scanning process. The optional `evals/slopcodebench/scan-cost.mjs`
 preload prints bounded measurements to stderr; it emits no contents or environment values.
 
+Live Codex subagent correlation reads at most a 64 KiB owner header and a 1 MiB recent
+tail per rollout, and retains at most 16 parsed rollouts. Root-owner metadata ends the
+read immediately. Calls outside that window, partial records and ambiguous actors remain
+unattributed; use native transcript investigation for older evidence. These are correlation
+limits, not transcript retention limits. Dirty search-index membership uses compact numeric
+arrays with exact membership; its file limits and native-search fallback are unchanged.
+
 ## `interlinked impact` — facts, not attribution
 
 `interlinked impact [--base <ref>] [--experiment-manifest <path>] [--cwd <path>]
@@ -439,7 +446,13 @@ counts a merge once; measured 2026-09-29 the convert phase was 165 s of a
 168 s merge until `ast-v8-to-istanbul` was pinned at 1.0.7, then 2.7 s),
 `wait_capacity_ms`, `validate_ms` (runtime snapshot + hash that decides
 reuse; paid on hits, misses and early stale returns), `lookup_ms`, `exec_ms`,
-`post_ms`, `reused` and
+`post_ms`, `peak_rss_bytes` (peak sampled RSS of the bounded child tree, taken
+every 500 ms; present only on rows for commands that ran under a memory budget
+and had at least one sample), `rss_budget_bytes` (the budget the command was
+admitted under; `peak_rss_bytes / rss_budget_bytes` is the headroom, and
+`scripts/run-resource-bounded.ts` prints a `[resources] HEADROOM:` stderr line
+above 85%), `heap_limit_mb` (the `--max-old-space-size` the command started
+with), `reused` and
 `reuse_denied_reason` (`no-receipt`, `plan-not-reusable:<issue>`,
 `stale-inputs`, `budget-exceeded`, `capacity-timeout`,
 `memory-budget-unavailable`, `interrupted`, `empty-selection`). A dry run
