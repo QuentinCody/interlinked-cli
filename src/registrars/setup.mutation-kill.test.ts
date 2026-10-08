@@ -41,6 +41,10 @@ describe("registerSetupCommands — public help contract", () => {
 	it("preserves every command and option description", () => {
 		const program = build();
 		const expected: Record<string, { description: string; options: Record<string, string> }> = {
+			network: {
+				description: "Diagnose command-network access and prepare host permission profiles",
+				options: {},
+			},
 			reload: {
 				description:
 					"One-command dogfood loop: rebuild the CLI from its source checkout, refresh this repo's hooks, restart the daemon — reporting only what actually changed",

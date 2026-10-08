@@ -15,7 +15,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { formatMetricDefaultRow, METRIC_DEFS } from "../harness/metric-caps.js";
 import { ALL_PRESETS } from "../harness/modes.js";
-import { c } from "../lib/formatter.js";
+import { c, stripAnsi } from "../lib/formatter.js";
 import { detectClients } from "../lib/settings.js";
 import { adoptCommand } from "./adopt.js";
 import { capsSetAction } from "./caps.js";
@@ -70,6 +70,22 @@ function nextSelectionForKey(key: string, sel: number, labels: string[]): number
 	return hit >= 0 ? hit : sel;
 }
 
+const FALLBACK_COLUMNS = 80;
+
+/**
+ * Screen lines one rendered row occupies: a row wider than the terminal
+ * soft-wraps, so a cursor-up redraw must climb `ceil(width / columns)` lines,
+ * not one. ANSI colour codes take no columns and are stripped first; an
+ * unknown width (non-TTY, 0) falls back to 80 columns.
+ */
+export function renderedLineCount(row: string, columns: number | undefined): number {
+	const cols = columns !== undefined && Number.isFinite(columns) && columns > 0
+		? columns
+		: FALLBACK_COLUMNS;
+	// `cols` is > 0 by the guard above, so the division cannot yield Infinity/NaN.
+	return Math.max(1, Math.ceil(stripAnsi(row).length / cols));
+}
+
 /**
  * Arrow-key single-select over `items`, rendered in place (ANSI cursor-up
  * rewrites). ↑/↓ move with wrap-around via the shared {@link moveSelection}
@@ -78,26 +94,39 @@ function nextSelectionForKey(key: string, sel: number, labels: string[]): number
  * it; Ctrl+C exits like readline would. Non-TTY stdin falls back to the
  * caller's text prompt so scripted runs keep working.
  *
+ * The redraw climbs the number of SCREEN lines the previous paint occupied
+ * (rows + hint, each measured against `process.stdout.columns` at paint
+ * time) and clears to the end of the screen, so a row that soft-wrapped
+ * leaves no stale copy behind (Bombadil F-B1: 100-column terminals showed
+ * two `›` markers after the first arrow key).
+ *
  * MANUAL PROBE (needs a real TTY): run `interlinked` in an unconfigured repo
  * and drive step 2 with the arrow keys; the highlighted row must wrap
  * top↔bottom and Enter must pick the highlighted row, not the default.
  */
-async function selectFromList(args: {
+export async function selectFromList(args: {
 	labels: string[];
 	renderLine: (index: number, selected: boolean) => string;
 	initial: number;
 }): Promise<number> {
 	const { labels, renderLine, initial } = args;
-	const draw = (sel: number, first: boolean): void => {
-		if (!first) process.stdout.write(`\x1b[${labels.length}A`);
+	const hint = c.dim(`   ${WIZARD_COPY.selectHint}`);
+	let paintedLines = 0;
+	const draw = (sel: number): void => {
+		if (paintedLines > 0) process.stdout.write(`\x1b[${paintedLines}A\x1b[J`);
+		const columns = process.stdout.columns;
+		let lines = 0;
 		for (let i = 0; i < labels.length; i++) {
-			process.stdout.write(`\x1b[2K${renderLine(i, i === sel)}\n`);
+			const row = renderLine(i, i === sel);
+			lines += renderedLineCount(row, columns);
+			process.stdout.write(`\x1b[2K${row}\n`);
 		}
+		process.stdout.write(`${hint}\n`);
+		paintedLines = lines + renderedLineCount(hint, columns);
 	};
 	return new Promise((resolvePick) => {
 		let sel = initial;
-		draw(sel, true);
-		process.stdout.write(c.dim(`   ${WIZARD_COPY.selectHint}\n`));
+		draw(sel);
 		// `@types/node` types `process.stdin` as `tty.ReadStream`, which
 		// declares `setRawMode` required — but at runtime stdin is a plain
 		// `net.Socket` (no `setRawMode`) whenever it isn't a real TTY (piped
@@ -124,9 +153,7 @@ async function selectFromList(args: {
 			const next = nextSelectionForKey(s, sel, labels);
 			if (next !== sel) {
 				sel = next;
-				process.stdout.write("\x1b[1A"); // step back over the hint line
-				draw(sel, false);
-				process.stdout.write(c.dim(`   ${WIZARD_COPY.selectHint}\n`));
+				draw(sel);
 			}
 		};
 		stdin.on("data", onData);

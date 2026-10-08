@@ -14,6 +14,7 @@ import { loginCommand } from "../commands/login.js";
 import { resolveAuthToken } from "../lib/auth.js";
 import { c } from "../lib/formatter.js";
 import { ensureRemoteOnboarding } from "../lib/onboarding.js";
+import { registerNetworkCommands } from "./network.js";
 
 // Common option shapes for commander action callbacks.
 interface JsonOpts extends OptionValues {
@@ -62,6 +63,7 @@ async function setupAction(opts: OptionValues): Promise<void> {
 }
 
 export function registerSetupCommands(program: Command): void {
+	registerNetworkCommands(program);
 	program
 		.command("reload")
 		.description(
@@ -196,9 +198,11 @@ export function registerSetupCommands(program: Command): void {
 			await updateCommand(opts);
 		});
 
-	// ===========================================
-	// install-hooks / uninstall-hooks — blessed install path (adapter-based, manifest-driven)
-	// ===========================================
+	registerHookLifecycleCommands(program);
+}
+
+function registerHookLifecycleCommands(program: Command): void {
+	// install-hooks / uninstall-hooks — adapter-based, manifest-driven lifecycle.
 	program
 		.command("install-hooks")
 		.description("Install agent hooks for detected runners (adapter-based, manifest-driven)")
