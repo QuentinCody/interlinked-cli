@@ -139,6 +139,10 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// snapshot_hygiene: zero-FP path match on *.snap.new / *.pending-snap review
 	// artifacts; test-integrity taste guard — periodic-sweep concern, not per-edit.
 	"snapshot_hygiene",
+	// hand_rolled_lexer: structural heuristic (char loop + quote/comment state) for
+	// scanners the TypeScript parser could replace; non-JS lexers can still match,
+	// so findings are reviewed, not blocked. `lexer-fallback: <reason>` pins a fallback.
+	"hand_rolled_lexer",
 	// design_slop: AI-generated design tells (overused fonts, accent stripes,
 	// gradient text, bounce easing, buzzword copy) on frontend files. Pure taste
 	// levers in a new domain — belong in the deep-audit tier, never the default

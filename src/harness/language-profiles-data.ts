@@ -104,6 +104,8 @@ export const LANGUAGE_PROFILES: Record<LanguageId, LanguageProfile> = {
 		file_extensions: [".py", ".pyi"],
 		project_root_markers: [
 			"pyproject.toml",
+            "pytest.ini",
+            ".pytest.ini",
 			"setup.py",
 			"setup.cfg",
 			"requirements.txt",

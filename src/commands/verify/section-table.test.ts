@@ -85,6 +85,7 @@ const EXPECTED_KEY_ORDER = [
 	"duplicatedPolicyConstant",
 	"typePredicateDrift",
 	"snapshotHygiene",
+	"handRolledLexer",
 	"anonymousRegistration",
 	"payloadFieldCasing",
 	"gitignoredWrittenConfig",

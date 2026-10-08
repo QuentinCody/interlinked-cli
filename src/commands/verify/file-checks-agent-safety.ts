@@ -36,6 +36,7 @@ import {
 	resolveNearestPackageScripts,
 } from "../../harness/checks/readme-script-drift.js";
 import { detectSnapshotHygiene } from "../../harness/checks/snapshot-hygiene.js";
+import { detectHandRolledLexer } from "../../harness/checks/hand-rolled-lexer.js";
 import { detectTypePredicateDrift } from "../../harness/checks/type-predicate-drift.js";
 import { checkSpecPathRef } from "../../harness/checks/spec-structure.js";
 import { detectUnawaitedAsyncAssertions } from "../../harness/checks/test-async-assertions.js";
@@ -167,6 +168,16 @@ export function runCrapCheck(ctx: FileCheckContext): void {
 			line: f.line,
 			message: `${f.function}: CRAP=${f.crap_score.toFixed(0)} (cyc=${f.complexity}, cov=${f.coverage_pct.toFixed(0)}%)${f.stale ? " [stale coverage]" : ""}`,
 		})),
+	);
+}
+
+/** Content-only advisory detectors, kept out of `runAgentSafetyChecks` (over the token cap). */
+function runContentHygieneChecks({ content, file, relPath, r }: FileCheckContext): void {
+	r.snapshotHygiene.push(
+		...toIssues("snapshot_hygiene", relPath, detectSnapshotHygiene(content, file)),
+	);
+	r.handRolledLexer.push(
+		...toIssues("hand_rolled_lexer", relPath, detectHandRolledLexer(content, file)),
 	);
 }
 
@@ -352,9 +363,7 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 	r.typePredicateDrift.push(
 		...toIssues("type_predicate_drift", relPath, detectTypePredicateDrift(content, file)),
 	);
-	r.snapshotHygiene.push(
-		...toIssues("snapshot_hygiene", relPath, detectSnapshotHygiene(content, file)),
-	);
+	runContentHygieneChecks(ctx);
 	r.payloadFieldCasing.push(
 		...toIssues("payload_field_casing", relPath, detectPayloadFieldCasing(content, file)),
 	);

@@ -298,7 +298,7 @@ describe("applyPersistedSuppressions — suppression-file hygiene findings", () 
 		]);
 	});
 
-	it("leaves suppressionHygiene empty when the default validator is used (the real stub returns none)", () => {
+	it("leaves suppressionHygiene empty when the default validator finds no stale entry (no suppression file)", () => {
 		const results = runCodeQualityChecks([], tempDir);
 		applyPersistedSuppressions(results, join(tempDir, ".interlinked"));
 		expect(results.suppressionHygiene).toEqual([]);

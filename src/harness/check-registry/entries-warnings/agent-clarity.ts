@@ -5,6 +5,7 @@
 
 import { detectCjsInEsm } from "../../checks/esm-cjs.js";
 import { detectWriteWithoutMkdir } from "../../checks/fs-write-safety.js";
+import { detectHandRolledLexer } from "../../checks/hand-rolled-lexer.js";
 import { detectNaNCoercionGuards } from "../../checks/nan-coercion.js";
 import { detectPolicyConstantDrift } from "../../checks/policy-constant-drift.js";
 import { detectSnapshotHygiene } from "../../checks/snapshot-hygiene.js";
@@ -314,6 +315,22 @@ export const AGENT_CLARITY_ENTRIES: CheckRegistration[] = [
 			"This is a snapshot-review artifact (`*.snap.new` / `*.pending-snap`), not an accepted snapshot. Runners write it on a mismatch and IGNORE it at test time, so committing it neither fixes the test nor lands a real snapshot. Regenerate the accepted snapshot through the runner instead: `vitest -u` (or `jest -u`) for `.snap.new`, `cargo insta accept` for `.pending-snap`.",
 		fn: detectSnapshotHygiene,
 		resultsPropName: "snapshotHygiene",
+		content_keywords: [],
+	},
+	{
+		id: "hand_rolled_lexer",
+		phase: "post",
+		name: "Hand-Rolled Lexer",
+		description:
+			"Detects a JS/TS function that lexes source text by hand — a character loop that tracks quote, template, regex or comment state — where the TypeScript parser is available. Each such scanner misread some construct in review (a `#private` field read as a comment, `\"/*\"` inside a string opening a block comment, a regex read as a division).",
+		tier: 2,
+		determinism: "heuristic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		fix_instruction:
+			"Let the parser decide what a character means. Use `stripWithTypeScript` (shared-text-utils-ast.ts) to blank comments and strings, `maskCommentsAndStrings` (test-hygiene-masking.ts) to mask them for test files, or `parseTsSource` (cyclomatic-ast.ts) to walk the AST. If this scanner is a deliberate fallback behind a parser route (an install without `typescript`, non-TS input), add `lexer-fallback: <reason>` in the function or in the comment directly above it.",
+		fn: detectHandRolledLexer,
+		resultsPropName: "handRolledLexer",
 		content_keywords: [],
 	},
 	...RUNTIME_SAFETY_ENTRIES,

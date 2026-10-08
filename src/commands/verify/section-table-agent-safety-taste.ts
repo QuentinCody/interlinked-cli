@@ -152,6 +152,13 @@ export const tasteStructuralSections: readonly SectionSpec[] = [
 		color: "33",
 	},
 	{
+		label: "hand-rolled lexer",
+		key: "handRolledLexer",
+		noun: "functions that lex JS/TS by hand (quote/comment state loop) instead of using the TypeScript parser",
+		passLabel: "no hand-rolled JS/TS lexers",
+		color: "33",
+	},
+	{
 		label: "anonymous registration",
 		key: "anonymousRegistration",
 		noun: "registry entries whose implementation has no name — unreachable from their own id by grep, index, or embedding search",

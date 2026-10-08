@@ -17,18 +17,17 @@ import { parseEnvDocumentation } from "../../harness/generic-checks.js";
 import { parseExports } from "../../harness/project-graph.js";
 import { type FileSuppressions, loadFileSuppressions } from "../../harness/suppressions.js";
 
-// `validateSuppressionFile` lived in an upstream branch that enforces
-// rationale/expiry on persisted suppressions. It's not in this repo, so the
-// hygiene-findings pipe is disabled until that helper lands.
-const validateSuppressionFile = (
-	_interlinkedDir: string,
-): Array<{ name: string; file: string; message: string }> => [];
+// Suppression-file hygiene: entries that name a missing file match nothing
+// (`suppression-hygiene.ts`; antithesis intake backlog #16). Rationale/expiry
+// validation from the upstream branch is still not in this repo.
+const validateSuppressionFile = staleFileSuppressions;
 
 import { runVerifyParityChecks } from "../../harness/verify-parity.js";
 import { readSharedConfig } from "../../lib/config.js";
 import { nonNull } from "../../lib/non-null.js";
 import { JS_TS_EXTS } from "./advisory.js";
 import { runPerFileChecks } from "./file-checks.js";
+import { staleFileSuppressions } from "./suppression-hygiene.js";
 import type { PiiOpts } from "./file-checks-shared.js";
 import {
 	type ScanProgress,
@@ -258,13 +257,10 @@ function applyParityFindings(r: CodeQualityResults, files: string[], cwd: string
 }
 
 /**
- * Exported so the currently-unreachable hygiene-findings branch (below) can be
- * exercised directly: `validateSuppressionFile` is a hardcoded stub that
- * always returns `[]` until the upstream rationale/expiry helper lands, so
- * there is no way to make `hygieneFindings` non-empty through the public
- * `runCodeQualityChecks` entry point. `validate` defaults to that same stub —
- * production behavior is unchanged — and exists only so a test can supply a
- * fake generator to reach the loop body beneath it.
+ * Drops findings covered by `verify-suppressions.json`, then appends the
+ * suppression-file hygiene findings. `validate` defaults to
+ * `staleFileSuppressions` (entries for missing files); a test can supply a
+ * fake generator.
  */
 export function applyPersistedSuppressions(
 	r: CodeQualityResults,

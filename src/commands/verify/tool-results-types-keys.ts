@@ -73,6 +73,7 @@ export const CQ_RESULT_KEYS = [
 	"duplicatedPolicyConstant",
 	"typePredicateDrift",
 	"snapshotHygiene",
+	"handRolledLexer",
 	"designSlop",
 	"payloadFieldCasing",
 	"anonymousRegistration",

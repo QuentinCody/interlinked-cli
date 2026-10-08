@@ -15,6 +15,8 @@ export { stripForBraceScan };
 // see its header for why `${}` interpolation needs a full-content scan
 // instead of the old per-line backtick counter.
 import { stripStringsAcrossLines } from "./shared-text-utils-strings.js";
+// Parser-backed route for JS/TS content (H2, 2026-10-02); null ⇒ the line scanner below.
+import { stripWithTypeScript } from "./shared-text-utils-ast.js";
 
 // ===========================================
 // Comment & String Stripping Helpers
@@ -58,6 +60,7 @@ function closingQuoteIndex(line: string, start: number, quote: string): number {
 	return line.length;
 }
 
+// lexer-fallback: line-scanner helper of stripCommentsByLine, reached only when stripWithTypeScript returns null
 function firstUnquotedCommentIndex(line: string): number {
 	for (let i = 0; i < line.length; i++) {
 		const ch = line[i];
@@ -132,7 +135,21 @@ function blankLineComment(line: string): string {
 	return line.slice(0, commentStart) + " ".repeat(line.length - commentStart);
 }
 
+/**
+ * Strip comments, preserving line count and positions. JS/TS content goes
+ * through the parser ({@link stripWithTypeScript}); anything it cannot parse
+ * (Python, Rust, Go, fragments, no `typescript` installed) uses the line
+ * scanner {@link stripCommentsByLine}.
+ */
 export function stripComments(content: string): string {
+	return stripWithTypeScript(content, { strings: false }) ?? stripCommentsByLine(content);
+}
+
+/**
+ * The language-agnostic line scanner behind {@link stripComments}; the fallback when the parser cannot read the content.
+ * lexer-fallback: runs only when `stripWithTypeScript` returns null (Python, Rust, Go, fragments, no `typescript` installed).
+ */
+export function stripCommentsByLine(content: string): string {
 	const lines = content.split("\n");
 	let inBlockComment = false;
 
@@ -182,7 +199,7 @@ export function stripStrings(content: string): string {
  * For brace/scope-sensitive analysis use {@link stripForBraceScan} instead.
  */
 export function stripCommentsAndStrings(content: string): string {
-	return stripStrings(stripComments(content));
+	return stripWithTypeScript(content, { strings: true }) ?? stripStrings(stripCommentsByLine(content));
 }
 
 // ===========================================

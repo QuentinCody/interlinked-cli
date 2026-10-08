@@ -122,6 +122,7 @@ describe("GENERIC_CHECK_META overlays", () => {
 			"c_unchecked_malloc",
 			"complexity",
 			"gitignored_written_config",
+			"lockfile_transitive_deps",
 			"spec_path_ref",
 		]);
 	});

@@ -51,6 +51,10 @@ const ANNOTATION_OVERLAY: Record<
  * - `gitignored_written_config`, `spec_path_ref` — verify-only detectors
  *   (`VERIFY_ONLY_CHECKS`); their signatures don't satisfy the registry's
  *   `(content, filePath) => InlineMatch[]` contract.
+ * - `lockfile_transitive_deps` — a PostToolUse BASH check
+ *   (`evaluator/lockfile-install-check.ts`): it diffs a lockfile against its
+ *   PreToolUse snapshot, so it has no file content to register against. Its
+ *   `[proven]` tag comes from `PROVEN_TOOL_CHECKS`.
  * - `c_strcmp_boolean_misuse`, `c_unchecked_malloc` — documented C/C++ shapes
  *   with no shipped detector yet.
  */
@@ -74,6 +78,13 @@ const UNREGISTERED_CHECK_META: Record<string, CheckMeta> = {
 			"Detects a file path referenced in prose/spec markdown that does not resolve in the working tree.",
 		tier: 2,
 		determinism: "partially_deterministic",
+	},
+	lockfile_transitive_deps: {
+		name: "Lockfile Transitive Dependencies",
+		description:
+			"PostToolUse, Bash only: after an npm/pnpm/yarn/bun install, diffs the lockfile's package set (package-lock.json / npm-shrinkwrap.json / pnpm-lock.yaml / yarn.lock / bun.lock) against its PreToolUse snapshot and warns for every NEW package absent from the allowlist — native ones (install script, platform os/cpu package, .node binary, binding.gyp) called out. The install gate screens only command-line specs; the lockfile is the first artifact naming the transitive closure. Warn-only and fail-open; the diff is exact, so the finding is [proven].",
+		tier: 1,
+		determinism: "fully_deterministic",
 	},
 	c_strcmp_boolean_misuse: {
 		name: "C strcmp Boolean Misuse",

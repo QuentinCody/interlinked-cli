@@ -118,6 +118,8 @@ export interface CodeQualityResults {
 	typePredicateDrift: CodeQualityIssue[];
 	/** Snapshot-review artifact (*.snap.new / *.pending-snap) written — never commit. */
 	snapshotHygiene: CodeQualityIssue[];
+	/** JS/TS function that lexes source by hand (quote/comment state) where the parser is available. */
+	handRolledLexer: CodeQualityIssue[];
 	/** Raw hook-payload contract field read in one casing with no other-casing fallback. */
 	payloadFieldCasing: CodeQualityIssue[];
 	anonymousRegistration: CodeQualityIssue[];

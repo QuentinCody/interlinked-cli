@@ -226,6 +226,29 @@ it("pins the source", () => { expect(SRC_TEXT).toContain(data.symbol); });
 	});
 });
 
+// Bombadil trial 2026-10-03 (§6): every `*.spec.ts` under the root `scratch/`
+// probe dir fired (3/3 false positives). An external tool's spec file names
+// no companion module; `scratch/` is non-product by the ONE domain predicate.
+describe("checkTestMissingSutImport scratch/ probe dir — negative (must not fire)", () => {
+	const ORPHAN = `import { test } from "bombadil";\ntest("wizard", () => { expect(1).toBe(1); });\n`;
+
+	it("N10: a relative scratch/ spec with no SUT import is exempt", () => {
+		expect(checkTestMissingSutImport(ORPHAN, "scratch/bombadil-trial/wizard.spec.ts")).toEqual([]);
+	});
+
+	it("N11: an absolute path under <cwd>/scratch/ is exempt too", () => {
+		const abs = `${process.cwd().replace(/\\/g, "/")}/scratch/bombadil-trial/viz.spec.ts`;
+		expect(checkTestMissingSutImport(ORPHAN, abs)).toEqual([]);
+	});
+});
+
+describe("checkTestMissingSutImport scratch/ probe dir — positive (must fire)", () => {
+	it("P7: a NESTED src/scratch/ spec is a product module and still fires", () => {
+		const code = `import { it, expect } from "vitest";\nit("x", () => { expect(1).toBe(1); });\n`;
+		expect(checkTestMissingSutImport(code, "src/scratch/wizard.spec.ts").length).toBe(1);
+	});
+});
+
 describe("checkMockingTheSutSelf", () => {
 	it("flags vi.mock of the same-directory SUT", () => {
 		const code = `vi.mock("./foo");\nit("x", () => { expect(1).toBe(1); });\n`;

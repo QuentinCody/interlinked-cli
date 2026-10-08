@@ -9,6 +9,7 @@
 // definitions.
 
 import { nonNull } from "../../lib/non-null.js";
+import { isRepoScratchPath } from "../large-file-policy.js";
 import { MUTATION_DIRECTED_SUFFIX } from "./test-legitimacy.js";
 import {
 	getExtension,
@@ -35,6 +36,11 @@ export function checkTestMissingSutImport(content: string, filePath: string): In
 	if (!JS_TS_EXTS.has(ext)) return [];
 
 	const norm = filePath.replace(/\\/g, "/");
+	// The root `scratch/` probe dir is non-product by construction (the ONE
+	// product-domain predicate, large-file-policy.ts): a `*.spec.ts` there is
+	// an external tool's spec (Bombadil, Playwright) that names no companion
+	// module — 3/3 false positives in the 2026-10-03 trial.
+	if (isRepoScratchPath(norm, process.cwd())) return [];
 	const fileName = norm.split("/").pop() || "";
 	const stripped = fileName.replace(/\.(test|spec)\.(tsx?|jsx?|mjs|cjs)$/, "");
 	const sutBase = stripped.replace(MUTATION_DIRECTED_SUFFIX, "");

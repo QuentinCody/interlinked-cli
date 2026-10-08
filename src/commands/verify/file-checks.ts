@@ -43,11 +43,7 @@ import {
 import { maxFunctionTokensFor } from "../../harness/metric-caps.js";
 import { parseImports, resolveImportPath } from "../../harness/project-graph.js";
 import { findAnyTypes } from "../../harness/quality-checks.js";
-import {
-	type InlineSuppressions,
-	isSuppressed,
-	scanInlineSuppressions,
-} from "../../harness/suppressions.js";
+import { type InlineSuppressions, scanInlineSuppressions } from "../../harness/suppressions.js";
 import {
 	evaluateTestedFile,
 	hasCompanionTest,
@@ -56,6 +52,7 @@ import {
 } from "../../harness/tested-file-policy.js";
 import { loadMetricsCoverage, type MetricsCoverage } from "../metrics-coverage.js";
 import { JS_TS_EXTS } from "./advisory.js";
+import { directiveKey, directiveLineFor, unusedInlineDirectives } from "./suppression-hygiene.js";
 import { runAgentSafetyChecks, runCrapCheck } from "./file-checks-agent-safety.js";
 import { runOverExtractionChecks } from "./file-checks-over-extraction.js";
 import { runTypeRedundancyChecks } from "./file-checks-type-redundancy.js";
@@ -154,12 +151,14 @@ export function runPerFileChecks(args: RunFileChecksArgs): void {
 	const inlineSuppressions = scanInlineSuppressions(content);
 	if (inlineSuppressions.size === 0) return;
 
-	dropInlineSuppressed(r, before, inlineSuppressions);
+	const used = dropInlineSuppressed(r, before, inlineSuppressions);
+	r.suppressionHygiene.push(...unusedInlineDirectives(relative(args.cwd, args.file), inlineSuppressions, used));
 }
 
 /**
  * Drop the just-added inline-check findings (per bucket, from each bucket's
- * pre-run length onward) whose `(line, check)` matches an inline-ignore comment.
+ * pre-run length onward) whose `(line, check)` matches an inline-ignore comment,
+ * and return the directives that suppressed something (`directiveKey`).
  * The check-name match is case-insensitive — `scanInlineSuppressions`
  * lower-cases the names it parses, so we lower-case the finding's `check` too.
  */
@@ -167,26 +166,24 @@ function dropInlineSuppressed(
 	r: CodeQualityResults,
 	before: Map<keyof CodeQualityResults, number>,
 	inlineSuppressions: InlineSuppressions,
-): void {
-	const NO_FILE_SUPPRESSIONS = new Set<string>();
+): Set<string> {
+	const used = new Set<string>();
+	const suppresses = (issue: { check: string; line: number }): boolean => {
+		const check = issue.check.toLowerCase();
+		const directiveLine = directiveLineFor(check, issue.line, inlineSuppressions);
+		if (directiveLine === null) return false;
+		used.add(directiveKey(directiveLine, check));
+		return true;
+	};
 	for (const key of CQ_RESULT_KEYS) {
 		const start = before.get(key) ?? 0;
 		const bucket = r[key];
 		if (bucket.length === start) continue; // nothing new for this file
-		const kept = bucket
-			.slice(start)
-			.filter(
-				(issue) =>
-					!isSuppressed(
-						issue.check.toLowerCase(),
-						issue.line,
-						inlineSuppressions,
-						NO_FILE_SUPPRESSIONS,
-					),
-			);
+		const kept = bucket.slice(start).filter((issue) => !suppresses(issue));
 		bucket.length = start;
 		bucket.push(...kept);
 	}
+	return used;
 }
 
 /**

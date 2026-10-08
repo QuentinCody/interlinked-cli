@@ -202,6 +202,7 @@ describe("DEFAULT_ADVISORY_SKIPS", () => {
 				"catch_and_log",
 				"code_clones",
 				"repeated_implementation",
+				"persistent_warning_escalation",
 				// cognitive-complexity metric (history-relational-metrics Phase 1, 2026-07-24)
 				"cognitive_complexity",
 				"complexity",
@@ -216,6 +217,7 @@ describe("DEFAULT_ADVISORY_SKIPS", () => {
 				"duplicated_policy_constant",
 				"type_predicate_drift",
 				"snapshot_hygiene",
+				"hand_rolled_lexer",
 				"design_slop",
 				"payload_field_casing",
 				// Bun-regression detector pack (2026-07-20): confessed stand-in constants

@@ -67,6 +67,7 @@ export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
 	"duplicated_policy_constant",
 	"type_predicate_drift",
 	"snapshot_hygiene",
+	"hand_rolled_lexer",
 	"design_slop",
 	"anonymous_registration",
 	"payload_field_casing",

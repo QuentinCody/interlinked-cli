@@ -33,6 +33,7 @@ const EXPECTED_MEMBERS = [
 	"comment_claims_throws_doesnt",
 	"homedir_write_escape",
 	"snapshot_hygiene",
+	"hand_rolled_lexer",
 	"duplicated_policy_constant",
 	"design_slop",
 	"type_predicate_drift",

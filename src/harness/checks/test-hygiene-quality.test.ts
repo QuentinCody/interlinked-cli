@@ -712,6 +712,35 @@ describe("checkDuplicateTestNames — regex quantifier robustness (DESCRIBE_INTR
 	});
 });
 
+describe("checkDuplicateTestNames — describe scopes are read from the code mask (H2, 2026-10-02)", () => {
+	// test-contract: bug — the describe scan walked the RAW content with a quote-only walker, so an apostrophe in a comment ("don't") opened a fake string that swallowed the next describe's braces and merged two scopes into one; the scan now reads the parser-backed mask
+	it("keeps sibling scopes apart when comments inside them hold apostrophes", () => {
+		// Old walker: A's `'` (don't) closed at B's `'` (won't), so A's range ran to B's last brace and held both its.
+		const code = [
+			'describe("A", () => {',
+			"  // don't",
+			'  it("dup", () => { expect(1).toBe(1); });',
+			"});",
+			'describe("B", () => {',
+			"  // won't",
+			'  it("dup", () => { expect(1).toBe(1); });',
+			"});",
+		].join("\n");
+		expect(checkDuplicateTestNames(code, TEST)).toEqual([]);
+	});
+
+	it("does not open a scope for a describe( written inside a comment", () => {
+		// Old walker: the commented `{` … `}` became a scope around the second it, hiding a real duplicate.
+		const code = [
+			'it("dup", () => { expect(1).toBe(1); });',
+			'// describe("doc", () => {',
+			'it("dup", () => { expect(1).toBe(1); });',
+			"// });",
+		].join("\n");
+		expect(checkDuplicateTestNames(code, TEST)).toHaveLength(1);
+	});
+});
+
 describe("checkDuplicateTestNames — codeOnlyMask string-literal masking", () => {
 	it("does not read an it() call embedded in a single-quoted fixture string as a declaration", () => {
 		// codeOnlyMask's single-quote regex must blank the WHOLE quoted string

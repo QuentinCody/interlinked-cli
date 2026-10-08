@@ -40,7 +40,9 @@ describe("tasteStructuralSections content (mutation-kill)", () => {
 	// table that drives interlinked verify's rendered section table.
 	// test-contract: public-api — an emptied label, noun, or passLabel silently blanks a rendered report row while its key-based lookup still succeeds
 	it("no entry carries an empty label, noun, passLabel, key, or color (closes 306 StringLiteral survivors)", () => {
-		expect(tasteStructuralSections.length).toBe(102);
+		// 103 since H8 (2026-10-02) added the hand_rolled_lexer row.
+		expect(tasteStructuralSections.length).toBe(103);
+		expect(tasteStructuralSections.find((entry) => entry.key === "handRolledLexer")?.label).toBe("hand-rolled lexer");
 		for (const entry of tasteStructuralSections) {
 			expect(entry.label, `label for key=${entry.key}`).not.toBe("");
 			expect(entry.noun, `noun for key=${entry.key}`).not.toBe("");

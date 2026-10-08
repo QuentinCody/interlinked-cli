@@ -163,31 +163,24 @@ function pickC(items: Item[]): string[] ${body}
 describe("extractFunctionShingles — shingle floor", () => {
 	it("empties an entry that clears the logical-line floor but yields <3 distinct shingles", () => {
 		// Reaches the `shingles.size < MIN_SHINGLES` arm, which needs a body that
-		// is long enough in LINES yet degenerate in TOKENS. Two stackable facts of
-		// the real pipeline get it there:
-		//   1. `stripCommentsAndStrings` treats a leading `#` as a line-comment
-		//      marker, so a `#private` method's declaration line is blanked —
-		//      its 5+ distinct declaration tokens never reach the shingler, while
-		//      the TS AST still reports the method's full line..endLine span.
-		//   2. The surviving tokens are `a a a a a }` — 3 four-token windows, only
-		//      2 of them distinct.
-		// Logical lines counts the blanked declaration line out but the five body
-		// lines and the closing brace in, so the entry is past MIN_LOGICAL_LINES.
+		// is long enough in LINES yet degenerate in TOKENS: a method written one
+		// token per line. Its five tokens `collect ( ) { }` fill five logical
+		// lines but make only two four-token windows. (Until H2, 2026-10-02, this
+		// case leaned on the line scanner reading a `#private` name as a comment;
+		// the parser-backed stripper keeps that line, as it should.)
 		const content = `
 class Holder {
-	#collect() {
-		a
-		a
-		a
-		a
-		a
+	collect
+	(
+	)
+	{
 	}
 }
 `;
 		const fns = extractFunctionShingles(content, "src/holder.ts");
-		const collect = nonNull(fns.find((f) => f.name === "#collect"));
+		const collect = nonNull(fns.find((f) => f.name === "collect"));
 		// Past the logical-line floor, so this is NOT the MIN_LOGICAL_LINES arm.
-		expect(collect.logicalLines).toBe(6);
+		expect(collect.logicalLines).toBe(5);
 		expect(collect.logicalLines).toBeGreaterThanOrEqual(MIN_LOGICAL_LINES);
 		// Under the shingle floor: the entry is emptied rather than kept with a
 		// noise-dominated 2-shingle set.

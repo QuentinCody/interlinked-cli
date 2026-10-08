@@ -7,7 +7,8 @@ describe("guard intent across native hook processes", () => {
     let fixture: E2eFixture;
     const before = "export function probe(ready: boolean): number { if (ready) return 1; return 2; }\n";
     const after = "export function probe(ready: boolean): number { if (ready) console.log(ready); return 1; return 2; }\n";
-    beforeAll(async () => { fixture = await createFixture({ rules: { per_edit_coverage: { enabled: false } } }); });
+    // Reconciliation is the explicit enforced contract; ordinary sessions default to advisory shadow mode.
+    beforeAll(async () => { fixture = await createFixture({ rules: { per_edit_coverage: { enabled: false }, guard_prediction: { mode: "enforced" } } }); });
     afterAll(async () => { await fixture?.close(); });
     it.each([false, true])("requires reconciliation, daemon cold=%s", async cold => {
         const name = cold ? "cold" : "warm";

@@ -6,4 +6,8 @@
 // python_simplification adds bounded advisory evidence; it has no scoring authority.
 // repeated_implementation is heuristic, advisory, and excluded from quality scoring.
 // Six expression-readability checks remain heuristic, advisory, and unscored.
-export const REVIEWED_REGISTRY_HASH = "c87a029ef9da4ebac196e304c3ca30dffaccc209e2a1e801b2b2694db7df6dbb";
+// hand_rolled_lexer (H8, 2026-10-02) is heuristic, advisory, and unscored; removing its row restores the prior hash.
+// Repeated warnings are heuristic session advice, never a repository quality score.
+// Restoring only persistent_warning_escalation to fully_deterministic reproduces
+// the prior 18176196 hash; no other catalog classification changed in this review.
+export const REVIEWED_REGISTRY_HASH = "7d91c267c03ff2bb42bc3a3265750cc5477bdc85a3dacded69f331a5c55d92b5";

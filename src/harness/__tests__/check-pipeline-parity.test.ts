@@ -763,6 +763,7 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 			"extractedHelperDuplicate",
 			"singleUseTrivialHelper",
 			"snapshotHygiene",
+			"handRolledLexer",
 			"designSlop",
 			"payloadFieldCasing",
 			"gitignoredWrittenConfig",

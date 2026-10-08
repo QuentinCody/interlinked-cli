@@ -40,22 +40,19 @@ export {
 const TEST_BLOCK_INTRO_RE =
 	/(?<![.\w$])(?:it|test|specify)(?:\.(?:each|only|skip|concurrent|skipIf|runIf|todo|failing|sequential))*\s*\(\s*(["'`])([^"'`]*)\1/g;
 
-/** Length-preserving code mask for checkDuplicateTestNames: blanks TS comments
- *  AND string-literal interiors with spaces, keeping every offset aligned with
- *  the original `content`. stripComments is length-preserving but KEEPS strings;
- *  stripStrings blanks strings but COLLAPSES them (`"dup"` → `""`), which shifts
- *  every downstream offset. We need both blanked AND offset-stable so a regex
- *  match on the raw content can be asked "is this `it(` real code, or does it
- *  live inside a comment / string literal?" — the latter is the
- *  duplicate_test_names FP (doc examples like `it.skip(`, and test fixtures like
- *  `writeFileSync(f, "it('x')")`). */
-function codeOnlyMask(content: string): string {
-	let mask = stripComments(content);
-	const blank = (m: string) => " ".repeat(m.length);
-	mask = mask.replace(/"(?:[^"\\]|\\.)*"/g, blank);
-	mask = mask.replace(/'(?:[^'\\]|\\.)*'/g, blank);
-	mask = mask.replace(/`(?:[^`\\]|\\.)*`/g, blank);
-	return mask;
+/** Length-preserving code mask for checkDuplicateTestNames: comments, strings,
+ *  template text, regex literals and JSX text blanked with spaces, every offset
+ *  aligned with the original `content`, decided by the parser (the line-scanner
+ *  fallback only without `typescript`). A regex match on the raw content can
+ *  then ask "is this `it(` / `describe(` real code, or does it live inside a
+ *  comment / string literal?" — the latter is the duplicate_test_names FP (doc
+ *  examples like `it.skip(`, and fixtures like `writeFileSync(f, "it('x')")`).
+ *  Until H2 (2026-10-02) this was a regex lexer over `stripComments` output, and
+ *  the describe scan below used its own quote walker on the RAW content, so a
+ *  `describe(` in a comment opened a scope and an apostrophe in a comment
+ *  flipped every brace after it. */
+function codeOnlyMask(content: string, filePath: string): string {
+	return maskCommentsAndStrings(content, filePath);
 }
 
 // ==========================================================================
@@ -77,84 +74,31 @@ const DESCRIBE_INTRO_RE = /\bdescribe(?:\.(?:each|only|skip|skipIf|runIf|sequent
 
 /**
  * Build the offset of each describe() body in the ORIGINAL content. Each entry
- * says: "from `bodyStart` to `bodyEnd`, this describe's body extends." Operates
- * on `content` directly, not on `stripCommentsAndStrings`-cleaned content,
- * because the stripper COMPACTS quoted strings — `"checkA"` becomes `""` —
- * so offsets in `stripped` diverge from offsets in `content`. The walker
- * tracks inline quote state so a `{` inside a string literal doesn't move
- * brace depth. Returns describes in source order.
- *
- * The second `_stripped` parameter is retained for signature stability across
- * the refactor and is intentionally unused.
+ * says: "from `bodyStart` to `bodyEnd`, this describe's body extends." Scans
+ * the length-preserving {@link codeOnlyMask}, so its offsets ARE content
+ * offsets, a `describe(` inside a comment or string opens nothing, and a brace
+ * inside a string, template text or regex never moves the depth. Returns
+ * describes in source order.
  */
-function findDescribeRanges(
-	content: string,
-	_stripped: string,
-): Array<{ bodyStart: number; bodyEnd: number }> {
-	void _stripped;
+function findDescribeRanges(codeMask: string): Array<{ bodyStart: number; bodyEnd: number }> {
 	const ranges: Array<{ bodyStart: number; bodyEnd: number }> = [];
 	DESCRIBE_INTRO_RE.lastIndex = 0;
-	let m: RegExpExecArray | null = DESCRIBE_INTRO_RE.exec(content);
-	while (m !== null) {
-		// Find the callback body's opening `{`, skipping any `{`/`}` that
-		// sit inside string literals (e.g. `describe("a {b} c", ...)`).
-		const open = scanForOpenBraceSkippingStrings(content, m.index + m[0].length);
-		if (open < 0) {
-			m = DESCRIBE_INTRO_RE.exec(content);
-			continue;
-		}
-		const end = findMatchingCloseBraceSkippingStrings(content, open);
+	for (let m = DESCRIBE_INTRO_RE.exec(codeMask); m !== null; m = DESCRIBE_INTRO_RE.exec(codeMask)) {
+		// The callback body's opening `{` (an `each` table's `{` comes first and scopes nothing).
+		const open = codeMask.indexOf("{", m.index + m[0].length);
+		const end = open < 0 ? -1 : matchingCloseBrace(codeMask, open);
 		if (end > open) ranges.push({ bodyStart: open, bodyEnd: end });
-		m = DESCRIBE_INTRO_RE.exec(content);
 	}
 	return ranges;
 }
 
-/** Yields every index from `start` onward whose character sits in CODE — i.e.
- *  outside any `"…"` / `'…'` / `` `…` `` string literal (escapes honored).
- *  The single quote-state walker both brace scanners below share, so neither
- *  has to re-implement "is this brace real?". */
-function* codeCharIndices(content: string, start: number): Generator<number> {
-	let inQuote: '"' | "'" | "`" | null = null;
-	for (let i = start; i < content.length; i++) {
-		const ch = content[i];
-		if (inQuote) {
-			if (ch === "\\") {
-				i++;
-				continue;
-			}
-			if (ch === inQuote) inQuote = null;
-			continue;
-		}
-		if (ch === '"' || ch === "'" || ch === "`") {
-			inQuote = ch;
-			continue;
-		}
-		yield i;
-	}
-}
-
-/** Skip forward to the next top-level `{` after `start`, ignoring any `{`
- *  that appears inside a `"…"` / `'…'` / `` `…` `` string. -1 if none. */
-function scanForOpenBraceSkippingStrings(content: string, start: number): number {
-	for (const i of codeCharIndices(content, start)) {
-		if (content[i] === "{") return i;
-	}
-	return -1;
-}
-
-/** Walk balanced braces from `openIdx` (where `content[openIdx] === '{'`),
- *  ignoring any `{` / `}` inside string literals. Returns the index of the
- *  matching `}`, or -1 if unbalanced. */
-function findMatchingCloseBraceSkippingStrings(content: string, openIdx: number): number {
+/** The `}` that closes the `{` at `openIdx` in a mask with every literal blanked; -1 if unbalanced. */
+function matchingCloseBrace(codeMask: string, openIdx: number): number {
 	let depth = 0;
-	for (const i of codeCharIndices(content, openIdx)) {
-		const ch = content[i];
+	for (let i = openIdx; i < codeMask.length; i++) {
+		const ch = codeMask[i];
 		if (ch === "{") depth++;
-		else if (ch === "}") {
-			depth--;
-			if (depth === 0) return i;
-		}
+		else if (ch === "}" && --depth === 0) return i;
 	}
 	return -1;
 }
@@ -253,9 +197,8 @@ export function checkDuplicateTestNames(content: string, filePath: string): Inli
 	if (!isStrictTestFile(filePath)) return [];
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 
-	const stripped = stripCommentsAndStrings(content);
-	const describeRanges = findDescribeRanges(content, stripped);
-	const codeMask = codeOnlyMask(content);
+	const codeMask = codeOnlyMask(content, filePath);
+	const describeRanges = findDescribeRanges(codeMask);
 
 	// Per-scope `seen` map gives us "same name in the same describe" while
 	// allowing the same name across sibling describes.

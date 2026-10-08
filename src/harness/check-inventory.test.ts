@@ -19,7 +19,8 @@ import { SPEC_LEDGER_CHECK_KINDS } from "./spec/ledger-drift.js";
 // loudly — that is the whole point: the number can never silently drift.
 const EXPECTED_BY_FAMILY: Record<string, number> = {
 	// +8 Bun-regression detector pack wired (assert-erasure ×3, reinterpret ×2, placeholder-const, unsafe-span ×2), 2026-07-20
-	inline: 296, // Includes six expression-readability advisory checks.
+	// +hand_rolled_lexer (advisory post, 2026-10-02)
+	inline: 297, // Includes six expression-readability advisory checks.
 	sequence: 22, // Removed the no-op sequence sentinel.
 	structural: 26, // +new_import_cycle (Plan 25 lane 5, "Cycle-delta check" — built concurrently by another lane of the same refactor-readiness program; this pin was simply stale, not authored here), 2026-08-17; prior: 25.
 	tool_quality: 34, // Includes the lint-import tool check.
@@ -29,7 +30,8 @@ const EXPECTED_BY_FAMILY: Record<string, number> = {
 };
 // +8 Bun-regression detector pack wired (assert-erasure ×3, reinterpret ×2, placeholder-const, unsafe-span ×2), 2026-07-20
 // +raw_control_bytes (2026-07-25)
-const EXPECTED_TOTAL = 422; // 296 inline checks plus the other disjoint inventory families.
+// +hand_rolled_lexer (2026-10-02)
+const EXPECTED_TOTAL = 423; // 297 inline checks plus the other disjoint inventory families.
 
 // Ids per family, mirroring getCheckInventory's own sources — so the union/overlap
 // assertions verify the DISTINCT total against reality, not a restated sum.

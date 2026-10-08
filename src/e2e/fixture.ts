@@ -100,8 +100,8 @@ export class E2eFixture {
         mkdirSync(this.dataDir);
         mkdirSync(join(cwd, "sentinel"));
         this.env = fixtureEnvironment({ ...process.env, INTERLINKED_DATA_DIR: join(cwd, "sentinel"), NODE_V8_COVERAGE: process.env.INTERLINKED_E2E_V8_DIR ?? process.env.NODE_V8_COVERAGE });
-        const { graph_prediction, ...guardRules } = rules;
-        writeFileSync(join(this.dataDir, "config.json"), JSON.stringify({ version: 1, sync_mode: "local", harness: { graph_prediction } }));
+        const { graph_prediction, guard_prediction, ...guardRules } = rules;
+        writeFileSync(join(this.dataDir, "config.json"), JSON.stringify({ version: 1, sync_mode: "local", harness: { graph_prediction, guard_prediction } }));
         writeFileSync(join(this.dataDir, "guard-rules.local.json"), JSON.stringify(guardRules));
         if (graph_prediction) this.graphSource("seed");
         writeFileSync(join(cwd, "README.md"), "Fixture project\n");
