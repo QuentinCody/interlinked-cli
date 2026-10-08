@@ -80,6 +80,25 @@ afterEach(() => {
 });
 
 describe("harnessHealthCommand", () => {
+    it("rechecks observed finding files by default and reports their clearance", async () => {
+        const path = join(dir, "observed.ts");
+        writeFileSync(path, "export const bad = value === NaN;\n");
+        await capture(() => harnessHealthCommand({ json: true, recheck: true, file: ["observed.ts"] }));
+        writeFileSync(path, "export const good = Number.isNaN(value);\n");
+        const out = await capture(() => harnessHealthCommand({ json: true, recheck: true }));
+        expect(out).toContain('"rechecked_clean": 1');
+        expect(out).toContain('"observations": 2');
+    });
+
+    it("reports unavailable files and a deferred tail without claiming a completed recheck", async () => {
+        const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+        const files = Array.from({ length: 21 }, (_, index) => `missing-${index}.ts`);
+        const out = await capture(() => harnessHealthCommand({ json: true, recheck: true, file: files }));
+        expect(stderr).toHaveBeenCalledWith("Recheck: 20 unavailable, 1 beyond the 20-file budget\n");
+        expect(out).toContain('"observations": 20');
+        expect(out).toContain('"unavailable": 20');
+    });
+
     it("--recheck executes the requested file and persists a follow-up visible in the same health response", async () => {
         const path = join(dir, "a.ts");
         writeFileSync(path, "export const bad = value === NaN;\n");

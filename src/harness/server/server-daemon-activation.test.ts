@@ -24,6 +24,7 @@ import { acquireStartupLock } from "../startup-lock.js";
 import { installDaemonTimers } from "./daemon-timers.js";
 import { activateHookCoverage } from "./hook-coverage.js";
 import { activateDaemon } from "./server-daemon-activation.js";
+import * as hookCoverageControl from "../hook-coverage-control.js";
 import { runStartupSelfCheck, startFramedDaemonOrExit } from "./startup-guard.js";
 
 vi.mock("../build-refresh.js", () => ({ startBuildRefreshWatcher: vi.fn(() => () => {}) }));
@@ -144,6 +145,29 @@ describe("activateDaemon — callbacks handed to collaborators", () => {
 		vi.useRealTimers();
 		process.removeAllListeners("SIGHUP");
 	});
+
+    it("logs idle evidence work only when the drain starts a verification job", async () => {
+        const options = makeOptions();
+        const drain = vi.spyOn(hookCoverageControl, "startIdleEvidenceDrain");
+        drain.mockReturnValueOnce(false).mockReturnValueOnce(true);
+        try {
+            await activateDaemon(options);
+            const timerHooks = nonNull(vi.mocked(installDaemonTimers).mock.calls[0]?.[0]);
+            const drainIdleEvidence = nonNull(timerHooks.drainIdleEvidence);
+            vi.mocked(options.logAlways).mockClear();
+
+            drainIdleEvidence();
+            expect(options.logAlways).not.toHaveBeenCalled();
+            drainIdleEvidence();
+            expect(drain).toHaveBeenNthCalledWith(1, options.runtime.hookCoverage);
+            expect(drain).toHaveBeenNthCalledWith(2, options.runtime.hookCoverage);
+            expect(options.logAlways).toHaveBeenCalledExactlyOnceWith(
+                "[interlinked] Idle: started the hook-coverage evidence drain",
+            );
+        } finally {
+            drain.mockRestore();
+        }
+    });
 
 	it("gives the daemon timers a recycle lease that reports the startup lock outcome", async () => {
 		const options = makeOptions();

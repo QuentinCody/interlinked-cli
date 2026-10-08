@@ -306,8 +306,7 @@ export function clientHookChecks(cwd: string): CheckResult[] {
 			});
 		}
 		if (client.name === "codex") {
-			const flag = codexFeatureFlagResult(client.configDir);
-			if (flag) out.push(flag);
+			out.push(codexFeatureFlagResult(client.configDir));
 			out.push(codexRuntimeReceiptResult(cwd));
 		}
 	}
@@ -334,7 +333,8 @@ export function permissionRuleChecks(cwd: string, fix: boolean): CheckResult[] {
 			});
 			continue;
 		}
-		const sample = v.malformed[0]?.rule.slice(0, 60) ?? "";
+		// validateSettingsFile builds a dense list, and the empty case returned above.
+		const sample = v.malformed[0]!.rule.slice(0, 60);
 		out.push({
 			name: checkName,
 			status: "warn",

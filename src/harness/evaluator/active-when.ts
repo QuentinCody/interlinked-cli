@@ -19,6 +19,7 @@
 // See docs/design/harness-active-when-scoping.md.
 
 import { readOptionalToolString } from "./tool-input-values.js";
+import { nonNull } from "../../lib/non-null.js";
 import { getActiveCohort } from "../cohort.js";
 import { harnessNow } from "../replay/harness-clock.js";
 import type {
@@ -124,8 +125,9 @@ export function unsupportedRulePredicates(rule: GuardRule): string[] {
 
 function evaluatePredicateAxis(spec: SessionPredicateSpec): boolean {
 	if (!Object.hasOwn(SESSION_PREDICATES, spec.name)) return false;
-	const impl = SESSION_PREDICATES[spec.name];
-	if (!impl) return false;
+	// Every own registry entry is a predicate; the unknown-name check above
+	// also excludes inherited Object.prototype members.
+	const impl = nonNull(SESSION_PREDICATES[spec.name]);
 	return impl(spec.args);
 }
 

@@ -156,7 +156,7 @@ export function checkSqlEscapeHatchNonLiteral(
 			const lineNum = stripped.slice(0, m.index).split("\n").length;
 			matches.push({
 				line: lineNum,
-				text: `SQL escape hatch (${m[0].trim()}) called with non-literal argument — should only wrap compile-time constants (schema names, etc.): ${(originalLines[lineNum - 1] ?? "").trim().slice(0, 120)}`,
+				text: `SQL escape hatch (${m[0].trim()}) called with non-literal argument — should only wrap compile-time constants (schema names, etc.): ${nonNull(originalLines[lineNum - 1]).trim().slice(0, 120)}`,
 			});
 		}
 		m = re.exec(stripped);

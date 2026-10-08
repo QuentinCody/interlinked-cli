@@ -20,6 +20,7 @@ import type {
 } from "../types.js";
 import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import { runPostToolPipeline } from "./post-tool-pipeline.js";
+import { captureDecisionPreimages, decisionHookAdvice } from "../../lib/decision-metrics/hook.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
 // ---------------------------------------------------------------------------
@@ -252,6 +253,28 @@ beforeEach(() => {
 	mRunPerFile.mockResolvedValue(undefined);
 	mExistsSync.mockReturnValue(true);
 	mReadFile.mockReturnValue("file contents");
+});
+
+it("passes cached preimages into decision advice and forwards every advisory without blocking", async () => {
+    const ctx = makeCtx();
+    const readCached = vi.spyOn(ctx.fileContentCache, "get").mockReturnValue("original source");
+    const preimages = new Map([["/repo/src/example.ts", "original source"]]);
+    vi.mocked(captureDecisionPreimages).mockImplementationOnce((root, effects, read) => {
+        expect(root).toBe(ctx.cwd);
+        expect(effects).toEqual([]);
+        expect(read("/repo/src/example.ts")).toBe("original source");
+        return preimages;
+    });
+    vi.mocked(decisionHookAdvice).mockResolvedValueOnce(["first decision advisory", "second decision advisory"]);
+    mExtractPaths.mockReturnValueOnce(["/repo/src/example.ts"]);
+    const event = ev({ tool_name: "Edit", tool_input: { file_path: "/repo/src/example.ts" }, dry_run: true });
+
+    const result = await runPostToolPipeline(ctx, event, makeSession());
+
+    expect(readCached).toHaveBeenCalledWith("/repo/src/example.ts");
+    expect(decisionHookAdvice).toHaveBeenCalledExactlyOnceWith(ctx.cwd, [], { dryRun: true, preimages });
+    expect(result.decision).toBe("allow");
+    expect(result.warnings).toEqual(expect.arrayContaining(["first decision advisory", "second decision advisory"]));
 });
 
 // ---------------------------------------------------------------------------

@@ -141,14 +141,14 @@ function isRescanPathInScope(path: string, root: string,
 function scanContentFindings(args: {
 	content: string;
 	relPath: string;
-    checkPath?: string;
+    checkPath: string;
 	onUnavailable?: (check: string, file: string, error: unknown) => void;
 	onExecution?: (execution: DetectorExecution) => void;
 }): PatternRescanFinding[] {
 	const { content, relPath } = args;
 	const out: PatternRescanFinding[] = [];
 	const deferrals = scanInlineDeferrals(content);
-	for (const check of buildAgentSafetyChecks(content, args.checkPath ?? relPath)) {
+	for (const check of buildAgentSafetyChecks(content, args.checkPath)) {
 		const started = performance.now();
 		let matches: Array<{ line: number; text: string }>;
 		try {

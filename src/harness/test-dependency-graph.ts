@@ -100,8 +100,8 @@ export function testDependencyClosure(graph: TestDependencyGraph, seeds: Iterabl
     const paths = new Set(seeds), queue = [...paths];
     let opaque = graph.incomplete, nondeterministic = false;
     for (let index = 0; index < queue.length; index++) {
-        const path = queue[index];
-        if (path === undefined) continue;
+        // Seeds and discovered targets form a dense, append-only queue.
+        const path = queue[index]!;
         opaque ||= graph.opaqueFiles.has(path);
         nondeterministic ||= graph.nondeterministicFiles.has(path);
         for (const target of graph.dependencies.get(path) ?? []) {

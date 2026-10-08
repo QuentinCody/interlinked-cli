@@ -20,7 +20,7 @@ import type { CheckResult } from "./doctor-checks.js";
  *  true` (legacy key: `codex_hooks`). A correct hooks.json with the flag
  *  missing is an install that silently never fires, so doctor names THAT as
  *  the defect instead of claiming the hooks are absent. */
-export function codexFeatureFlagResult(configDir: string): CheckResult | null {
+export function codexFeatureFlagResult(configDir: string): CheckResult {
 	const tomlPath = join(configDir, "config.toml");
 	if (!existsSync(tomlPath)) {
 		return {

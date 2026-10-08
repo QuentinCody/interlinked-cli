@@ -215,15 +215,14 @@ export function cloneMutablePostings(
 /**
  * Re-read a file from disk and extract fresh trigram masks for it, so a
  * merged posting entry gets real adjacency data instead of zeros. Returns
- * null (never throws) for any failure — no path given, file missing, or a
+ * null (never throws) for any disk failure — file missing, or a
  * read error (e.g. the path now points at a directory) — so callers fall
  * back to zero masks uniformly regardless of which way it failed.
  */
 function readMasksFromDisk(
 	cwd: string,
-	relPath: string | undefined,
+	relPath: string,
 ): Map<number, { locMask: number; nextMask: number }> | null {
-	if (!relPath) return null;
 	try {
 		const absPath = join(cwd, relPath);
 		if (!existsSync(absPath)) return null;
@@ -281,7 +280,8 @@ export function applyDirtyOverrides(
 	for (const [fileId, trigrams] of dirtyOverrides) {
 		removeFileFromPostings(postings, fileId);
 		if (!trigrams) continue;
-		addFileToPostings(postings, fileId, trigrams, readMasksFromDisk(cwd, files[fileId]));
+		// Overrides use IDs from fileToId; the base file table is never compacted.
+		addFileToPostings(postings, fileId, trigrams, readMasksFromDisk(cwd, nonNull(files[fileId])));
 	}
 }
 

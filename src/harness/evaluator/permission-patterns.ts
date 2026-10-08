@@ -13,7 +13,8 @@ export function extractPermissionPattern(toolName: string, toolInput: JsonObject
     try {
         const url = new URL(readToolString(toolInput.url));
         if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-        return url.hostname ? "WebFetch(domain:" + url.hostname + ")" : null;
+        // A successfully parsed HTTP(S) URL always has a hostname.
+        return "WebFetch(domain:" + url.hostname + ")";
     } catch {
         return null;
     }

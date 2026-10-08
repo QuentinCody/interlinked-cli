@@ -141,7 +141,6 @@ type TestDeclaration = { name: string; scopeKey: string; lineIdx: number; bodyNo
  *  a string never miscounts; `content` (raw) is what gets sliced for text. */
 function declarationBody(content: string, codeMask: string, m: RegExpExecArray): string {
 	const openParen = content.indexOf("(", m.index);
-	if (openParen === -1) return "";
 	const span = findCallSpan(codeMask, openParen + 1);
 	if (span === null) return "";
 	return content.slice(m.index + m[0].length, span.end);
@@ -263,7 +262,7 @@ function blankNonExecutingTestCalls(content: string, maskedContent: string): str
 		while (m !== null) {
 			if (isCodeMatch(maskedContent, m.index) && isSkippedOrTodoCall(m[0])) {
 				const openParen = content.indexOf("(", m.index);
-				const span = openParen === -1 ? null : findCallSpan(maskedContent, openParen + 1);
+				const span = findCallSpan(maskedContent, openParen + 1);
 				blankRange(chars, m.index, span === null ? m.index + m[0].length : span.end + 1);
 			}
 			m = re.exec(content);
