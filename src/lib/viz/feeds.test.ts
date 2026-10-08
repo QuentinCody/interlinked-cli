@@ -281,3 +281,118 @@ describe("mutation-runs.html — adoption is never the clean class", () => {
 		expect(rendered).not.toContain("<img");
 	});
 });
+
+describe("index.html — GATES filmstrip dedupes a replayed SSE seed (F-A1)", () => {
+	/** The slice of the DOM API the shipped renderCheck touches, nothing more. */
+	class FakeEl {
+		className = "";
+		innerHTML = "";
+		dataset: Record<string, string> = {};
+		children: FakeEl[] = [];
+		parent: FakeEl | null = null;
+		get firstChild(): FakeEl | null {
+			return this.children[0] ?? null;
+		}
+		get lastChild(): FakeEl | null {
+			return this.children[this.children.length - 1] ?? null;
+		}
+		prepend(el: FakeEl): void {
+			this.insertBefore(el, this.firstChild);
+		}
+		insertBefore(el: FakeEl, ref: FakeEl | null): void {
+			el.parent = this;
+			const at = ref ? this.children.indexOf(ref) : this.children.length;
+			this.children.splice(at < 0 ? this.children.length : at, 0, el);
+		}
+		remove(): void {
+			if (!this.parent) return;
+			this.parent.children.splice(this.parent.children.indexOf(this), 1);
+			this.parent = null;
+		}
+	}
+
+	interface CheckFrame {
+		ts: string;
+		tool_use_id: string;
+		tool?: string;
+		file?: string;
+		decision: "allow" | "block";
+		checks?: unknown[];
+	}
+
+	function shippedFilmstrip(): { reel: FakeEl; renderCheck: (c: CheckFrame) => FakeEl | null } {
+		const html = readFileSync(
+			join(dirname(fileURLToPath(import.meta.url)), "web", "index.html"),
+			"utf-8",
+		);
+		const start = html.indexOf("const filmReel = document.getElementById");
+		const end = html.indexOf("function connectChecks(", start);
+		if (start < 0 || end < 0) throw new Error("filmstrip renderer not found in index.html");
+		const reel = new FakeEl();
+		reel.innerHTML = "<placeholder>";
+		const document = { getElementById: () => reel, createElement: () => new FakeEl() };
+		const esc = (s: unknown): string =>
+			String(s).replace(/[<>&]/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[ch] ?? ch);
+		const base = (p: string): string => p.split("/").pop() ?? p;
+		// SAFETY: the evaluated source is this repo's own shipped page code,
+		// bounded before the EventSource wiring; the cast names its API.
+		const renderCheck = new Function(
+			"document",
+			"esc",
+			"base",
+			`${html.slice(start, end)}; return renderCheck;`,
+		)(document, esc, base) as (c: CheckFrame) => FakeEl | null;
+		return { reel, renderCheck };
+	}
+
+	const seed: CheckFrame[] = [
+		{ ts: "2026-10-03T18:14:48.000Z", tool_use_id: "tu-1", tool: "Write", file: "a/ergonomics.test.ts", decision: "allow" },
+		{ ts: "2026-10-03T18:16:08.000Z", tool_use_id: "tu-2", tool: "Write", file: "a/features3.ts", decision: "allow" },
+		{ ts: "2026-10-03T18:16:30.000Z", tool_use_id: "tu-3", tool: "Edit", file: "a/x.ts", decision: "block" },
+	];
+	const files = (reel: FakeEl): string[] =>
+		reel.children.map((f) => f.innerHTML.match(/vfile">· ([^<]+)</)?.[1] ?? "?");
+
+	// test-contract: regression — the server re-sends its seed on every SSE connection; a reconnect must not double the reel
+	it("P1: replaying the seed after a reconnect renders each frame exactly once, newest first", () => {
+		const { reel, renderCheck } = shippedFilmstrip();
+		for (const c of seed) renderCheck(c);
+		for (const c of seed) renderCheck(c);
+		expect(reel.children).toHaveLength(3);
+		expect(files(reel)).toEqual(["x.ts", "features3.ts", "ergonomics.test.ts"]);
+	});
+
+	// test-contract: ordering — a frame that arrives late (seed after live) is placed by ts, not on top
+	it("P2: a late-arriving older frame is placed by ts, not on top", () => {
+		const { reel, renderCheck } = shippedFilmstrip();
+		renderCheck(seed[1]!);
+		renderCheck(seed[2]!);
+		renderCheck(seed[0]!);
+		expect(files(reel)).toEqual(["x.ts", "features3.ts", "ergonomics.test.ts"]);
+	});
+
+	// test-contract: boundary — identity is (ts, tool_use_id); two calls at one ts are two frames
+	it("N1: a distinct frame at the same ts is not treated as a duplicate", () => {
+		const { reel, renderCheck } = shippedFilmstrip();
+		renderCheck(seed[0]!);
+		renderCheck({ ...seed[0]!, tool_use_id: "tu-other", file: "a/other.ts" });
+		expect(reel.children).toHaveLength(2);
+	});
+
+	// test-contract: boundary — the 30-frame cap holds across a 40-event seed replay and no frame appears twice
+	it("N2: the cap still holds after a 40-event seed is replayed and nothing duplicates", () => {
+		const { reel, renderCheck } = shippedFilmstrip();
+		const many: CheckFrame[] = Array.from({ length: 40 }, (_, i) => ({
+			ts: new Date(Date.UTC(2026, 9, 3, 18, 0, i)).toISOString(),
+			tool_use_id: `tu-${i}`,
+			tool: "Edit",
+			file: `f/${i}.ts`,
+			decision: "allow",
+		}));
+		for (const c of many) renderCheck(c);
+		for (const c of many) renderCheck(c);
+		expect(reel.children).toHaveLength(30);
+		expect(new Set(files(reel)).size).toBe(30);
+		expect(files(reel)[0]).toBe("39.ts");
+	});
+});

@@ -788,6 +788,25 @@
 	const filmReel = document.getElementById("film-reel");
 	const FILM_CAP = 30;
 	let filmHasData = false;
+	// Frame identity. The server replays its seed on EVERY SSE connection, so a
+	// reconnect (server restart, network blip) re-delivers frames the reel
+	// already holds; without a key each one was prepended again (Bombadil F-A1).
+	// Keys of the frames currently in the reel; an evicted frame's key leaves
+	// with it so a replay can re-insert (and re-evict) it without growing memory.
+	const filmKeys = new Set();
+	const filmKey = (c) => (c.ts == null || c.tool_use_id == null) ? null
+		: String(c.ts) + "\u0000" + String(c.tool_use_id);
+	// Newest-first placement: the first existing frame at or before `tsMs`
+	// is the insertion point; null (append) when every frame is newer; an
+	// unparseable ts sorts as newest so a live frame still lands on top.
+	function filmInsertionPoint(tsMs) {
+		if (!Number.isFinite(tsMs)) return filmReel.firstChild;
+		for (const el of filmReel.children) {
+			const t = Number(el.dataset.ts);
+			if (!Number.isFinite(t) || t <= tsMs) return el;
+		}
+		return null;
+	}
 	const sevClass = (s) => { const v = String(s || "").toLowerCase();
 		return v === "error" ? "error" : v === "warning" || v === "warn" ? "warning" : "info"; };
 	const detTag = (d) => d === "proven" ? "[proven]" : d === "heuristic" ? "[heuristic]" : "";
@@ -795,6 +814,8 @@
 		d.toTimeString().slice(0, 8); };   // HH:MM:SS, empty on unparseable
 	function renderCheck(c) {
 		if (!c || typeof c !== "object") return null;
+		const key = filmKey(c);
+		if (key !== null && filmKeys.has(key)) return null; // replayed seed frame
 		// honest placeholder lines are removed once real data lands
 		if (!filmHasData) { filmReel.innerHTML = ""; filmHasData = true; }
 		const checks = Array.isArray(c.checks) ? c.checks : [];
@@ -826,8 +847,15 @@
 			html += '<div class="fclean">// on baseline — clean call</div>';
 		}
 		frame.innerHTML = html;
-		filmReel.prepend(frame);
-		while (filmReel.children.length > FILM_CAP) filmReel.lastChild.remove();
+		const tsMs = Date.parse(c.ts);
+		if (Number.isFinite(tsMs)) frame.dataset.ts = String(tsMs);
+		if (key !== null) { frame.dataset.key = key; filmKeys.add(key); }
+		filmReel.insertBefore(frame, filmInsertionPoint(tsMs));
+		while (filmReel.children.length > FILM_CAP) {
+			const last = filmReel.lastChild;
+			if (last.dataset.key) filmKeys.delete(last.dataset.key);
+			last.remove();
+		}
 		return frame;
 	}
 	function connectChecks() {
