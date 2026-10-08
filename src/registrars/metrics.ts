@@ -1,5 +1,6 @@
 import { type Command, type OptionValues } from "commander";
 import { registerMetricsAnalysisCommands } from "./metrics-analysis.js";
+import { registerDecisionMetricCommands } from "./metrics-decisions.js";
 
 function parentAndChildOptions(opts: OptionValues, command: Command): OptionValues {
     return { ...(command.parent?.opts() ?? {}), ...opts };
@@ -169,4 +170,5 @@ export function registerMetricsCommands(program: Command): void {
     registerScoreCommand(metrics);
     registerJitCommand(metrics);
     registerMetricsAnalysisCommands(metrics);
+    registerDecisionMetricCommands(metrics);
 }

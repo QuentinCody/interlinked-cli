@@ -13,6 +13,7 @@
 // …) becomes `ctx.rules`, `ctx.trigramIndex`, ….
 
 import { runPostToolScan } from "../content-scanner/post-scan.js";
+import { captureDecisionPreimages, decisionHookAdvice } from "../../lib/decision-metrics/hook.js";
 import { appendRepeatedImplementationAdvice } from "../repeated-implementation-advice.js";
 import { evaluatePostToolUse } from "../evaluator.js";
 import { runFailureChannels } from "../failure-channels.js";
@@ -228,6 +229,23 @@ async function runFileChecks(
     acc.allCheckResults.push(...appendRepeatedImplementationAdvice(ctx.cwd, pathsToCheck, session, postDecision, event.dry_run));
 }
 
+function phaseRecorder(start: number): { phaseBreakdown: Record<string, number>; markPhase(name: string): void } {
+    const phaseBreakdown: Record<string, number> = {};
+    let cursor = start;
+    return { phaseBreakdown, markPhase(name) {
+        const now = Date.now();
+        phaseBreakdown[name] = (phaseBreakdown[name] ?? 0) + now - cursor;
+        cursor = now;
+    } };
+}
+
+function finishPostToolDecision(ctx: ServerRuntime, event: HarnessEvent, session: SessionTrajectory, details: Parameters<typeof attachTailResults>[0]): void {
+    attachTailResults(details);
+    appendRequiredToolWarnings(ctx, session, details.postDecision);
+    emitAllCleanSummary({ postDecision: details.postDecision, rules: ctx.rules, checksRan: details.checksRan, elapsedMs: details.elapsedMs });
+    appendBaselineEffect(event, details.postDecision, ctx.cwd);
+}
+
 async function runPostToolPipelineInner(
 	ctx: ServerRuntime,
 	event: HarnessEvent,
@@ -246,6 +264,7 @@ async function runPostToolPipelineInner(
 	if (skip) return skip;
 
 	// --- Dirty layer: track file edits for trigram index freshness ---
+	const decisionPreimages = captureDecisionPreimages(CWD, event.change_set?.files ?? [], file => ctx.fileContentCache.get(file));
 	updateTrigramDirtyLayer(ctx, event);
 
 	// --- Test run tracking: detect test runner commands and record pass/fail ---
@@ -301,13 +320,7 @@ async function runPostToolPipelineInner(
 	// attributed to a subprocess tool. `markPhase(name)` records the
 	// delta from the previous mark; the closing `closePhase()` captures
 	// anything between the last mark and end-of-handler.
-	const phaseBreakdown: Record<string, number> = {};
-	let phaseCursor = postStartMs;
-	const markPhase = (name: string): void => {
-		const now = Date.now();
-		phaseBreakdown[name] = (phaseBreakdown[name] ?? 0) + (now - phaseCursor);
-		phaseCursor = now;
-	};
+	const { phaseBreakdown, markPhase } = phaseRecorder(postStartMs);
 
 	// --- Tool-response checks (run for ALL PostToolUse events, not just file edits) ---
 	// These inspect tool_response payloads, so they apply equally to MCP tools,
@@ -349,6 +362,8 @@ async function runPostToolPipelineInner(
 			editedFilePaths,
 			acc,
 		);
+		const decisionWarnings = await decisionHookAdvice(CWD, event.change_set?.files ?? [], { dryRun: event.dry_run === true, preimages: decisionPreimages });
+		for (const warning of decisionWarnings) pushWarnings(postDecision, warning);
 	}
 
 	// Phase mark — covers the final warnings-marker write +
@@ -357,7 +372,7 @@ async function runPostToolPipelineInner(
 
 	// Attach structured check results and timing to the decision.
 	const elapsedMs = Date.now() - postStartMs;
-	attachTailResults({
+	finishPostToolDecision(ctx, event, session, {
 		postDecision,
 		allCheckResults,
 		checksRan,
@@ -366,16 +381,6 @@ async function runPostToolPipelineInner(
 		elapsedMs,
 	});
 
-	// Required-tool coverage: warn once per session if required tools are missing.
-	appendRequiredToolWarnings(ctx, session, postDecision);
-
-	// Emit a positive summary line when all checks pass (the detailed warnings
-	// carry the signal otherwise).
-	emitAllCleanSummary({ postDecision, rules, checksRan, elapsedMs });
-	// Effect-based baseline integrity: compare the water-lines against the
-	// pre-call snapshot. Warn-only — the loosening is already reversible (undo
-	// record) and inert (trusted value), so blocking adds nothing here.
-	appendBaselineEffect(event, postDecision, CWD);
 
 	return postDecision;
 }

@@ -1,0 +1,24 @@
+[
+    {
+        "id": "smoke::increment",
+        "repository": "synthetic-smoke-not-a-calibration-cohort",
+        "revision": "fixture-v1",
+        "timestamp": "2026-10-06T00:00:00Z",
+        "unit": "function",
+        "file": "increment.ts",
+        "line": 1,
+        "evidence": {
+            "signature": "increment(value: number): number",
+            "body": "function increment(value: number): number { return value + 1; }",
+            "hunk": "@@ -1 +1 @@\n-function increment(value: number): number { return value; }\n+function increment(value: number): number { return value + 1; }",
+            "message": "Fix increment to add one.",
+            "tests": ["expect(increment(0)).toBe(1); expect(increment(-1)).toBe(0);"],
+            "metrics": { "lines": 1, "tokens": 19, "cyclomatic": 1 }
+        },
+        "provenance": {
+            "extractor": "explicit-example-v1",
+            "sourceHash": "fixture-v1",
+            "metricsVersion": "illustrative-not-measured"
+        }
+    }
+]

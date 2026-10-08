@@ -26,6 +26,11 @@ import type { ServerRuntime } from "./runtime-context.js";
 // Module mocks (vitest hoists these above the real-module imports below).
 // ---------------------------------------------------------------------------
 
+vi.mock("../../lib/decision-metrics/hook.js", () => ({
+    captureDecisionPreimages: vi.fn(() => new Map()),
+    decisionHookAdvice: vi.fn(async () => []),
+}));
+
 vi.mock("node:fs", () => ({
 	existsSync: vi.fn(() => true),
 	mkdirSync: vi.fn(),

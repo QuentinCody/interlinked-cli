@@ -1,0 +1,22 @@
+[
+    {
+        "repository": "synthetic-obligation-integration",
+        "revision": "fixture-v1",
+        "timestamp": "2026-10-06T00:00:00Z",
+        "unit": "function",
+        "line": 1,
+        "provenance": {
+            "extractor": "explicit-example-v1",
+            "sourceHash": "fixture-v1",
+            "metricsVersion": "illustrative-not-measured"
+        },
+        "id": "status-contract",
+        "file": "status.ts",
+        "evidence": {
+            "signature": "Status",
+            "body": "type Status = 'pending' | 'paid' | 'cancelled';",
+            "hunk": "@@ -1 +1 @@\n-type Status = 'pending' | 'paid';\n+type Status = 'pending' | 'paid' | 'cancelled';",
+            "message": "Add cancelled status. Display labels must cover every status; cancelled should display Cancelled. Closed means any status other than pending."
+        }
+    }
+]

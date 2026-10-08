@@ -1,0 +1,42 @@
+[
+    {
+        "repository": "synthetic-obligation-integration",
+        "revision": "fixture-v1",
+        "timestamp": "2026-10-06T00:00:00Z",
+        "unit": "function",
+        "line": 1,
+        "provenance": {
+            "extractor": "explicit-example-v1",
+            "sourceHash": "fixture-v1",
+            "metricsVersion": "illustrative-not-measured"
+        },
+        "id": "display-label",
+        "file": "display.ts",
+        "evidence": {
+            "signature": "displayLabel",
+            "body": "function displayLabel(status: Status) { switch (status) { case 'pending': return 'Pending'; case 'paid': return 'Paid'; default: return 'Unknown'; } }",
+            "dependencies": ["status.ts"],
+            "verification": []
+        }
+    },
+    {
+        "repository": "synthetic-obligation-integration",
+        "revision": "fixture-v1",
+        "timestamp": "2026-10-06T00:00:00Z",
+        "unit": "function",
+        "line": 1,
+        "provenance": {
+            "extractor": "explicit-example-v1",
+            "sourceHash": "fixture-v1",
+            "metricsVersion": "illustrative-not-measured"
+        },
+        "id": "is-closed",
+        "file": "closed.ts",
+        "evidence": {
+            "signature": "isClosed",
+            "body": "function isClosed(status: Status) { return status !== 'pending'; }",
+            "dependencies": ["status.ts"],
+            "verification": []
+        }
+    }
+]
