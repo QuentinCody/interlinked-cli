@@ -6,14 +6,18 @@
 // identity, and completed tool items use the hook's same `exec-*` id. Correlate
 // those local records without changing the parent session grouping.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isJsonObject, type JsonObject } from "../lib/json-types.js";
+import { scanFileLines } from "../lib/bounded-file-io.js";
 import type { HarnessEvent } from "./types.js";
 
 const DEFAULT_MAX_AGE_MS = 15 * 60_000;
 const PENDING_MATCH_WINDOW_MS = 10_000;
+const HEADER_BYTES = 64 * 1024;
+const TAIL_BYTES = 1024 * 1024;
+const MAX_CACHED_ROLLOUTS = 16;
 
 interface CodexSubagentAttribution {
     subagent_id:string;
@@ -43,6 +47,8 @@ interface ParsedAttributionRollout {
 interface CachedRollout {
     size: number;
     mtimeMs: number;
+    ctimeMs: number;
+    ino: number;
     parsed: ParsedAttributionRollout;
 }
 
@@ -134,7 +140,13 @@ function consumeRolloutEntry(entry: JsonObject, acc: RolloutAccumulator): void {
 /** Parse only rollout facts needed for live attribution. Malformed lines are
  * skipped; a root (non-subagent) rollout intentionally has null identity. */
 export function parseCodexAttributionRollout(text: string): ParsedAttributionRollout {
-    const acc: RolloutAccumulator = {
+    const acc = newAccumulator();
+    for (const line of text.split("\n")) consumeLine(line, acc);
+    return attributionResult(acc);
+}
+
+function newAccumulator(): RolloutAccumulator {
+    return {
         attribution: null,
         cwd: null,
         model: null,
@@ -142,15 +154,19 @@ export function parseCodexAttributionRollout(text: string): ParsedAttributionRol
         executionIds: new Set<string>(),
         pending: new Map<string, PendingCall>(),
     };
-    for (const line of text.split("\n")) {
-        if (!line.trim()) continue;
-        try {
-            const entry: unknown = JSON.parse(line);
-            if (isJsonObject(entry)) consumeRolloutEntry(entry, acc);
-        } catch {
-            continue;
-        }
+}
+
+function consumeLine(line: string, acc: RolloutAccumulator): void {
+    try {
+        const entry: unknown = JSON.parse(line);
+        if (isJsonObject(entry)) consumeRolloutEntry(entry, acc);
+    } catch {
+        // Partial or malformed native records provide no attribution.
+        return;
     }
+}
+
+function attributionResult(acc: RolloutAccumulator): ParsedAttributionRollout {
     if (acc.attribution) acc.attribution.model = acc.model;
     return {
         attribution: acc.attribution,
@@ -158,6 +174,30 @@ export function parseCodexAttributionRollout(text: string): ParsedAttributionRol
         executionIds: acc.executionIds,
         pendingCalls: [...acc.pending.values()],
     };
+}
+
+/** Live correlation needs the native owner and recent calls, not the transcript.
+ * Gaps deliberately lose correlation: missing evidence must never invent an actor. */
+function readAttributionWindow(path: string, size: number): ParsedAttributionRollout {
+    const acc = newAccumulator();
+    const headerEnd = Math.min(size, HEADER_BYTES);
+    scanFileLines(path, (line) => {
+        if (line.text) consumeLine(line.text, acc);
+        if (acc.sessionMetaSeen && !acc.attribution) return false;
+        return true;
+    }, { endExclusive: headerEnd, chunkBytes: HEADER_BYTES, includeFinalLine: size <= HEADER_BYTES });
+    if (!acc.attribution || size <= HEADER_BYTES) return attributionResult(acc);
+
+    // Only owner facts cross the gap; a pending call may have completed there.
+    acc.pending.clear();
+    acc.executionIds.clear();
+    acc.model = null; // A skipped turn context may have changed the model too.
+    const start = Math.max(0, size - TAIL_BYTES);
+    scanFileLines(path, (line) => {
+        if (start > 0 && line.start === start) return;
+        if (line.text) consumeLine(line.text, acc);
+    }, { startOffset: start, endExclusive: size, maxCapturedLineBytes: TAIL_BYTES });
+    return attributionResult(acc);
 }
 
 function dateDirectory(root: string, date: Date): string {
@@ -197,11 +237,19 @@ function readRollout(path: string): ParsedAttributionRollout | null {
     try {
         const stat = statSync(path);
         const cached = rolloutCache.get(path);
-        if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+        if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs
+            && cached.ctimeMs === stat.ctimeMs && cached.ino === stat.ino) {
+            rolloutCache.delete(path);
+            rolloutCache.set(path, cached);
             return cached.parsed;
         }
-        const parsed = parseCodexAttributionRollout(readFileSync(path, "utf8"));
-        rolloutCache.set(path, { size: stat.size, mtimeMs: stat.mtimeMs, parsed });
+        const parsed = readAttributionWindow(path, stat.size);
+        rolloutCache.delete(path);
+        if (rolloutCache.size >= MAX_CACHED_ROLLOUTS) {
+            const oldest = rolloutCache.keys().next().value;
+            if (oldest !== undefined) rolloutCache.delete(oldest);
+        }
+        rolloutCache.set(path, { size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs, ino: stat.ino, parsed });
         return parsed;
     } catch {
         return null;

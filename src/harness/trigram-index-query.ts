@@ -14,6 +14,7 @@
 // structural QueryView interface, so there is no runtime import cycle.
 
 import { nonNull } from "../lib/non-null.js";
+import type { TrigramMembership } from "./compact-trigrams.js";
 import {
 	binarySearchU32,
 	EARLY_TERMINATION_THRESHOLD,
@@ -30,8 +31,8 @@ export interface QueryView {
 	readonly files: string[];
 	readonly postings: Map<number, PostingList>;
 	readonly stopTrigrams: Set<number>;
-	readonly dirtyOverrides: Map<number, Set<number> | null>;
-	readonly dirtyNewFiles: Map<string, { id: number; trigrams: Set<number> }>;
+	readonly dirtyOverrides: Map<number, TrigramMembership | null>;
+	readonly dirtyNewFiles: Map<string, { id: number; trigrams: TrigramMembership }>;
 }
 
 /**

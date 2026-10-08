@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnessEvent } from "./types.js";
 import {
     enrichCodexSubagentAttribution,
@@ -9,6 +10,12 @@ import {
     resolveCodexSubagentAttribution,
 } from "./codex-subagent-attribution.js";
 import { eventAttributionFields } from "./event-attribution-fields.js";
+
+vi.mock("node:fs", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("node:fs")>();
+    return { ...actual, readFileSync: vi.fn(actual.readFileSync), readSync: vi.fn(actual.readSync) };
+});
+beforeEach(() => { vi.clearAllMocks(); });
 
 const TS = "2026-08-20T15:48:53.313Z";
 
@@ -161,6 +168,46 @@ describe("parseCodexAttributionRollout", () => {
 });
 
 describe("resolveCodexSubagentAttribution", () => {
+    it("reads a bounded header and tail of a large active rollout, including its latest execution", () => {
+        const path = tempRollout(rollout() + "\n" + "{\"ignored\":true}\n".repeat(400_000));
+        appendFileSync(path, JSON.stringify({ type: "event_msg", payload: { item: { id: "exec-123" } } }) + "\n");
+        const wholeRead = vi.spyOn(fs, "readFileSync");
+        const rangeRead = vi.spyOn(fs, "readSync");
+        try {
+            expect(resolveCodexSubagentAttribution(event(), { rolloutPaths: [path] })).toMatchObject({ subagent_id: "sub-thread", model: null });
+            expect(wholeRead.mock.calls.filter(([file]) => file === path)).toHaveLength(0);
+            const bytes = rangeRead.mock.results.reduce((sum, result) => sum + (result.type === "return" ? Number(result.value) : 0), 0);
+            expect(bytes).toBeLessThanOrEqual(2 * 1024 * 1024);
+        } finally { wholeRead.mockRestore(); rangeRead.mockRestore(); }
+    });
+
+    it("does not resurrect a pending call whose completion is outside the retained tail", () => {
+        const output = JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call_output", call_id: "call-1" } });
+        const path = tempRollout(rollout() + "\n" + output + "\n" + "{\"ignored\":true}\n".repeat(100_000));
+        expect(resolveCodexSubagentAttribution(event(), { rolloutPaths: [path] })).toBeNull();
+    });
+
+    it("stops reading a large root rollout as soon as its native owner is known", () => {
+        const path = tempRollout(rollout({ subagent: false }) + "\n" + "{\"ignored\":true}\n".repeat(100_000));
+        const wholeRead = vi.spyOn(fs, "readFileSync");
+        const rangeRead = vi.spyOn(fs, "readSync");
+        try {
+            expect(resolveCodexSubagentAttribution(event(), { rolloutPaths: [path] })).toBeNull();
+            expect(wholeRead.mock.calls.filter(([file]) => file === path)).toHaveLength(0);
+            const bytes = rangeRead.mock.results.reduce((sum, result) => sum + (result.type === "return" ? Number(result.value) : 0), 0);
+            expect(bytes).toBeLessThanOrEqual(64 * 1024);
+        } finally { wholeRead.mockRestore(); rangeRead.mockRestore(); }
+    });
+
+    it("refreshes attribution after append and replacement instead of reusing stale execution ids", () => {
+        const path = tempRollout(rollout());
+        expect(resolveCodexSubagentAttribution(event({ tool_use_id: "new-id", tool_input: { command: "other command" } }), { rolloutPaths: [path] })).toBeNull();
+        appendFileSync(path, "\n" + JSON.stringify({ type: "event_msg", payload: { item: { id: "new-id" } } }));
+        expect(resolveCodexSubagentAttribution(event({ tool_use_id: "new-id" }), { rolloutPaths: [path] })?.subagent_id).toBe("sub-thread");
+        writeFileSync(path, rollout({ subagent: false }));
+        expect(resolveCodexSubagentAttribution(event({ tool_use_id: "new-id" }), { rolloutPaths: [path] })).toBeNull();
+    });
+
     it("uses the exact completed execution id for PostToolUse", () => {
         const path = tempRollout(rollout({ completed: true }));
         const resolved = resolveCodexSubagentAttribution(

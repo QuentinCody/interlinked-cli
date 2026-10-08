@@ -31,6 +31,7 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { nonNull } from "../lib/non-null.js";
+import type { TrigramMembership } from "./compact-trigrams.js";
 import { getHeadCommit, getTrackedFiles } from "./trigram-git.js";
 import {
 	appendDirtyNewFiles,
@@ -205,9 +206,9 @@ export class TrigramIndex {
 
 	// --- Dirty layer ---
 	/** Files with overridden trigram sets (fileId → trigrams, null = deleted) */
-	private dirtyOverrides: Map<number, Set<number> | null>;
+	private dirtyOverrides: Map<number, TrigramMembership | null>;
 	/** New files added since base index (path → { id, trigrams }) */
-	private dirtyNewFiles: Map<string, { id: number; trigrams: Set<number> }>;
+	private dirtyNewFiles: Map<string, { id: number; trigrams: TrigramMembership }>;
 	/** Next file ID for dirty new files */
 	private nextFileId: number;
 

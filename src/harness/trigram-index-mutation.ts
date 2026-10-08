@@ -16,6 +16,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { nonNull } from "../lib/non-null.js";
+import { CompactTrigrams, type TrigramMembership } from "./compact-trigrams.js";
 import { getChangedFilesSince, getHeadCommit } from "./trigram-git.js";
 import {
 	DEFAULT_MAX_FILE_SIZE,
@@ -34,8 +35,8 @@ import {
  */
 export interface MutableIndexView {
 	readonly fileToId: Map<string, number>;
-	readonly dirtyOverrides: Map<number, Set<number> | null>;
-	readonly dirtyNewFiles: Map<string, { id: number; trigrams: Set<number> }>;
+	readonly dirtyOverrides: Map<number, TrigramMembership | null>;
+	readonly dirtyNewFiles: Map<string, { id: number; trigrams: TrigramMembership }>;
 	/** Allocate (and consume) the next dirty file ID. */
 	allocFileId(): number;
 }
@@ -93,7 +94,7 @@ export function updateFileInState(
 	}
 
 	// Extract new trigrams
-	const trigrams = isBinaryContent(content) ? new Set<number>() : extractTrigrams(content);
+	const trigrams = new CompactTrigrams(isBinaryContent(content) ? new Set<number>() : extractTrigrams(content));
 
 	if (existingId !== undefined) {
 		// Override existing file
@@ -115,8 +116,8 @@ export function updateFileInState(
 
 /** Read-only slice of the dirty layer the count/flag/clear helpers consume. */
 interface DirtyStateView {
-	readonly dirtyOverrides: Map<number, Set<number> | null>;
-	readonly dirtyNewFiles: Map<string, { id: number; trigrams: Set<number> }>;
+	readonly dirtyOverrides: Map<number, TrigramMembership | null>;
+	readonly dirtyNewFiles: Map<string, { id: number; trigrams: TrigramMembership }>;
 }
 
 /** Number of dirty (modified/added/deleted) files. */
@@ -273,7 +274,7 @@ function addFileToPostings(
  */
 export function applyDirtyOverrides(
 	postings: Map<number, MutablePostingData>,
-	dirtyOverrides: Map<number, Set<number> | null>,
+	dirtyOverrides: Map<number, TrigramMembership | null>,
 	files: readonly string[],
 	cwd: string,
 ): void {
@@ -291,7 +292,7 @@ export function applyDirtyOverrides(
  */
 export function appendDirtyNewFiles(
 	postings: Map<number, MutablePostingData>,
-	dirtyNewFiles: Map<string, { id: number; trigrams: Set<number> }>,
+	dirtyNewFiles: Map<string, { id: number; trigrams: TrigramMembership }>,
 	files: string[],
 	fileToId: Map<string, number>,
 	cwd: string,
