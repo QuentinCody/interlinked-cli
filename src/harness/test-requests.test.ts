@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -120,6 +120,57 @@ for (let round = 0; round < 20; round++) requestTests(root, [\`p\${index}-\${rou
             expect(hasTestRequest(root, awaited)).toBe(true);
             expect(pendingTests(root).ids.sort()).toEqual([`${awaited}.json`, `${full}.json`].sort());
         } finally { unsubscribeTestRequest(awaited); }
+    });
+
+    // test-contract: invariant — static selection is a PERMISSION a request grants, never one it inherits: a batch selects
+    // only when every pending request permits it, and a run that selected can never discharge a default (full, fresh) request
+    // (review 2026-10-06: a concurrent default request rode on an opt-in run that omitted a failing test)
+    it("never lets an opt-in static-selection run discharge a default request", () => {
+        const root = fixture();
+        const optIn = requestTests(root, ["a.ts"], false, { staticSelection: true });
+        // A default request never coalesces onto the opt-in one; its full, fresh run satisfies the opt-in need, so it retires it.
+        const fallback = requestTests(root, ["a.ts"], false);
+        expect(fallback).not.toBe(optIn);
+        expect(hasTestRequest(root, optIn)).toBe(false);
+        expect(pendingTests(root).requirements).toEqual({});
+        // A run that SELECTED discharges nothing here; only a run without selection discharges the default request.
+        expect(pendingRequestsMet(root, { staticSelection: true })).toEqual([]);
+        expect(pendingRequestsMet(root, {})).toEqual([`${fallback}.json`]);
+    });
+
+    it("keeps a default request pending while an in-process opt-in caller awaits its own request", () => {
+        const root = fixture();
+        const optIn = requestTests(root, ["a.ts"], false, { staticSelection: true });
+        subscribeTestRequest(optIn);
+        try {
+            const fallback = requestTests(root, ["a.ts"], false);
+            expect(pendingTests(root).requirements).toEqual({});
+            expect(pendingRequestsMet(root, { staticSelection: true })).toEqual([`${optIn}.json`]);
+            expect(pendingRequestsMet(root, {}).sort()).toEqual([`${fallback}.json`, `${optIn}.json`].sort());
+        } finally {
+            unsubscribeTestRequest(optIn);
+        }
+    });
+
+    // test-contract: invariant — retirement publishes its audit row BEFORE removing the old request, and keeps the old
+    // request when the row cannot be written: a waiter never sees a removed request with no evidence (review 2026-10-06)
+    it("retains a request it cannot record as retired", () => {
+        const root = fixture();
+        const narrow = requestTests(root, ["a.ts"], false);
+        // Make the audit log unwritable: a directory where the JSONL file should be.
+        mkdirSync(join(root, ".interlinked/test-runs/requests/superseded.jsonl"), { recursive: true });
+        const wide = requestTests(root, ["a.ts", "b.ts"], false);
+        expect(wide).not.toBe(narrow);
+        expect(hasTestRequest(root, narrow)).toBe(true);
+    });
+
+    it("selects only when every pending request permits it, and persists the permission", () => {
+        const root = fixture();
+        const optIn = requestTests(root, ["a.ts"], false, { staticSelection: true });
+        expect(pendingTests(root).requirements).toEqual({ staticSelection: true });
+        expect(JSON.parse(readFileSync(join(root, ".interlinked/test-runs/requests", `${optIn}.json`), "utf8")).requirements).toEqual({ staticSelection: true });
+        // A default request adding nothing new is still its own file: the opt-in request cannot cover it.
+        expect(requestTests(root, ["a.ts"], false)).not.toBe(optIn);
     });
 
     // test-contract: invariant — a request that must PRODUCE coverage never coalesces onto, and is never retired by, a request that does not; the reverse direction coalesces

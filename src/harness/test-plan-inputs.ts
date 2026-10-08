@@ -56,11 +56,36 @@ function historicalTests(root: string): NonNullable<TestPlanInput["historical"]>
     return result;
 }
 
-export async function loadTestPlan(root: string, paths: readonly string[], timeoutMs: number, full = false): Promise<TestPlan> {
+const FIXTURE_MODULE = /^src\/(?:.*\/)?(?:__fixtures__|fixtures)\/.*\.[cm]?[jt]sx?$/;
+const FIXTURE_MODULE_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * src/ fixture modules the score inventory excludes by role (`__fixtures__/`, `fixtures/`). A test that imports one
+ * otherwise has an unresolved import (opaque: runs on every change), and a changed fixture reads as an unknown input
+ * (the whole suite). A vanished or unreadable one is left out, which keeps its importers opaque — never wrong.
+ */
+export function srcFixtureModules(inventory: ReturnType<typeof collectRepositoryInventory>): NonNullable<TestPlanInput["extraFiles"]> {
+    const modules: NonNullable<TestPlanInput["extraFiles"]> = [];
+    for (const entry of inventory.excluded) {
+        if (entry.role !== "fixture" || !FIXTURE_MODULE.test(entry.path)) continue;
+        let content: string;
+        try { content = readFileSync(join(inventory.root, entry.path), "utf8"); }
+        catch (error) {
+            if (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "EACCES")) continue;
+            throw error;
+        }
+        if (Buffer.byteLength(content) <= FIXTURE_MODULE_MAX_BYTES) modules.push({ path: entry.path, content });
+    }
+    return modules;
+}
+
+/** `staticSelection` opts into classifier-based omission and reuse (off by default; see TestPlanInput). */
+export async function loadTestPlan(root: string, paths: readonly string[], timeoutMs: number, full = false, options: { staticSelection?: boolean } = {}): Promise<TestPlan> {
     const deadline = Date.now() + timeoutMs;
     const inventory = collectRepositoryInventory(root), changedPaths = paths.map(path => normalizeTestInput(inventory.root, path));
     const dependencies = readTestDependencies(inventory.root);
-    const input: TestPlanInput = { inventory, changedPaths, dependencies, full, tests: [], supportFiles: [], historical: historicalTests(inventory.root) };
+    const input: TestPlanInput = { inventory, changedPaths, dependencies, full, tests: [], supportFiles: [], historical: historicalTests(inventory.root),
+        extraFiles: srcFixtureModules(inventory), ...(options.staticSelection ? { staticSelection: true } : {}) };
     try {
         const universe = await discoverVitestUniverse(inventory.root, deadline, captureVitestEnvironment().environment);
         input.tests = universe.tests; input.supportFiles = universe.supportFiles;
@@ -76,9 +101,13 @@ export async function loadTestPlan(root: string, paths: readonly string[], timeo
 
 async function bindRuntime(input: TestPlanInput, deadline: number): Promise<TestPlan> {
     const plan = buildTestPlan(input);
-    if (!plan.reusable) return { ...plan, runtimeIssue: "Opaque or incomplete dependencies: only fresh execution and analyzed source stability are checked" };
+    // Runtime VALIDATION follows snapshot availability, not result repeatability: a non-reusable plan (static
+    // selection off, an opaque or a clock-reading test) is still hashed before and after its run, so its measured
+    // sources are bound for the commit coverage gate; executeValidated never reads or writes a receipt for it
+    // (review 2026-10-06: a full coverage run with `Date.now()` produced no coverage_sources).
     const runtime: TestRuntime = await captureTestRuntime(input.inventory.root, deadline);
     if (runtime.hash !== undefined) return { ...plan, runtimeHash: runtime.hash };
+    if (!plan.reusable) return { ...plan, runtimeIssue: `Runtime validation unavailable: ${runtime.issue}` };
     input.uncertainty = [...input.uncertainty ?? [], `Runtime validation unavailable: ${runtime.issue}`];
     return { ...buildTestPlan(input), runtimeIssue: runtime.issue };
 }

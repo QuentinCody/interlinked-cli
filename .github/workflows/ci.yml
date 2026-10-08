@@ -181,8 +181,9 @@ jobs:
   # OMITTED by the selection a SELECTION_MISS. Nothing here decides a merge and
   # neither job is a required check: promotion needs zero misses over >= 30
   # SELECTIVE, complete runs (a widened plan omits nothing, so it proves
-  # nothing). Measured 2026-10-01: every plan on this repository still widens
-  # to the full suite (opaque vitest config/setup), so expect `widened` rows.
+  # nothing). Before the per-operation opacity rule (2026-10-02) every plan
+  # widened (opaque vitest config/setup); since then ordinary commits plan
+  # `selected` and omit about a fifth of the suite, so `clean` rows can count.
   select-compare:
     name: select-compare (Linux / Node 22)
     runs-on: ubuntu-latest

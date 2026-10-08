@@ -42,6 +42,19 @@ describe("recordVerificationStage — positive (must fire)", () => {
         expect(Number.isNaN(Date.parse(row?.ts ?? ""))).toBe(false);
     });
 
+    // test-contract: public-api — the memory headroom fields travel to the ledger row unchanged under the same schema version, and a row without them stays valid
+    it("P3: persists peak_rss_bytes, rss_budget_bytes and heap_limit_mb and keeps old rows readable", () => {
+        const root = fixture(), ledger = join(root, "stages.jsonl");
+        const env = { [STAGES_LEDGER_ENV]: ledger };
+        const memory = { peak_rss_bytes: 3_060_000_000, rss_budget_bytes: 4 * 1024 ** 3, heap_limit_mb: 3276 };
+        expect(recordVerificationStage(root, { ...input, ...memory }, { env })).toBe(true);
+        expect(recordVerificationStage(root, input, { env })).toBe(true);
+        const [withMemory, legacy] = rows(ledger);
+        expect(withMemory).toMatchObject({ ...memory, schema: VERIFICATION_STAGES_SCHEMA });
+        expect(legacy).toMatchObject({ schema: VERIFICATION_STAGES_SCHEMA, check: input.check });
+        expect(legacy).not.toHaveProperty("peak_rss_bytes");
+    });
+
     // test-contract: public-api — INTERLINKED_STAGES_LEDGER redirects rows (the pre-push export writes into the source checkout)
     it("P2: honors the ledger path override and appends across calls", () => {
         const root = fixture(), ledger = join(root, "elsewhere", "stages.jsonl");

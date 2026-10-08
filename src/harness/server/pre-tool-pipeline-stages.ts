@@ -31,6 +31,7 @@ import {
 	parseCommitMessageFromBash,
 } from "../behavioral-diff-checks.js";
 import { snapshotCrap } from "../checks/crap-baseline.js";
+import { committedFiles, scopeToCommit, sessionForCommit } from "../evaluator/commit-file-set.js";
 import { snapshotDryShingles } from "../checks/dry-baseline.js";
 import { collectSiblingFunctions } from "../checks/dry-check.js";
 import { coverageForFile, loadCoverageFinal } from "../coverage-final-reader.js";
@@ -94,10 +95,12 @@ function applyTddCommitGateToDecision(
 ): void {
 	// The merged StructuralChecksConfig requires one of nudge / warn / enforce.
 	const testFirstMode = rules.structural_checks.test_first_mode;
-	const commitMessage = parseCommitMessageFromBash(
-		readToolString(event.tool_input?.command),
-	);
-	const gateResults = [
+	const command = readToolString(event.tool_input?.command);
+	const commitMessage = parseCommitMessageFromBash(command);
+	// The gates below read SESSION state; keep file-level results to files this commit captures.
+	const eventCwd = event.cwd || process.cwd();
+	const committed = committedFiles(command, eventCwd);
+	const sessionResults = [
 		...(session.tdd_cycles.size > 0 ? checkTddCommitGate(session, testFirstMode) : []),
 		...checkProdDeltaWithoutTestDelta(session),
 		...checkProdTestLocRatio(session),
@@ -113,9 +116,11 @@ function applyTddCommitGateToDecision(
 		...checkClockMockAdded(session),
 		...checkConventionalCommitCoherence(session, commitMessage),
 		// Batch 4: trajectory commit gates.
-		...checkReintroducesRemovedCode(session),
+		// Capped detector: scope its INPUT, so unstaged files cannot use up its result limit.
+		...checkReintroducesRemovedCode(sessionForCommit(session, committed)),
 		...checkDoneWithoutVerify(session),
 	];
+	const gateResults = scopeToCommit(sessionResults, committed);
 	if (gateResults.length === 0) {
 		return;
 	}

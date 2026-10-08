@@ -4,6 +4,7 @@ import { toLegacyHarnessEvent } from "../legacy-client.js";
 import { appendHookCoverageDecision, type CoverageBoundary } from "./hook-coverage.js";
 import { controlHookCoverage, isHookCoverageRequest } from "../hook-coverage-control.js";
 import { deliverNovelAdvisories, type FeedbackEvent } from "./advisory-delivery.js";
+import { taintControlQuery } from "./taint-control.js";
 
 /** Apply coverage at the transport boundary, once for either raw or framed calls. */
 export function createCoverageEventLoop(deps: EventLoopDeps): ReturnType<typeof createEventLoop> {
@@ -14,7 +15,10 @@ export function createCoverageEventLoop(deps: EventLoopDeps): ReturnType<typeof 
             let value: unknown;
             try { value = JSON.parse(line); }
             catch { return loop.evaluateEventLine(line, protocol); }
-            const query = coverageQuery(deps.ctx, value);
+            // Operator CONTROL queries are answered here, before the event
+            // pipeline, so inspecting or clearing state never creates a
+            // session, mints an ordinal or counts as a tool call.
+            const query = coverageQuery(deps.ctx, value) ?? taintControlQuery(deps.ctx, value);
             if (query) return query;
             const decision = await loop.evaluateEventLine(line, protocol);
             const boundary = rawBoundary(value);

@@ -15,6 +15,7 @@ import { readAcceptedManifest } from "./store.js";
 import { loadEvidence } from "../../lib/metrics/evidence-store.js";
 import { collectCompositeScoreReport } from "../../lib/metrics/composite-report.js";
 import { copyVitestRuntime } from "./__tests__/fixtures/vitest-runtime.js";
+import { requireTestWorker } from "../../test-setup/no-verdict.js";
 import * as runtimeInputs from "./runtime-inputs.js";
 import * as repositoryInventory from "../../lib/metrics/inventory.js";
 
@@ -55,7 +56,8 @@ it("reduces fresh status to three runtime captures when there are no proposals",
     expect(capture).toHaveBeenCalledTimes(3);
 }, 30_000);
 
-it("keeps a pure shard reusable when an unrelated opaque shard exists", async () => {
+it("keeps a pure shard reusable when an unrelated opaque shard exists", async (context) => {
+    requireTestWorker(context);
     const root = fixture();
     writeFileSync(join(root, "io.test.ts"), 'import {test,expect} from "vitest"; import {readFileSync} from "node:fs"; test("io",()=>expect(readFileSync("a.ts","utf8")).toContain("export"));');
     expect((await warmCoverageIndex(root, 60_000)).indexed).toBe(true);
@@ -78,7 +80,8 @@ it("keeps a pure shard reusable when an unrelated opaque shard exists", async ()
 }, 120_000);
 
 // test-contract: invariant — Unit 7 store seam: a byte-identical EXPORT (dependencies symlinked, no index of its own) measures against the SOURCE checkout's index; an unchanged export re-runs nothing and an edited source file re-runs exactly its shard, with the summary over the full universe and nothing written under the export
-it("measures an export against the source checkout's index through indexedCoverageSummary", async () => {
+it("measures an export against the source checkout's index through indexedCoverageSummary", async (context) => {
+    requireTestWorker(context);
     const source = fixture();
     expect((await warmCoverageIndex(source, 60_000)).indexed).toBe(true);
     const exported = realpathSync(mkdtempSync(join(tmpdir(), "coverage-index-export-"))); roots.push(exported);
@@ -99,7 +102,8 @@ it("measures an export against the source checkout's index through indexedCovera
 }, 180_000);
 
 // test-contract: invariant — a wholly skipped test file (an env-gated describe.skipIf) is a PASSED shard with an empty contribution, not a failed one: this repo carries two such files and reading "skip" as unknown made every index run unavailable (found 2026-09-29)
-it("indexes a wholly skipped test file as a passed, empty shard", async () => {
+it("indexes a wholly skipped test file as a passed, empty shard", async (context) => {
+    requireTestWorker(context);
     const root = fixture();
     writeFileSync(join(root, "gated.test.ts"), 'import { describe, expect, test } from "vitest"; describe.skipIf(!process.env.NEVER_SET_GATE)("gated", () => { test("never runs", () => expect(1).toBe(2)); });');
     const warm = await warmCoverageIndex(root, 60_000);
@@ -124,7 +128,8 @@ it("invalidates shared setup dependencies transitively even when their imports f
     expect(after.validity.dependencyGraphVersion).toBe(before.validity.dependencyGraphVersion);
     expect(dependencyHashes(after, ["a.test.ts"], [])).toEqual(dependencyHashes(before, ["a.test.ts"], []));
 }, 30_000);
-it("matches full coverage, reruns one shard and promotes only after the actual write", async () => {
+it("matches full coverage, reruns one shard and promotes only after the actual write", async (context) => {
+    requireTestWorker(context);
     const root = fixture(), warm = await warmCoverageIndex(root, 30_000);
     expect(warm.reason).toBeNull(); expect(warm.indexed).toBe(true); expect(warm.status.shards).toBe(2);
     const proposed = "export function answer(value: boolean) { if (value) return 1; return 2; }\n";
@@ -146,7 +151,8 @@ it("matches full coverage, reruns one shard and promotes only after the actual w
             .toEqual([...measured.result.perFile].map(([path, cov]) => [path, [...cov.coveredLines ?? []], cov.functions.map(fn => fn.statement_pct)]));
     } finally { overlay.cleanup(); }
 }, 90_000);
-it("invalidates test discovery and config changes and refuses corrupt contribution data", async () => {
+it("invalidates test discovery and config changes and refuses corrupt contribution data", async (context) => {
+    requireTestWorker(context);
     const root = fixture(); expect((await warmCoverageIndex(root, 30_000)).indexed).toBe(true);
     writeFileSync(join(root, "vitest.config.ts"), readFileSync(join(root, "vitest.config.ts"), "utf8") + "\n// changed config\n");
     expect((await coverageIndexStatus(await coverageIndexContext(collectRepositoryInventory(root)))).valid).toBe(false);
@@ -159,7 +165,8 @@ it("invalidates test discovery and config changes and refuses corrupt contributi
     await expect(coverageIndexStatus(await coverageIndexContext(collectRepositoryInventory(root)))).rejects.toThrow("corrupt");
 }, 60_000);
 
-it("discovers executable tests beside helpers and reruns all shards after ignored config input changes", async () => {
+it("discovers executable tests beside helpers and reruns all shards after ignored config input changes", async (context) => {
+    requireTestWorker(context);
     const root = fixture();
     mkdirSync(join(root, "__tests__"));
     writeFileSync(join(root, "__tests__/helper.ts"), "export const helper = 1;\n");
@@ -195,7 +202,8 @@ it("discovers executable tests beside helpers and reruns all shards after ignore
     expect(afterSupport.testFiles).toEqual(["a.test.ts", "b.test.ts"]);
 }, 180_000);
 
-it("rejects stale copied runtime bytes and a changed intended environment before reuse", async () => {
+it("rejects stale copied runtime bytes and a changed intended environment before reuse", async (context) => {
+    requireTestWorker(context);
     const root = fixture();
     writeFileSync(join(root, ".env"), "before");
     const overlay = createCoverageOverlay(root, "a.ts", readFileSync(join(root, "a.ts"), "utf8"));
@@ -215,7 +223,8 @@ it("rejects stale copied runtime bytes and a changed intended environment before
     } finally { overlay.cleanup(); }
 }, 60_000);
 
-it("reruns every shard when product-named setup changes the shared test contract", async () => {
+it("reruns every shard when product-named setup changes the shared test contract", async (context) => {
+    requireTestWorker(context);
     const root = fixture();
     writeFileSync(join(root, "vitest.config.ts"), 'export default { test: { include: ["*.test.ts"], maxWorkers: 1, setupFiles: ["./bootstrap.ts", "setup-package"], coverage: { include: ["a.ts", "b.ts"] } } };');
     mkdirSync(join(root, "node_modules/setup-package"));
@@ -238,7 +247,8 @@ it("reruns every shard when product-named setup changes the shared test contract
     } finally { overlay.cleanup(); }
 }, 90_000);
 
-it("warms the index while qualifying runtime-unverified coverage as inconclusive for scoring", async () => {
+it("warms the index while qualifying runtime-unverified coverage as inconclusive for scoring", async (context) => {
+    requireTestWorker(context);
     const root = fixture();
     writeFileSync(join(root, ".env"), "RUNTIME_MODE=before\n");
     const warm = await warmCoverageIndex(root, 30_000);

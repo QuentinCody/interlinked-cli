@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NO_VERDICT_EXIT_CODE, describeResourceCommandOutcome, runResourceCommand } from "./resource-command.js";
+import { NO_VERDICT_EXIT_CODE, describeResourceCommandOutcome, headroomWarning, runResourceCommand } from "./resource-command.js";
 
 describe("describeResourceCommandOutcome — the verdict travels beside the exit code", () => {
     // test-contract: public-api — a capacity timeout is verdict not-run: it names the wait and exits 75 (EX_TEMPFAIL), distinct from any check failure
@@ -178,6 +178,67 @@ it("keeps the lease until an interrupted command is reaped and propagates its re
         expect(options).toMatchObject({ resourceBudget: budget, inheritOutput: true });
         return interrupted;
     });
-    expect(await runResourceCommand("node", ["--version"], new AbortController().signal)).toEqual({ kind: "ran", result: interrupted, wait_capacity_ms: expect.any(Number) });
+    expect(await runResourceCommand("node", ["--version"], new AbortController().signal)).toEqual({
+        kind: "ran", result: interrupted, wait_capacity_ms: expect.any(Number),
+        memory: { check: "node --version", rss_budget_bytes: budget.maxRssBytes, heap_limit_mb: 1638 },
+    });
     expect(release).toHaveBeenCalledOnce();
+});
+
+describe("memory headroom telemetry", () => {
+    // test-contract: public-api — a command that ran records its peak RSS, the budget it was admitted under and the heap limit it started with
+    it("writes peak_rss_bytes, rss_budget_bytes and heap_limit_mb for a command that ran", async () => {
+        const rows = readRows;
+        vi.mocked(acquireTestCapacity).mockResolvedValue({ release: vi.fn() });
+        vi.mocked(readResourceBudget).mockReturnValue(budget);
+        vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, killed: false, timedOut: false, stdout: "", stderr: "", peakRssBytes: 1_500_000_000 });
+        const outcome = await runResourceCommand("node", ["--version"], new AbortController().signal);
+        expect(rows()).toMatchObject([{ peak_rss_bytes: 1_500_000_000, rss_budget_bytes: budget.maxRssBytes, heap_limit_mb: 1638 }]);
+        expect(outcome).toMatchObject({ kind: "ran", memory: { check: "node --version", peak_rss_bytes: 1_500_000_000 } });
+    });
+
+    // test-contract: boundary — with no sample the peak is absent, never zero: a missing measurement must not read as a tiny footprint
+    it("omits peak_rss_bytes when no sample landed but still records the budget", async () => {
+        const rows = readRows;
+        vi.mocked(acquireTestCapacity).mockResolvedValue({ release: vi.fn() });
+        vi.mocked(readResourceBudget).mockReturnValue(budget);
+        vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, killed: false, timedOut: false, stdout: "", stderr: "" });
+        await runResourceCommand("node", [], new AbortController().signal);
+        expect(rows()[0]).toMatchObject({ rss_budget_bytes: budget.maxRssBytes, heap_limit_mb: 1638 });
+        expect(rows()[0]).not.toHaveProperty("peak_rss_bytes");
+    });
+
+    // test-contract: invariant — a command that never started has no memory facts to record
+    it.each(["capacity", "budget"] as const)("writes none of the memory fields for a not-run command (%s)", async reason => {
+        const rows = readRows;
+        vi.mocked(acquireTestCapacity).mockResolvedValue(reason === "capacity" ? null : { release: vi.fn() });
+        vi.mocked(readResourceBudget).mockReturnValue(null);
+        await runResourceCommand("node", [], new AbortController().signal);
+        expect(rows()).toHaveLength(1);
+        for (const field of ["peak_rss_bytes", "rss_budget_bytes", "heap_limit_mb"]) expect(rows()[0]).not.toHaveProperty(field);
+    });
+});
+
+describe("headroomWarning", () => {
+    const MIB = 1024 ** 2;
+    const memory = (peakMib: number | undefined) => ({ check: "npm run typecheck:stable", rss_budget_bytes: 20 * MIB, heap_limit_mb: 16, ...(peakMib === undefined ? {} : { peak_rss_bytes: peakMib * MIB }) });
+
+    // test-contract: public-api — above 85% of the budget the supervisor prints one line naming the check, both sizes and the percentage
+    it("returns the HEADROOM line above 85%", () => {
+        expect(headroomWarning(memory(18))).toBe("[resources] HEADROOM: npm run typecheck:stable peaked at 18 MiB of its 20 MiB budget (90%); raise the budget or shrink the step before it is killed.");
+    });
+
+    // test-contract: boundary — exactly 85% is not above the threshold, so it stays silent; one MiB more warns
+    it("returns null at exactly 85% and below, and warns just above", () => {
+        expect(headroomWarning(memory(17))).toBeNull();
+        expect(headroomWarning(memory(10))).toBeNull();
+        expect(headroomWarning(memory(18))).not.toBeNull();
+    });
+
+    // test-contract: invariant — no measurement, no memory facts or a zero budget cannot produce a warning (never divide by zero)
+    it("returns null without a sample, without memory facts or with a zero budget", () => {
+        expect(headroomWarning(memory(undefined))).toBeNull();
+        expect(headroomWarning(undefined)).toBeNull();
+        expect(headroomWarning({ ...memory(5), rss_budget_bytes: 0 })).toBeNull();
+    });
 });

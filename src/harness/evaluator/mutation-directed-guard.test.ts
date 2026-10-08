@@ -181,8 +181,10 @@ describe("evaluateMutationDirectedProfile — GATE 2 exact message text", () => 
 				"BLOCKED by [mutation_directed_assertion_removal]. This edit removes 1 test-case/assertion " +
 				`line(s) from ${filePath} vs the on-disk baseline. First: L3 — "expect(b).toBe(2);". ` +
 				"Mutation-directed files are graded on kill evidence — restore the assertion, or if this is " +
-				"a deliberate consolidation/rename, keep the replacement case's assertion count at or above " +
-				'what it replaces. File-level escape hatch: add an entry for "mutation_directed_assertion_removal" ' +
+				"a deliberate consolidation/rename, re-add it in the same edit with the same subject, matcher " +
+				"and expected value (a MOVE; a changed expected value is a removal). For a deliberate value " +
+				"update, run the daemon with INTERLINKED_ASSERTION_MOVE_WAIVER=1 (each waived line is logged). " +
+				'File-level escape hatch: add an entry for "mutation_directed_assertion_removal" ' +
 				`to .interlinked/verify-suppressions.json for ${filePath}.`,
 			warnings,
 			rule_id: "mutation_directed_assertion_removal",

@@ -29,7 +29,7 @@ vi.mock("node:fs", async (importOriginal) => {
 	};
 });
 
-import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import type { ToolCallAction, UnifiedHookEvent } from "./harness/unified-event.js";
 import {
 	coldDestructiveCommandBlockReason,
@@ -105,11 +105,17 @@ function makeFileOpEvent(over: {
 // ===========================================================================
 // coldGraphShardBlockReason
 // ===========================================================================
-it("native cold guard prediction honors dry runs without writing a reveal", () => {
+it.each(["shadow", "enforced"])("native cold guard prediction honors %s dry runs without writing a reveal", (mode) => {
+    if (mode === "enforced") {
+        mkdirSync(join(cwd, ".interlinked"));
+        writeFileSync(join(cwd, ".interlinked/config.json"), JSON.stringify({
+            version: 1, server_url: "", harness: { guard_prediction: { mode } },
+        }));
+    }
     writeFileSync(join(cwd, "guard.ts"), "function f(){if(ok)return 1;}");
     const event = makeToolCallEvent({ tool_name: "Write", tool_input: { file_path: "guard.ts", content: "function f(){return 1;}" } });
     event.raw = { dry_run: true };
-    expect(coldGuardPredictionDecision(event)?.decision).toBe("block");
+    expect(coldGuardPredictionDecision(event)?.decision).toBe(mode === "enforced" ? "block" : "allow");
     expect(existsSync(join(cwd, ".interlinked/predictions"))).toBe(false);
 });
 

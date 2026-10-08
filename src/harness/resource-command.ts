@@ -14,7 +14,27 @@ const LIGHT_HEAP_MB = 512;
  */
 const HEAVY_HEAP_SHARE_OF_BUDGET = 0.8;
 
-interface CommandOutcome { check: string; wait_capacity_ms: number; status: string; exec_ms?: number; denied?: ReuseDeniedReason; }
+/** Share of its RSS budget a command may peak at before the supervisor warns that the margin is thin. */
+const HEADROOM_WARN_SHARE = 0.85;
+const BYTES_PER_MIB = 1024 ** 2;
+
+/** Memory facts of a command that ran: what it was admitted under and how close it got. `peak_rss_bytes` is absent when no sample landed. */
+export interface CommandMemory { check: string; rss_budget_bytes: number; heap_limit_mb: number; peak_rss_bytes?: number; }
+
+interface CommandOutcome extends Partial<Omit<CommandMemory, "check">> { check: string; wait_capacity_ms: number; status: string; exec_ms?: number; denied?: ReuseDeniedReason; }
+
+/**
+ * The one stderr line for a command that peaked above 85% of its RSS budget, else null.
+ * Pure: a command with no sample, no budget or comfortable headroom produces no line.
+ */
+export function headroomWarning(memory: CommandMemory | undefined): string | null {
+    if (!memory || memory.peak_rss_bytes === undefined || memory.rss_budget_bytes <= 0) return null;
+    const share = memory.peak_rss_bytes / memory.rss_budget_bytes;
+    if (share <= HEADROOM_WARN_SHARE) return null;
+    const peakMib = Math.round(memory.peak_rss_bytes / BYTES_PER_MIB);
+    const budgetMib = Math.round(memory.rss_budget_bytes / BYTES_PER_MIB);
+    return `[resources] HEADROOM: ${memory.check} peaked at ${peakMib} MiB of its ${budgetMib} MiB budget (${Math.round(share * 100)}%); raise the budget or shrink the step before it is killed.`;
+}
 
 /** Ledger row for one bounded command: how long admission took, how long it ran, and why it produced no verdict. */
 function recordCommand(outcome: CommandOutcome): void {
@@ -23,6 +43,13 @@ function recordCommand(outcome: CommandOutcome): void {
         stage: stageFromEnvironment("cli"), identity: null, reused: false, ...fields,
         ...(denied === undefined ? {} : { reuse_denied_reason: denied }),
     });
+}
+
+function commandMemory(check: string, rssBudgetBytes: number, heapLimitMb: number, result: RunProcessResult): CommandMemory {
+    return {
+        check, rss_budget_bytes: rssBudgetBytes, heap_limit_mb: heapLimitMb,
+        ...(result.peakRssBytes === undefined ? {} : { peak_rss_bytes: result.peakRssBytes }),
+    };
 }
 
 function commandStatus(result: RunProcessResult): { status: string; denied?: ReuseDeniedReason } {
@@ -35,7 +62,7 @@ function commandStatus(result: RunProcessResult): { status: string; denied?: Reu
  * never started, which the caller must report as NOT RUN and never as a failed check.
  */
 export type ResourceCommandOutcome =
-    | { kind: "ran"; result: RunProcessResult; wait_capacity_ms: number }
+    | { kind: "ran"; result: RunProcessResult; wait_capacity_ms: number; memory?: CommandMemory }
     | { kind: "capacity-timeout"; wait_capacity_ms: number }
     | { kind: "memory-budget-unavailable"; wait_capacity_ms: number }
     | { kind: "interrupted"; wait_capacity_ms: number };
@@ -114,7 +141,8 @@ export async function runResourceCommand(file: string, args: string[], signal: A
                 MKL_NUM_THREADS: "1", VECLIB_MAXIMUM_THREADS: "1",
             },
         });
-        recordCommand({ check, wait_capacity_ms, exec_ms: elapsedMs(execStarted), ...commandStatus(result) });
-        return { kind: "ran", result, wait_capacity_ms };
+        const memory = commandMemory(check, resourceBudget.maxRssBytes, heapMb, result);
+        recordCommand({ ...memory, wait_capacity_ms, exec_ms: elapsedMs(execStarted), ...commandStatus(result) });
+        return { kind: "ran", result, wait_capacity_ms, memory };
     } finally { lane.release(); }
 }

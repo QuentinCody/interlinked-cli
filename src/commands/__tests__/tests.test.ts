@@ -2,7 +2,16 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { formatTestPlan, testsCommand } from "../tests.js";
+import { checkoutWritesLines, formatTestPlan, testsCommand } from "../tests.js";
+
+// test-contract: public-api — a run that wrote non-input files into the checkout prints one line naming them; a clean run prints nothing (H6, 2026-10-02)
+it("names the files a run wrote into the checkout, and says nothing for a clean run", () => {
+    expect(checkoutWritesLines([".claude/settings.json", "src/fixture-root"])).toEqual([
+        "[interlinked:test-writes] the run wrote into the checkout (not test inputs, but they should not be there): .claude/settings.json, src/fixture-root",
+    ]);
+    expect(checkoutWritesLines([])).toEqual([]);
+    expect(checkoutWritesLines(undefined)).toEqual([]);
+});
 import { scheduleTests } from "../../harness/test-scheduler.js";
 import { hashBytes } from "../../lib/metrics/inventory.js";
 import type { RunArtifacts } from "../../harness/test-run-receipt.js";

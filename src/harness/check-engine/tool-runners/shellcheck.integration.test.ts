@@ -241,14 +241,14 @@ describe("runShellcheckAsync", () => {
 		expect(await runShellcheckAsync(input(fileScope()))).toEqual([]);
 	});
 
-	it("returns [] when code === null (spawn never started)", async () => {
+	it("reports no verdict when code === null (spawn never started)", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null, stdout: jsonAbsolute() }));
-		expect(await runShellcheckAsync(input(fileScope()))).toEqual([]);
+		await expect(runShellcheckAsync(input(fileScope()))).rejects.toThrow("shellcheck");
 	});
 
-	it("returns [] when code > 1 (shellcheck internal error)", async () => {
+	it("reports no verdict when code > 1 (shellcheck internal error)", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 2, stdout: jsonAbsolute() }));
-		expect(await runShellcheckAsync(input(fileScope()))).toEqual([]);
+		await expect(runShellcheckAsync(input(fileScope()))).rejects.toThrow("shellcheck");
 	});
 
 	it("parses findings on code === 1 and relativizes an absolute path", async () => {
@@ -275,8 +275,13 @@ describe("runShellcheckAsync", () => {
 		expect(nonNull(out[0]).ruleId).toBe("SC1009");
 	});
 
-	it("returns [] on code === 1 with empty stdout (parser yields no comments)", async () => {
+	it("reports no verdict on code === 1 without parsed findings", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: "" }));
-		expect(await runShellcheckAsync(input(fileScope()))).toEqual([]);
+		await expect(runShellcheckAsync(input(fileScope()))).rejects.toThrow("no diagnostics");
 	});
+
+    it.each(["timedOut", "killed", "stdoutTruncated", "stderrTruncated"])("rejects %s even with exit 0", async flag => {
+        runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, [flag]: true }));
+        await expect(runShellcheckAsync(input(fileScope()))).rejects.toThrow("incomplete");
+    });
 });

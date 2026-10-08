@@ -16,8 +16,8 @@
 // and the filtered details in the digest spool.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { buildAgentSafetyChecks } from "./check-registry/index.js";
 import { recordUnavailableCheck } from "./check-unavailable.js";
@@ -90,6 +90,7 @@ function appendFileFindings(args: {
     onObservation?: ((row: CheckObservation) => void) | undefined;
 }): void {
 	const { absPath, cwdResolved, out, event, onUnavailable } = args;
+	if (!isRescanPathInScope(absPath, cwdResolved, onUnavailable)) return;
 	let content: string;
 	try {
 		content = readFileSync(absPath, "utf-8");
@@ -102,6 +103,7 @@ function appendFileFindings(args: {
 		...scanContentFindings({
 			content,
 			relPath: relative(cwdResolved, absPath) || absPath,
+            checkPath: absPath,
 			onUnavailable,
 			onExecution: (execution) => { if (FILE_EVIDENCE_COHORT.has(execution.check)) executions.push(execution); },
 		}),
@@ -110,6 +112,24 @@ function appendFileFindings(args: {
 		scope: "full", configuration: RAW_FILE_CHECK_CONFIGURATION });
     if (args.onObservation) args.onObservation(row);
     else appendCheckObservation(cwdResolved, event, row);
+}
+
+function withinRoot(path: string, root: string): boolean {
+    const rel = relative(root, path);
+    return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+/** Session histories may include external memory/config writes. They must not
+ * select another project's root, nor produce repository check receipts. */
+function isRescanPathInScope(path: string, root: string,
+    unavailable: (check: string, file: string, error: unknown) => void): boolean {
+    try {
+        if (withinRoot(path, root) && withinRoot(realpathSync(path), realpathSync(root))) return true;
+        unavailable("stop-rescan:scope", path, new Error("File is outside this harness repository; no repository checks ran"));
+    } catch (error) {
+        unavailable("stop-rescan:read", path, error);
+    }
+    return false;
 }
 
 /**
@@ -121,13 +141,14 @@ function appendFileFindings(args: {
 function scanContentFindings(args: {
 	content: string;
 	relPath: string;
+    checkPath?: string;
 	onUnavailable?: (check: string, file: string, error: unknown) => void;
 	onExecution?: (execution: DetectorExecution) => void;
 }): PatternRescanFinding[] {
 	const { content, relPath } = args;
 	const out: PatternRescanFinding[] = [];
 	const deferrals = scanInlineDeferrals(content);
-	for (const check of buildAgentSafetyChecks(content, relPath)) {
+	for (const check of buildAgentSafetyChecks(content, args.checkPath ?? relPath)) {
 		const started = performance.now();
 		let matches: Array<{ line: number; text: string }>;
 		try {
@@ -255,7 +276,7 @@ export function buildPatternRescanWarnings(
 				const baseline = gitShow(cwd, `${headSha}:${relFile}`);
 				if (baseline === null) return null;
 				const beforeErrors = unavailable.length;
-				const matches = scanContentFindings({ content: baseline, relPath: relFile, onUnavailable });
+				const matches = scanContentFindings({ content: baseline, relPath: relFile, checkPath: resolve(cwd, relFile), onUnavailable });
 				return unavailable.length === beforeErrors ? matches : null;
 			}
 		: undefined;

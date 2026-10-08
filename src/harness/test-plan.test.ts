@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { collectRepositoryInventory } from "../lib/metrics/inventory.js";
 import { buildTestPlan, type TestPlanInput } from "./test-plan.js";
 
@@ -14,8 +14,34 @@ function input(changedPaths: string[]): TestPlanInput {
         "io.test.ts": 'import fs from "node:fs";', "helper.ts": 'import { a } from "./a";',
         "indirect.test.ts": 'import "./helper";', "vitest.config.ts": "export default {};" };
     for (const [path, content] of Object.entries(files)) writeFileSync(join(root, path), content);
-    return { inventory: collectRepositoryInventory(root), tests: ["a.test.ts", "b.test.ts", "io.test.ts", "indirect.test.ts"], supportFiles: ["vitest.config.ts"], changedPaths };
+    // These cases pin the classifier's SELECTION logic, so they opt in; production leaves it off (see below).
+    return { staticSelection: true, inventory: collectRepositoryInventory(root), tests: ["a.test.ts", "b.test.ts", "io.test.ts", "indirect.test.ts"], supportFiles: ["vitest.config.ts"], changedPaths };
 }
+
+describe("static selection off by default (operator decision 2026-10-06, option A)", () => {
+    const off = (changedPaths: string[]): TestPlanInput => {
+        const { staticSelection: _optIn, ...rest } = transparentInput(changedPaths);
+        void _optIn;
+        return rest;
+    };
+
+    it("P1: every test runs and the plan is never reusable, even when the classifier would omit and reuse", () => {
+        const plan = buildTestPlan(off(["a.ts"]));
+        expect(plan.tests.map((test) => test.path)).toEqual(["a.test.ts", "b.test.ts", "indirect.test.ts"]);
+        expect(plan).toMatchObject({ mode: "full", omitted: [], reusable: false });
+        expect(plan.reasons.join("\n")).toMatch(/Static test selection and result reuse are disabled/);
+    });
+
+    it("P2: the classifier's verdict is kept as telemetry", () => {
+        expect(buildTestPlan(off(["a.ts"])).classifierEstimate).toEqual({ omitted: 1, reusable: true });
+    });
+
+    it("N1: with the opt-in the same input omits the unaffected test (the logic stays testable)", () => {
+        const plan = buildTestPlan(transparentInput(["a.ts"]));
+        expect(plan.omitted).toEqual(["b.test.ts"]);
+        expect(plan.mode).toBe("selected");
+    });
+});
 
 /** The fixture without its opaque test (io.test.ts reads node:fs): every closure resolves inside the inventory. */
 function transparentInput(changedPaths: string[]): TestPlanInput {
@@ -144,4 +170,29 @@ it("widens an unchanged opaque global setup when another source changes", () => 
     expect(plan.mode).toBe("full");
     expect(plan.reasons).toContain("Opaque shared setup or configuration");
     expect(plan.omitted).toEqual([]);
+});
+
+// test-contract: invariant — a src/ fixture module is an import target, not an unknown input: changing it selects exactly its importers, and a closure that reaches it is selectable but never reused, because fixtures are not in the identity hash (H1, 2026-10-02)
+it("selects only the importers of a changed fixture and keeps their run fresh-only", () => {
+    const base = transparentInput(["__fixtures__/cases.ts"]);
+    const extraFiles = [{ path: "__fixtures__/cases.ts", content: 'import { b } from "../b"; export const cases = [b];' }];
+    writeFileSync(join(base.inventory.root, "fixture.test.ts"), 'import { cases } from "./__fixtures__/cases";');
+    const inventory = collectRepositoryInventory(base.inventory.root);
+    const plan = buildTestPlan({ ...base, inventory, extraFiles, tests: [...base.tests, "fixture.test.ts"] });
+    expect(plan).toMatchObject({ mode: "selected", reusable: false });
+    expect(plan.tests.map(test => test.path)).toEqual(["fixture.test.ts"]);
+    expect(plan.reasons).not.toContain("Unknown or deleted input: __fixtures__/cases.ts");
+});
+
+// test-contract: invariant — a test that reads the clock is selected only by its real dependencies (an unrelated change omits it) but a run that includes it is never reused
+it("omits a clock-reading test on an unrelated change and never reuses a run that includes it", () => {
+    const base = transparentInput(["b.ts"]);
+    writeFileSync(join(base.inventory.root, "clock.test.ts"), 'import { a } from "./a"; const started = Date.now();');
+    const inventory = collectRepositoryInventory(base.inventory.root);
+    const unrelated = buildTestPlan({ ...base, inventory, tests: [...base.tests, "clock.test.ts"] });
+    expect(unrelated.omitted).toContain("clock.test.ts");
+    expect(unrelated.reusable).toBe(true);
+    const related = buildTestPlan({ ...base, inventory, changedPaths: ["a.ts"], tests: [...base.tests, "clock.test.ts"] });
+    expect(related.tests.map(test => test.path)).toContain("clock.test.ts");
+    expect(related.reusable).toBe(false);
 });

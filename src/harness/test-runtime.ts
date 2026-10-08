@@ -4,13 +4,15 @@ import { resolve } from "node:path";
 import { hashBytes } from "../lib/metrics/inventory.js";
 import { hasErrorCode } from "./check-engine/tool-errors.js";
 
-export type TestRuntime = { hash: string; issue?: never } | { hash?: never; issue: string };
+/** `files` maps each regular file of the snapshot (repository-relative) to the sha256 the snapshot read. */
+export type TestRuntime = { hash: string; files?: ReadonlyMap<string, string>; issue?: never } | { hash?: never; files?: never; issue: string };
 
 /** A bounded snapshot failure disables reuse; it never fabricates an empty identity. */
 export async function captureTestRuntime(root: string, deadline: number): Promise<TestRuntime> {
     try {
         prepareCoverageRuntime(root, deadline);
-        return { hash: (await captureCoverageRuntime(root, { originalRoot: root, deadline })).hash };
+        const snapshot = await captureCoverageRuntime(root, { originalRoot: root, deadline });
+        return { hash: snapshot.hash, files: new Map(snapshot.inputs.filter(input => input.kind === "file").map(input => [input.path, input.hash])) };
     } catch (error) {
         return { issue: error instanceof Error ? error.message : "Runtime snapshot unavailable" };
     }

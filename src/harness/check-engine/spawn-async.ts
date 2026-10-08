@@ -25,7 +25,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import type { ResourceBudget } from "../resource-budget.js";
-import { watchResources } from "../resource-watch.js";
+import { createPeakTracker, watchResources } from "../resource-watch.js";
 import { combinedProcessSignal } from "./process-cancellation.js";
 
 /** Per-stream capture threshold. Complete reports that exceed it require
@@ -72,6 +72,8 @@ export interface RunProcessResult {
     resourceReason?: string;
     /** The spawned process id, when the process started (runtime-observation identity, plan 31 §7.4). */
     pid?: number;
+    /** Peak sampled RSS (bytes) of the child tree; present only when a `resourceBudget` was watched and a sample landed. */
+    peakRssBytes?: number;
 }
 
 type RunProcessResolver = (result: RunProcessResult) => void;
@@ -102,6 +104,7 @@ class SpawnedProcessRun {
 	private settled = false;
     private stopResourceWatch: (() => void) | undefined;
     private resourceReason: string | undefined;
+    private readonly peakTracker = createPeakTracker();
 	private timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 	private killGraceTimer: ReturnType<typeof setTimeout> | null = null;
 	private reapPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -132,7 +135,7 @@ class SpawnedProcessRun {
             this.stopResourceWatch = watchResources(this.child.pid, this.opts.resourceBudget, reason => {
                 this.resourceReason = reason;
                 this.killTree();
-            });
+            }, rss => this.peakTracker.observe(rss));
         }
 	}
 
@@ -178,6 +181,7 @@ class SpawnedProcessRun {
 		if (this.stderrTruncated) result.stderrTruncated = true;
         if (this.resourceReason) result.resourceReason = this.resourceReason;
         if (this.child.pid !== undefined) result.pid = this.child.pid;
+        if (this.peakTracker.peak !== undefined) result.peakRssBytes = this.peakTracker.peak;
 		this.resolve(result);
 	}
 

@@ -14,7 +14,19 @@ const heapSpacesMock = vi.fn(() => [
 	{ space_name: "new_space", space_used_size: 4 * 1024 * 1024 },
 ]);
 
-import { heapSpaceSummary, installDaemonTimers } from "./daemon-timers.js";
+import { heapSpaceSummary, IDLE_DRAIN_AFTER_MS, idleActionDue, installDaemonTimers } from "./daemon-timers.js";
+
+describe("idleActionDue — once per idle period", () => {
+    // test-contract: invariant — an idle action (the evidence drain) fires only after the idle threshold AND only once per idle period: it is re-armed by a newer hook event, never by time alone (H5, 2026-10-02)
+    it("is due after the threshold, once, until a newer event re-arms it", () => {
+        const after = IDLE_DRAIN_AFTER_MS;
+        expect(idleActionDue(1_000 + after - 1, 1_000, 0, after)).toBe(false);
+        expect(idleActionDue(1_000 + after, 1_000, 0, after)).toBe(true);
+        expect(idleActionDue(1_000 + 3 * after, 1_000, 1_000 + after, after)).toBe(false);
+        const firedAt = 1_000 + after, newerEvent = firedAt + 5_000;
+        expect(idleActionDue(newerEvent + after, newerEvent, firedAt, after)).toBe(true);
+    });
+});
 
 describe("heapSpaceSummary — spike-row heap breakdown", () => {
 	it("P1: renders each over-floor space as name=NNNMB with _space trimmed", () => {
@@ -305,6 +317,33 @@ describe("installDaemonTimers — idle shrink", () => {
 		vi.advanceTimersByTime(10 * 60_000);
 		expect(shutdown).not.toHaveBeenCalled();
 		stop();
+	});
+});
+
+describe("installDaemonTimers — idle evidence drain", () => {
+	function drainHarness(lastEventAtMs: () => number) {
+		const drainIdleEvidence = vi.fn();
+		const stop = installDaemonTimers({
+			refreshStatuslineSnapshot: vi.fn(), shutdown: vi.fn(), log: vi.fn(),
+			rssBytes: () => 100 * MB, ceilingBytes: 500 * MB, lastEventAtMs, drainIdleEvidence,
+		});
+		return { drainIdleEvidence, stop };
+	}
+
+	// test-contract: invariant — the daemon starts the evidence drain once per idle period, only after the drain threshold (longer than the shrink's), and a newer hook event re-arms it (H5, 2026-10-02)
+	it("drains once after ten idle minutes, not at five, and re-arms on new activity", () => {
+		let lastEvent = Date.now();
+		const h = drainHarness(() => lastEvent);
+		vi.advanceTimersByTime(6 * 60_000);
+		expect(h.drainIdleEvidence).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(5 * 60_000);
+		expect(h.drainIdleEvidence).toHaveBeenCalledTimes(1);
+		vi.advanceTimersByTime(20 * 60_000);
+		expect(h.drainIdleEvidence).toHaveBeenCalledTimes(1);
+		lastEvent = Date.now();
+		vi.advanceTimersByTime(11 * 60_000);
+		expect(h.drainIdleEvidence).toHaveBeenCalledTimes(2);
+		h.stop();
 	});
 });
 

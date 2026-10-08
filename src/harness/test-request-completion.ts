@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { release } from "node:os";
 import { isJsonObject } from "../lib/json-types.js";
 import { collectRepositoryInventory } from "../lib/metrics/inventory.js";
 import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
 import { normalizeTestInput } from "./test-plan-inputs.js";
+import { type Obligation, parseObligation, readRequestObligation } from "./test-requests.js";
 import { captureTestRuntime, changedKnownTestInputs } from "./test-runtime.js";
 import type { TestExecution } from "./test-run-receipt.js";
 import type { TestPlan } from "./test-plan.js";
@@ -44,7 +45,22 @@ export function publishTestCompletion(root: string, ids: string[], result: TestE
     const record = `${randomUUID()}.result`;
     atomicJson(join(directory, record), { version: 1, platform: executionPlatform(), result, inputHash: inputs.inputHash,
         environmentHash: inputs.environmentHash, known: [...inputs.known] });
-    for (const id of ids) atomicJson(join(directory, id), { record });
+    // Each pointer keeps the completed request's OBLIGATION: its file is removed next, and a later handover after this
+    // completion goes stale must requeue the shared request's full scope and requirements, not one waiter's subset.
+    for (const id of ids) {
+        const request = readRequestObligation(root, id);
+        atomicJson(join(directory, id), request ? { record, request } : { record });
+    }
+}
+
+/** The obligation a completion pointer recorded for `id`, or null (no pointer, malformed, or an older pointer format). */
+export function completedObligation(root: string, id: string): Obligation | null {
+    try {
+        const pointer: unknown = JSON.parse(readFileSync(join(root, ".interlinked/test-runs/completions", `${id}.json`), "utf8"));
+        return isJsonObject(pointer) ? parseObligation(pointer.request) : null;
+    } catch {
+        return null;
+    }
 }
 
 function knownInputs(root: string, value: unknown): Map<string, string> | null {
@@ -62,6 +78,11 @@ async function runtimeMatches(root: string, result: TestExecution, deadline: num
     if (!result.plan.runtimeHash) return false;
     const current = await captureTestRuntime(root, deadline);
     return !current.issue && current.hash === result.plan.runtimeHash;
+}
+
+/** Removes `id`'s completion pointer once a newer audit row hands its obligation on (the record itself is shared and kept). */
+export function retractTestCompletion(root: string, id: string): void {
+    rmSync(join(root, ".interlinked/test-runs/completions", `${id}.json`), { force: true });
 }
 
 export async function readTestCompletion(root: string, id: string, deadline: number): Promise<TestExecution | null> {

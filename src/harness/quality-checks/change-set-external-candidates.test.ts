@@ -37,6 +37,15 @@ describe("pathMatchesCheck — skip_test_files gate", () => {
 });
 
 describe("candidateChecks — deferred classification", () => {
+    it.each([["shellcheck", ".sh"], ["taplo", ".toml"]])("admits %s only as bounded file-mode recovery", (name, suffix) => {
+        const check = makeCheck({ file_types: [suffix], command: name });
+        const result = candidateChecks({ paths: [`a${suffix}`, `b${suffix}`], checks: { [name]: check }, recovery: true, maxFiles: 32 });
+        expect(result.candidates).toEqual([{ name, check, toolId: name, fileOnly: true }]);
+        expect(result.deferred).toEqual([]);
+        const tooMany = candidateChecks({ paths: [`a${suffix}`, `b${suffix}`], checks: { [name]: check }, recovery: true, maxFiles: 1 });
+        expect(tooMany.candidates).toEqual([]);
+        expect(tooMany.deferred[0]?.reason).toContain("attribution budget exhausted");
+    });
     it("reserves project-wide Gitleaks for recovery and never records an edit-time pass", () => {
         const options = { paths: ["src/a.ts"], checks: { gitleaks: makeCheck({ command: "gitleaks" }) } };
         const foreground = candidateChecks(options);
@@ -45,6 +54,13 @@ describe("candidateChecks — deferred classification", () => {
         expect(candidateChecks({ ...options, recovery: true }).candidates.map(row => row.toolId)).toEqual(["gitleaks"]);
         expect(candidateChecks({ ...options, recovery: true }).deferred).toEqual([]);
     });
+    it("admits imported lint through its existing project-scoped async runner", () => {
+        const lint = makeCheck({ file_types: [""], command: "interlinked lint check" });
+        const result = candidateChecks({ paths: ["src/one.ts", "src/two.ts"], checks: { lint_import: lint } });
+        expect(result.candidates).toEqual([{ name: "lint_import", check: lint, toolId: "lint-import" }]);
+        expect(result.deferred).toEqual([]);
+    });
+
 	it("defers a matching, enabled check whose tool has no bounded multi-file mode", () => {
 		const result = candidateChecks({
 			paths: ["scripts/build.sh"],

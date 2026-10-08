@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { startHookFilesystemWatch } from "../hook-filesystem-watch.js";
-import { appendHookCoverageDecision } from "./hook-coverage.js";
+import { appendHookCoverageDecision, pendingEvidenceLine } from "./hook-coverage.js";
 import { createCodexAdapter } from "../adapters/codex.js";
 import { encodeHookResult } from "../../hook-entry-translation.js";
 
@@ -50,6 +50,13 @@ describe("daemon hook coverage delivery", () => {
         expect(result.watch_paths).toContain(join(root, "reserved.txt"));
         expect(result.warnings?.join("\n")).toContain("NOT CHECKED");
         expect(watcher.ledger.snapshot().pending.length).toBeGreaterThan(0);
+    });
+
+    // test-contract: public-api — the backlog line names its drain: the command that checks the versions now and the daemon's idle drain, or that a job is already draining them (H5, 2026-10-02)
+    it("names the drain in the pending-evidence line", () => {
+        expect(pendingEvidenceLine(3, false)).toBe("[interlinked:hook-coverage] NOT CHECKED: 3 protected/reserved file version(s) lack complete check evidence. Writer identity is unknown. Run `interlinked harness coverage verify` to check them now; the daemon also drains them after 10 idle minutes. Pending scopes and recovery results: interlinked harness coverage status --json.");
+        expect(pendingEvidenceLine(3, true)).toContain("A verification job is draining them now.");
+        expect(pendingEvidenceLine(3, true)).not.toContain("Run `interlinked harness coverage verify`");
     });
 
     it("rejects runtime application of changed accepted policy without claiming rollback", () => {

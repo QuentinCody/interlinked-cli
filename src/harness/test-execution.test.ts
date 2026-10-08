@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,9 +7,13 @@ vi.mock("node:os", async importOriginal => ({ ...await importOriginal<typeof imp
 vi.mock("./test-runtime.js", () => ({ captureTestRuntime: vi.fn() }));
 vi.mock("./coverage-shards/discovery.js", () => ({ captureVitestEnvironment: () => ({ environment: {}, environmentHash: "env" }) }));
 vi.mock("./test-run-receipt.js", async importOriginal => ({ ...await importOriginal<typeof import("./test-run-receipt.js")>(), readTestReceipt: vi.fn(), writeTestReceipt: vi.fn() }));
+vi.mock("./check-engine/spawn-async.js", () => ({ runProcessAsync: vi.fn() }));
+vi.mock("./test-run-report.js", () => ({ testReportIssue: () => null }));
 import { executeTestPlan, testWorkerBudget } from "./test-execution.js";
+import { runProcessAsync } from "./check-engine/spawn-async.js";
 import { captureTestRuntime } from "./test-runtime.js";
 import { readTestReceipt } from "./test-run-receipt.js";
+import { nonNull } from "../lib/non-null.js";
 import type { TestPlan } from "./test-plan.js";
 import type { TestRuntime } from "./test-runtime.js";
 
@@ -90,6 +94,119 @@ describe("validation phase is measured on every validated path", () => {
         vi.mocked(readTestReceipt).mockReturnValue(priorReceipt);
         await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, stage: "edit", dryRun: true });
         expect(stageRows(root)).toEqual([]);
+    });
+});
+
+describe("memory headroom on the vitest stage row", () => {
+    // test-contract: public-api — the executor's vitest row carries the child tree's peak RSS, the admitted budget and the child's heap limit
+    it("records peak_rss_bytes, rss_budget_bytes and heap_limit_mb for a fresh run", async () => {
+        const root = fixture();
+        // The launcher resolves `vitest/node` from the checkout it runs in; a stub package keeps the fixture hermetic.
+        const stub = join(root, "node_modules", "vitest");
+        mkdirSync(stub, { recursive: true });
+        writeFileSync(join(stub, "package.json"), JSON.stringify({ name: "vitest", exports: { "./node": "./node.js" } }));
+        writeFileSync(join(stub, "node.js"), "");
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h" });
+        vi.mocked(readTestReceipt).mockReturnValue(null);
+        vi.mocked(runProcessAsync).mockResolvedValue({ code: 1, killed: false, timedOut: false, stdout: "", stderr: "", peakRssBytes: 777_000_000 });
+        await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, stage: "push", receiptStore: join(root, "store") });
+        const [row] = stageRows(root);
+        expect(row).toMatchObject({ check: "vitest:selected", peak_rss_bytes: 777_000_000, heap_limit_mb: 1536 });
+        expect(row?.rss_budget_bytes).toBeGreaterThan(0);
+        const options = vi.mocked(runProcessAsync).mock.calls[0]?.[2];
+        expect(options?.resourceBudget?.maxRssBytes).toBe(row?.rss_budget_bytes);
+    });
+
+    // test-contract: invariant — a receipt hit launches no child, so its row carries no memory facts
+    it("writes no memory fields on a reused result", async () => {
+        const root = fixture();
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h" });
+        vi.mocked(readTestReceipt).mockReturnValue(priorReceipt);
+        await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, stage: "edit" });
+        const [row] = stageRows(root);
+        for (const field of ["peak_rss_bytes", "rss_budget_bytes", "heap_limit_mb"]) expect(row).not.toHaveProperty(field);
+    });
+});
+
+describe("coverage source binding is published only for a run whose inputs were re-validated", () => {
+    /** A stub vitest package, a source file and a child that "measures" it into the run's coverage directory. */
+    function coverageRun(root: string): void {
+        const stub = join(root, "node_modules", "vitest");
+        mkdirSync(stub, { recursive: true });
+        writeFileSync(join(stub, "package.json"), JSON.stringify({ name: "vitest", exports: { "./node": "./node.js" } }));
+        writeFileSync(join(stub, "node.js"), "");
+        mkdirSync(join(root, "src"), { recursive: true });
+        writeFileSync(join(root, "src", "a.ts"), "export const a = 1;");
+        vi.mocked(readTestReceipt).mockReturnValue(null);
+        vi.mocked(runProcessAsync).mockImplementation(async (_command, args) => {
+            const source = (args as string[]).find(arg => arg.includes("reportsDirectory")) ?? "";
+            const directory = /"reportsDirectory":("[^"]*")/.exec(source)?.[1];
+            if (directory) {
+                mkdirSync(JSON.parse(directory), { recursive: true });
+                writeFileSync(join(JSON.parse(directory), "coverage-summary.json"), JSON.stringify({ [join(root, "src", "a.ts")]: { lines: { pct: 100 } } }));
+            }
+            return { code: 0, killed: false, timedOut: false, stdout: "", stderr: "" };
+        });
+    }
+    const SNAPSHOT: ReadonlyMap<string, string> = new Map([["src/a.ts", "a".repeat(64)]]);
+    const hasSources =(result: { artifacts?: Record<string, unknown> }) => Object.keys(result.artifacts ?? {}).includes("coverage_sources");
+
+    // test-contract: invariant — a run whose runtime could not be validated never publishes a source binding
+    it("P6: omits sources.json when the plan carries a runtime issue", async () => {
+        const root = fixture();
+        coverageRun(root);
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h" });
+        const result = await executeTestPlan({ ...selectedPlan, runtimeIssue: "snapshot unavailable" }, { root, deadline: Date.now() + 5000, receiptStore: join(root, "store"), coverage: { reporters: [] } });
+        expect(result.status).toBe("passed");
+        expect(hasSources(result)).toBe(false);
+    });
+
+    // test-contract: invariant — an unreusable (opaque reporter) run publishes the binding only when the runtime is identical after the run
+    it("P6: omits sources.json when the runtime changed during an opaque-reporter run", async () => {
+        const root = fixture();
+        coverageRun(root);
+        vi.mocked(captureTestRuntime).mockResolvedValueOnce({ hash: "h" }).mockResolvedValue({ hash: "changed" });
+        const result = await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, receiptStore: join(root, "store"), coverage: { reporters: [join(root, "missing-reporter.mjs")] } });
+        expect(result.status).toBe("passed");
+        expect(hasSources(result)).toBe(false);
+    });
+
+    it("N6: publishes sources.json when the runtime is identical before and after an opaque-reporter run", async () => {
+        const root = fixture();
+        coverageRun(root);
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h", files: SNAPSHOT });
+        const result = await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, receiptStore: join(root, "store"), coverage: { reporters: [join(root, "missing-reporter.mjs")] } });
+        expect(result.status).toBe("passed");
+        expect(hasSources(result)).toBe(true);
+    });
+
+    it("N6: publishes sources.json for a validated fresh run", async () => {
+        const root = fixture();
+        coverageRun(root);
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h", files: SNAPSHOT });
+        const result = await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, receiptStore: join(root, "store"), coverage: { reporters: [] } });
+        expect(result.status).toBe("passed");
+        expect(hasSources(result)).toBe(true);
+    });
+
+    // test-contract: invariant — the binding carries the validated post-run snapshot's hashes; live bytes written after the snapshot are never bound, and a file the snapshot lacks is omitted
+    it("P4: binds the snapshot hash of a measured file, not the bytes now on disk", async () => {
+        const root = fixture(), store = join(root, "store");
+        coverageRun(root);
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h", files: SNAPSHOT });
+        writeFileSync(join(root, "src", "a.ts"), "export const a = 2; // changed after the snapshot");
+        const result = await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, receiptStore: store, coverage: { reporters: [] } });
+        const sources = JSON.parse(readFileSync(join(store, nonNull(result.artifacts?.coverage_sources).path), "utf8"));
+        expect(sources.files["src/a.ts"].sha256).toBe(SNAPSHOT.get("src/a.ts"));
+    });
+
+    it("P4: omits sources.json when the validated snapshot carries no file hashes", async () => {
+        const root = fixture();
+        coverageRun(root);
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h" });
+        const result = await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, receiptStore: join(root, "store"), coverage: { reporters: [] } });
+        expect(result.status).toBe("passed");
+        expect(hasSources(result)).toBe(false);
     });
 });
 

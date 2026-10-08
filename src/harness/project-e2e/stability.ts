@@ -15,7 +15,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { dirname, join } from "node:path";
 import type { AttemptStatus, CohortVerdict } from "./ledger.js";
 
-export const E2E_COHORTS_DIRECTORY = ".interlinked/test-runs/e2e/cohorts";
+const E2E_COHORTS_DIRECTORY =".interlinked/test-runs/e2e/cohorts";
 export const E2E_QUARANTINE_PATH = ".interlinked/e2e-quarantine.jsonl";
 export type { CohortVerdict } from "./ledger.js";
 export interface CohortAttempt { index: number; runId: string; receipt: string; status: AttemptStatus; seed: string; clock: string; durationMs: number; }
@@ -38,23 +38,36 @@ export function attemptSeed(baselineSeed: string, index: number): string {
     if (index <= 1) return baselineSeed;
     return createHash("sha256").update(`${baselineSeed}\0${index}`).digest("hex").slice(0, 16);
 }
+const BOUND_CONFIDENCE = 0.95;
+const PERCENT = 100;
+/** Exact one-sided upper bound on the per-run failure rate after `n` attempts with 0 failures: solves (1 − p)^n = 1 − confidence.
+ *  A default 3-attempt cohort bounds the rate only to ≤ 63.2% (antithesis intake backlog #6). */
+export function zeroFailureUpperBound(n: number, confidence = BOUND_CONFIDENCE): number {
+    return n <= 0 ? 1 : 1 - (1 - confidence) ** (1 / n);
+}
+function percent(rate: number): string { return `${(rate * PERCENT).toFixed(1)}%`; }
+function qualifiedBound(passed: number): string {
+    return `per-run failure rate ≤ ${percent(zeroFailureUpperBound(passed))} at ${BOUND_CONFIDENCE * PERCENT}% confidence (one-sided, 0 failures in ${passed}); `
+        + "valid only if the attempts were independent — each attempt declares its own seed, but whether each run consumed its seed is not checked";
+}
 /** The §9.5 verdict over the attempts published so far. Pure. */
 export function classifyCohort(record: Pick<CohortRecord, "attempts" | "required">): CohortClassification {
     const statuses = record.attempts.map(attempt => attempt.status);
     const remaining = Math.max(0, record.required - statuses.length);
     const failed = statuses.filter(status => status === "failed").length, passed = statuses.filter(status => status === "passed").length;
     const gaps = statuses.filter(status => status === "unavailable" || status === "stale").length;
-    if (failed && passed) return { verdict: "mixed", remaining, reasons: [`${passed} attempt(s) passed and ${failed} failed across captured seeds/inputs; cause unknown until same-input replay distinguishes a deterministic seed-dependent defect from nondeterminism. The original failures remain unresolved.`] };
+    if (failed && passed) return { verdict: "mixed", remaining, reasons: [`${passed} attempt(s) passed and ${failed} failed across captured seeds/inputs (observed failure rate ${failed}/${passed + failed} (${percent(failed / (passed + failed))})); cause unknown until same-input replay distinguishes a deterministic seed-dependent defect from nondeterminism. The original failures remain unresolved.`] };
     if (failed) return { verdict: "failed", remaining, reasons: [`${failed}/${statuses.length} attempt(s) failed`] };
     if (gaps) return { verdict: "unavailable", remaining, reasons: [`${gaps} attempt(s) could not certify (infrastructure gap, not an application failure); the cohort is incomplete`] };
     if (remaining) return { verdict: "deferred", remaining, reasons: [`${passed}/${record.required} attempt(s) passed; ${remaining} remaining — partial success cannot qualify`] };
-    return { verdict: "qualified", remaining: 0, reasons: [`${passed}/${record.required} independent attempts passed: this sample qualifies the profile; it is not a flake-free guarantee`] };
+    return { verdict: "qualified", remaining: 0, reasons: [`${passed}/${record.required} independent attempts passed: this sample qualifies the profile; it is not a flake-free guarantee`, qualifiedBound(passed)] };
 }
 /** What `qualify` does for this generation: resume an interrupted cohort, diagnose a quarantined failure, or start a fresh one for a changed profile. */
 export function cohortDecision(input: { generation: string; cohort: CohortRecord | null; quarantined: boolean }): CohortDecision {
     if (input.quarantined) return { action: "diagnose" };
-    const resumable = input.cohort !== null && input.cohort.generation === input.generation && (input.cohort.verdict === "deferred" || input.cohort.verdict === "in-progress");
-    if (resumable) return { action: "resume", remaining: classifyCohort(input.cohort!).remaining };
+    const cohort = input.cohort;
+    const resumable = cohort !== null && cohort.generation === input.generation && (cohort.verdict === "deferred" || cohort.verdict === "in-progress");
+    if (resumable) return { action: "resume", remaining: classifyCohort(cohort).remaining };
     return { action: "start" };
 }
 function cohortPath(cohortId: string): string { return `${E2E_COHORTS_DIRECTORY}/${cohortId}.json`; }
@@ -80,7 +93,7 @@ function parseCohortHead(value: Record<string, unknown>): CohortHead | null {
     return { version: 1, cohortId: value.cohortId, key: value.key, generation: value.generation, required: Number(value.required), baselineSeed: value.baselineSeed, clock: value.clock, startedAt: value.startedAt, updatedAt: value.updatedAt, verdict: value.verdict as CohortVerdict };
 }
 /** Constructing parser: anything malformed reads as null (unverified), never a guessed cohort. */
-export function parseCohort(value: unknown): CohortRecord | null {
+function parseCohort(value: unknown): CohortRecord | null {
     if (!isRecord(value) || !Array.isArray(value.attempts) || !Array.isArray(value.reasons)) return null;
     const head = parseCohortHead(value);
     const attempts = value.attempts.map(parseAttempt);

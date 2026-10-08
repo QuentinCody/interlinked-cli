@@ -10,7 +10,7 @@ import { makeSession as completeSessionFixture } from "./__tests__/fixtures/eval
 // deterministically.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,7 +24,7 @@ import {
 import { scanInlineDeferrals } from "./suppressions.js";
 import type { SessionTrajectory } from "./types.js";
 
-vi.mock("node:fs", () => ({ readFileSync: vi.fn() }));
+vi.mock("node:fs", () => ({ readFileSync: vi.fn(), realpathSync: vi.fn((path) => path) }));
 vi.mock("./check-registry/index.js", () => ({ buildAgentSafetyChecks: vi.fn() }));
 vi.mock("./suppressions.js", () => ({ scanInlineDeferrals: vi.fn() }));
 
@@ -72,6 +72,7 @@ beforeEach(() => {
 	// Default happy path: file reads succeed, no deferrals, no detectors.
 	// Individual tests override per-case.
 	mockReadFileSync.mockReturnValue("file body\n");
+    vi.mocked(realpathSync).mockImplementation((path) => String(path));
 	mockScanDeferrals.mockReturnValue(new Map());
 	mockBuildChecks.mockReturnValue([]);
 });
@@ -107,12 +108,33 @@ describe("rescanSessionFiles", () => {
 
 	it("keeps an already-absolute path as-is rather than re-resolving it", () => {
 		mockBuildChecks.mockReturnValue([detector("c", [{ line: 1, text: "x" }])]);
-		const findings = rescanSessionFiles(makeSession(["/abs/elsewhere/file.ts"]), "/repo");
-		expect(mockReadFileSync).toHaveBeenCalledWith("/abs/elsewhere/file.ts", "utf-8");
-		// `relative("/repo", "/abs/elsewhere/file.ts")` is a non-empty `../`
-		// path, so it is used verbatim as the reported `file`.
-		expect(findings[0]?.file).toBe("../abs/elsewhere/file.ts");
+		const findings = rescanSessionFiles(makeSession(["/repo/absolute/file.ts"]), "/repo");
+		expect(mockReadFileSync).toHaveBeenCalledWith("/repo/absolute/file.ts", "utf-8");
+		expect(findings[0]?.file).toBe("absolute/file.ts");
 	});
+
+    it.each(["/outside/memory.ts", "../outside/memory.ts", "/repo-sibling/file.ts"])("does not read or run project detectors for external session path %s", (path) => {
+        const unavailable = vi.fn(), observation = vi.fn();
+        expect(rescanSessionFiles(makeSession([path]), "/repo", { onUnavailable: unavailable, onObservation: observation })).toEqual([]);
+        expect(mockReadFileSync).not.toHaveBeenCalled();
+        expect(mockBuildChecks).not.toHaveBeenCalled();
+        expect(observation).not.toHaveBeenCalled();
+        expect(unavailable).toHaveBeenCalledWith("stop-rescan:scope", expect.any(String), expect.any(Error));
+    });
+
+    it("declines an in-repository symlink whose target escapes the repository", () => {
+        vi.mocked(realpathSync).mockImplementation(path => String(path) === "/repo/link.ts" ? "/outside/file.ts" : String(path));
+        const unavailable = vi.fn();
+        rescanSessionFiles(makeSession(["link.ts"]), "/repo", { onUnavailable: unavailable });
+        expect(mockReadFileSync).not.toHaveBeenCalled();
+        expect(mockBuildChecks).not.toHaveBeenCalled();
+        expect(unavailable).toHaveBeenCalledWith("stop-rescan:scope", "/repo/link.ts", expect.any(Error));
+    });
+
+    it("passes the absolute checked file to project-aware detectors regardless of the process cwd", () => {
+        rescanSessionFiles(makeSession(["src/a.ts"]), "/other-repository");
+        expect(mockBuildChecks).toHaveBeenCalledWith("file body\n", "/other-repository/src/a.ts");
+    });
 
 	it("de-duplicates when the same file appears as both absolute and relative", () => {
 		mockBuildChecks.mockReturnValue([detector("c", [{ line: 1, text: "x" }])]);

@@ -14,6 +14,7 @@ import { resolveQualityCheckTarget, runQualityChecks } from "./quality-checks.js
 import type { HarnessEvent, QualityCheckConfig } from "./types.js";
 import type { BatchFileEvidence } from "./quality-checks/change-set-evidence.js";
 import { sourceScanScope } from "./source-scan-scope.js";
+import { RecoveryTestRuns } from "./recovery-test-runs.js";
 
 // Recovery is an explicit background job. Group up to the external batch cap
 // so overlapping related suites run once; bound worker count in the runner.
@@ -86,12 +87,14 @@ function collectInputs(root: string, entries: readonly HookPendingCheck[], evide
 /** Reuses configured PostToolUse checks with one bounded external batch.
  * Receipts enumerate completed checks; they do not certify unrun hook phases. */
 export function createHookCoverageChecker(root: string, getChecks: () => Record<string, QualityCheckConfig>): HookCoverageChecker {
+    let preparedTests: RecoveryTestRuns | undefined;
     const checker: HookCoverageChecker = async entries => {
         const evidence = new Map<string, HookCheckEvidence>();
         const configured = structuredClone(getChecks());
         const checks = recoveryChecks(configured);
+        const tests = preparedTests ?? new RecoveryTestRuns(root, entries.map(entry => entry.path), Date.now() + RECOVERY_TEST_TIMEOUT_MS);
         for (const batch of recoveryBatches(root, entries, configured)) {
-            await checkRecoveryBatch(root, batch, checks, evidence);
+            await checkRecoveryBatch(root, batch, checks, evidence, tests);
         }
         if (JSON.stringify(configured) !== JSON.stringify(getChecks())) {
             for (const result of evidence.values()) result.unavailable.push("Configured checks changed during verification");
@@ -99,16 +102,17 @@ export function createHookCoverageChecker(root: string, getChecks: () => Record<
         return evidence;
     };
     checker.batches = entries => recoveryBatches(root, entries, getChecks());
+    checker.prepare = (entries, deadlineAt) => { preparedTests = new RecoveryTestRuns(root, entries.map(entry => entry.path), deadlineAt); };
     return checker;
 }
 
-async function checkRecoveryBatch(root: string, entries: readonly HookPendingCheck[], checks: Record<string, QualityCheckConfig>, evidence: Map<string, HookCheckEvidence>): Promise<void> {
+async function checkRecoveryBatch(root: string, entries: readonly HookPendingCheck[], checks: Record<string, QualityCheckConfig>, evidence: Map<string, HookCheckEvidence>, tests: RecoveryTestRuns): Promise<void> {
     const scoped = recoverySourceScope(root, entries, checks);
     checks = scoped.checks;
     const inputs = collectInputs(root, entries, evidence);
     if (!inputs.size) return;
     const externalRan: string[] = [];
-    const external = createChangeSetExternalBatch({ cwd: root, paths: [...inputs.keys()].map(entry => entry.path), checks, outChecksRan: externalRan, recovery: true });
+    const external = createChangeSetExternalBatch({ cwd: root, paths: [...inputs.keys()].map(entry => entry.path), checks, outChecksRan: externalRan, recovery: true, recoveryTests: tests });
     const externalRows = new Map<string, QualityCheckResult[]>();
     for (const [entry] of inputs) externalRows.set(entry.id, await external.resultsForFile(entry.path));
     // Shared deferrals invalidate their compatible group, never unrelated

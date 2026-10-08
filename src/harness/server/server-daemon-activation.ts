@@ -152,6 +152,9 @@ function installAuxiliaryRuntimes(options: ActivateDaemonOptions): void {
 		snapshotDir: cli.interlinkedDir,
 		lastEventAtMs: options.getLastHookEventAtMs,
 		shrinkIdleMemory: makeShrinkIdleMemory(options.getTrigramIndex),
+		drainIdleEvidence: () => {
+			if (startIdleEvidenceDrain(options.runtime.hookCoverage)) logAlways("[interlinked] Idle: started the hook-coverage evidence drain");
+		},
 		log: logAlways,
 	});
 	const sponsorRuntime = startSponsorRuntime({
@@ -280,4 +283,4 @@ export async function activateDaemon(options: ActivateDaemonOptions): Promise<vo
 	await finishStartup(options);
 }
 
-import { controlHookCoverage } from "../hook-coverage-control.js";
+import { controlHookCoverage, startIdleEvidenceDrain } from "../hook-coverage-control.js";

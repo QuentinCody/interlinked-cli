@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { appendQuarantine, attemptSeed, classifyCohort, cohortDecision, quarantineFor, readCohort, writeCohort, type CohortRecord } from "./stability.js";
+import { appendQuarantine, attemptSeed, classifyCohort, cohortDecision, quarantineFor, readCohort, writeCohort, zeroFailureUpperBound, type CohortRecord } from "./stability.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -15,6 +15,36 @@ const GENERATION = "a".repeat(64);
 function cohort(statuses: Array<CohortRecord["attempts"][number]["status"]>, required = 3, extra: Partial<CohortRecord> = {}): CohortRecord {
     return { version: 1, cohortId: "c1", key: "orders/order-persists", generation: GENERATION, required, baselineSeed: "0", clock: "real", startedAt: "t", updatedAt: "t", verdict: "in-progress", reasons: [], attempts: statuses.map((status, index) => ({ index: index + 1, runId: `r${index + 1}`, receipt: `p${index + 1}`, status, seed: attemptSeed("0", index + 1), clock: "real", durationMs: 1 })), ...extra };
 }
+
+// The exact one-sided 95% upper bound after n passes and 0 failures solves (1 − p)^n = 0.05 for p.
+// Reference values (Clopper–Pearson, zero failures): n=3 → 0.632, n=5 → 0.451, n=30 → 0.0950.
+describe("cohort bound — positive (must fire)", () => {
+    it("P1: the zero-failure bound matches the exact binomial values", () => {
+        expect(zeroFailureUpperBound(3)).toBeCloseTo(0.632, 3);
+        expect(zeroFailureUpperBound(5)).toBeCloseTo(0.451, 3);
+        expect(zeroFailureUpperBound(30)).toBeCloseTo(0.095, 3);
+    });
+    it("P2: a qualified cohort states its bound and the independence condition", () => {
+        const reasons = classifyCohort(cohort(["passed", "passed", "passed"])).reasons.join(" ");
+        expect(reasons).toMatch(/per-run failure rate ≤ 63\.2% at 95% confidence \(one-sided, 0 failures in 3\)/);
+        expect(reasons).toMatch(/whether each run consumed its seed is not checked/);
+    });
+    it("P3: a mixed cohort states its observed failure rate", () => {
+        const reasons = classifyCohort(cohort(["passed", "failed", "passed"])).reasons.join(" ");
+        expect(reasons).toMatch(/observed failure rate 1\/3 \(33\.3%\)/);
+    });
+});
+
+describe("cohort bound — negative (must not fire)", () => {
+    it("N1: no attempts bound nothing", () => {
+        expect(zeroFailureUpperBound(0)).toBe(1);
+    });
+    it("N2: deferred, failed and unavailable cohorts print no zero-failure bound", () => {
+        for (const statuses of [["passed"], ["failed", "failed", "failed"], ["passed", "unavailable", "passed"]] as const) {
+            expect(classifyCohort(cohort([...statuses])).reasons.join(" ")).not.toMatch(/at 95% confidence/);
+        }
+    });
+});
 
 describe("stability — positive (a cohort qualifies only through independent passing attempts)", () => {
     it("P1: attempt 1 uses the baseline seed verbatim; later attempts derive distinct, reproducible seeds from it", () => {

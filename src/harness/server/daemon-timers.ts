@@ -58,6 +58,10 @@ interface DaemonTimerHooks {
 	 *  transient spike aborts V8 before the graceful recycle can fire —
 	 *  shrinking at the pressure fraction keeps headroom for the spike. */
 	shrinkIdleMemory?: () => void;
+	/** Start draining the hook-coverage evidence backlog (a bounded, yielding verify job). Called once per idle
+	 *  period after {@link IDLE_DRAIN_AFTER_MS}: versions written outside hook events (subagents, builds, other
+	 *  sessions) are otherwise pending forever, because only a check of that exact version clears one (H5, 2026-10-02). */
+	drainIdleEvidence?: () => void;
 	/** Injected for tests; defaults to v8.getHeapStatistics. */
 	heapStats?: () => { usedBytes: number; limitBytes: number };
 	/** Ledger callback when the emergency heap-pressure shrink fires. */
@@ -72,6 +76,22 @@ const EMERGENCY_SHRINK_COOLDOWN_MS = 120_000;
 
 /** Idle time after which the shrink fires (once per idle period). */
 const IDLE_SHRINK_AFTER_MS = 5 * 60_000;
+/** Idle time after which the evidence drain starts (once per idle period); longer than the shrink, so a short pause
+ *  between edits never spends a verification batch. */
+export const IDLE_DRAIN_AFTER_MS = 10 * 60_000;
+
+/** Whether a once-per-idle-period action is due: idle long enough, and not yet fired since the last event. */
+export function idleActionDue(nowMs: number, lastEventMs: number, lastFiredMs: number, afterMs: number): boolean {
+	return nowMs - lastEventMs >= afterMs && lastFiredMs < lastEventMs;
+}
+
+function drainOnIdle(hooks: DaemonTimerHooks, lastDrainAt: number): number {
+	if (!hooks.lastEventAtMs || !hooks.drainIdleEvidence) return lastDrainAt;
+	const now = Date.now();
+	if (!idleActionDue(now, hooks.lastEventAtMs(), lastDrainAt, IDLE_DRAIN_AFTER_MS)) return lastDrainAt;
+	hooks.drainIdleEvidence();
+	return now;
+}
 
 /**
  * Idle shrink: fire once per idle period. `lastShrinkAt < lastEvent` means
@@ -175,7 +195,9 @@ export function installDaemonTimers(hooks: DaemonTimerHooks): () => void {
 	// "no shrink since the last event" — firing stamps lastShrinkAt past the
 	// idle period's event, and only a NEWER event re-arms the comparison.
 	let lastShrinkAt = 0;
+	let lastDrainAt = 0;
 	const memory = setInterval(() => {
+		lastDrainAt = drainOnIdle(hooks, lastDrainAt);
 		const rss = readRss();
 		const delta = rss - prevRss;
 		prevRss = rss;

@@ -15,7 +15,10 @@
 // the pre-existing-failure classifier are the REAL implementations, so the
 // fixtures below are real runner JSON and real runner output.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { QualityCheckConfig } from "../types.js";
 import type {
 	DeferredCheck,
@@ -39,6 +42,14 @@ vi.mock("../check-engine/spawn-async.js", () => ({ runProcessAsync }));
 vi.mock("./language-test-suite.js", () => ({ runLanguageTestSuite }));
 
 import { runNamedChecksAdmitted } from "./change-set-external-named.js";
+
+const fixtureRoots: string[] = [];
+afterEach(() => fixtureRoots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
+function pythonFixture(marker = "pyproject.toml") {
+    const root = mkdtempSync(join(tmpdir(), "named-tests-")); fixtureRoots.push(root);
+    writeFileSync(join(root, marker), marker === "package.json" ? "{}" : "");
+    return { root, path: join(root, "feature.py") };
+}
 
 function namedCheck(overrides: Partial<QualityCheckConfig> = {}): QualityCheckConfig {
 	return {
@@ -166,35 +177,38 @@ describe("runNamedChecksAdmitted — affected tests", () => {
     });
 
     it("retains actionable Python collection diagnostics in a deferred batch", async () => {
+        const { root, path } = pythonFixture();
         getProfileForFile.mockReturnValue({ id: "python" });
         runLanguageTestSuite.mockResolvedValue({ status: "unavailable", reason: "pytest collection failed",
             output: "ImportError: missing_project_dependency", durationMs: 12 });
-        const result = await runNamed({ paths: ["/repo/feature.py"], affectedTests: testsCandidate({ file_types: [".py"] }) });
+        const result = await runNamed({ root, paths: [path], affectedTests: testsCandidate({ file_types: [".py"] }) });
         expect(result.deferred).toEqual([{ name: "affected_tests", reason: "pytest collection failed\nImportError: missing_project_dependency" }]);
         expect(result.checksRan).toEqual([]);
     });
     it("runs the passing single-language project suite with a measured verdict and no finding", async () => {
+        const { root, path } = pythonFixture("pytest.ini");
         getProfileForFile.mockReturnValue({ id: "python" });
         runLanguageTestSuite.mockResolvedValue({ status: "passed", durationMs: 8, output: "" });
-        const result = await runNamed({ paths: ["/repo/feature.py"], affectedTests: testsCandidate({ file_types: [".py"] }) });
+        const result = await runNamed({ root, paths: [path], affectedTests: testsCandidate({ file_types: [".py"] }) });
         expect(result.deferred).toEqual([]);
         expect(result.checksRan).toEqual(["affected_tests"]);
         expect(result.toolMetrics).toEqual([{ tool: "affected-tests-python", ms: 8, finding_count: 0 }]);
-        expect(result.resultMap.get("/repo/feature.py")).toBeUndefined();
+        expect(result.resultMap.get(path)).toBeUndefined();
     });
 
     it("attributes a failing single-language project suite to the touched file with runner evidence", async () => {
+        const { root, path } = pythonFixture();
         getProfileForFile.mockReturnValue({ id: "python" });
         runLanguageTestSuite.mockResolvedValue({
             status: "failed", reason: "pytest reported failures", output: "1 failed, 4 passed", durationMs: 15,
         });
-        const result = await runNamed({ paths: ["/repo/feature.py"], affectedTests: testsCandidate({ file_types: [".py"] }) });
+        const result = await runNamed({ root, paths: [path], affectedTests: testsCandidate({ file_types: [".py"] }) });
         expect(result.deferred).toEqual([]);
         expect(result.checksRan).toEqual(["affected_tests"]);
         expect(result.toolMetrics).toEqual([{ tool: "affected-tests-python", ms: 15, finding_count: 1 }]);
-        expect(result.resultMap.get("/repo/feature.py")).toEqual([
+        expect(result.resultMap.get(path)).toEqual([
             expect.objectContaining({
-                name: "affected_tests", severity: "warning", file: "/repo/feature.py",
+                name: "affected_tests", severity: "warning", file: path,
                 message: "pytest reported failures", detail: "1 failed, 4 passed",
             }),
         ]);
@@ -207,6 +221,15 @@ describe("runNamedChecksAdmitted — affected tests", () => {
         expect(result.checksRan).toEqual([]);
         expect(result.toolMetrics).toEqual([]);
         expect(result.resultMap.size).toBe(0);
+    });
+
+    it("does not collect Python scratch projects from a TypeScript fallback root", async () => {
+        const { root, path } = pythonFixture("package.json");
+        getProfileForFile.mockReturnValue({ id: "python" });
+        const result = await runNamed({ root, paths: [path], affectedTests: testsCandidate({ file_types: [".py"] }) });
+        expect(result.deferred).toEqual([{ name: "affected_tests", reason: expect.stringContaining("No python project marker") }]);
+        expect(result.checksRan).toEqual([]);
+        expect(runLanguageTestSuite).not.toHaveBeenCalled();
     });
 
     it("defers a mixed-language batch without reporting a measured test check", async () => {

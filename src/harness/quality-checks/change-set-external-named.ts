@@ -13,10 +13,13 @@ import { resolveDependencyAuditCommandAsync } from "./dependency-audit.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./result-types.js";
 import { scheduleTests } from "../test-scheduler.js";
 import { runLanguageTestSuite } from "./language-test-suite.js";
-import type { LanguageId } from "../types.js";
+import type { LanguageId, QualityCheckConfig } from "../types.js";
+import type { RecoveryTestRuns } from "../recovery-test-runs.js";
+import { LANGUAGE_PROFILES } from "../language-profiles-data.js";
 
 interface NamedRunOptions {
 	recovery?: boolean;
+    recoveryTests?: RecoveryTestRuns;
 	outToolMetrics?: ToolBreakdownEntry[];
 	outChecksRan?: string[];
 }
@@ -43,9 +46,7 @@ async function runAffectedTestsAdmitted(
     if (languages.length !== 1 || !profiles.every(profile => profile.id === "typescript" && (profile.test_runner?.command ?? "npx vitest run").includes("vitest"))) {
         return { name: candidate.name, reason: "mixed-language ChangeSets have no single bounded affected-test command" };
     }
-    const result = await scheduleTests({ root: projectRoot, paths: inputs, timeoutMs: candidate.check.timeout_ms,
-        ...(options.recovery ? {} : { maxTests: candidate.check.max_dependent_tests ?? 150 }),
-        maxWorkers: 2, waitForCapacity: options.recovery === true, stage: "edit" });
+    const result = await scheduleAffectedTests(options, projectRoot, inputs, candidate.check);
     if (result.status === "deferred" || result.status === "stale") return { name: candidate.name, reason: result.reason };
     if (result.status === "empty") return { name: candidate.name, reason: result.reason };
     options.outChecksRan?.push(candidate.name);
@@ -64,9 +65,21 @@ function testLanguages(detected: LanguageId[], root: string): LanguageId[] {
     return markers.filter(([, files]) => files.some(file => existsSync(join(root, file)))).map(([language]) => language);
 }
 
+function scheduleAffectedTests(options: NamedRunOptions, root: string, paths: string[], check: QualityCheckConfig) {
+    const request = { root, paths, timeoutMs: check.timeout_ms,
+        ...(options.recovery ? {} : { maxTests: check.max_dependent_tests ?? 150 }),
+        maxWorkers: 2, waitForCapacity: options.recovery === true, stage: "edit" as const };
+    return options.recoveryTests ? options.recoveryTests.vitest(request, check) : scheduleTests(request);
+}
+
 async function runProjectSuite(options: NamedRunOptions, resultMap: Map<string, QualityCheckResult[]>,
     root: string, paths: string[], candidate: NamedExternalCandidate, language: LanguageId): Promise<DeferredCheck | null> {
-    const result = await runLanguageTestSuite({ root, language, timeoutMs: candidate.check.timeout_ms, recovery: options.recovery === true });
+    const markers = LANGUAGE_PROFILES[language].project_root_markers;
+    if (!markers.some(marker => existsSync(join(root, marker)))) {
+        return { name: candidate.name, reason: `No ${language} project marker in ${root}; automatic tests cannot use another language's fallback root. Declare the intended project test scope before retrying.` };
+    }
+    const suite = { root, language, timeoutMs: candidate.check.timeout_ms, recovery: options.recovery === true };
+    const result = options.recoveryTests ? await options.recoveryTests.language(suite, paths, candidate.check) : await runLanguageTestSuite(suite);
     options.outToolMetrics?.push({ tool: `affected-tests-${language}`, ms: result.durationMs, finding_count: result.status === "failed" ? 1 : 0 });
     if (result.status === "unavailable") return { name: candidate.name, reason: [result.reason, result.output].filter(Boolean).join("\n") };
     options.outChecksRan?.push(candidate.name);

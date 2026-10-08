@@ -27,11 +27,18 @@ async function stopWithColdDaemon(nativeEventName: string, nativeJson: Record<st
 }
 
 describe("cold Stop — positive", () => {
-    it("enforces guard reconciliation during a real cold edit", async () => {
+    it.each(["shadow", "enforced"])("honors %s guard policy during a real cold edit", async (mode) => {
+        if (mode === "enforced") writeFileSync(join(root, ".interlinked/config.json"), JSON.stringify({
+            version: 1, server_url: "", harness: { guard_prediction: { mode } },
+        }));
         writeFileSync(join(root, "a.ts"), "function f(){if(ready)return result;}");
         const result = await stopWithColdDaemon("PreToolUse", { cwd: root, session_id: "s1", tool_name: "Write",
             tool_input: { file_path: join(root, "a.ts"), content: "function f(){if(ready)log();return result;}" } });
-        expect(result.stdout).toContain('"permissionDecision":"deny"');
+        if (mode === "enforced") expect(result.stdout).toContain('"permissionDecision":"deny"');
+        else {
+            expect(result.stdout).not.toContain('"permissionDecision":"deny"');
+            expect(result.stdout).toContain("Advisory:");
+        }
         expect(result.stdout).toContain("guard");
     });
     it("provides an actionable fallback if a prediction refusal has no detail", async () => {

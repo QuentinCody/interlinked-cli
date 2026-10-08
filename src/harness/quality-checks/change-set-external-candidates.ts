@@ -14,6 +14,7 @@ export const PROJECT_SECRET_SCAN_DEFER_REASON = "project-wide Gitleaks scan belo
 const PROJECT_BATCH_TOOLS = new Set<ToolId>([
 	"tsc",
 	"biome",
+    "lint-import",
 	"eslint",
 	"oxlint",
 	"semgrep",
@@ -37,6 +38,8 @@ export interface ExternalCandidate {
 	readonly name: string;
 	readonly check: QualityCheckConfig;
 	readonly toolId: ToolId;
+    /** Recovery invokes this runner once per applicable file within a shared deadline. */
+    readonly fileOnly?: true;
 }
 
 export interface NamedExternalCandidate {
@@ -71,7 +74,7 @@ type CheckClassification =
 	| { readonly kind: "affected_tests" }
 	| { readonly kind: "dependency_audit" }
 	| { readonly kind: "deferred"; readonly reason: string }
-	| { readonly kind: "batch"; readonly toolId: ToolId };
+	| { readonly kind: "batch"; readonly toolId: ToolId; readonly fileOnly?: true };
 
 /** Applicability only: no path-name or gitignore exemptions, and no passing verdict. */
 export function hasExternalCheck(path: string, checks: Record<string, QualityCheckConfig>): boolean {
@@ -83,6 +86,7 @@ function classifyCheck(
 	name: string,
 	check: QualityCheckConfig,
 	paths: readonly string[],
+    recovery = false,
 ): CheckClassification {
 	if (!check.enabled) return { kind: "ignored" };
 	if (!paths.some((path) => pathMatchesCheck(path, check))) return { kind: "ignored" };
@@ -92,6 +96,7 @@ function classifyCheck(
 	const toolId = configNameToToolId(name);
 	if (!toolId || toolId === "dep-audit") return { kind: "ignored" };
 	if (!PROJECT_BATCH_TOOLS.has(toolId)) {
+        if (recovery && (toolId === "shellcheck" || toolId === "taplo")) return { kind: "batch", toolId, fileOnly: true };
 		return {
 			kind: "deferred",
 			reason: "the configured runner is file-only and has no bounded multi-file mode",
@@ -117,7 +122,7 @@ export function candidateChecks(options: {
 	let dependencyAudit: NamedExternalCandidate | undefined;
 	const seenTools = new Set<ToolId>();
 	for (const [name, check] of Object.entries(options.checks)) {
-		const classified = classifyCheck(name, check, options.paths);
+		const classified = classifyCheck(name, check, options.paths, options.recovery);
 		if (classified.kind === "ignored") continue;
         if (exceedsAttributionBudget(check, options.paths, options.maxFiles)) {
             deferred.push({ name, reason: `Check has more than ${options.maxFiles} applicable inputs; attribution budget exhausted` });
@@ -143,7 +148,7 @@ export function candidateChecks(options: {
         }
 		if (seenTools.has(classified.toolId)) continue;
 		seenTools.add(classified.toolId);
-		candidates.push({ name, check, toolId: classified.toolId });
+		candidates.push({ name, check, toolId: classified.toolId, ...(classified.fileOnly ? { fileOnly: true } : {}) });
 	}
 	return {
 		candidates,

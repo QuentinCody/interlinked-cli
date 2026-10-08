@@ -1,8 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { skipWithoutCapacity } from "../test-setup/no-verdict.js";
 
 const REPO = resolve(import.meta.dirname, "../..");
 const ZERO = "0".repeat(40);
@@ -139,7 +140,8 @@ process.exitCode = result.status ?? 1;
         const { INTERLINKED_PRE_PUSH_COVERAGE_SCOPE: _scope, INTERLINKED_PRE_PUSH_COVERAGE_TARGETS: _targets, ...inherited } = process.env;
         const result = spawnSync("bash", [join(root, "scripts/git-hooks/pre-push"), "origin", "unused"], {
             cwd: root, encoding: "utf8", timeout: 60_000,
-            env: { ...inherited, ...measurement, COVERAGE_CAPTURE: join(root, "captured.json") },
+            // Inline comparison by default, so a case can read its ledger row as soon as the hook returns.
+            env: { ...inherited, INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND: "1", ...measurement, COVERAGE_CAPTURE: join(root, "captured.json") },
             input: updates.map(({ sha, remote, old }) => `refs/heads/local ${sha} refs/heads/${remote} ${old}\n`).join(""),
         });
         return { status: result.status, output: result.stdout + result.stderr };
@@ -223,6 +225,22 @@ process.exitCode = result.status ?? 1;
         measurement = { ...measurement, INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE: "1" };
         expect(run(updates).status).toBe(0);
         expect(rows()).toHaveLength(3);
+    });
+
+    // test-contract: invariant — the advisory comparison no longer holds the push: the hook hands it and the export to a detached job that writes the same ledger row and removes the export when it finishes (H7, 2026-10-02)
+    it("runs the index comparison in the background and still records its row", async () => {
+        const sha = codeCommit();
+        report();
+        measurement = { ...measurement, INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND: "0" };
+        const ledger = join(root, ".interlinked", "coverage-index-comparison.jsonl");
+        const pushed = run([{ sha, remote: "main", old: base }]);
+        expect(pushed.status, pushed.output).toBe(0);
+        expect(pushed.output).toContain("coverage index comparison (advisory) continues in the background");
+        await vi.waitFor(() => { expect(existsSync(ledger)).toBe(true); }, { timeout: 60_000, interval: 250 });
+        // SAFETY: the ledger is written only by the hook's comparison step, one JSON object per line.
+        expect(JSON.parse(readFileSync(ledger, "utf8").trim().split("\n")[0] ?? "{}") as { push_sha?: string }).toMatchObject({ push_sha: sha });
+        await vi.waitFor(() => { expect(git("worktree", "list").trim().split("\n")).toHaveLength(1); }, { timeout: 60_000, interval: 250 });
+        expect(readFileSync(join(root, ".interlinked", "coverage-index-compare.log"), "utf8")).toContain("coverage index");
     });
 
     // test-contract: invariant — a measured coverage REGRESSION is a valid full verdict: the push is still refused (the full route decides) but the comparison row is recorded with the full route's findings, so the ledger sees disagreements in both directions, not only agreements (review 2026-09-30); a partial full result is no verdict and records nothing
@@ -365,7 +383,7 @@ process.exitCode = result.status ?? 1;
         expect(result.output).toContain("verification unavailable");
     });
 
-    it("uses native dynamic coverage exclusions instead of requiring retained out-of-scope baseline entries", () => {
+    it("uses native dynamic coverage exclusions instead of requiring retained out-of-scope baseline entries", (context) => {
         write("package.json", JSON.stringify({ scripts: {
             ...E2E_SCRIPTS,
             "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE",
@@ -378,15 +396,17 @@ process.exitCode = result.status ?? 1;
         measurement.COVERAGE_REAL_VITEST = "1";
         measurement.COVERAGE_DYNAMIC_EXCLUDE = "1";
         const excluded = run([{ sha, remote: "main", old: base }]);
+        skipWithoutCapacity(context, excluded.output);
         expect(excluded.status, excluded.output).toBe(0);
         expect(excluded.output).toContain("No runtime coverage targets");
         measurement.COVERAGE_DYNAMIC_EXCLUDE = "0";
         const included = run([{ sha, remote: "main", old: base }]);
+        skipWithoutCapacity(context, included.output);
         expect(included.status, included.output).toBe(0);
         expect(included.output).toContain("1 measured file(s)");
     });
 
-    it("measures each pushed revision with real Vitest instead of reusing the working-tree report", () => {
+    it("measures each pushed revision with real Vitest instead of reusing the working-tree report", (context) => {
         write("package.json", JSON.stringify({ scripts: {
             ...E2E_SCRIPTS,
             "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE",
@@ -405,8 +425,10 @@ process.exitCode = result.status ?? 1;
         write("coverage/coverage-summary.json", JSON.stringify({ [TARGET]: { lines: { pct: 100 }, branches: { pct: 100 }, statements: { pct: 100 }, functions: { pct: 100 } } }));
         const reportBefore = readFileSync(join(root, "coverage/coverage-summary.json"), "utf8");
         const cleanOlderRevision = run([{ sha: good, remote: "main", old: base }]);
+        skipWithoutCapacity(context, cleanOlderRevision.output);
         expect(cleanOlderRevision.status, cleanOlderRevision.output).toBe(0);
         const both = run([{ sha: good, remote: "main", old: base }, { sha: bad, remote: "master", old: good }]);
+        skipWithoutCapacity(context, both.output);
         expect(both.status, both.output).toBe(1);
         expect(both.output).toContain(`typecheck + tests pass for ${good}`);
         expect(both.output).toContain(`verification failed or unavailable for ${bad}`);

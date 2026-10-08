@@ -8,8 +8,13 @@ import { isJsonObject } from "../lib/json-types.js";
  * unioned at read time, coalesced at write time (see `requestTests`), retirements audited in
  * `requests/superseded.jsonl`, files removed only by `completeTestRequests` or retirement.
  */
-/** What a run must PRODUCE to satisfy a request, beyond passing: a coverage request is satisfied only by a coverage run. */
-export interface RunRequirements { coverage?: { reporters?: string[] }; }
+/**
+ * What a run must PRODUCE to satisfy a request, beyond passing: a coverage request is satisfied only by a coverage run.
+ * `staticSelection` is a PERMISSION, not a product: the requester allows classifier-based omission and reuse. A batch
+ * selects only when EVERY pending request permits it, and a run that selected never discharges a request that did not
+ * permit it (review 2026-10-06: a default request rode on an opt-in run that omitted a failing test).
+ */
+export interface RunRequirements { coverage?: { reporters?: string[] }; staticSelection?: true; }
 export interface PendingTests { ids: string[]; paths: string[]; full: boolean; requirements: RunRequirements; }
 /** Oldest request files read per scan; coalescing at write time keeps the queue far below this. */
 const PENDING_REQUEST_CAP = 1000;
@@ -21,11 +26,13 @@ interface StoredRequest { id: string; paths: string[]; full: boolean; requiremen
 function parseRequirements(value: unknown): RunRequirements | null {
     if (value === undefined) return {};
     if (!isJsonObject(value)) return null;
-    if (value.coverage === undefined) return {};
+    if (value.staticSelection !== undefined && value.staticSelection !== true) return null;
+    const selection: RunRequirements = value.staticSelection === true ? { staticSelection: true } : {};
+    if (value.coverage === undefined) return selection;
     if (!isJsonObject(value.coverage)) return null;
     const reporters = value.coverage.reporters;
     if (reporters !== undefined && (!Array.isArray(reporters) || !reporters.every((reporter): reporter is string => typeof reporter === "string"))) return null;
-    return { coverage: reporters === undefined ? {} : { reporters } };
+    return { ...selection, coverage: reporters === undefined ? {} : { reporters } };
 }
 
 /**
@@ -40,7 +47,26 @@ export function unsubscribeTestRequest(id: string): void {
     else localSubscribers.delete(id);
 }
 
-interface Obligation { paths: readonly string[]; full: boolean; requirements: RunRequirements; }
+/** What one request obliges a run to cover and produce. */
+export interface Obligation { paths: readonly string[]; full: boolean; requirements: RunRequirements; }
+
+/** A stored obligation (a request file's JSON, or the copy a completion pointer keeps), or null when malformed. */
+export function parseObligation(value: unknown): Obligation | null {
+    if (!isJsonObject(value) || typeof value.full !== "boolean" || !Array.isArray(value.paths)) return null;
+    if (!value.paths.every((path): path is string => typeof path === "string")) return null;
+    const requirements = parseRequirements(value.requirements);
+    return requirements ? { paths: value.paths, full: value.full, requirements } : null;
+}
+
+/** The obligation of a still-pending request (`name` is the request id, with or without `.json`), or null. */
+export function readRequestObligation(root: string, name: string): Obligation | null {
+    const file = name.endsWith(".json") ? name : `${name}.json`;
+    try {
+        return parseObligation(JSON.parse(readFileSync(join(directory(root), file), "utf8")));
+    } catch {
+        return null;
+    }
+}
 
 /** `covering` satisfies every obligation of `covered`: scope (a full run satisfies any scope; a selected run a selected subset) AND what the run must produce. */
 function covers(covering: Obligation, covered: Obligation): boolean {
@@ -69,6 +95,7 @@ function parseRequest(dir: string, name: string): StoredRequest | null {
 
 /** `covering`'s run satisfies `covered`'s requirements: coverage is required by the covered request only if the covering one produces it. */
 function meetsRequirements(covering: RunRequirements, covered: RunRequirements): boolean {
+    if (covering.staticSelection && !covered.staticSelection) return false;
     if (!covered.coverage) return true;
     if (!covering.coverage) return false;
     const reporters = new Set(covering.coverage.reporters ?? []);
@@ -77,9 +104,11 @@ function meetsRequirements(covering: RunRequirements, covered: RunRequirements):
 
 /** The union of requirements a batch must produce to satisfy every pending request. */
 function mergeRequirements(requests: readonly { requirements: RunRequirements }[]): RunRequirements {
+    // Selection is permitted only when every pending request permits it; one default request forces the full, fresh run.
+    const selection: RunRequirements = requests.length > 0 && requests.every(request => request.requirements.staticSelection) ? { staticSelection: true } : {};
     const coverage = requests.filter(request => request.requirements.coverage);
-    if (!coverage.length) return {};
-    return { coverage: { reporters: [...new Set(coverage.flatMap(request => request.requirements.coverage?.reporters ?? []))].sort() } };
+    if (!coverage.length) return selection;
+    return { ...selection, coverage: { reporters: [...new Set(coverage.flatMap(request => request.requirements.coverage?.reporters ?? []))].sort() } };
 }
 
 function storedRequests(root: string): StoredRequest[] {
@@ -126,9 +155,10 @@ export function requestTests(root: string, paths: readonly string[], full: boole
     const retired = existing.filter(old => !localSubscribers.has(old.id) && covers(request, old));
     const id = randomUUID();
     writeRequest(dir, id, { paths: [...request.paths, ...retired.flatMap(old => old.paths)], full, requirements });
+    // Evidence BEFORE removal: a waiter that finds the old file gone must also find who carries it. When the audit row
+    // cannot be written the old request stays (a duplicate obligation is harmless; an unexplained gap is not).
     for (const old of retired) {
-        rmSync(join(dir, `${old.id}.json`), { force: true });
-        recordSuperseded(root, old, id);
+        if (recordSuperseded(root, old, id)) rmSync(join(dir, `${old.id}.json`), { force: true });
     }
     return id;
 }
@@ -143,6 +173,39 @@ export function pendingTests(root: string): PendingTests {
 /** The pending request files (as `pendingTests` names them) whose requirements a run that PRODUCED `produced` satisfies. */
 export function pendingRequestsMet(root: string, produced: RunRequirements): string[] {
     return storedRequests(root).filter(request => meetsRequirements(produced, request.requirements)).map(request => `${request.id}.json`);
+}
+
+/**
+ * Records that `oldId`'s obligation now rides on `newId` (a drain requeued it after rejecting a stale completion).
+ * Returns false when the audit row could not be written; the caller must then keep the old evidence in place.
+ */
+export function recordRequeue(root: string, oldId: string, newId: string, paths: readonly string[], full: boolean): boolean {
+    return recordSuperseded(root, { id: oldId, paths: [...paths], full, requirements: {} }, newId);
+}
+
+/** One audit row, or null for a torn line (a torn row can only HIDE a retirement, so the waiter keeps its own id). */
+function parseAuditRow(line: string): unknown {
+    try {
+        return JSON.parse(line);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * The request that retired `id` (from `superseded.jsonl`), or null when `id` was never retired. A request file that is
+ * gone was either COMPLETED or RETIRED into a wider one; only this log tells them apart, so a waiter follows it instead
+ * of treating a missing file as a pass (review 2026-10-06). The newest row for `id` wins.
+ */
+export function supersededBy(root: string, id: string): string | null {
+    const path = join(directory(root), "superseded.jsonl");
+    if (!existsSync(path)) return null;
+    let by: string | null = null;
+    for (const line of readFileSync(path, "utf8").split("\n")) {
+        const row = line.trim() ? parseAuditRow(line) : null;
+        if (isJsonObject(row) && row.id === id && typeof row.by === "string") by = row.by;
+    }
+    return by;
 }
 
 export function completeTestRequests(root: string, ids: string[]): void {

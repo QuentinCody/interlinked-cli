@@ -104,6 +104,17 @@ function makeSession(opts?: {
 // parseGitVerb
 // ============================================================
 
+it("recognizes absolute session writes when Git reports repository-relative paths", () => {
+	writeFile("src/owned.ts", "export const owned = 1;");
+	git(["add", "src/owned.ts"]);
+	const session = makeSession({ written: [join(repo, "src/owned.ts")] });
+	expect(evaluateGitScopeGateSync("git commit -m owned", session, repo)?.decision).toBe("allow");
+	expect(evaluateGitScopeGateSync("git commit -m owned", session, join(repo, "src"))?.decision).toBe("allow");
+	writeFile("src/other.ts", "export const other = 2;");
+	git(["add", "src/other.ts"]);
+	expect(evaluateGitScopeGateSync("git commit -m both", session, repo)?.unauthorized_files).toEqual(["src/other.ts"]);
+});
+
 describe("parseGitVerb", () => {
 	it("returns null for non-git commands", () => {
 		expect(parseGitVerb("ls -la")).toBeNull();

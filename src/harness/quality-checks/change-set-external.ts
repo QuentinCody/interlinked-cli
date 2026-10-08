@@ -8,7 +8,8 @@
 // project-scoped engine batch for the whole ChangeSet, then attributes the
 // resulting rows back to the files that request actually touched.
 
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { getOrCreateEngine } from "../check-engine/index.js";
 import type { CheckReport, CheckResult, ToolId } from "../check-engine/types.js";
 import { acquireProjectHeavyProcessLease, tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
@@ -31,6 +32,8 @@ import { runNamedChecksAdmitted } from "./change-set-external-named.js";
 import { pushResult } from "./change-set-result-map.js";
 import { ChangeSetEvidence, type BatchFileEvidence } from "./change-set-evidence.js";
 import { currentProcessSignal } from "../check-engine/process-cancellation.js";
+import type { RecoveryTestRuns } from "../recovery-test-runs.js";
+import { getProfileForFile } from "../language-profiles.js";
 
 export { MULTI_FILE_NAMED_EXTERNAL_CHECKS } from "./change-set-external-candidates.js";
 
@@ -51,6 +54,7 @@ export interface ChangeSetExternalBatch {
 interface ChangeSetExternalBatchOptions {
 	/** Explicit background recovery, outside interactive hook deadlines. */
 	readonly recovery?: boolean;
+    readonly recoveryTests?: RecoveryTestRuns;
 	readonly paths:readonly string[];
 	/** Paths proven created by the request's observed ChangeSet. Only these may
 	 * turn a cold-start TypeScript finding into an "introduced" error without a
@@ -242,6 +246,12 @@ async function runEngineAdmitted(
 	deferred: DeferredCheck[],
 ): Promise<void> {
 	if (candidates.length === 0) return;
+	const fileCandidates = candidates.filter(candidate => candidate.fileOnly);
+    for (const candidate of fileCandidates) {
+        await runFileEngineAdmitted(options, resultMap, projectRoot, projectPaths, candidate, deferred);
+    }
+    candidates = candidates.filter(candidate => !candidate.fileOnly);
+    if (candidates.length === 0) return;
 	try {
 		const timeoutMs = Math.min(
 			MAX_BATCH_TOOL_TIMEOUT_MS,
@@ -253,6 +263,7 @@ async function runEngineAdmitted(
 				tools: candidates.map((candidate) => candidate.toolId),
 				timeoutMs,
 				admissionAlreadyHeld: true,
+                ...(options.recovery ? { waitForCapacity: true } : {}),
 			},
 		);
 		applyEngineReport(
@@ -270,6 +281,33 @@ async function runEngineAdmitted(
 	}
 }
 
+/** File-only tools cannot produce a verdict from an empty project-mode run.
+ * Recovery shares one lease and a finite deadline across the applicable files. */
+async function runFileEngineAdmitted(
+    options: ChangeSetExternalBatchOptions,
+    resultMap: Map<string, QualityCheckResult[]>,
+    projectRoot: string,
+    paths: readonly string[],
+    candidate: ExternalCandidate,
+    deferred: DeferredCheck[],
+): Promise<void> {
+    const deadline = Date.now() + MAX_BATCH_TOOL_TIMEOUT_MS;
+    for (const targetFile of paths.filter(path => pathMatchesCheck(path, candidate.check))) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+            deferred.push({ name: candidate.name, reason: "file recovery deadline exhausted; remaining inputs were not checked" });
+            return;
+        }
+        try {
+            const report = await getOrCreateEngine(projectRoot).runChecksAsync(
+                { projectRoot, mode: "file", targetFile },
+                { tools: [candidate.toolId], timeoutMs: Math.min(candidate.check.timeout_ms, remaining), admissionAlreadyHeld: true },
+            );
+            applyEngineReport(options, resultMap, projectRoot, [targetFile], [candidate], report, deferred);
+        } catch (error) { deferred.push({ name: candidate.name, reason: String(error) }); }
+    }
+}
+
 function deferBusyBatch(candidates: NamedExternalCandidate[], deferred: DeferredCheck[]): void {
 	for (const candidate of candidates) deferred.push({ name: candidate.name, reason: "external-tool capacity is busy; affected test requests are retained" });
 }
@@ -279,12 +317,23 @@ function retainAffectedChanges(options: ChangeSetExternalBatchOptions, paths: re
 	if (!check?.enabled || !paths.some(path => pathMatchesCheck(path, check))) return;
 	const projects = new Map<string, string[]>();
 	for (const path of paths) {
+		if (!pathMatchesCheck(path, check)) continue;
 		const root = findProjectRoot(path, options.cwd) || options.cwd;
+        if (!isVitestInput(root, path)) continue;
 		const inputs = projects.get(root) ?? [];
 		inputs.push(path);
 		projects.set(root, inputs);
 	}
-	for (const [root, inputs] of projects) requestTests(root, inputs, false);
+	for (const [root, inputs] of projects) {
+        if (options.recoveryTests) options.recoveryTests.retainVitest(root, inputs, check);
+        else requestTests(root, inputs, false);
+    }
+}
+
+/** Python/Rust/Go work belongs to its native runner, not the Vitest request queue. */
+function isVitestInput(root: string, path: string): boolean {
+    const profile = getProfileForFile(path);
+    return profile ? profile.id === "typescript" : existsSync(join(root, "package.json"));
 }
 
 async function runBatch(

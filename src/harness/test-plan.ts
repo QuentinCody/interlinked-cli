@@ -1,7 +1,7 @@
 import { hashBytes } from "../lib/metrics/inventory.js";
 import { basename, dirname, join } from "node:path";
 import type { RepositoryInventory } from "../lib/metrics/measurement-types.js";
-import { buildTestDependencyGraph, testDependencyClosure, type TestDependencyGraph } from "./test-dependency-graph.js";
+import { buildTestDependencyGraph, testDependencyClosure, type GraphFile, type TestDependencyClosure, type TestDependencyGraph } from "./test-dependency-graph.js";
 
 export interface PlannedTest { path: string; reasons: string[]; durationMs: number | null; }
 export interface TestPlan {
@@ -16,8 +16,18 @@ export interface TestPlan {
     reusable: boolean;
     runtimeHash?: string;
     runtimeIssue?: string;
+    /** What static selection WOULD have decided (telemetry only when `staticSelection` is off). */
+    classifierEstimate?: { omitted: number; reusable: boolean };
 }
 export interface TestPlanInput {
+    /**
+     * Let the static effect classifier OMIT unaffected tests and mark a plan REUSABLE. Off by default (operator
+     * decision 2026-10-06, option A): three review rounds found classifier escapes (`mkdirSync`, aliased or
+     * parenthesized `vi.importActual`, escaped `Function`, `import.meta["url"]`, unhashed environment keys…) that
+     * produced false-green plans — a cached pass for a test that now fails, or an affected test left out. With it
+     * off every test runs and no result is reused; the classifier's verdict is kept in `classifierEstimate`.
+     */
+    staticSelection?: boolean;
     inventory: RepositoryInventory;
     tests: string[];
     supportFiles: string[];
@@ -32,6 +42,20 @@ export interface TestPlanInput {
      * run is fresh-only evidence: the runtime snapshot hashes their bytes, not what they read.
      */
     outsideInventory?: string[];
+    /**
+     * src/ fixture modules the score inventory excludes by role. They are import targets with known contents, so a
+     * test that imports one stays selectable and a changed fixture selects its importers instead of widening the
+     * plan; they are NOT in the identity hash, so a closure that reaches one is never reused.
+     */
+    extraFiles?: GraphFile[];
+}
+
+/**
+ * A closure's passing result is reusable evidence only when it reads nothing unhashed (not opaque), repeats (not
+ * nondeterministic — the clock, randomness, timers) and every path it reaches is in the identity's inventory.
+ */
+function reusableClosure(closure: TestDependencyClosure, inventoried: ReadonlySet<string>): boolean {
+    return !closure.opaque && !closure.nondeterministic && [...closure.paths].every(path => inventoried.has(path));
 }
 
 /**
@@ -45,7 +69,7 @@ interface FullReasons { scope: string[]; uncertainty: string[]; }
 
 function fullReasons(input: TestPlanInput, graph: TestDependencyGraph): FullReasons {
     const supportClosure = testDependencyClosure(graph, input.supportFiles), support = supportClosure.paths;
-    const known = new Set([...input.inventory.files.map(file => file.path), ...Object.values(input.dependencies ?? {}).flat()]);
+    const known = new Set([...input.inventory.files.map(file => file.path), ...(input.extraFiles ?? []).map(file => file.path), ...Object.values(input.dependencies ?? {}).flat()]);
     const config = new Set(input.inventory.files.filter(file => file.role === "configuration").map(file => file.path));
     const scope: string[] = [], uncertainty = [...input.uncertainty ?? []];
     if (input.full) scope.push("Full reconciliation requested");
@@ -114,17 +138,18 @@ function selectUniverse(input: TestPlanInput, graph: TestDependencyGraph, full: 
     // Shared setup and configuration (setupFiles, the vitest config) run in every test; an opaque one may read an
     // external fixture, the network or the clock, so its presence makes ANY run fresh-only — selected or full,
     // whether or not it changed.
-    const supportOpaque = testDependencyClosure(graph, input.supportFiles).opaque;
+    const inventoried = new Set(input.inventory.files.map(file => file.path));
+    const supportReusable = reusableClosure(testDependencyClosure(graph, input.supportFiles), inventoried);
     // Once every test is required, avoid an all-sources companion scan for each test. A full run is reusable
-    // evidence only when every input is tracked: no uncertainty AND no opaque closure anywhere (tests or support).
+    // evidence only when every input is tracked: no uncertainty AND every closure (tests and support) reusable.
     if (reasons.length) {
-        const opaque = supportOpaque || testDependencyClosure(graph, input.tests).opaque;
+        const reusable = supportReusable && reusableClosure(testDependencyClosure(graph, input.tests), inventoried);
         return { tests: [...new Set(input.tests)].sort().map(path => ({ path, reasons: [...reasons],
-            durationMs: input.historical?.[path]?.durationMs ?? null })), omitted: [], reusable: full.uncertainty.length === 0 && !opaque };
+            durationMs: input.historical?.[path]?.durationMs ?? null })), omitted: [], reusable: full.uncertainty.length === 0 && reusable };
     }
     const tests: PlannedTest[] = [], omitted: string[] = [];
     const companions = indexCompanionSources(input);
-    let reusable = !supportOpaque;
+    let reusable = supportReusable;
     for (const path of [...new Set(input.tests)].sort()) {
         const sources = companions.get(path) ?? [];
         const closure = testDependencyClosure(graph, [path, ...sources]);
@@ -132,7 +157,7 @@ function selectUniverse(input: TestPlanInput, graph: TestDependencyGraph, full: 
         if (closure.opaque && input.changedPaths.length) why.push("Opaque dependency: rerun on any input change");
         why.push(...reasons);
         if (!why.length) { omitted.push(path); continue; }
-        reusable &&= !closure.opaque;
+        reusable &&= reusableClosure(closure, inventoried);
         tests.push({ path, reasons: why, durationMs: input.historical?.[path]?.durationMs ?? null });
     }
     return { tests, omitted, reusable };
@@ -141,11 +166,17 @@ function selectUniverse(input: TestPlanInput, graph: TestDependencyGraph, full: 
 /** One union of direct, static, declared, and historically covering tests. Unknowns widen. */
 export function buildTestPlan(input: TestPlanInput): TestPlan {
     const changedPaths = [...new Set(input.changedPaths)].sort();
-    const normalized = { ...input, changedPaths }, graph = buildTestDependencyGraph(input.inventory);
-    const full = fullReasons(normalized, graph), selection = selectUniverse(normalized, graph, full);
+    const normalized = { ...input, changedPaths }, graph = buildTestDependencyGraph(input.inventory, input.extraFiles);
+    const full = fullReasons(normalized, graph), estimate = selectUniverse(normalized, graph, full);
+    const classifierEstimate = { omitted: estimate.omitted.length, reusable: estimate.reusable };
+    if (!input.staticSelection) full.uncertainty.push(STATIC_SELECTION_DISABLED);
+    const selection = input.staticSelection ? estimate : selectUniverse(normalized, graph, full);
     const reasons = [...full.scope, ...full.uncertainty];
     const snapshot = hashBytes(JSON.stringify([input.inventory.inputHash, [...input.tests].sort(), input.supportFiles, input.dependencies ?? {}, changedPaths]));
     const estimatedSerialMs = selection.tests.every(test => test.durationMs !== null)
         ? selection.tests.reduce((sum, test) => sum + (test.durationMs ?? 0), 0) : null;
-    return { version: 1, snapshot, changedPaths, mode: reasons.length ? "full" : "selected", ...selection, reasons, estimatedSerialMs };
+    return { version: 1, snapshot, changedPaths, mode: reasons.length ? "full" : "selected", ...selection, reasons, estimatedSerialMs, classifierEstimate };
 }
+
+/** An UNCERTAINTY reason, so the full run it forces is also never reusable evidence. */
+const STATIC_SELECTION_DISABLED = "Static test selection and result reuse are disabled: the effect classifier cannot prove a test unaffected or its result repeatable (telemetry only)";

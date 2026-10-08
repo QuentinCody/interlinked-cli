@@ -25,20 +25,35 @@ async function sampleRss(pid: number): Promise<number> {
     return processTreeRss(table, pid);
 }
 
-async function resourceIssue(pid: number, budget: ResourceBudget): Promise<string | null> {
+async function resourceIssue(pid: number, budget: ResourceBudget, onSample?: (rssBytes: number) => void): Promise<string | null> {
     const available = readResourceMemory().availableBytes;
     if (!Number.isFinite(available) || available < budget.reserveBytes) return "Host memory reserve exhausted or unavailable";
-    return await sampleRss(pid) > budget.maxRssBytes ? "Runner process tree exceeded its memory budget" : null;
+    const rss = await sampleRss(pid);
+    onSample?.(rss);
+    return rss > budget.maxRssBytes ? "Runner process tree exceeded its memory budget" : null;
 }
 
-/** Single in-flight sample; failed telemetry interrupts instead of certifying capacity. */
-export function watchResources(pid: number, budget: ResourceBudget, stop: (reason: string) => void): () => void {
+/** Keeps the maximum of the tree RSS readings a watcher reports; `peak` is undefined until a reading lands. */
+export interface PeakTracker { observe(rssBytes: number): void; readonly peak: number | undefined }
+export function createPeakTracker(): PeakTracker {
+    let peak: number | undefined;
+    return {
+        observe(rssBytes: number): void { if (peak === undefined || rssBytes > peak) peak = rssBytes; },
+        get peak(): number | undefined { return peak; },
+    };
+}
+
+/**
+ * Single in-flight sample; failed telemetry interrupts instead of certifying capacity.
+ * `onSample` receives each tree RSS reading (bytes) that was taken against the budget.
+ */
+export function watchResources(pid: number, budget: ResourceBudget, stop: (reason: string) => void, onSample?: (rssBytes: number) => void): () => void {
     let closed = false, sampling = false;
     const report = (reason: string | null): void => { if (!closed && reason) stop(reason); };
     const sample = async (): Promise<void> => {
         if (closed || sampling) return;
         sampling = true;
-        try { report(await resourceIssue(pid, budget)); }
+        try { report(await resourceIssue(pid, budget, onSample)); }
         catch { report("Process memory telemetry unavailable"); }
         finally { sampling = false; }
     };

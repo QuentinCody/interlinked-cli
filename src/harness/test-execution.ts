@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { checkIdentity, identityEnvironmentHash, policyDigest, reporterBinding, reporterBindingChanged, toolchainIdentity, type ReporterBinding } from "./check-identity.js";
 import { LEASE_ANCESTORS_ENV, leaseAncestorsForChildren } from "./project-compiler-lock.js";
 import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
+import { COVERAGE_SOURCES_ARTIFACT, recordCoverageSources } from "./coverage-source-binding.js";
 import { captureTestRuntime, type TestRuntime } from "./test-runtime.js";
 import { runProcessAsync } from "./check-engine/spawn-async.js";
 import { planResources } from "./resource-governor.js";
@@ -40,7 +41,7 @@ export interface TestRunOptions {
 }
 
 /** Artifact names a coverage run leaves in `<runDir>/coverage`, relative to the run directory. */
-const COVERAGE_ARTIFACTS: Record<string, string> = { coverage_summary: "coverage/coverage-summary.json", coverage_scope: "coverage/scope.json" };
+const COVERAGE_ARTIFACTS: Record<string, string> = { coverage_summary: "coverage/coverage-summary.json", coverage_scope: "coverage/scope.json", coverage_sources: COVERAGE_SOURCES_ARTIFACT };
 
 /** The run's artifacts that exist on disk, hashed, with paths relative to the receipt store. */
 function collectArtifacts(store: string, runId: string): RunArtifacts {
@@ -53,9 +54,12 @@ function collectArtifacts(store: string, runId: string): RunArtifacts {
 }
 
 /** A passed run carries whatever artifacts it left, whether or not its evidence is reusable (coverage is produced either way). */
-function withArtifacts(options: TestRunOptions, execution: TestExecution): TestExecution {
+function withArtifacts(options: TestRunOptions, execution: TestExecution, validatedFiles: ReadonlyMap<string, string> | undefined): TestExecution {
     if (execution.status !== "passed") return execution;
     const artifactStore = receiptStorePath(options.root, options.receiptStore);
+    // Bind each measured file to the bytes this run read, while the checkout (often a pre-push export) still exists.
+    // Only from the validated post-run snapshot (its hash equal to the pre-run one): never from a re-read of the live tree.
+    if (options.coverage && validatedFiles) recordCoverageSources(join(artifactStore, execution.runId), options.root, validatedFiles);
     const artifacts = collectArtifacts(artifactStore, execution.runId);
     return Object.keys(artifacts).length ? { ...execution, artifacts, artifactStore, artifactRoot: options.root } : execution;
 }
@@ -63,9 +67,32 @@ function withArtifacts(options: TestRunOptions, execution: TestExecution): TestE
 /** Per-attempt ledger facts: the receipt identity (when computed), when the attempt started, phase timings and why reuse was denied. */
 interface StageOutcome { identity: string | null; started: number; validate_ms?: number; lookup_ms?: number; exec_ms?: number; post_ms?: number; denied?: ReuseDeniedReason; }
 
+/** V8 heap limit (MiB) of the vitest child; one value for the command line and the ledger row. */
+const TEST_HEAP_LIMIT_MB = 1536;
+
+type StageMemory = Pick<VerificationStageInput, "peak_rss_bytes" | "rss_budget_bytes" | "heap_limit_mb">;
+
+/**
+ * Memory facts of runs launched by this process, keyed by run id until the attempt's ledger row claims them. The
+ * attempt's outcome is rebuilt from spread copies on several return paths, so the run id (which every copy keeps)
+ * is the one stable carrier between the launcher and the row writer.
+ */
+const launchedMemory = new Map<string, StageMemory>();
+
+function noteLaunchedMemory(runId: string, budgetBytes: number, peakBytes: number | undefined): void {
+    launchedMemory.set(runId, { rss_budget_bytes: budgetBytes, heap_limit_mb: TEST_HEAP_LIMIT_MB, ...(peakBytes === undefined ? {} : { peak_rss_bytes: peakBytes }) });
+}
+
+/** The memory facts a launch left for this run id (none for reused or never-launched attempts); each is claimed once. */
+function claimLaunchedMemory(runId: string): StageMemory {
+    const memory = launchedMemory.get(runId) ?? {};
+    launchedMemory.delete(runId);
+    return memory;
+}
+
 /** One ledger row per execution attempt: what happened, how long each phase took, and why nothing could be reused. */
 function recordExecution(options: TestRunOptions, execution: TestExecution, outcome: StageOutcome): TestExecution {
-    const input: VerificationStageInput = { stage: options.stage ?? "cli", check: `vitest:${execution.plan.mode}`, identity: outcome.identity, status: execution.status, reused: execution.reused };
+    const input: VerificationStageInput = { stage: options.stage ?? "cli", check: `vitest:${execution.plan.mode}`, identity: outcome.identity, status: execution.status, reused: execution.reused, ...claimLaunchedMemory(execution.runId) };
     if (execution.runId) input.run_id = execution.runId;
     if (outcome.denied) input.reuse_denied_reason = outcome.denied;
     if (options.session) input.session = options.session;
@@ -96,7 +123,7 @@ function testCommand(root: string, directory: string, plan: TestPlan, workers: n
     const source = `import { startVitest } from ${JSON.stringify(module)};
 const ctx = await startVitest("test", ${JSON.stringify(selected)}, ${JSON.stringify(options)}, { cacheDir: ${JSON.stringify(join(directory, "vite"))} });
 if (ctx) await ctx.close(); else process.exitCode = 1;`;
-    return ["--max-old-space-size=1536", "--input-type=module", "--eval", source];
+    return [`--max-old-space-size=${TEST_HEAP_LIMIT_MB}`, "--input-type=module", "--eval", source];
 }
 
 async function launchTestPlan(base: TestExecution, options: TestRunOptions, environment: NodeJS.ProcessEnv, workers: number): Promise<TestExecution> {
@@ -114,6 +141,7 @@ async function launchTestPlan(base: TestExecution, options: TestRunOptions, envi
         cwd: options.root, timeout: Math.max(1, options.deadline - started), exactEnv: childEnvironment, resourceBudget,
         ...(options.signal ? { signal: options.signal } : {}),
     });
+    noteLaunchedMemory(base.runId, resourceBudget.maxRssBytes, result.peakRssBytes);
     const execution: TestExecution = { ...base, durationMs: Date.now() - started, output: `${result.stdout}\n${result.stderr}`.slice(-8000),
         status: result.code === 0 ? "passed" : "failed" };
     if (interrupted(result)) return { ...execution, status: "deferred", reason: result.resourceReason ?? "Runner interrupted or unavailable" };
@@ -141,7 +169,7 @@ async function executePlan(plan: TestPlan, options: TestRunOptions): Promise<Tes
     const environment = captureVitestEnvironment();
     if (plan.runtimeIssue) {
         const execStarted = Date.now();
-        const execution = withArtifacts(options, await runWithoutReusableEvidence(base, options, environment.environment, workers, plan.runtimeIssue));
+        const execution = withArtifacts(options, await runWithoutReusableEvidence(base, options, environment.environment, workers, plan.runtimeIssue), undefined);
         return record({ execution, outcome: { identity: null, exec_ms: elapsedMs(execStarted), denied: `plan-not-reusable:${plan.runtimeIssue}` } });
     }
     return record(await executeValidated(base, options, { environment, workers }));
@@ -193,7 +221,9 @@ async function executeValidated(base: TestExecution, options: TestRunOptions, co
         const issue = reporters.unresolved.length ? `Reporter imports unresolved: ${reporters.unresolved.join(", ")}` : `Reporter execution opaque: ${reporters.opaque.join(", ")}`;
         const execStarted = Date.now();
         const execution = await runWithoutReusableEvidence(base, options, context.environment.environment, context.workers, issue);
-        return { execution: withArtifacts(options, execution), outcome: { identity: null, validate_ms, exec_ms: elapsedMs(execStarted), denied: `plan-not-reusable:${issue}` } };
+        const after = execution.status === "passed" ? await captureTestRuntime(options.root, options.deadline) : null;
+        const validatedFiles = after && after.hash === runtime.hash ? after.files : undefined;
+        return { execution: withArtifacts(options, execution, validatedFiles), outcome: { identity: null, validate_ms, exec_ms: elapsedMs(execStarted), denied: `plan-not-reusable:${issue}` } };
     }
     const key = executionKey(options, plan, { ...context, runtimeHash: runtime.hash, reporters });
     const lookupStarted = Date.now();
@@ -224,9 +254,14 @@ async function runFresh(base: TestExecution, options: TestRunOptions, context: A
     const after = await captureTestRuntime(options.root, options.deadline);
     const post_ms = elapsedMs(postStarted);
     if (inputsChangedDuringRun(options, context, after)) {
-        return { execution: { ...execution, status: "stale", reason: "Inputs changed during execution; a new plan is required" }, outcome: { exec_ms, post_ms, denied: "stale-inputs" } };
+        // Drift invalidates a PASS, never a failure: a failed run stays failed (the caller must see it; turning it into
+        // `stale` made the scheduler retry and could replace it with a later pass). Neither certifies, binds or reuses
+        // anything, and the scheduler still re-requests the changed inputs (review 2026-10-06).
+        const status = execution.status === "failed" ? "failed" : "stale";
+        const reason = [execution.reason, "Inputs changed during execution; a new plan is required"].filter(Boolean).join("; ");
+        return { execution: { ...execution, status, reason }, outcome: { exec_ms, post_ms, denied: "stale-inputs" } };
     }
-    const certified = withArtifacts(options, { ...execution, runtimeVerified: true });
+    const certified = withArtifacts(options, { ...execution, runtimeVerified: true }, after.files);
     if (execution.status === "passed" && base.plan.reusable) {
         const details = { identity: context.key, platform: platformIdentity(), toolchain: toolchainIdentity(options.root), stages: { exec_ms, post_ms }, ...(certified.artifacts ? { artifacts: certified.artifacts, artifactRoot: options.root } : {}) };
         writeTestReceipt(options.root, context.key, execution, details, options.receiptStore);

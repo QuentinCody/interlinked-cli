@@ -16,6 +16,7 @@
 
 import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fcAssert } from "../../test-setup/fc-assert.js";
 import { CohortManager } from "../cohort.js";
 import {
 	applyTransition,
@@ -100,7 +101,7 @@ function serialize(state: ReservationCache): Array<[string, unknown]> {
 
 describe("ReservationTxn — pure state machine", () => {
 	it("replay produces identical state to incremental application (Bitar invariant)", () => {
-		fc.assert(
+		fcAssert(
 			fc.property(txnSeqArb, (events) => {
 				const live: ReservationCache = new Map();
 				for (const e of events) applyTransition(live, e);
@@ -112,7 +113,7 @@ describe("ReservationTxn — pure state machine", () => {
 	});
 
 	it("no two distinct agents ever appear as holders of the same file", () => {
-		fc.assert(
+		fcAssert(
 			fc.property(txnSeqArb, (events) => {
 				const state = replayTransitions(events);
 				const seen = new Map<string, string>();

@@ -151,6 +151,33 @@ coverage_index_compare() {
     return 0
 }
 
+# Hands the comparison and the export to a DETACHED background job (H7, 2026-10-02): the comparison is
+# advisory and measured ~30 minutes on this repository when every shard re-runs, so the push no longer waits
+# for it. The job writes the same ledger row, appends its notes to .interlinked/coverage-index-compare.log, and
+# removes the export when it finishes; this shell stops owning the export so neither cleanup_export nor the
+# EXIT trap removes it underneath the job. INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND=1 keeps it inline.
+coverage_index_compare_handoff() {
+    local full_json="$1" owned log job
+    [ "${INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE:-0}" = "1" ] && return 0
+    if [ "${INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND:-0}" = "1" ]; then
+        coverage_index_compare "$full_json"
+        return 0
+    fi
+    owned="$export_dir"
+    log="$source_root/.interlinked/coverage-index-compare.log"
+    mkdir -p "$source_root/.interlinked" || return 0
+    (
+        trap 'git -C "$source_root" worktree remove --force "$owned/tree" >/dev/null 2>&1; rm -rf "$owned" >/dev/null 2>&1' EXIT
+        export_dir=""
+        coverage_index_compare "$full_json"
+    ) </dev/null >>"$log" 2>&1 &
+    job=$!
+    disown "$job" 2>/dev/null || true
+    export_dir=""
+    echo "[pre-push] coverage index comparison (advisory) continues in the background (pid $job); row: .interlinked/coverage-index-comparison.jsonl, log: .interlinked/coverage-index-compare.log"
+    return 0
+}
+
 run_gate() {
     local push_sha="$1" changed_paths="$2" docs_only="$3" pkg_touched="$4"
     local gate_dir cov_files cov_report cov_scope cov_cli cov_json cov_status cov_verdict cov_targets cov_compare_json=""
@@ -261,7 +288,7 @@ run_gate() {
             # after e2e and packaging, so no authoritative gate consumes bytes a comparison run could have modified
             # (review 2026-09-30); on the failing path nothing follows it.
             if [ "$cov_verdict" -eq 0 ] && [ "$cov_status" -eq 0 ]; then cov_compare_json="$cov_json"
-            else coverage_index_compare "$cov_json"; return 1; fi
+            else coverage_index_compare_handoff "$cov_json"; return 1; fi
         fi
     fi
     if [ "${INTERLINKED_PRE_PUSH_SKIP_E2E:-0}" = "1" ]; then
@@ -283,7 +310,7 @@ NODE
     fi
     echo "[pre-push] ✓ typecheck + tests pass for $push_sha"
     # Advisory, and last: every authoritative verdict above was taken from the export before this run touched it.
-    [ -z "$cov_compare_json" ] || coverage_index_compare "$cov_compare_json"
+    [ -z "$cov_compare_json" ] || coverage_index_compare_handoff "$cov_compare_json"
     cleanup_export
 }
 

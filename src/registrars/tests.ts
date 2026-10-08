@@ -158,6 +158,7 @@ export function registerTestsCommands(program: Command): void {
             .option("--receipt-store <dir>", "Read and write passing-run receipts and run artifacts here instead of <cwd>/.interlinked/test-runs")
             .option("--artifacts-out <dir>", "Copy the certified run's artifacts (fresh or reused) into this directory after a passing run")
             .option("--json", "Machine-readable test plan or execution")
+            .option("--static-selection", "Let the effect classifier omit unaffected tests and reuse passing results (off by default: it cannot prove either safe)")
             .action(async (paths: string[], options: OptionValues) => {
                 const { testsCommand } = await import("../commands/tests.js");
                 await testsCommand(kind, paths, options);

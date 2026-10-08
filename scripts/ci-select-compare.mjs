@@ -114,7 +114,7 @@ function resolvedBase(root) {
 
 function runPlan(root, base, cli) {
     try {
-        return JSON.parse(execFileSync(process.execPath, [cli, "tests", "plan", "--base", base, "--json", "--timeout", "600000"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
+        return JSON.parse(execFileSync(process.execPath, [cli, "tests", "plan", "--base", base, "--json", "--timeout", "600000", "--static-selection"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
     } catch (error) {
         const stdout = typeof error?.stdout === "string" ? error.stdout : "";
         try { return JSON.parse(stdout); } catch { return { error: error instanceof Error ? error.message : String(error) }; }

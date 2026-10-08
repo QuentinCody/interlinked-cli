@@ -72,14 +72,17 @@ describe("stored request parsing — positive (must fire)", () => {
         expect(pendingTests(root).ids).toEqual(["real.json"]);
     });
 
-    it("P8: a retirement still happens when its audit line cannot be written", () => {
-        // test-contract: bug — an unwritable superseded.jsonl must not strand the retired request or fail the new one
+    it("P8: an unrecordable retirement keeps the old request pending and still creates the new one", () => {
+        // test-contract: bug — an unwritable superseded.jsonl must not fail the new request, and (since 2026-10-06) must not
+        // remove the old one either: a removed request with no audit row reads as "gone without evidence" to its waiter, so
+        // the old request stays pending and the wider run completes it like any covered request
         const root = fixture();
         mkdirSync(join(requestDir(root), "superseded.jsonl"));
         const narrow = requestTests(root, ["a.ts"], false);
         const full = requestTests(root, [], true);
-        expect(hasTestRequest(root, narrow)).toBe(false);
+        expect(hasTestRequest(root, narrow)).toBe(true);
         expect(hasTestRequest(root, full)).toBe(true);
+        expect(pendingRequestsMet(root, {}).sort()).toEqual([`${full}.json`, `${narrow}.json`].sort());
     });
 });
 

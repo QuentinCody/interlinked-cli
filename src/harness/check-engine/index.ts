@@ -236,7 +236,7 @@ export class CheckEngine {
 		// runner failures and returns an explicit no-verdict skip, so the loop can
 		// continue without either rejecting the batch or reading a crash as clean.
 		const allRuns: Awaited<ReturnType<typeof runAsyncTool>>[] = [];
-		for (const tool of toolsToRun) allRuns.push(await runAsyncTool(tool, scope, timeout));
+		for (const tool of toolsToRun) allRuns.push(await runAsyncTool(tool, scope, timeout, options));
 		const allResults = allRuns.flatMap((r) => r.results);
 		const metrics = allRuns.map((r) => r.metric);
 

@@ -289,3 +289,21 @@ describe("runProcessAsync", () => {
 		expect(r.timedOut).toBe(true);
 	});
 });
+
+describe("runProcessAsync peak RSS telemetry", () => {
+	const HOLD_FOR_SAMPLE = ["-e", "setTimeout(()=>{},700)"];
+	const budget = { reserveBytes: 0, maxRssBytes: 64 * 1024 ** 3 };
+
+	// test-contract: public-api — a budgeted run reports the peak sampled RSS of its child tree in bytes
+	it("reports peakRssBytes > 0 for a short child run under a resource budget", async () => {
+		const r = await runProcessAsync(process.execPath, HOLD_FOR_SAMPLE, { timeout: 5000, resourceBudget: budget });
+		expect(r.code).toBe(0);
+		expect(r.peakRssBytes).toBeGreaterThan(0);
+	}, 10_000);
+
+	// test-contract: invariant — without a budget nothing is sampled, so the field is absent rather than zero
+	it("omits peakRssBytes when no resource budget was watched", async () => {
+		const r = await runProcessAsync(process.execPath, ["-e", "0"], { timeout: 5000 });
+		expect(r).not.toHaveProperty("peakRssBytes");
+	});
+});

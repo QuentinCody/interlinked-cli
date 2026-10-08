@@ -42,6 +42,7 @@ export async function runAsyncTool(
 	tool: ToolAvailability,
 	scope: CheckScope,
 	timeoutMs: number,
+    options?: CheckOptions,
 ): Promise<{ results: CheckResult[]; metric: ToolMetrics; skipped?: SkipEntry }> {
 	const meta = toolRunnerMetaFor(tool.id);
 	if (!meta?.runnerAsync) {
@@ -59,7 +60,7 @@ export async function runAsyncTool(
 	}
 	const toolStart = Date.now();
 	try {
-		const results = await meta.runnerAsync({ scope, timeoutMs });
+		const results = await meta.runnerAsync({ scope, timeoutMs, ...(options?.waitForCapacity ? { waitForCapacity: true } : {}) });
 		return {
 			results,
 			metric: {

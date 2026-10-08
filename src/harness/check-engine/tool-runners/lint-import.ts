@@ -4,7 +4,8 @@ import { newLintFindings, retireLintDebt } from "../../../lib/lint-import/baseli
 import { lintEntryLabel } from "../../../lib/lint-import/identity.js";
 import { LINT_POLICY_PATH, loadLintPolicy } from "../../../lib/lint-import/policy.js";
 import { measureImportedLint } from "../../../lib/lint-import/runner.js";
-import { tryAcquireProjectHeavyProcessLease } from "../../project-heavy-process-lock.js";
+import { acquireProjectHeavyProcessLease, tryAcquireProjectHeavyProcessLease } from "../../project-heavy-process-lock.js";
+import { currentProcessSignal } from "../process-cancellation.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
 
 function policyRoot(start: string): string {
@@ -25,9 +26,16 @@ export function runImportedLint(): CheckResult[] {
 export async function runImportedLintAsync(input: ToolRunnerInput): Promise<CheckResult[]> {
     const root = policyRoot(input.scope.projectRoot);
     if (root === resolve(input.scope.projectRoot)) return runImportedLintAtRoot(root, input);
-    const release = tryAcquireProjectHeavyProcessLease(root);
+    const deadline = Date.now() + input.timeoutMs;
+    const release = input.waitForCapacity
+        ? await acquireProjectHeavyProcessLease(root, deadline, currentProcessSignal() ?? new AbortController().signal)
+        : tryAcquireProjectHeavyProcessLease(root);
     if (!release) throw new Error("Imported lint project capacity is busy; no verdict");
-    try { return await runImportedLintAtRoot(root, input); }
+    try {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new Error("Imported lint admission deadline exhausted; no verdict");
+        return await runImportedLintAtRoot(root, { ...input, timeoutMs: remaining });
+    }
     finally { release(); }
 }
 

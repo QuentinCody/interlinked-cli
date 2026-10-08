@@ -27,6 +27,11 @@ export interface TestExecution {
     artifactStore?: string;
     /** Checkout whose absolute paths appear inside the artifacts, independent of the optional scope reporter. */
     artifactRoot?: string;
+    /**
+     * Non-input paths in the checkout that appeared or vanished while the run executed (a learned `.claude/settings.json`,
+     * a fixture written into the tree): the run polluted the checkout. Not staleness — these are not test inputs.
+     */
+    checkoutWrites?: string[];
 }
 /** Facts about the run a receipt certifies, beyond its key; a receipt is unsigned and local (cross-machine trust is Unit 9). */
 export interface ReceiptDetails {

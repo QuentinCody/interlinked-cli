@@ -110,9 +110,10 @@ function removedAssertionBlock(
 			`BLOCKED by [${REMOVED_ASSERTION_CHECK_ID}]. This edit removes ${removed.length} test-case/` +
 			`assertion line(s) from ${filePath} vs the on-disk baseline. First: L${first?.line ?? 0} — ` +
 			`"${first?.text ?? ""}"${restSummary}. Mutation-directed files are graded on kill evidence — ` +
-			"restore the assertion, or if this is a deliberate consolidation/rename, keep the replacement " +
-			"case's assertion count at or above what it replaces. File-level escape hatch: add an entry for " +
-			`"${REMOVED_ASSERTION_CHECK_ID}" to .interlinked/verify-suppressions.json for ${filePath}.`,
+			"restore the assertion, or if this is a deliberate consolidation/rename, re-add it in the same edit " +
+			"with the same subject, matcher and expected value (a MOVE; a changed expected value is a removal). " +
+			`For a deliberate value update, run the daemon with ${ASSERTION_WAIVER_ENV}=1 (each waived line is logged). ` +
+			`File-level escape hatch: add an entry for "${REMOVED_ASSERTION_CHECK_ID}" to .interlinked/verify-suppressions.json for ${filePath}.`,
 		warnings,
 		rule_id: REMOVED_ASSERTION_CHECK_ID,
 		severity: "high",

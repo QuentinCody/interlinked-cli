@@ -14,6 +14,8 @@ import { isJsonObject } from "../lib/json-types.js";
 interface TestsOptions {
     cwd?: string; base?: string; all?: boolean; json?: boolean; timeout?: string; workers?: string;
     coverage?: boolean; coverageReporter?: string[]; receiptStore?: string; artifactsOut?: string;
+    /** Opt into classifier-based omission and reuse (off by default since 2026-10-06; CI comparison mode measures it). */
+    staticSelection?: boolean;
 }
 
 /** The checkout root a coverage scope was recorded from (the run's root at the time), or null when the artifact is not a scope. */
@@ -68,20 +70,29 @@ function exportArtifacts(root: string, result: TestExecution, store: string | un
 
 export function formatTestPlan(plan: TestPlan): string {
     const summary = `${plan.mode}: ${plan.tests.length} test files; ${plan.omitted.length} omitted; estimated serial time ${plan.estimatedSerialMs === null ? "unmeasured" : `${plan.estimatedSerialMs} ms`}`;
+    const estimate = plan.classifierEstimate;
+    const estimateLine = estimate ? [`Classifier estimate (not applied unless --static-selection): ${estimate.omitted} omitted; reuse ${estimate.reusable ? "eligible" : "not eligible"}`] : [];
     return [summary, `Snapshot: ${plan.snapshot}`, `Result reuse: ${plan.reusable ? "eligible after runtime validation" : "disabled for uncertain inputs"}`,
-        ...plan.reasons, ...plan.tests.map(test => `${test.path}: ${test.reasons.join("; ")}`)].join("\n");
+        ...estimateLine, ...plan.reasons, ...plan.tests.map(test => `${test.path}: ${test.reasons.join("; ")}`)].join("\n");
 }
 
 /** Schedules the run with the CLI's coverage/store choices and exports the certified artifacts when asked. */
 async function runScheduled(root: string, changed: string[], timeoutMs: number, options: TestsOptions): Promise<TestExecution & { exported: string[] }> {
     const receiptStore = options.receiptStore ? resolve(root, options.receiptStore) : undefined;
     // The declared stage (the pre-push hook exports `push`) reaches the ledger rows this run writes.
-    const request: ScheduleTestsOptions = { root, paths: changed, timeoutMs, full: options.all === true, maxWorkers: positive(options.workers, 2, 64), stage: stageFromEnvironment("cli") };
+    const request: ScheduleTestsOptions = { root, paths: changed, timeoutMs, full: options.all === true, maxWorkers: positive(options.workers, 2, 64), stage: stageFromEnvironment("cli"),
+        staticSelection: options.staticSelection === true };
     if (options.coverage) request.coverage = { reporters: (options.coverageReporter ?? []).map(reporter => resolve(root, reporter)) };
     if (receiptStore) request.receiptStore = receiptStore;
     const result = await scheduleTests(request);
     const exported = options.artifactsOut && result.status === "passed" ? exportArtifacts(root, result, receiptStore, resolve(root, options.artifactsOut)) : [];
     return { ...result, exported };
+}
+
+/** One line naming the non-input files the run wrote into the checkout (pollution); none when it wrote none. */
+export function checkoutWritesLines(writes: readonly string[] | undefined): string[] {
+    if (!writes?.length) return [];
+    return [`[interlinked:test-writes] the run wrote into the checkout (not test inputs, but they should not be there): ${writes.join(", ")}`];
 }
 
 function positive(value: string | undefined, fallback: number, maximum: number): number {
@@ -103,13 +114,14 @@ export async function testsCommand(kind: "plan" | "run" | "status", paths: strin
         const timeoutMs = positive(options.timeout, 60_000, 3_600_000);
         const changed = paths.length || options.all ? paths : changedTestInputs(root, options.base);
         if (kind === "plan") {
-            const plan = await loadTestPlan(root, [...new Set([...changed, ...pending.paths])], timeoutMs, options.all === true || pending.full);
+            const plan = await loadTestPlan(root, [...new Set([...changed, ...pending.paths])], timeoutMs, options.all === true || pending.full,
+                { staticSelection: options.staticSelection === true });
             output(mode, plan, { normal: () => formatTestPlan(plan) });
             return;
         }
         const result = await runScheduled(root, changed, timeoutMs, options);
         output(mode, result, { normal: () => [`${result.status}${result.reused ? " (reused)" : ""}: ${result.durationMs} ms; run ${result.runId}`, formatTestPlan(result.plan),
-            result.reason, result.output, ...result.exported.map(path => `artifact: ${path}`)].join("\n") });
+            result.reason, result.output, ...result.exported.map(path => `artifact: ${path}`), ...checkoutWritesLines(result.checkoutWrites)].join("\n") });
         // A failed run is exit 1; deferred/stale runs produced NO verdict and exit 75 (EX_TEMPFAIL), like the bounded runner.
         if (result.status === "failed") process.exitCode = 1;
         else if (result.status !== "passed" && result.status !== "empty") process.exitCode = 75;

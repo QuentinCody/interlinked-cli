@@ -74,6 +74,8 @@ export interface CheckOptions {
 	/** Internal composition seam: the caller already owns the project's
 	 * cross-process heavyweight lease across a larger verification run. */
 	admissionAlreadyHeld?: boolean;
+    /** Explicit background callers may wait for a runner's additional project lease. */
+    waitForCapacity?: boolean;
 }
 
 /** Result of tool availability detection. */
@@ -113,6 +115,7 @@ export interface AuditResult {
 export interface ToolRunnerInput {
 	scope: CheckScope;
 	timeoutMs: number;
+    waitForCapacity?: boolean;
 }
 
 /** A tool runner function: spawn tool, parse output, return results.

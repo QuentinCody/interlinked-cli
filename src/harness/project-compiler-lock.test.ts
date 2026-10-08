@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fcAssert } from "../test-setup/fc-assert.js";
 import {
 	acquireCrossProcessCompilerLease,
 	canonicalProjectRoot,
@@ -158,7 +159,7 @@ describe("cross-process project compiler lease", () => {
 	});
 
 	it("canonicalization is idempotent", () => {
-		fc.assert(
+		fcAssert(
 			fc.property(fc.string(), (path) => {
 				expect(canonicalProjectRoot(canonicalProjectRoot(path))).toBe(canonicalProjectRoot(path));
 			}),

@@ -6,6 +6,7 @@ import { copyVitestRuntime } from "./coverage-index/__tests__/fixtures/vitest-ru
 import { cpSync, existsSync, readdirSync, symlinkSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { hashBytes } from "../lib/metrics/inventory.js";
+import { nonNull } from "../lib/non-null.js";
 import { testsCommand } from "../commands/tests.js";
 
 const SCOPE_REPORTER = fileURLToPath(new URL("../../scripts/pre-push-coverage.mjs", import.meta.url));
@@ -42,14 +43,15 @@ it("marks a run stale when a bound reporter dependency changes during execution 
             expect(runDirectories()).toBeGreaterThan(known);
             writeFileSync(helper, "export default function helper() { return 'after'; }\n");
         };
-        const plan = await loadTestPlan(root, [], 120_000, true);
+        // These cases pin the opt-in reuse path (static selection is off by default since 2026-10-06).
+        const plan = await loadTestPlan(root, [], 120_000, true, { staticSelection: true });
         expect(plan.reusable).toBe(true);
         const options = { root, deadline: Date.now() + 120_000, maxWorkers: 1, coverage: { reporters: [reporter] }, receiptStore: store };
         const [first] = await Promise.all([executeTestPlan(plan, options), rewriteHelperOnceRunning()]);
         expect(first.status, first.reason + first.output).toBe("stale");
         expect(existsSync(store) ? readdirSync(store).filter(name => name.endsWith(".json") && name !== "latest.json") : []).toEqual([]);
         // The rewritten helper is a different identity: the next run is fresh, not a reuse of anything.
-        const second = await executeTestPlan(await loadTestPlan(root, [], 120_000, true), options);
+        const second = await executeTestPlan(await loadTestPlan(root, [], 120_000, true, { staticSelection: true }), options);
         expect(second.status, second.reason + second.output).toBe("passed");
         expect(second.reused).toBe(false);
         // Through the SCHEDULER the same event is a stale batch followed by an automatic re-run: the caller receives the
@@ -57,7 +59,7 @@ it("marks a run stale when a bound reporter dependency changes during execution 
         writeFileSync(helper, "export default function helper() { return 'before'; }\n");
         const ledger = join(workspace, "stages.jsonl");
         const rowsBefore = existsSync(ledger) ? readFileSync(ledger, "utf8").trim().split("\n").length : 0;
-        const [scheduled] = await Promise.all([scheduleTests({ root, paths: [], full: true, timeoutMs: 120_000, maxWorkers: 1, coverage: { reporters: [reporter] }, receiptStore: store }), rewriteHelperOnceRunning()]);
+        const [scheduled] = await Promise.all([scheduleTests({ root, paths: [], full: true, timeoutMs: 120_000, maxWorkers: 1, coverage: { reporters: [reporter] }, receiptStore: store, staticSelection: true }), rewriteHelperOnceRunning()]);
         expect(scheduled.status, scheduled.reason + scheduled.output).toBe("passed");
         // The re-run's identity is the 'after' bytes, which `second` certified above — so it is a legitimate reuse of THAT run.
         expect(scheduled.reused).toBe(true);
@@ -74,6 +76,53 @@ it("marks a run stale when a bound reporter dependency changes during execution 
     }
 }, 240_000);
 
+// test-contract: invariant — with static selection OFF (the default since 2026-10-06) a coverage run still validates its
+// runtime before and after and binds measured sources (the commit coverage gate reads them), but certifies nothing
+// reusable: a second identical run executes again
+it("binds measured sources but never reuses a run when static selection is off (default)", async () => {
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "coverage-default-")));
+    const local = join(workspace, "local"), store = join(workspace, "store");
+    vi.stubEnv("INTERLINKED_STAGES_LEDGER", join(workspace, "stages.jsonl"));
+    vi.stubEnv("INTERLINKED_STAGE", "");
+    try {
+        mkdirSync(local, { recursive: true });
+        seedProject(local);
+        // A clock read makes the result unrepeatable (never reusable) but the measured bytes are still bindable: source
+        // binding depends on a runtime snapshot being available, not on reuse eligibility (review 2026-10-06).
+        writeFileSync(join(local, "src", "clock.test.ts"), 'import {test,expect} from "vitest"; import {a} from "./a"; test("clock",()=>expect(Date.now()+a).toBeGreaterThan(0));');
+        const request = { root: local, paths: [], full: true, timeoutMs: 120_000, maxWorkers: 1, coverage: { reporters: [] }, receiptStore: store };
+        const first = await scheduleTests(request);
+        expect(first.status, first.reason + first.output).toBe("passed");
+        expect(Object.keys(first.artifacts ?? {}).sort()).toEqual(["coverage_sources", "coverage_summary"]);
+        const second = await scheduleTests(request);
+        expect(second.status, second.reason + second.output).toBe("passed");
+        expect(second.reused).toBe(false);
+        expect(second.runId).not.toBe(first.runId);
+    } finally {
+        vi.unstubAllEnvs();
+        rmSync(workspace, { recursive: true, force: true });
+    }
+}, 300_000);
+
+// test-contract: invariant — a FAILED execution stays failed when inputs drift during the run: drift invalidates a pass, but
+// a failure is evidence a caller must see, not a retryable stale result (review 2026-10-06: a test that wrote a file and
+// failed came back `stale`, so the scheduler retried instead of reporting the failure)
+it("keeps a failed execution failed when the run itself changes its inputs", async () => {
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "failed-drift-")));
+    const root = join(workspace, "project");
+    try {
+        mkdirSync(root, { recursive: true });
+        seedProject(root);
+        writeFileSync(join(root, "src", "writer.test.ts"), 'import {test,expect} from "vitest"; import {writeFileSync} from "node:fs"; test("writes then fails",()=>{ writeFileSync("sample.txt", String(Date.now())); expect(1).toBe(2); });');
+        const plan = await loadTestPlan(root, [], 120_000, true);
+        const result = await executeTestPlan(plan, { root, deadline: Date.now() + 120_000, maxWorkers: 1 });
+        expect(result.status, result.reason).toBe("failed");
+        expect(result.reason).toMatch(/Inputs changed during execution/);
+    } finally {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+}, 300_000);
+
 // test-contract: invariant — a coverage run through the scheduler is keyed by its check identity: an identical export reuses the local run and its certified artifacts are exported byte-for-byte, while a run driven by an OPAQUE external reporter (the pre-push scope reporter reads the process and the file system) passes, exports its artifacts and certifies nothing reusable
 it("reuses a local full coverage run from a byte-identical export and exports its verified artifacts", async () => {
     const workspace = realpathSync(mkdtempSync(join(tmpdir(), "coverage-reuse-")));
@@ -84,12 +133,16 @@ it("reuses a local full coverage run from a byte-identical export and exports it
         mkdirSync(local, { recursive: true });
         seedProject(local);
         // Coverage with vitest's own json-summary only: no external reporter, so the run is eligible for reuse.
-        const request = { paths: [], full: true, timeoutMs: 120_000, maxWorkers: 1, coverage: { reporters: [] }, receiptStore: store };
+        const request = { paths: [], full: true, timeoutMs: 120_000, maxWorkers: 1, coverage: { reporters: [] }, receiptStore: store, staticSelection: true };
         const first = await scheduleTests({ ...request, root: local });
         expect(first.status, first.reason + first.output).toBe("passed");
         expect(first.reused).toBe(false);
-        expect(Object.keys(first.artifacts ?? {}).sort()).toEqual(["coverage_summary"]);
+        expect(Object.keys(first.artifacts ?? {}).sort()).toEqual(["coverage_sources", "coverage_summary"]);
         for (const artifact of Object.values(first.artifacts ?? {})) expect(hashBytes(readFileSync(join(store, artifact.path)))).toBe(artifact.sha256);
+        // H3c: the run binds every measured file to the exact bytes it read, so a commit gate can match staged blobs.
+        const sources: { files: Record<string, { sha256: string }> } = JSON.parse(readFileSync(join(store, nonNull(first.artifacts?.coverage_sources).path), "utf8"));
+        expect(Object.keys(sources.files).length).toBeGreaterThan(0);
+        for (const [path, measured] of Object.entries(sources.files)) expect(measured.sha256).toBe(hashBytes(readFileSync(join(local, path))));
         // The export: the same bytes in another directory with node_modules SYMLINKED to the source checkout's, exactly as the
         // pre-push hook builds it (`git worktree add` + `ln -s`). The runtime snapshot hashes the canonical path of the mounted
         // dependency tree, so a copied node_modules would be a different runtime — the link is what makes the identity match.
@@ -105,7 +158,7 @@ it("reuses a local full coverage run from a byte-identical export and exports it
         expect(scoped.status, scoped.reason + scoped.output).toBe("passed");
         expect(scoped.reused).toBe(false);
         expect(scoped.reason).toContain("Reporter execution opaque");
-        expect(Object.keys(scoped.artifacts ?? {}).sort()).toEqual(["coverage_scope", "coverage_summary"]);
+        expect(Object.keys(scoped.artifacts ?? {}).sort()).toEqual(["coverage_scope", "coverage_sources", "coverage_summary"]);
         const scopedAgain = await scheduleTests({ ...request, root: exported, coverage: { reporters: [SCOPE_REPORTER] } });
         expect(scopedAgain.reused).toBe(false);
         // The CLI route the hook calls: a fresh scoped run plus verified artifact export into the consumer's directory.
@@ -167,7 +220,7 @@ it("runs edited tests, reuses exact passing inputs, and invalidates an edited as
         writeFileSync(join(root, "a.ts"), "export const a = 1;");
         writeFileSync(join(root, "a.test.ts"), 'import {test,expect} from "vitest"; import {a} from "./a"; test("a",()=>expect(a).toBe(1));');
         writeFileSync(join(root, "b.test.ts"), 'import {test,expect} from "vitest"; test("b",()=>expect(2+2).toBe(4));');
-        const options = { root, paths: ["a.test.ts"], timeoutMs: 60_000, maxWorkers: 1 };
+        const options = { root, paths: ["a.test.ts"], timeoutMs: 60_000, maxWorkers: 1, staticSelection: true };
         const first = await scheduleTests(options);
         expect(first.status, first.reason + first.output).toBe("passed");
         expect(first.plan.tests.map(test => test.path)).toEqual(["a.test.ts"]);
@@ -190,7 +243,7 @@ it("runs edited tests, reuses exact passing inputs, and invalidates an edited as
         expect(failedAgain.runId).not.toBe(changed.runId);
         expect(failedAgain.status).toBe("failed");
         expect(readTestRunObservation(root)?.status).toBe("failed");
-        const plan = await loadTestPlan(root, ["a.test.ts"], 60_000);
+        const plan = await loadTestPlan(root, ["a.test.ts"], 60_000, false, { staticSelection: true });
         writeFileSync(join(root, ".env"), "MODE=changed-since-planning");
         const stale = await executeTestPlan(plan, { root, deadline: Date.now() + 60_000 });
         expect(stale.status).toBe("stale");

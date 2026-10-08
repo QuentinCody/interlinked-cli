@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { scheduleTests } from "./test-scheduler.js";
-import { pendingTests, completeTestRequests, requestTests } from "./test-requests.js";
+import { scheduleTests, staleInputsReason } from "./test-scheduler.js";
+import { pendingTests, completeTestRequests, requestTests, type RunRequirements } from "./test-requests.js";
 import { currentProcessSignal } from "./check-engine/process-cancellation.js";
 import { executeTestPlan } from "./test-execution.js";
 import { loadTestPlan } from "./test-plan-inputs.js";
@@ -38,6 +39,82 @@ function fixture(): string {
     vi.mocked(executeTestPlan).mockImplementation(async plan => ({ plan, status: "passed", runId: "run", reused: false, durationMs: 1, reason: "", output: "" }));
     return root;
 }
+// test-contract: invariant — a request file that disappears was either COMPLETED or RETIRED by another process; a retired
+// caller follows `superseded.jsonl` to the replacement and returns ITS run, never the earlier pass that did not cover it
+// (review 2026-10-06: the waiter returned a selected pass that omitted b.test.ts while the replacement stayed pending)
+it("follows a cross-process retirement to the replacement request instead of returning an earlier pass", async () => {
+    const root = fixture();
+    const dir = join(root, ".interlinked/test-runs/requests");
+    let runs = 0;
+    vi.mocked(executeTestPlan).mockImplementation(async plan => {
+        runs += 1;
+        if (runs === 1) {
+            // Another process enqueues a wider default request and retires the waiting caller's b.ts request into it.
+            const waiting = readdirSync(dir).filter(name => name.endsWith(".json")).find(name => JSON.parse(readFileSync(join(dir, name), "utf8")).paths.includes("b.ts"));
+            const retiredId = (waiting ?? "").replace(/\.json$/, ""), replacement = "replacement-from-other-process";
+            writeFileSync(join(dir, `${replacement}.json`), JSON.stringify({ paths: ["b.ts", "c.ts"], full: false, requirements: {} }));
+            rmSync(join(dir, `${retiredId}.json`));
+            appendFileSync(join(dir, "superseded.jsonl"), `${JSON.stringify({ ts: "t", id: retiredId, by: replacement, full: false, paths: ["b.ts"] })}\n`);
+        }
+        return { plan, status: "passed", runId: `run${runs}`, reused: false, durationMs: 1, reason: "", output: "" };
+    });
+    const first = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 4000 });
+    const waiter = scheduleTests({ root, paths: ["b.ts"], timeoutMs: 4000 });
+    await first;
+    const result = await waiter;
+    expect(result.runId).not.toBe("run1");
+    expect(result.plan.changedPaths).toEqual(expect.arrayContaining(["b.ts", "c.ts"]));
+    expect(pendingTests(root).ids).toEqual([]);
+});
+
+// test-contract: invariant — when another process retires the DRAIN OWNER's request A into B, B's completion answers A: the
+// drain resolves A→B before its completion lookups, so a later unrelated batch C (here failing) never supplies A's result
+// (review 2026-10-06: the drain kept looking up A, ran C, and returned C's failure to A)
+it("answers a retired drain owner with its replacement's completion, not a later batch's failure", async () => {
+    const root = fixture();
+    const dir = join(root, ".interlinked/test-runs/requests");
+    let runs = 0;
+    vi.mocked(executeTestPlan).mockImplementation(async plan => {
+        runs += 1;
+        // During B's run another process queues unrelated work C.
+        if (runs === 1) writeFileSync(join(dir, "c-from-other-process.json"), JSON.stringify({ paths: ["c.ts"], full: false, requirements: {} }));
+        return { plan, status: runs === 1 ? "passed" : "failed", runId: `run${runs}`, reused: false, durationMs: 1, reason: "", output: "" };
+    });
+    const owner = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 4000 });
+    // Before the drain reads the queue (it first awaits its leases), another process retires A into B = {a.ts, b.ts}.
+    const ownerFile = readdirSync(dir).find(name => name.endsWith(".json")) ?? "";
+    const ownerId = ownerFile.replace(/\.json$/, ""), replacement = "b-from-other-process";
+    writeFileSync(join(dir, `${replacement}.json`), JSON.stringify({ paths: ["a.ts", "b.ts"], full: false, requirements: {} }));
+    appendFileSync(join(dir, "superseded.jsonl"), `${JSON.stringify({ ts: "t", id: ownerId, by: replacement, full: false, paths: ["a.ts"] })}\n`);
+    rmSync(join(dir, ownerFile));
+    const result = await owner;
+    expect(runs).toBeGreaterThanOrEqual(1);
+    expect(result.status, result.reason).toBe("passed");
+    expect(result.runId).toBe("run1");
+});
+
+// test-contract: invariant — a request file removed with NO completion and NO retirement row (the unlink-before-audit window,
+// a crashed writer) leaves the caller unresolved: deferred, never the earlier pass (review 2026-10-06)
+it("defers a caller whose request vanished without completion or retirement evidence", async () => {
+    const root = fixture();
+    const dir = join(root, ".interlinked/test-runs/requests");
+    let runs = 0;
+    vi.mocked(executeTestPlan).mockImplementation(async plan => {
+        runs += 1;
+        if (runs === 1) {
+            const waiting = readdirSync(dir).filter(name => name.endsWith(".json")).find(name => JSON.parse(readFileSync(join(dir, name), "utf8")).paths.includes("b.ts"));
+            if (waiting) rmSync(join(dir, waiting));
+        }
+        return { plan, status: "passed", runId: `run${runs}`, reused: false, durationMs: 1, reason: "", output: "" };
+    });
+    const first = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 4000 });
+    const waiter = scheduleTests({ root, paths: ["b.ts"], timeoutMs: 4000 });
+    await first;
+    const result = await waiter;
+    expect(result.status).toBe("deferred");
+    expect(result.reason).toMatch(/Request state unresolved/);
+});
+
 it("combines nearby requests and shares one applicable execution", async () => {
     const root = fixture();
     const first = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000 });
@@ -57,6 +134,44 @@ it("reruns newer source bytes instead of returning the older passing result", as
     const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000 });
     expect(result.runId).toBe("run");
     expect(executeTestPlan).toHaveBeenCalledTimes(2);
+});
+
+// test-contract: invariant — a run whose inputs changed while it executed is stale, and the reason NAMES what changed, so a test that rewrites the checkout on every run is found by its path instead of an endless "Inputs changed" loop (H6, 2026-10-02)
+it("names the inputs that changed during a stale batch, deduplicated, sorted and bounded", () => {
+    expect(staleInputsReason(["b.ts", "a.ts", "a.ts"])).toBe("Inputs changed during execution: a.ts, b.ts");
+    const many = Array.from({ length: 12 }, (_, index) => `f${String(index).padStart(2, "0")}.ts`);
+    expect(staleInputsReason(many)).toBe(`Inputs changed during execution: ${many.slice(0, 10).join(", ")} (+2 more)`);
+});
+
+// test-contract: invariant — a run that creates a NON-input file in the checkout (here a learned `.claude/settings.json`) is not stale, but the write is reported by path on the result (H6)
+it("reports non-input files a run wrote into the checkout without making it stale", async () => {
+    const root = fixture();
+    // A real repository that ignores `.claude/*`, as this one does: the inventory never lists it, the status snapshot does.
+    writeFileSync(join(root, ".gitignore"), ".claude/*\n.interlinked/\n");
+    execFileSync("git", ["init", "--quiet"], { cwd: root });
+    vi.mocked(executeTestPlan).mockImplementationOnce(async plan => {
+        mkdirSync(join(root, ".claude"), { recursive: true });
+        writeFileSync(join(root, ".claude", "settings.json"), "{}");
+        return { plan, status: "passed", runId: "polluting", reused: false, durationMs: 1, reason: "", output: "" };
+    });
+    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000 });
+    expect(result).toMatchObject({ status: "passed", runId: "polluting", checkoutWrites: [".claude/settings.json"] });
+});
+
+it("collapses ignored dependency trees while retaining individual ignored config files", async () => {
+    const root = fixture();
+    writeFileSync(join(root, ".gitignore"), "node_modules/\n.claude/*\n.interlinked/\n");
+    execFileSync("git", ["init", "--quiet"], { cwd: root });
+    vi.mocked(executeTestPlan).mockImplementationOnce(async plan => {
+        mkdirSync(join(root, "node_modules", "fixture"), { recursive: true });
+        writeFileSync(join(root, "node_modules", "fixture", "index.js"), "module.exports = 1;");
+        mkdirSync(join(root, ".claude"), { recursive: true });
+        writeFileSync(join(root, ".claude", "settings.json"), "{}");
+        return { plan, status: "passed", runId: "dependencies", reused: false, durationMs: 1, output: "", reason: "" };
+    });
+    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000 });
+    expect(result).toMatchObject({ status: "passed", checkoutWrites: [".claude/settings.json", "node_modules"] });
+    expect(executeTestPlan).toHaveBeenCalledTimes(1);
 });
 
 it("shares an opaque run with an identical request arriving while it executes", async () => {
@@ -79,10 +194,69 @@ it("retains every request after a failed run", async () => {
     expect(pendingTests(root).paths).toEqual(["a.ts"]);
 });
 
+// Live reproduction: the recovery cohort passed, but a later scratch-file request
+// held its caller until the entire shared queue drained and the deadline expired.
+it("returns a completed request without draining unrelated work that arrived during its run", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "late.txt"), "separate input");
+    vi.mocked(executeTestPlan).mockImplementationOnce(async plan => {
+        requestTests(root, ["late.txt"], false);
+        return { plan, status: "passed", runId: "original", reused: false, durationMs: 1, reason: "", output: "" };
+    });
+    const first = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000 });
+    expect(first).toMatchObject({ status: "passed", runId: "original" });
+    expect(executeTestPlan).toHaveBeenCalledTimes(1);
+    expect(pendingTests(root).paths).toEqual(["late.txt"]);
+    expect((await scheduleTests({ root, paths: ["late.txt"], timeoutMs: 2000 })).runId).toBe("run");
+    expect(executeTestPlan).toHaveBeenCalledTimes(2);
+    expect(pendingTests(root).ids).toEqual([]);
+});
+
+it("does not replace one caller's completed pass with a later subscriber's failure", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "late.txt"), "separate input");
+    let later: Promise<Awaited<ReturnType<typeof scheduleTests>>> | undefined;
+    vi.mocked(executeTestPlan).mockImplementationOnce(async plan => {
+        later = scheduleTests({ root, paths: ["late.txt"], timeoutMs: 2000 });
+        return { plan, status: "passed", runId: "original", reused: false, durationMs: 1, reason: "", output: "" };
+    }).mockImplementationOnce(async plan => ({ plan, status: "failed", runId: "later", reused: false, durationMs: 1, reason: "later failure", output: "" }));
+    expect(await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000 })).toMatchObject({ status: "passed", runId: "original" });
+    expect(await later).toMatchObject({ status: "failed", runId: "later" });
+    expect(pendingTests(root).paths).toEqual(["late.txt"]);
+});
+
+it.each(["failed", "deferred"] as const)("returns a %s run without retrying when source inputs also change", async status => {
+    const root = fixture();
+    vi.mocked(executeTestPlan).mockImplementationOnce(async plan => {
+        writeFileSync(join(root, "a.ts"), "export const a = 2;");
+        return { plan, status, runId: "unfinished", reused: false, durationMs: 1, reason: "original diagnostic", output: "run output" };
+    });
+    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000 });
+    expect(result).toMatchObject({ status, runId: "unfinished", output: "run output" });
+    expect(result.reason).toContain("original diagnostic");
+    expect(result.reason).toContain("Inputs changed during execution: a.ts");
+    expect(executeTestPlan).toHaveBeenCalledTimes(1);
+    expect(pendingTests(root).paths).toEqual(["a.ts"]);
+});
+
 it("rejects inputs outside the project before adding durable work", () => {
     const root = fixture();
     expect(() => scheduleTests({ root, paths: ["../outside.ts"], timeoutMs: 2000 })).toThrow("outside project");
     expect(pendingTests(root).ids).toEqual([]);
+});
+
+it.each(["failed", "deferred"] as const)("returns a %s run without retrying when its environment changes", async status => {
+    const root = fixture();
+    vi.stubEnv("SCHEDULER_TEST_INPUT", "before");
+    vi.mocked(executeTestPlan).mockImplementationOnce(async plan => {
+        vi.stubEnv("SCHEDULER_TEST_INPUT", "after");
+        return { plan, status, runId: "environment-changed", reused: false, durationMs: 1, reason: "original diagnostic", output: "run output" };
+    });
+    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000 });
+    expect(result).toMatchObject({ status, runId: "environment-changed", output: "run output" });
+    expect(result.reason).toContain("original diagnostic; Environment changed during execution");
+    expect(executeTestPlan).toHaveBeenCalledTimes(1);
+    expect(pendingTests(root)).toMatchObject({ paths: ["a.ts"], full: true });
 });
 
 it("reruns an edited fixture excluded from the source-role inventory", async () => {
@@ -241,7 +415,7 @@ it("leaves the host slot free for a polling caller between batches", async () =>
     expect(executeTestPlan).toHaveBeenCalledTimes(2);
 });
 
-// test-contract: invariant — a request that gains a freshness path DURING a run is never discharged by that run; the drain runs it next
+// test-contract: invariant — a freshness path requested DURING a run is not discharged by that run; its caller receives a separate execution
 it("does not complete an in-flight obligation that a mid-run request extended", async () => {
     const root = fixture();
     writeFileSync(join(root, "sample.txt"), "before");
@@ -251,7 +425,11 @@ it("does not complete an in-flight obligation that a mid-run request extended", 
         return { plan, status: "passed", runId: "old", reused: false, runtimeVerified: false, durationMs: 1, reason: "", output: "" };
     });
     const result = await scheduleTests({ root, paths: [], full: true, timeoutMs: 5000 });
-    expect(result.runId).toBe("run");
+    expect(result.runId).toBe("old");
+    expect(executeTestPlan).toHaveBeenCalledTimes(1);
+    expect(pendingTests(root).paths).toEqual(["sample.txt"]);
+    const later = await scheduleTests({ root, paths: ["sample.txt"], timeoutMs: 5000 });
+    expect(later.runId).toBe("run");
     expect(executeTestPlan).toHaveBeenCalledTimes(2);
     expect(pendingTests(root).ids).toEqual([]);
 });
@@ -293,8 +471,8 @@ it("runs a second batch with coverage for a coverage request that a plain run ca
         return { plan, status: "passed", runId: options.coverage ? "with-coverage" : "plain", reused: false, durationMs: 1, reason: "", output: "", ...(options.coverage ? { artifacts: { coverage_summary: { path: "x", sha256: "0".repeat(64) } } } : {}) };
     });
     const plain = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 5000 });
-    // Same-process callers share one drain and receive its final batch's result; the plain obligation was discharged by batch 1.
-    expect(plain.status).toBe("passed");
+    // The plain caller finishes with its own result; the coverage caller still needs a separate execution.
+    expect(plain).toMatchObject({ status: "passed", runId: "plain" });
     const covered = await coverageRequest!;
     expect(covered.runId).toBe("with-coverage");
     expect(covered.artifacts).toBeDefined();
@@ -369,6 +547,80 @@ it.each(["a.ts", "sample.txt"])("refuses another owner's completion after %s cha
         await completedByAnotherOwner(root);
         writeFileSync(join(root, path), "new input");
     } finally { owner.release(); }
-    expect((await waiting).runId).toBe("run");
+    const result = await waiting;
+    expect(result.runId).toBe("run");
+    // The fresh run answers the caller: its requeued request carries the obligation (review 2026-10-06: the waiter kept
+    // checking the stale completion and returned `deferred`, so `tests run` exited 75 after a passing run).
+    expect(result.status, result.reason).toBe("passed");
     expect(executeTestPlan).toHaveBeenCalledTimes(1);
+});
+
+// test-contract: invariant — a handover after a stale completion keeps the SHARED request's full obligation, not only the
+// weaker caller's: every waiter on the old id will accept the replacement's result (review 2026-10-06: a plain caller
+// dropped coverage, an opt-in caller turned a default request into a selected run)
+const handoverCases: Array<[string, RunRequirements, { staticSelection?: boolean }]> = [
+    ["coverage required by the shared request", { coverage: { reporters: ["scope.mjs"] } }, {}],
+    ["no static selection required by the shared request", {}, { staticSelection: true }],
+];
+it.each(handoverCases)("keeps %s when a weaker caller hands over a stale completion", async (_label, shared, caller) => {
+    const root = fixture(), owner = tryAcquireCrossProcessCompilerLease(`interlinked-test-scheduler-v1\0${canonicalProjectRoot(root)}`);
+    if (!owner) throw new Error("Fixture scheduler lease unavailable");
+    // Another process queued the stronger request first; the weaker caller coalesces onto it.
+    requestTests(root, ["a.ts"], false, shared);
+    const waiting = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, ...caller });
+    try {
+        await completedByAnotherOwner(root);
+        writeFileSync(join(root, "a.ts"), "new input");
+    } finally { owner.release(); }
+    await waiting;
+    const options = vi.mocked(executeTestPlan).mock.calls.at(-1)?.[1];
+    const planOptions = vi.mocked(loadTestPlan).mock.calls.at(-1)?.[4];
+    if (shared.coverage) expect(options?.coverage).toEqual(shared.coverage);
+    else expect(planOptions?.staticSelection).toBe(false);
+});
+
+// test-contract: invariant — after a cross-process retirement A→B and B's completion going stale, the handover works on the
+// RESOLVED id B: it replays B's stored obligation and hands B on, so A's waiter gets the passing rerun (review 2026-10-07:
+// the lookup read A, found no pointer, took the legacy fallback and returned `deferred` — CLI exit 75)
+it("requeues the resolved request when a retired request's completion goes stale", async () => {
+    const root = fixture(), owner = tryAcquireCrossProcessCompilerLease(`interlinked-test-scheduler-v1\0${canonicalProjectRoot(root)}`);
+    if (!owner) throw new Error("Fixture scheduler lease unavailable");
+    const dir = join(root, ".interlinked/test-runs/requests");
+    const waiting = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000 });
+    try {
+        // Another process retires A into B (which also requires coverage), completes B, and then a.ts changes.
+        const aFile = readdirSync(dir).find(name => name.endsWith(".json")) ?? "";
+        const replacement = "b-from-other-process";
+        writeFileSync(join(dir, `${replacement}.json`), JSON.stringify({ paths: ["a.ts"], full: false, requirements: { coverage: { reporters: ["scope.mjs"] } } }));
+        appendFileSync(join(dir, "superseded.jsonl"), `${JSON.stringify({ ts: "t", id: aFile.replace(/\.json$/, ""), by: replacement, full: false, paths: ["a.ts"] })}\n`);
+        rmSync(join(dir, aFile));
+        await completedByAnotherOwner(root);
+        writeFileSync(join(root, "a.ts"), "new input");
+    } finally { owner.release(); }
+    const result = await waiting;
+    expect(result.status, result.reason).toBe("passed");
+    expect(vi.mocked(executeTestPlan).mock.calls.at(-1)?.[1]?.coverage).toEqual({ reporters: ["scope.mjs"] });
+});
+
+it("returns another owner's completion at a retry boundary with unrelated work still queued", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "late.txt"), "later input");
+    vi.mocked(executeTestPlan).mockImplementationOnce(async plan => {
+        writeFileSync(join(root, "a.ts"), "export const a = 2;");
+        return { plan, status: "passed", runId: "stale", reused: false, durationMs: 1, output: "", reason: "" };
+    });
+    const waiting = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 5000 });
+    await vi.waitFor(() => expect(executeTestPlan).toHaveBeenCalledTimes(1), { interval: 5 });
+    const owner = await vi.waitFor(() => {
+        const lease = tryAcquireCrossProcessCompilerLease(`interlinked-test-scheduler-v1\0${canonicalProjectRoot(root)}`);
+        if (!lease) throw new Error("Waiting for retry boundary");
+        return lease;
+    }, { interval: 5 });
+    try {
+        await completedByAnotherOwner(root);
+        requestTests(root, ["late.txt"], false);
+    } finally { owner.release(); }
+    expect((await waiting).runId).toBe("other-owner");
+    expect(executeTestPlan).toHaveBeenCalledTimes(1);
+    expect(pendingTests(root).paths).toEqual(["late.txt"]);
 });

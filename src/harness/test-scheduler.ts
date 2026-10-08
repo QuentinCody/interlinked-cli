@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 import { dirname, join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { collectRepositoryInventory, hashBytes } from "../lib/metrics/inventory.js";
@@ -10,9 +12,10 @@ import { loadTestPlan, normalizeTestInput, readTestDependencies } from "./test-p
 import { captureKnownTestInputs, changedKnownTestInputs } from "./test-runtime.js";
 import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
 import { observeTestRun } from "./test-run-observation.js";
-import { publishTestCompletion, readTestCompletion } from "./test-request-completion.js";
+import { completedObligation, publishTestCompletion, readTestCompletion, retractTestCompletion } from "./test-request-completion.js";
 import { executeTestPlan } from "./test-execution.js";
-import { completeTestRequests, hasTestRequest, pendingRequestsMet, pendingTests, requestTests, subscribeTestRequest, unsubscribeTestRequest, type PendingTests, type RunRequirements } from "./test-requests.js";
+import { completeTestRequests, hasTestRequest, pendingRequestsMet, pendingTests, recordRequeue, requestTests, subscribeTestRequest, unsubscribeTestRequest, type PendingTests, type RunRequirements } from "./test-requests.js";
+import { resolveRequest } from "./test-request-resolution.js";
 import type { TestExecution } from "./test-run-receipt.js";
 import type { TestPlan } from "./test-plan.js";
 import { currentProcessSignal } from "./check-engine/process-cancellation.js";
@@ -24,6 +27,8 @@ export interface ScheduleTestsOptions {
     paths: readonly string[];
     timeoutMs: number;
     full?: boolean;
+    /** Opt into classifier-based omission and result reuse (off by default; see TestPlanInput.staticSelection). */
+    staticSelection?: boolean;
     maxWorkers?: number;
     maxTests?: number;
     waitForCapacity?: boolean;
@@ -50,7 +55,8 @@ const active = new Map<string, Promise<TestExecution>>();
 
 /** What this caller's request must PRODUCE (coverage) — recorded on the durable request so coalescing and completion honour it. */
 function requirementsOf(options: ScheduleTestsOptions): RunRequirements {
-    return options.coverage ? { coverage: { reporters: [...(options.coverage.reporters ?? [])].sort() } } : {};
+    const selection: RunRequirements = options.staticSelection === true ? { staticSelection: true } : {};
+    return options.coverage ? { ...selection, coverage: { reporters: [...(options.coverage.reporters ?? [])].sort() } } : selection;
 }
 
 /** A row for work the scheduler refused before any executor ran (budget or capacity); the executor writes its own rows. */
@@ -79,6 +85,71 @@ function changedDuring(before: ReturnType<typeof collectRepositoryInventory>, af
     return [...new Set([...hashes.keys(), ...current.keys()])].filter(path => hashes.get(path) !== current.get(path));
 }
 
+/** The harness's own state and git's: the scheduler itself writes under `.interlinked/` while a run executes. */
+const HARNESS_STATE = /^(?:\.interlinked|\.git)(?:\/|$)/;
+
+/**
+ * Non-input paths (excluded by role: `.claude/`, scratch, fixtures outside src) that appeared or vanished while the
+ * run executed — a test wrote into the checkout. Inputs are `changedDuring`'s business; these never make a run
+ * stale, but a learned `.claude/settings.json` or a fixture root left in the tree is pollution worth naming.
+ */
+function checkoutWritesDuring(before: CheckoutSnapshot, after: CheckoutSnapshot): string[] {
+    const inputs = new Set([...before.files, ...after.files].map(file => file.path));
+    const earlier = before.checkout, later = after.checkout;
+    return [...new Set([...earlier, ...later])].filter(path => earlier.has(path) !== later.has(path) && !HARNESS_STATE.test(path) && !inputs.has(path)).sort();
+}
+
+/**
+ * Untracked and IGNORED entries of the checkout. `--ignored=matching` lists an ignored file inside a non-ignored
+ * directory by name (a learned `.claude/settings.json` under `.claude/*`) and collapses a wholly ignored directory
+ * to one entry (`scratch/`), so the snapshot stays cheap on a large tree. Outside git, the inventory's role-excluded
+ * paths stand in (the walk skips dot-directories, so it sees less).
+ */
+function checkoutEntries(root: string, inventory: ReturnType<typeof collectRepositoryInventory>): Set<string> {
+    try {
+        const status = execFileSync("git", ["-c", "core.fsmonitor=false", "status", "--porcelain=v1", "-z", "--ignored=matching", "--untracked-files=all"],
+            { cwd: root, encoding: "utf8", timeout: CHECKOUT_STATUS_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
+        return new Set(status.split("\0").filter(entry => entry.startsWith("?? ") || entry.startsWith("!! ")).map(entry => entry.slice(3).replace(/\/$/, "")));
+    } catch (error) {
+        // Not a repository (git exits non-zero) or no git binary: fall back; anything else is a real failure.
+        const exited = typeof error === "object" && error !== null && typeof Reflect.get(error, "status") === "number";
+        if (!exited && !hasErrorCode(error, "ENOENT")) throw error;
+        return new Set(inventory.excluded.map(entry => entry.path));
+    }
+}
+
+const CHECKOUT_STATUS_TIMEOUT_MS = 15_000;
+type CheckoutSnapshot = ReturnType<typeof collectRepositoryInventory> & { checkout: Set<string> };
+
+/** The inventory plus the checkout's non-input entries, taken together before and after a batch. */
+function snapshotCheckout(root: string): CheckoutSnapshot {
+    const inventory = collectRepositoryInventory(root);
+    return Object.assign(inventory, { checkout: checkoutEntries(root, inventory) });
+}
+
+/**
+ * What changed while a batch executed: the INPUTS that changed (the batch is stale and re-runs) are returned; the
+ * non-input checkout writes are recorded on the result itself (`checkoutWrites`), never as staleness.
+ */
+function observeRunChanges(root: string, before: CheckoutSnapshot, known: ReturnType<typeof captureKnownTestInputs>, result: TestExecution): string[] {
+    const after = snapshotCheckout(root);
+    const writes = checkoutWritesDuring(before, after);
+    if (writes.length) result.checkoutWrites = writes;
+    return [...changedDuring(before, after), ...changedKnownTestInputs(root, known)];
+}
+
+const NAMED_PATHS = 10;
+
+/**
+ * The stale reason, naming what changed ("a, b (+3 more)"): a test that rewrites an input on every run otherwise
+ * reads as an endless, anonymous stale loop. Enough paths to find the writer without flooding a hook line.
+ */
+export function staleInputsReason(changed: readonly string[]): string {
+    const paths = [...new Set(changed)].sort();
+    const shown = paths.slice(0, NAMED_PATHS).join(", ");
+    return `Inputs changed during execution: ${paths.length > NAMED_PATHS ? `${shown} (+${paths.length - NAMED_PATHS} more)` : shown}`;
+}
+
 function overBudget(plan: TestPlan, options: ScheduleTestsOptions): TestExecution | null {
     if (options.maxTests === undefined || (plan.mode !== "full" && plan.tests.length <= options.maxTests)) return null;
     const scope = plan.mode === "full" ? "the full suite" : `${plan.tests.length} tests`;
@@ -93,11 +164,19 @@ function satisfiedRequests(root: string, batch: PendingTests): string[] {
     return scopeCovered.filter(id => met.has(id));
 }
 
+/** Input drift cannot turn a failed/deferred execution into an automatic retry. */
+function withInputChange(result: TestExecution, reason: string): TestExecution {
+    const status = result.status === "failed" || result.status === "deferred" ? result.status : "stale";
+    return { ...result, status, reason: [result.reason, reason].filter(Boolean).join("; ") };
+}
+
 async function runOneBatch(options: ScheduleTestsOptions, deadline: number, timing: DrainTiming): Promise<TestExecution> {
-    const pending = pendingTests(options.root), before = collectRepositoryInventory(options.root);
+    const pending = pendingTests(options.root), before = snapshotCheckout(options.root);
     const environmentHash = captureVitestEnvironment().environmentHash;
     const known = captureKnownTestInputs(options.root, [...pending.paths, ...Object.values(readTestDependencies(options.root)).flat(), ".interlinked/test-dependencies.json"]);
-    const plan = await loadTestPlan(options.root, pending.paths, Math.max(1, deadline - Date.now()), pending.full);
+    // The batch selects only when EVERY pending request permitted it (durable requirement), never by this drainer's own flag.
+    const plan = await loadTestPlan(options.root, pending.paths, Math.max(1, deadline - Date.now()), pending.full,
+        { staticSelection: pending.requirements.staticSelection === true });
     const deferred = overBudget(plan, options);
     if (deferred) {
         recordSchedulerDeferral(options, "budget-exceeded", timing, plan.mode);
@@ -110,10 +189,10 @@ async function runOneBatch(options: ScheduleTestsOptions, deadline: number, timi
         ...(options.maxWorkers === undefined ? {} : { maxWorkers: options.maxWorkers }), ...(options.session ? { session: options.session } : {}),
         ...(produced.coverage ? { coverage: produced.coverage } : {}), ...(options.receiptStore ? { receiptStore: options.receiptStore } : {}),
     });
-    const changed = [...changedDuring(before, collectRepositoryInventory(options.root)), ...changedKnownTestInputs(options.root, known)];
+    const changed = observeRunChanges(options.root, before, known, result);
     if (captureVitestEnvironment().environmentHash !== environmentHash) {
         requestTests(options.root, [], true, produced);
-        return { ...result, status: "stale", reason: "Environment changed during execution" };
+        return withInputChange(result, "Environment changed during execution; current inputs remain unverified");
     }
     if (changed.length) requestTests(options.root, changed, false, produced);
     if (result.status === "stale") requestTests(options.root, [], true, produced);
@@ -122,7 +201,8 @@ async function runOneBatch(options: ScheduleTestsOptions, deadline: number, timi
         publishTestCompletion(options.root, ids, result, { inputHash: before.inputHash, environmentHash, known });
         completeTestRequests(options.root, ids);
     }
-    return changed.length ? { ...result, status: "stale", reason: "Inputs changed during execution" } : result;
+    // Name what changed: a test that rewrites an input on every run otherwise reads as an endless, anonymous stale loop.
+    return changed.length ? withInputChange(result, `${staleInputsReason(changed)}; current inputs remain unverified`) : result;
 }
 
 /** The three leases one batch runs under: this root's scheduler slot, the project's heavy-process slot and the host test slot. */
@@ -197,18 +277,22 @@ async function nextBatchTurn(options: ScheduledRequest, deadline: number, signal
         recordSchedulerDeferral(options, "capacity-timeout", { queuedAt: boundary, waitCapacityMs: elapsedMs(boundary) }, options.full ? "full" : "selected");
         return { done: { ...previous, status: "deferred", reason: `${next}; newer inputs remain queued` } };
     }
-    if (pendingTests(options.root).ids.length === 0) {
+    const completed = await readTestCompletion(options.root, resolveRequest(options.root, options.requestId).id, deadline);
+    if (completed || pendingTests(options.root).ids.length === 0) {
         next.release();
-        return { done: (await readTestCompletion(options.root, options.requestId, deadline)) ?? previous };
+        return { done: completed ?? previous };
     }
     return { leases: next, timing: { queuedAt: boundary, waitCapacityMs: next.waitedMs } };
 }
 
-function batchSettles(result: TestExecution, root: string): boolean {
-    return result.status === "deferred" || result.status === "failed" || pendingTests(root).ids.length === 0;
+async function settledBatch(result: TestExecution, options: ScheduledRequest, deadline: number): Promise<TestExecution | null> {
+    if (result.status === "deferred" || result.status === "failed" || pendingTests(options.root).ids.length === 0) return result;
+    if (result.status !== "passed" && result.status !== "empty") return null;
+    // A retired request is answered by its REPLACEMENT's completion, not by whatever later batch the drain runs next.
+    return readTestCompletion(options.root, resolveRequest(options.root, options.requestId).id, deadline);
 }
 
-/** Runs batches until the queue is empty, YIELDING every lease between batches so a same-root interactive caller or another root's push can take the next slot. */
+/** Runs until this caller completes, yielding every lease between necessary retries. Later requests keep their own queue entries and deadlines. */
 async function runPending(options: ScheduledRequest, deadline: number, signal: AbortSignal, first: BatchLeases, queuedAt: number): Promise<TestExecution> {
     let leases: BatchLeases | null = first;
     let timing: DrainTiming = { queuedAt, waitCapacityMs: first.waitedMs };
@@ -216,8 +300,10 @@ async function runPending(options: ScheduledRequest, deadline: number, signal: A
         for (;;) {
             const result = await runOneBatch(options, deadline, timing);
             if (result.runId) observeTestRun(options.root, result);
-            if (batchSettles(result, options.root)) return result;
-            if (Date.now() >= deadline) return { ...result, status: "stale", reason: "Newer inputs remain queued; previous result does not certify them" };
+            const completed = await settledBatch(result, options, deadline);
+            if (completed) return completed;
+            // Keep the last batch's own reason: it names WHAT changed, which is how a self-rewriting test is found.
+            if (Date.now() >= deadline) return { ...result, status: "stale", reason: `Newer inputs remain queued; previous result does not certify them${result.reason ? ` (${result.reason})` : ""}` };
             leases.release();
             leases = null;
             const turn = await nextBatchTurn(options, deadline, signal, result);
@@ -238,12 +324,12 @@ async function drain(options: ScheduledRequest): Promise<TestExecution> {
     if (!owner) throw busy("Test scheduler busy; request retained");
     let leases: BatchLeases | string;
     try {
-        const completed = await readTestCompletion(options.root, options.requestId, deadline);
+        const completed = await readTestCompletion(options.root, resolveRequest(options.root, options.requestId).id, deadline);
         if (completed) {
             owner.release();
             return completed;
         }
-        if (!hasTestRequest(options.root, options.requestId)) requestTests(options.root, options.paths, options.full === true, requirementsOf(options));
+        if (!hasTestRequest(options.root, options.requestId)) requeueRejectedCompletion(options);
         leases = await acquireExecution(options, deadline, signal, owner);
     } catch (error) {
         owner.release();
@@ -254,6 +340,35 @@ async function drain(options: ScheduledRequest): Promise<TestExecution> {
         throw busy(leases);
     }
     return runPending(options, deadline, signal, { ...leases, waitedMs: elapsedMs(queuedAt) }, queuedAt);
+}
+
+/**
+ * The caller's request is gone and its completion no longer matches the inputs: queue the obligation again and hand it
+ * on WITH EVIDENCE, so every waiter on the old id resolves to the new one (review 2026-10-06: the requeued id was
+ * discarded, the waiter kept checking the stale completion and returned `deferred` after a passing run). The audit
+ * row is written first; only then is the stale completion pointer retracted, so a failed audit write leaves the old
+ * evidence and the waiter fails closed.
+ */
+function requeueRejectedCompletion(options: ScheduledRequest): void {
+    // Work on the RESOLVED id: when another process retired this caller's request A into B and B's completion went
+    // stale, the evidence (obligation, pointer) is B's, and B is what every waiter follows (review 2026-10-07).
+    const resolution = resolveRequest(options.root, options.requestId);
+    if (resolution.state === "pending") return;
+    const staleId = resolution.id;
+    // The SHARED request's obligation, kept by its completion pointer: a weaker caller coalesced onto it (a plain caller
+    // onto a coverage request, an opt-in caller onto a default one) must not requeue only its own subset, because every
+    // waiter on the old id will accept the replacement (review 2026-10-06).
+    const original = resolution.state === "completed" ? completedObligation(options.root, staleId) : null;
+    if (!original) {
+        // No recorded obligation (an older pointer, or unreadable): queue this caller's own need but redirect nobody —
+        // the old id stays unresolved for the others, so they fail closed rather than accept a weaker run.
+        requestTests(options.root, options.paths, options.full === true, requirementsOf(options));
+        return;
+    }
+    const paths = [...new Set([...original.paths, ...options.paths])], full = original.full || options.full === true;
+    const replacement = requestTests(options.root, paths, full, original.requirements);
+    if (replacement === staleId) return;
+    if (recordRequeue(options.root, staleId, replacement, paths, full)) retractTestCompletion(options.root, staleId);
 }
 
 /** Same-process callers subscribe to one drain; cross-process callers reconcile durable requests. */
@@ -268,12 +383,25 @@ function startDrain(options: ScheduledRequest): Promise<TestExecution> {
 
 async function awaitOwnRequest(options: ScheduledRequest, id: string): Promise<TestExecution> {
     const deadline = Date.now() + options.timeoutMs;
-    for (;;) {
-        const result = await withinDeadline(startDrain(options), deadline);
-        if (result.status !== "passed" && result.status !== "empty") return result;
-        if (!hasTestRequest(options.root, id)) return result;
-        if (Date.now() >= deadline) return { ...result, status: "deferred", reason: "This request arrived after the run; it remains queued" };
-        options.timeoutMs = Math.max(1, deadline - Date.now());
+    const followed = new Set<string>();
+    try {
+        for (;;) {
+            const result = await withinDeadline(startDrain(options), deadline);
+            if (result.status !== "passed" && result.status !== "empty") return result;
+            // Positive evidence only: this caller's obligation (possibly carried by a replacement) must be COMPLETED,
+            // with a fresh completion record — a pass from some other batch never answers it.
+            const resolution = resolveRequest(options.root, id);
+            for (const hop of resolution.hops) if (!followed.has(hop)) { subscribeTestRequest(hop); followed.add(hop); }
+            if (resolution.state === "unresolved") return { ...result, status: "deferred", reason: `Request state unresolved (${resolution.reason}); no pass is certified for it` };
+            if (resolution.state === "completed") {
+                const completion = await readTestCompletion(options.root, resolution.id, deadline);
+                return completion ?? { ...result, status: "deferred", reason: "The completion record no longer matches the current inputs; the request is not certified" };
+            }
+            if (Date.now() >= deadline) return { ...result, status: "deferred", reason: "This request arrived after the run; it remains queued" };
+            options.timeoutMs = Math.max(1, deadline - Date.now());
+        }
+    } finally {
+        for (const followedId of followed) unsubscribeTestRequest(followedId);
     }
 }
 

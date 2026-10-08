@@ -29,6 +29,7 @@ vi.mock("../check-engine/index.js", () => ({
 		({
 			typescript: "tsc",
 			biome_lint: "biome",
+            lint_import: "lint-import",
 			eslint: "eslint",
 			oxlint: "oxlint",
 			semgrep: "semgrep",
@@ -157,6 +158,30 @@ beforeEach(() => {
 });
 
 describe("ChangeSet external-check batching", () => {
+    it("runs imported lint once in project mode and attributes findings per file", async () => {
+        runChecksAsync.mockResolvedValue({
+            ...completedReport(),
+            results: [{ tool: "lint-import", severity: "warning", file: "src/b.ts", line: 7, message: "imported lint issue" }],
+            toolsRun: [{ id: "lint-import", available: true }],
+            metrics: [],
+        });
+        const checksRan: string[] = [];
+        const batch = createChangeSetExternalBatch({
+            paths: ["/repo/src/a.ts", "/repo/src/b.ts"],
+            checks: { lint_import: config() }, cwd: "/repo", recovery: true, outChecksRan: checksRan,
+        });
+        const [a, b] = await Promise.all([
+            batch.resultsForFile("/repo/src/a.ts"), batch.resultsForFile("/repo/src/b.ts"),
+        ]);
+        expect(runChecksAsync).toHaveBeenCalledExactlyOnceWith(
+            { projectRoot: "/repo", mode: "project" },
+            expect.objectContaining({ tools: ["lint-import"], timeoutMs: 5_000, admissionAlreadyHeld: true }),
+        );
+        expect(a).toEqual([]);
+        expect(b.map(result => [result.name, result.file])).toEqual([["lint_import", "/repo/src/b.ts"]]);
+        expect(checksRan).toEqual(["lint_import"]);
+    });
+
 	it("runs TypeScript, lint, and security tools once during recovery and attributes findings per file", async () => {
 		runChecksAsync.mockResolvedValue(completedReport());
 		const checksRan: string[] = [];

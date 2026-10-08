@@ -245,9 +245,9 @@ describe("runTaploAsync", () => {
 		expect(await runTaploAsync(input(fileScope()))).toEqual([]);
 	});
 
-	it("returns [] when code === null (spawn never started)", async () => {
+	it("reports no verdict when code === null (spawn never started)", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null, stderr: taploErrorAbsolute() }));
-		expect(await runTaploAsync(input(fileScope()))).toEqual([]);
+		await expect(runTaploAsync(input(fileScope()))).rejects.toThrow("taplo");
 	});
 
 	it("parses an error on code === 1 and relativizes the absolute path", async () => {
@@ -281,8 +281,13 @@ describe("runTaploAsync", () => {
 		expect(nonNull(out[0]).line).toBe(9);
 	});
 
-	it("returns [] on code === 1 with empty output (parser yields no errors)", async () => {
+	it("reports no verdict on code === 1 without parsed diagnostics", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: "", stderr: "" }));
-		expect(await runTaploAsync(input(fileScope()))).toEqual([]);
+		await expect(runTaploAsync(input(fileScope()))).rejects.toThrow("no diagnostics");
 	});
+
+    it.each(["timedOut", "killed", "stdoutTruncated", "stderrTruncated"])("rejects %s even with exit 0", async flag => {
+        runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, [flag]: true }));
+        await expect(runTaploAsync(input(fileScope()))).rejects.toThrow("incomplete");
+    });
 });

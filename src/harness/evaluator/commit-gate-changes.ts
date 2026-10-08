@@ -51,6 +51,20 @@ function gitLines(projectRoot: string, args: string[]): string[] | null {
 }
 
 /**
+ * Run one read-only `git` path listing with `-z`: NUL-delimited, unquoted, byte-literal paths.
+ * Newline output is C-quoted under git's default `core.quotePath=true` (`src/café.ts` becomes
+ * `"src/caf\303\251.ts"`), and a quoted path never resolves to the file (review 2026-10-05).
+ */
+function gitPaths(projectRoot: string, args: string[]): string[] | null {
+	try {
+		const out = execFileSync("git", [...args, "-z"], { cwd: projectRoot, encoding: "utf-8", timeout: GIT_TIMEOUT_MS });
+		return out.split("\0").filter((path) => path.length > 0);
+	} catch {
+		return null;
+	}
+}
+
+/**
  * The real changed-files function. `stagedOnly` (a plain `git commit`) returns
  * just `git diff --cached --name-only` — the staged set the commit will capture.
  * Otherwise (`-a`/`--all`, which stages tracked edits first) it UNIONs `git diff
@@ -68,11 +82,11 @@ export function defaultGitChangedFiles(
 	stagedOnly = false,
 	includeUntracked = false,
 ): string[] | null {
-	const staged = gitLines(projectRoot, ["diff", "--cached", "--name-only"]);
+	const staged = gitPaths(projectRoot, ["diff", "--cached", "--name-only"]);
 	if (stagedOnly) return staged; // a plain commit captures the index only
-	const worktree = gitLines(projectRoot, ["diff", "--name-only", "HEAD"]);
+	const worktree = gitPaths(projectRoot, ["diff", "--name-only", "HEAD"]);
 	const untracked = includeUntracked
-		? gitLines(projectRoot, ["ls-files", "--others", "--exclude-standard"])
+		? gitPaths(projectRoot, ["ls-files", "--others", "--exclude-standard"])
 		: [];
 	if (worktree === null && staged === null && untracked === null) return null; // git unusable
 	return [...new Set<string>([...(worktree ?? []), ...(staged ?? []), ...(untracked ?? [])])];
@@ -102,7 +116,7 @@ export function defaultResolveRepoRoot(dir: string): string | null {
  *  a commit that only deletes a source file previously skipped the suite
  *  entirely and could land a deletion that breaks imports or tests (finding
  *  2026-06). */
-interface SelectedChanges {
+export interface SelectedChanges {
 	sources: ChangedSource[];
 	/** Repo-relative paths of gated-language files absent from the evaluation
 	 *  tree (deleted by this commit). Their LANGUAGES join the suite run. */

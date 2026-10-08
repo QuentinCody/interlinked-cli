@@ -38,6 +38,8 @@
 // with a note explaining the degraded mode.
 
 import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
+import { findProjectRoot } from "../../lib/hook-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import type { SessionTrajectory } from "../types.js";
 import {
@@ -140,19 +142,18 @@ export function evaluateGitScopeGateSync(
 	// Compute the session-known set (files this session wrote, including
 	// subagent rollups). Both relative-to-cwd and the absolute form are
 	// recorded by session-state, so we test both shapes per op-file.
-	const sessionFiles = session.files_written;
+	const root = findProjectRoot(resolve(cwd)) ?? resolve(cwd);
+	const sessionFiles = new Set([...session.files_written].map(path => resolve(root, path)));
 
-	const baselineDirty = preSessionDirtyPaths(session);
+	const baselineDirty = new Set([...preSessionDirtyPaths(session)].map(path => resolve(root, path)));
 
 	const unauthorized: string[] = [];
 	const baselineHits: string[] = [];
 	for (const f of files) {
-		// `sessionFiles` may hold either relative or absolute paths.
-		// `f` from `resolveOpFiles` is always cwd-relative (git emits
-		// repo-root-relative paths and we run `git` with cwd === eventCwd).
-		if (sessionFiles.has(f)) continue;
+		// Git emits repository-relative paths even when invoked from a subdirectory.
+		if (sessionFiles.has(resolve(root, f))) continue;
 		unauthorized.push(f);
-		if (baselineDirty.has(f)) baselineHits.push(f);
+		if (baselineDirty.has(resolve(root, f))) baselineHits.push(f);
 	}
 
 	if (unauthorized.length === 0) {

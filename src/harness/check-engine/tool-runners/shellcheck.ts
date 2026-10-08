@@ -10,6 +10,7 @@ import { relative } from "node:path";
 import { parseShellcheckJson } from "../output-parsers.js";
 import { runProcessAsync } from "../spawn-async.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
+import { requireFileProcessVerdict } from "./file-process-verdict.js";
 
 export function runShellcheck(input: ToolRunnerInput): CheckResult[] {
 	const { scope, timeoutMs } = input;
@@ -55,9 +56,8 @@ export async function runShellcheckAsync(input: ToolRunnerInput): Promise<CheckR
 		["--format=json1", "--severity=warning", scope.targetFile],
 		{ cwd: scope.projectRoot, timeout: timeoutMs },
 	);
-	if (result.code === 0) return [];
-	if (result.code === null || result.code > 1) return [];
-	const results = parseShellcheckJson(result.stdout);
+	const results = result.code === 0 ? [] : parseShellcheckJson(result.stdout);
+    requireFileProcessVerdict("shellcheck", result, results.length);
 	return results.map((r) => ({
 		...r,
 		file: r.file.startsWith("/") ? relative(scope.projectRoot, r.file) : r.file,
