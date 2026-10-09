@@ -365,9 +365,47 @@ function parseGolangciIssue(value: unknown): GolangciIssue | null {
 	};
 }
 
+/**
+ * golangci-lint v2 can write the JSON report and then a text trailer
+ * (`N issues:`) on the same stdout. `JSON.parse` rejects that trailer.
+ * Take the first JSON object and ignore the rest.
+ */
+function firstJsonObject(output: string): string | null {
+	const start = output.indexOf("{");
+	if (start < 0) return null;
+	let depth = 0;
+	let inString = false;
+	let escape = false;
+	for (let i = start; i < output.length; i++) {
+		const ch = output[i];
+		if (inString) {
+			if (escape) {
+				escape = false;
+				continue;
+			}
+			if (ch === "\\") {
+				escape = true;
+				continue;
+			}
+			if (ch === '"') inString = false;
+			continue;
+		}
+		if (ch === '"') {
+			inString = true;
+			continue;
+		}
+		if (ch === "{") depth++;
+		else if (ch === "}") {
+			depth--;
+			if (depth === 0) return output.slice(start, i + 1);
+		}
+	}
+	return null;
+}
+
 export function parseGolangciLintJson(output: string): CheckResult[] {
 	try {
-		const parsed = JSON.parse(output);
+		const parsed = JSON.parse(firstJsonObject(output) ?? output);
 		if (!isJsonObject(parsed)) return [];
 		const issues = parsed.Issues;
 		if (!Array.isArray(issues)) return [];
