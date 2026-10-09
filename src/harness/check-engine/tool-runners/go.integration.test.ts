@@ -272,14 +272,29 @@ describe("runGolangciLint", () => {
 		expect(runGolangciLint(input(fileScope()))).toEqual([]);
 	});
 
-	it("returns [] when status === 3 (analysis failure — skipped silently)", () => {
-		spawnSyncMock.mockReturnValue(spawnResult({ status: 3, stdout: golangciJson() }));
-		expect(runGolangciLint(input(fileScope()))).toEqual([]);
+	it("warns instead of reporting clean when status is 3, 4, 5, 6, or 7", () => {
+		for (const status of [3, 4, 5, 6, 7]) {
+			spawnSyncMock.mockReset();
+			spawnSyncMock.mockReturnValue(
+				spawnResult({ status, stdout: golangciJson(), stderr: "failed to analyze\n" }),
+			);
+			const out = runGolangciLint(input(fileScope()));
+			expect(out).toHaveLength(1);
+			expect(nonNull(out[0]).tool).toBe("golangci-lint");
+			expect(nonNull(out[0]).severity).toBe("warning");
+			expect(nonNull(out[0]).message).toContain(`exit ${status}`);
+			expect(nonNull(out[0]).message).toContain("did not produce a verdict");
+			expect(nonNull(out[0]).message).toContain("failed to analyze");
+		}
 	});
 
-	it("returns [] when status === 4 (timeout — skipped silently)", () => {
-		spawnSyncMock.mockReturnValue(spawnResult({ status: 4, stdout: golangciJson() }));
-		expect(runGolangciLint(input(fileScope()))).toEqual([]);
+	it("warns when spawnSync times out", () => {
+		const error = new Error("timed out") as NodeJS.ErrnoException;
+		error.code = "ETIMEDOUT";
+		spawnSyncMock.mockReturnValue(spawnResult({ status: null, error }));
+		const out = runGolangciLint(input(fileScope()));
+		expect(out).toHaveLength(1);
+		expect(nonNull(out[0]).message).toContain("timed out");
 	});
 
 	it("returns [] when status === 1 but stdout is empty after trim", () => {

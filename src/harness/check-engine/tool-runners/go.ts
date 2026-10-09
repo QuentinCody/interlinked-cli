@@ -34,6 +34,42 @@ export function golangciJsonFormatArg(versionOutput: string): string {
 	return major >= 2 ? GOLANGCI_V2_JSON : GOLANGCI_V1_JSON;
 }
 
+/**
+ * golangci-lint `pkg/exitcodes` values that mean the analysis did not finish.
+ * These are not an empty issue list. Exit 0 is clean. Exit 1 (IssuesFound)
+ * and any other code still carry JSON issues.
+ */
+const GOLANGCI_NO_VERDICT_STATUS: Readonly<Record<number, string>> = {
+	3: "analysis failed (exit 3)",
+	4: "timed out (exit 4)",
+	5: "no Go files to analyze (exit 5)",
+	6: "no config file detected (exit 6)",
+	7: "an error was logged (exit 7)",
+};
+
+function golangciNoVerdict(reason: string, detail?: string): CheckResult[] {
+	const line = detail?.trim().split("\n").find((row) => row.trim().length > 0);
+	const clipped = line === undefined ? undefined : line.trim().slice(0, 200);
+	const suffix = clipped === undefined || clipped.length === 0 ? "" : ` (${clipped})`;
+	return [
+		{
+			tool: "golangci-lint",
+			severity: "warning",
+			file: "",
+			line: 0,
+			message: `golangci-lint did not produce a verdict: ${reason}${suffix}`,
+		},
+	];
+}
+
+/** `null` means the caller should parse JSON issues. */
+function golangciUnfinished(status: number | null, detail?: string): CheckResult[] | null {
+	if (status === null) return golangciNoVerdict("process did not exit");
+	const reason = GOLANGCI_NO_VERDICT_STATUS[status];
+	if (reason === undefined) return null;
+	return golangciNoVerdict(reason, detail);
+}
+
 function probeGolangciFormatArg(cwd: string, timeoutMs: number, env: NodeJS.ProcessEnv): string {
 	try {
 		const result = spawnSync("golangci-lint", ["version"], {
@@ -122,9 +158,13 @@ export function runGolangciLint(input: ToolRunnerInput): CheckResult[] {
 		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
-		// Exit 0 = clean, exit 1 = issues found
-		// Exit 3 = analysis failure, exit 4 = timeout — skip silently
-		if (result.status === 0 || result.status === 3 || result.status === 4) return [];
+		if (hasErrorCode(result.error, "ETIMEDOUT")) {
+			return golangciNoVerdict("timed out");
+		}
+		// Exit 0 = clean. Exit 1 = issues found (JSON on stdout).
+		if (result.status === 0) return [];
+		const unfinished = golangciUnfinished(result.status, result.stderr || "");
+		if (unfinished !== null) return unfinished;
 
 		const output = (result.stdout || "").trim();
 		if (!output) return [];
