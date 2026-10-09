@@ -20,7 +20,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 // Imported after the mock is registered.
-const { runGoBuild, runGolangciLint } = await import("./go.js");
+const { golangciJsonFormatArg, runGoBuild, runGolangciLint } = await import("./go.js");
 
 const PROJECT_ROOT = "/work/repo";
 const TARGET = `${PROJECT_ROOT}/cmd/server/main.go`;
@@ -200,12 +200,42 @@ describe("runGoBuild", () => {
 // runGolangciLint
 // ---------------------------------------------------------------------------
 
+function golangciRunCall(): [string, string[], { env?: NodeJS.ProcessEnv }] {
+	const call = spawnSyncMock.mock.calls.find(
+		(entry) => Array.isArray(entry[1]) && entry[1][0] === "run",
+	);
+	return nonNull(call) as [string, string[], { env?: NodeJS.ProcessEnv }];
+}
+
+describe("golangciJsonFormatArg", () => {
+	it("keeps the v1 flag for 1.x and unrecognized text", () => {
+		expect(golangciJsonFormatArg("golangci-lint has version 1.64.8 built with go1.24.1")).toBe(
+			"--out-format=json",
+		);
+		expect(golangciJsonFormatArg("")).toBe("--out-format=json");
+	});
+
+	it("uses the v2 flag for 2.x", () => {
+		expect(golangciJsonFormatArg("golangci-lint has version 2.13.2 built with go1.27.0")).toBe(
+			"--output.json.path=stdout",
+		);
+	});
+});
+
 describe("runGolangciLint", () => {
-	it("invokes golangci-lint with json out-format scoped to the edited package", () => {
-		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
+	it("invokes golangci-lint v1 with json out-format scoped to the edited package", () => {
+		spawnSyncMock.mockImplementation((_cmd: string, args: string[]) => {
+			if (args[0] === "version") {
+				return spawnResult({
+					status: 0,
+					stdout: "golangci-lint has version 1.64.8 built with go1.24.1\n",
+				});
+			}
+			return spawnResult({ status: 0 });
+		});
 		runGolangciLint(input(fileScope(), 7_777));
-		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
+		expect(spawnSyncMock).toHaveBeenCalledTimes(2);
+		const [cmd, args, opts] = golangciRunCall();
 		expect(cmd).toBe("golangci-lint");
 		expect(args).toEqual(["run", "--out-format=json", "./cmd/server"]);
 		expect(opts).toMatchObject({
@@ -214,6 +244,22 @@ describe("runGolangciLint", () => {
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
 		});
+	});
+
+	it("invokes golangci-lint v2 with --output.json.path=stdout", () => {
+		spawnSyncMock.mockImplementation((_cmd: string, args: string[]) => {
+			if (args[0] === "version") {
+				return spawnResult({
+					status: 0,
+					stdout: "golangci-lint has version 2.13.2 built with go1.27.0\n",
+				});
+			}
+			return spawnResult({ status: 1, stdout: golangciJson() });
+		});
+		const out = runGolangciLint(input(fileScope()));
+		expect(golangciRunCall()[1]).toEqual(["run", "--output.json.path=stdout", "./cmd/server"]);
+		expect(out).toHaveLength(1);
+		expect(nonNull(out[0]).ruleId).toBe("errcheck");
 	});
 
 	it("returns [] when the binary is absent (error.code === ENOENT)", () => {
@@ -337,8 +383,8 @@ describe("Go package scoping — positive (must fire)", () => {
 
 	it("P2: golangci-lint narrows to the edited package in filtered file mode", () => {
 		runGolangciLint(input(fileScope()));
-		expect(recordedArgs()).toContain("./cmd/server");
-		expect(recordedArgs()).not.toContain("./...");
+		expect(golangciRunCall()[1]).toContain("./cmd/server");
+		expect(golangciRunCall()[1]).not.toContain("./...");
 	});
 });
 
@@ -352,7 +398,7 @@ describe("Go package scoping — negative (must not fire)", () => {
 
 	it("N2: project mode still lints the whole module (golangci-lint)", () => {
 		runGolangciLint(input(fileScope({ mode: "project" })));
-		expect(recordedArgs()).toEqual(["run", "--out-format=json", "./..."]);
+		expect(golangciRunCall()[1]).toEqual(["run", "--out-format=json", "./..."]);
 	});
 
 	it("N3: file mode WITHOUT filterToFile keeps the whole module — narrowing there would drop findings", () => {
@@ -383,7 +429,7 @@ describe("Go build-tag + environment parity", () => {
 	it("P2: threads --build-tags into golangci-lint (it ignores GOFLAGS -tags)", () => {
 		process.env.INTERLINKED_GOFLAGS = "-tags=integration";
 		runGolangciLint(input(fileScope()));
-		expect(recordedArgs()).toEqual([
+		expect(golangciRunCall()[1]).toEqual([
 			"run",
 			"--out-format=json",
 			"--build-tags=integration",
@@ -407,7 +453,7 @@ describe("Go build-tag + environment parity", () => {
 	it("N2: does not invent a GOCACHE when none is configured", () => {
 		delete process.env.INTERLINKED_GOCACHE;
 		runGolangciLint(input(fileScope()));
-		const env = nonNull(recordedOpts().env);
+		const env = nonNull(golangciRunCall()[2].env);
 		expect(env.GOCACHE).toBe(process.env.GOCACHE);
 	});
 });

@@ -18,6 +18,38 @@ import {
 	resolveGoEnv,
 } from "./go-invocation.js";
 
+/** golangci-lint v1 JSON flag. v2 removed it (`unknown flag: --out-format`, exit 3). */
+const GOLANGCI_V1_JSON = "--out-format=json";
+/** golangci-lint v2+ JSON flag. Text stays off stdout when only this path is set. */
+const GOLANGCI_V2_JSON = "--output.json.path=stdout";
+
+/**
+ * Pick the JSON output flag from `golangci-lint version` text.
+ * Unrecognized output stays on the v1 flag so older binaries keep working.
+ */
+export function golangciJsonFormatArg(versionOutput: string): string {
+	const match =
+		versionOutput.match(/\bversion\s+(\d+)\./i) ?? versionOutput.match(/\b(\d+)\.\d+\.\d+\b/);
+	const major = match ? Number(match[1]) : 1;
+	return major >= 2 ? GOLANGCI_V2_JSON : GOLANGCI_V1_JSON;
+}
+
+function probeGolangciFormatArg(cwd: string, timeoutMs: number, env: NodeJS.ProcessEnv): string {
+	try {
+		const result = spawnSync("golangci-lint", ["version"], {
+			cwd,
+			timeout: Math.min(timeoutMs, 10_000),
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+			env,
+		});
+		if (result.error) return GOLANGCI_V1_JSON;
+		return golangciJsonFormatArg(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
+	} catch {
+		return GOLANGCI_V1_JSON;
+	}
+}
+
 // -------------------------------------------
 // go build
 // -------------------------------------------
@@ -71,9 +103,11 @@ export function runGolangciLint(input: ToolRunnerInput): CheckResult[] {
 		// is threaded explicitly because golangci-lint does NOT read `-tags`
 		// from GOFLAGS — without it its loader sees a different file set than
 		// `go build` and pays for a separate type-check.
+		const env = resolveGoEnv(process.env);
+		const formatArg = probeGolangciFormatArg(scope.projectRoot, timeoutMs, env);
 		const args = [
 			"run",
-			"--out-format=json",
+			formatArg,
 			...golangciBuildTagArgs(goToolTags(process.env)),
 			goPackagePattern(scope),
 		];
@@ -82,7 +116,7 @@ export function runGolangciLint(input: ToolRunnerInput): CheckResult[] {
 			timeout: timeoutMs,
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
-			env: resolveGoEnv(process.env),
+			env,
 		});
 
 		if (hasErrorCode(result.error, "ENOENT")) {
