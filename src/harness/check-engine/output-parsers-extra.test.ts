@@ -456,6 +456,21 @@ describe("parseCargoJson", () => {
 });
 
 describe("parseGolangciLintJson", () => {
+	it("keeps issues when a text trailer follows the JSON object", () => {
+		const payload = JSON.stringify({
+			Issues: [
+				{
+					FromLinter: "govet",
+					Text: 'brace in text { and }',
+					Pos: { Filename: "a.go", Line: 4, Column: 1 },
+				},
+			],
+		});
+		const results = parseGolangciLintJson(`${payload}\n1834 issues:\n`);
+		expect(results).toHaveLength(1);
+		expect(nonNull(results[0])).toMatchObject({ file: "a.go", line: 4, ruleId: "govet" });
+	});
+
 	it("reads file/line from issue.Pos when present", () => {
 		const payload = JSON.stringify({
 			Issues: [{ FromLinter: "govet", Text: "bad", Pos: { Filename: "a.go", Line: 10, Column: 2 } }],
