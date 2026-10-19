@@ -122,6 +122,17 @@ describe("splitFpSuppressed", () => {
 });
 
 describe("recording and delivery", () => {
+	it("emits an audit trailer when every advisory is suppressed and no warning was already present", () => {
+		const ctx = makeServerRuntime({ cwd: CWD, rules: { ...makeServerRules(), fp_filter: ON }, log: vi.fn() });
+		const rows = [fpShaped()];
+		annotateFpFilter(rows, ON, ev(), CWD);
+		const decision: HarnessDecision = { decision: "allow" };
+		applyQualityDecision(ctx, rows, decision);
+		expect(decision.warnings).toHaveLength(1);
+		expect(decision.warnings?.[0]).toContain("1 finding suppressed by fp_filter");
+		expect(decision.warnings?.[0]).toContain("audit: interlinked query checks");
+		expect(decision.decision).toBe("allow");
+	});
 	it("collectQualityResultEntries records p and the suppressed flag", () => {
 		const rows = [fpShaped(), tpShaped()];
 		annotateFpFilter(rows, ON, ev(), CWD);

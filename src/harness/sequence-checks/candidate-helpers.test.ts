@@ -1,11 +1,25 @@
 import { describe, expect, it } from "vitest";
+import { makeSession } from "../__tests__/fixtures/evaluator.js";
+import type { HarnessEvent, TaintSource } from "../types.js";
 
 import {
 	CONFIDENTIAL_LEVELS,
+	candidateTaintSources,
 	getCommand,
 	isBashCandidate,
 	planHintsContainTool,
 } from "./candidate-helpers.js";
+
+it("keeps shared and own taint evidence while excluding a sibling's sources", () => {
+    const shared: TaintSource = { file: "shared.env", level: "Confidential", at_step: 1, provenance: "local_read" };
+    const own: TaintSource = { ...shared, file: "own.env", actor: "alice" };
+    const peer: TaintSource = { ...shared, file: "peer.env", actor: "bob" };
+    const trajectory = { ...makeSession(), taint_sources: [shared, own, peer] };
+    const candidate: HarnessEvent = { hook_event: "PreToolUse", session_id: trajectory.session_id,
+        subagent_id: "alice", agent_source: "claude", timestamp: "2026-10-19T00:00:00Z" };
+    expect(candidateTaintSources(trajectory, candidate)).toEqual([shared, own]);
+    expect(candidateTaintSources(trajectory, { ...candidate, subagent_id: "unknown" })).toEqual([shared]);
+});
 
 describe("CONFIDENTIAL_LEVELS", () => {
 	it("contains the two confidential sensitivity levels", () => {

@@ -18,6 +18,20 @@ function rows(name: string): Array<Record<string, unknown>> {
     return readFileSync(join(cwd, ".interlinked", `${name}.jsonl`), "utf8").trim().split("\n").map((line) => JSON.parse(line));
 }
 describe("native data capture", () => {
+	it("records provider outcomes and measured duration without inferring success from missing data", () => {
+		expect(nativeVerificationRecord(event({ tool_outcome: "error", tool_response: { duration_ms: 12 } })))
+			.toMatchObject({ outcome: "fail", basis: "provider", duration_ms: 12, duration_status: "provider-reported" });
+		expect(nativeVerificationRecord(event({ tool_outcome: "success", tool_response: { elapsed_ms: -1 } })))
+			.toMatchObject({ outcome: "pass", basis: "provider", duration_ms: null, duration_status: "not-reported" });
+		expect(nativeVerificationRecord(event({ tool_input: {} }))).toBeNull();
+		expect(nativeVerificationRecord(event({ tool_input: { command: "ls" } }))).toBeNull();
+	});
+	it("keeps provider-declared paths distinct from observed effects and deduplicates them", () => {
+		expect(nativeFileRecords(event({ files_modified: ["a.ts", "a.ts", "b.ts"] }))).toMatchObject([
+			{ file: "a.ts", evidence: "provider-declared", attribution: "declared-target", shadow: false, observation_complete: false },
+			{ file: "b.ts", evidence: "provider-declared", attribution: "declared-target", shadow: false, observation_complete: false },
+		]);
+	});
     it("uses explicit outcomes and retains unknown instead of treating stderr as failure", () => {
         expect(nativeVerificationRecord(event({ exit_code: 0, stderr: "npm warning" }))).toMatchObject({ outcome: "pass", basis: "exit-code" });
         expect(nativeVerificationRecord(event())).toMatchObject({ outcome: "unknown" });

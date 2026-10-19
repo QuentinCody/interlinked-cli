@@ -100,6 +100,14 @@ function serialize(state: ReservationCache): Array<[string, unknown]> {
 // ===========================================
 
 describe("ReservationTxn — pure state machine", () => {
+	it("an unrecognized persisted action does not alter existing ownership", () => {
+		const state = replayTransitions([{ kind: "grant_local", file: "a.ts", agent: "alice", reservedAt: "t0", expiresAt: "t1" }]);
+		const before = serialize(state);
+		// Stored histories can outlive the process version that produced them.
+		const futureAction = { kind: "future-action", file: "a.ts" } as unknown as ReservationTxn;
+		expect(applyTransition(state, futureAction)).toBe(state);
+		expect(serialize(state)).toEqual(before);
+	});
 	it("replay produces identical state to incremental application (Bitar invariant)", () => {
 		fcAssert(
 			fc.property(txnSeqArb, (events) => {

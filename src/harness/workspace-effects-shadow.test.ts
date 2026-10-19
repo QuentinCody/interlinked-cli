@@ -14,6 +14,8 @@ import { partitionResidueByAttribution, resetReconciledEffectRegistry } from "./
 import {
 	clearWorkspaceEffectSession,
 	consumeWorkspaceSnapshot,
+	consumeWorkspaceResidue,
+	fingerprint,
 	rememberWorkspaceSnapshot,
 } from "./workspace-effects.js";
 
@@ -30,6 +32,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	clearWorkspaceEffectSession("shared");
+	clearWorkspaceEffectSession("foreign");
 	rmSync(root, { recursive: true, force: true });
 });
 
@@ -62,6 +65,33 @@ describe("workspace effect shadow attribution — positive (must fire)", () => {
 });
 
 describe("workspace effect shadow attribution — negative (must not fire)", () => {
+	it("recovers interrupted anonymous calls at Stop and clears their pending snapshots", () => {
+		rememberWorkspaceSnapshot({ sessionId: "shared", subagentId: "me", root });
+		rememberWorkspaceSnapshot({ toolUseId: "later", sessionId: "shared", subagentId: "me", root });
+		rememberWorkspaceSnapshot({ toolUseId: "peer", sessionId: "foreign", root });
+		writeFileSync(join(root, "tracked.ts"), "export const value = 11;\n");
+		expect(consumeWorkspaceResidue("shared", root, "me")?.files).toEqual([
+			expect.objectContaining({ path: "tracked.ts", kind: "modified" }),
+		]);
+		expect(consumeWorkspaceResidue("shared", root, "me")).toBeNull();
+		expect(consumeWorkspaceSnapshot({ toolUseId: "peer", sessionId: "foreign", root, call: bash })).not.toBeNull();
+		expect(fingerprint(root, 100)).toBeNull();
+	});
+	it("a second in-flight call from the same actor does not steal its own Bash effect", () => {
+		rememberWorkspaceSnapshot({ toolUseId: "mine", sessionId: "shared", subagentId: "me", root });
+		rememberWorkspaceSnapshot({ sessionId: "shared", subagentId: "me", declaredTargets: ["tracked.ts"], root });
+		writeFileSync(join(root, "tracked.ts"), "export const value = 9;\n");
+		const mine = consumeWorkspaceSnapshot({ toolUseId: "mine", sessionId: "shared", subagentId: "me", root, call: bash });
+		expect(mine?.files[0]).toMatchObject({ attribution: "observed-in-window" });
+	});
+
+	it("a sibling's anonymous in-flight call keeps its declared target out of my ownership", () => {
+		rememberWorkspaceSnapshot({ toolUseId: "mine", sessionId: "shared", subagentId: "me", root });
+		rememberWorkspaceSnapshot({ sessionId: "shared", subagentId: "sib", declaredTargets: ["tracked.ts"], root });
+		writeFileSync(join(root, "tracked.ts"), "export const value = 10;\n");
+		const mine = consumeWorkspaceSnapshot({ toolUseId: "mine", sessionId: "shared", subagentId: "me", root, call: bash });
+		expect(mine?.files[0]).toMatchObject({ attribution: "shadow", shadow_reason: "in-flight-target-of-other-actor" });
+	});
 	it("N1: my own Bash-created file is attributed, and the row says shadow: false", () => {
 		rememberWorkspaceSnapshot({ toolUseId: "mine", sessionId: "shared", subagentId: "me", root });
 		writeFileSync(join(root, "generated.ts"), "export {};\n");

@@ -81,6 +81,21 @@ class StubApi implements ServerApiClient {
 // scheduleRelease — auto-release timer (fake timers)
 // ===========================================
 
+it("contains unexpected background refresh failures and retries on the next interval", async () => {
+    vi.useFakeTimers();
+    const refresh = vi.spyOn(ReservationManager.prototype, "refreshFromServer").mockRejectedValue(new Error("refresh unavailable"));
+    const manager = new ReservationManager(new StubApi(), 30_000);
+    try {
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(refresh).toHaveBeenCalledTimes(2);
+        expect(manager.getAll()).toEqual([]);
+    } finally {
+        manager.shutdown();
+        refresh.mockRestore();
+        vi.useRealTimers();
+    }
+});
+
 describe("ReservationManager.scheduleRelease — idle auto-release", () => {
 	let events: ReservationLogEvent[];
 	let cohort: CohortManager;

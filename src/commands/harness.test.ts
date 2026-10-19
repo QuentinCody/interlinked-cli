@@ -76,7 +76,12 @@ const mocks = vi.hoisted(() => ({
 	classifyDaemonSocket: vi.fn(),
 	isDaemonSocketReady: vi.fn(),
 	readHarnessProcessIdentity: vi.fn(),
+	loadRules: vi.fn(),
+	describeDecisionShadowStatus: vi.fn(),
 }));
+
+vi.mock("../harness/rules-loader.js", () => ({ loadRules: mocks.loadRules }));
+vi.mock("../harness/jev/decision-shadow.js", () => ({ describeDecisionShadowStatus: mocks.describeDecisionShadowStatus }));
 
 vi.mock("node:fs", () => ({
 	existsSync: mocks.existsSync,
@@ -320,6 +325,21 @@ afterEach(() => {
 // ===========================================================================
 
 describe("harnessStartCommand", () => {
+	it("defers to a startup lock even when the holder identity is unavailable", async () => {
+		mocks.acquireStartupLock.mockReturnValue({ acquired: false, holder: null });
+		await runWithTimers(harnessStartCommand({ json: true }));
+		expect(JSON.parse(logText())).toEqual({ status: "start_pending", starter_pid: null });
+		expect(mocks.spawn).not.toHaveBeenCalled();
+	});
+
+	it("identifies an existing responsive daemon by PID in normal output", async () => {
+		mocks.existsSync.mockImplementation((path: unknown) => String(path) === SOCK);
+		mocks.queryHarness.mockResolvedValue({ decision: "allow" });
+		mocks.isHarnessRunning.mockReturnValue({ running: true, pid: 42 });
+		await runWithTimers(harnessStartCommand({}));
+		expect(logText()).toContain("Harness already running (PID 42)");
+		expect(mocks.spawn).not.toHaveBeenCalled();
+	});
 	it("treats an answering socket with a missing pid file as already running", async () => {
 		mocks.existsSync.mockImplementation((path: unknown) => String(path) === SOCK);
 		mocks.queryHarness.mockResolvedValue({ decision: "allow" });
@@ -1082,6 +1102,33 @@ describe("harnessRestartCommand", () => {
 // ===========================================================================
 
 describe("harnessStatusCommand", () => {
+	it("reports an ongoing enforcement gap instead of implying earlier edits were guarded", async () => {
+		vi.setSystemTime(new Date("2026-10-19T12:00:00Z"));
+		mocks.isHarnessRunning.mockReturnValue({ running: false });
+		mocks.existsSync.mockReturnValue(false);
+		mocks.readRecentDaemonEvents.mockReturnValue([{ at: Date.parse("2026-10-19T11:55:00Z"), event: "exit", pid: 123, reason: "shutdown" }]);
+		await runWithTimers(harnessStatusCommand({}));
+		expect(logText()).toContain("Edits are proceeding UNCHECKED");
+		expect(logText()).toContain("5m");
+	});
+	it.each([true, false])("reports enabled decision-shadow readiness (configured=%s)", async configured => {
+		mocks.isHarnessRunning.mockReturnValue({ running: false });
+		mocks.existsSync.mockReturnValue(false);
+		const line = configured ? "ready: jev" : "missing API key";
+		mocks.describeDecisionShadowStatus.mockReturnValue({ enabled: true, configured, line });
+		await runWithTimers(harnessStatusCommand({}));
+		expect(logText()).toContain(`Decision shadow: ${line}`);
+	});
+
+	it("keeps status available when decision-shadow rules cannot be read", async () => {
+		mocks.isHarnessRunning.mockReturnValue({ running: false });
+		mocks.existsSync.mockReturnValue(false);
+		mocks.loadRules.mockImplementation(() => { throw new Error("unreadable rules"); });
+		await runWithTimers(harnessStatusCommand({}));
+		expect(logText()).toContain("Status: not running");
+		expect(logText()).not.toContain("Decision shadow:");
+	});
+
 	it("renders the not-running normal report with the start hint", async () => {
 		mocks.isHarnessRunning.mockReturnValue({ running: false });
 		mocks.existsSync.mockReturnValue(false); // no socket

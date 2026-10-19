@@ -47,6 +47,16 @@ function bashEvent(command: string): HarnessEvent {
 }
 
 describe("evaluateDestructiveRules — bash-code-file-write-bypass", () => {
+	it("reports a literal match found only after removing a whole-command exception during decomposition", () => {
+		const rule = baseRule({ id: "literal-compound", action: "block", patterns: [
+			{ field: "command", regex: "docker\\s+system\\s+prune" },
+			{ field: "command", regex: "SAFE", negate: true },
+		] });
+		const rules = { ...getDefaultConfig(), rules: [rule] };
+		const warnings: string[] = [];
+		expect(evaluateDestructiveRules(bashEvent("printf '%s' 'docker system prune'; echo SAFE"), rules, undefined, warnings)).toBeNull();
+		expect(warnings.filter(message => message.includes("rule literal-compound matched inside a string literal"))).toHaveLength(1);
+	});
 	it("handles a tool event with no argument object without inventing a destructive command", () => {
 		const event: HarnessEvent = { ...bashEvent(""), tool_input: undefined };
 		expect(evaluateDestructiveRules(event, getDefaultConfig(), undefined, [])).toBeNull();
