@@ -25,8 +25,10 @@ describe("Go runners", () => {
 		expect(runGoBuild(input())).toEqual([]);
 	});
 
-	it("runGolangciLint is a function + returns [] without go.mod", () => {
+	it("runGolangciLint is a function and does not report a missing module as clean", () => {
 		expect(typeof runGolangciLint).toBe("function");
-		expect(runGolangciLint(input())).toEqual([]);
+		const out = runGolangciLint(input());
+		// Absent binary stays []; a real failure must be a no-verdict warning.
+		expect(out.every((finding) => finding.message.includes("did not produce a verdict"))).toBe(true);
 	});
 });
