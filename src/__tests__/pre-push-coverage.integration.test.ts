@@ -124,7 +124,10 @@ process.exitCode = result.status ?? 1;
             files: Object.fromEntries(FILES.map(path => [path, { lines_pct: 90, branches_pct: 80 }])) }));
     });
 
-    afterEach(() => rmSync(root, { recursive: true, force: true }));
+    afterEach(() => {
+        vi.unstubAllEnvs();
+        rmSync(root, { recursive: true, force: true });
+    });
 
     let measurement: Record<string, string> = {};
     function report(partial = false, regression = false): void {
@@ -140,8 +143,12 @@ process.exitCode = result.status ?? 1;
         const { INTERLINKED_PRE_PUSH_COVERAGE_SCOPE: _scope, INTERLINKED_PRE_PUSH_COVERAGE_TARGETS: _targets, ...inherited } = process.env;
         const result = spawnSync("bash", [join(root, "scripts/git-hooks/pre-push"), "origin", "unused"], {
             cwd: root, encoding: "utf8", timeout: 60_000,
-            // Inline comparison by default, so a case can read its ledger row as soon as the hook returns.
-            env: { ...inherited, INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND: "1", ...measurement, COVERAGE_CAPTURE: join(root, "captured.json") },
+            // Each fixture owns its gate settings. Outer push preferences must
+            // not skip this fixture's assertions or change its worker contract.
+            // Individual cases can still override these defaults in measurement.
+            env: { ...inherited, INTERLINKED_PRE_PUSH_WORKERS: "1", INTERLINKED_PRE_PUSH_SKIP_E2E: "0",
+                INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE: "0", INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND: "1",
+                ...measurement, COVERAGE_CAPTURE: join(root, "captured.json") },
             input: updates.map(({ sha, remote, old }) => `refs/heads/local ${sha} refs/heads/${remote} ${old}\n`).join(""),
         });
         return { status: result.status, output: result.stdout + result.stderr };
@@ -180,6 +187,9 @@ process.exitCode = result.status ?? 1;
     });
 
     it("accepts measured unchanged coverage and rejects a measured decrease", () => {
+        vi.stubEnv("INTERLINKED_PRE_PUSH_WORKERS", "4");
+        vi.stubEnv("INTERLINKED_PRE_PUSH_SKIP_E2E", "1");
+        vi.stubEnv("INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE", "1");
         const sha = codeCommit();
         report();
         const updates = [{ sha, remote: "main", old: base }];
