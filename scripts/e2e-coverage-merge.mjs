@@ -24,7 +24,7 @@ export function verifyCoverageProofs(summary, models = {}) {
         "Uncalled-function proof missing: zero hits must remain in the executable model");
 }
 
-function childReports(v8Directory, children) {
+function childReportFiles(v8Directory, children) {
     const files = readdirSync(v8Directory).filter((file) => file.endsWith(".json"));
     for (const child of children) {
         assert(child.clean, `Child ${child.pid} did not exit cleanly`);
@@ -32,7 +32,36 @@ function childReports(v8Directory, children) {
     }
     // NODE_V8_COVERAGE is absent from Vitest itself. Additional files here
     // belong to product grandchildren (sidecars/background work), not workers.
-    return files.map((file) => JSON.parse(readFileSync(join(v8Directory, file), "utf8")));
+    return files;
+}
+
+function isDistScript(root, script) {
+    return script.url.startsWith("file:") && fileURLToPath(script.url).startsWith(join(root, "dist/"));
+}
+
+/** Read one raw report at a time, retaining only product coverage for one lossless bulk merge. */
+export function mergeChildReports({ root, v8Directory, children }) {
+    assert(children.length > 0, "No child process coverage evidence");
+    const files = childReportFiles(v8Directory, children);
+    const timings = { read_ms: 0, read_files: files.length, read_scripts: 0, retained_scripts: 0, merge_ms: 0 };
+    const reports = [];
+    for (const file of files) {
+        const started = performance.now();
+        const report = JSON.parse(readFileSync(join(v8Directory, file), "utf8"));
+        timings.read_scripts += report.result.length;
+        const result = report.result.filter((script) => isDistScript(root, script));
+        timings.retained_scripts += result.length;
+        if (result.length > 0) reports.push({ result });
+        timings.read_ms += performance.now() - started;
+    }
+    // V8 function/block granularity precedence is not associative: merging an
+    // already merged report again can change both ranges and hit counts.
+    const started = performance.now();
+    const merged = mergeProcessCovs(reports);
+    timings.merge_ms = elapsed(started);
+    timings.read_ms = Math.round(timings.read_ms);
+    timings.merged_scripts = merged.result.length;
+    return { merged, timings };
 }
 
 /**
@@ -54,9 +83,8 @@ async function convertDistScripts(root, scripts) {
     const loadedSources = new Set();
     let converted = 0;
     for (const script of scripts) {
-        if (!script.url.startsWith("file:")) continue;
+        if (!isDistScript(root, script)) continue;
         const file = fileURLToPath(script.url);
-        if (!file.startsWith(join(root, "dist/"))) continue;
         const code = readFileSync(file, "utf8");
         const sourceMap = JSON.parse(readFileSync(`${file}.map`, "utf8"));
         for (const source of sourceMap.sources) loadedSources.add(relative(root, resolve(file, "..", source)).replaceAll("\\", "/"));
@@ -90,18 +118,8 @@ function summarizeInventory(root, inventory, { coverage, loadedSources }) {
  * numbers come first, and a fix is applied only to the phase the numbers blame.
  */
 export async function mergeChildCoverage({ root, v8Directory, inventory, children }) {
-    assert(children.length > 0, "No child process coverage evidence");
-    const timings = {};
+    const { merged, timings } = mergeChildReports({ root, v8Directory, children });
     let started = performance.now();
-    const reports = childReports(v8Directory, children);
-    timings.read_ms = elapsed(started);
-    timings.read_files = reports.length;
-    timings.read_scripts = reports.reduce((count, report) => count + report.result.length, 0);
-    started = performance.now();
-    const merged = mergeProcessCovs(reports);
-    timings.merge_ms = elapsed(started);
-    timings.merged_scripts = merged.result.length;
-    started = performance.now();
     const conversion = await convertDistScripts(root, merged.result);
     timings.convert_ms = elapsed(started);
     timings.converted_scripts = conversion.converted;

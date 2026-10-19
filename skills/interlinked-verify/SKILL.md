@@ -169,6 +169,16 @@ with `outcome: "daemon"`, plus PID ownership; cold fallback is a separate case.
 `src/e2e/<name>.e2e.test.ts`. `--dry-run` prints it. Replace the deliberate
 failure with the required behavior and add MUST-NOT-FIRE cases.
 `npm run test:e2e:coverage` collects child coverage after `build:e2e`.
+Its merger reads one raw child report at a time and retains only scripts under
+the built `dist/` directory before a single bulk merge. Incremental V8 merges
+are not equivalent because function/block granularity precedence changes.
+The lane still requires every recorded
+child to exit cleanly and flush coverage, includes product grandchildren, and
+preserves zero-hit executable models. A passing test suite alone is insufficient:
+the merge and strict coverage check must finish successfully. The merge stage
+records total scripts read, retained bundle scripts, and unique merged scripts.
+Vitest-only `src/test-setup/` helpers are outside the product boundary inventory;
+their unit tests remain in the full test suite.
 Route ratchet refusals to **interlinked-quality-gates**.
 
 The advisory `[interlinked:e2e-obligation]` Stop warning credits only commands

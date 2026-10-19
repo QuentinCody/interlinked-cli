@@ -21,13 +21,13 @@ export const LEDGER_WRITERS = [
     "src/lib/hook-transport-receipt.ts", "src/lib/local-activity-sync.ts", "src/lib/local-activity.ts",
     "src/lib/manual-debt-marker-record.ts", "src/lib/mcp-recorder/writer.ts", "src/lib/metrics/evidence-run.ts",
     "src/lib/metrics/execution-journal.ts", "src/lib/settings-validator.ts", "src/lib/viz/test-events.ts",
-    "src/test-setup/fast-check-examples.ts",
 ] as const;
 const writers = new Set<string>(LEDGER_WRITERS);
 
 export function isProductSource(path: string): boolean {
     return path.startsWith("src/") && /\.tsx?$/.test(path)
         && !path.startsWith("src/e2e/")
+        && !path.startsWith("src/test-setup/") // Vitest setup and property-test helpers, not shipped runtime.
         && path !== "src/harness/adapters/test-output.ts" // Vitest assertion helpers, not shipped runtime.
         && !/\.(?:test|spec|graph|d)\.tsx?$/.test(path)
         && !/(?:^|\/)(?:__tests__|__fixtures__|__mocks__)(?:\/|$)/.test(path);

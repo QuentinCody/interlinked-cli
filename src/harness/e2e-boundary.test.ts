@@ -18,6 +18,12 @@ describe("e2e boundary inventory", () => {
         expect(isBoundaryFile("src/harness/server/fixtures/a.ts")).toBe(true);
         expect(isBoundaryFile("src/lib/format.ts")).toBe(false);
     });
+    it("keeps Vitest setup and replay helpers outside the product boundary", () => {
+        expect(isProductSource("src/test-setup/fast-check-examples.ts")).toBe(false);
+        expect(isBoundaryFile("src/test-setup/fast-check-examples.ts")).toBe(false);
+        expect(isProductSource("src/test-setup/home-sandbox.ts")).toBe(false);
+        expect(isProductSource("src/harness/test-setup-policy.ts")).toBe(true);
+    });
     it("requires every source append writer to be explicitly inventoried", () => {
         const writers = sources("src").filter(isProductSource).filter((path) => /\b(?:appendFileSync|appendFile|appendFileWithMutationLock)\s*\(/.test(readFileSync(path, "utf8")));
         expect(writers.filter((path) => !isBoundaryFile(path))).toEqual([]);
