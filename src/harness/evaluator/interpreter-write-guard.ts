@@ -31,23 +31,19 @@
 // One signal alone never blocks: a read-only interpreter program is ordinary
 // tooling, and a repo path mentioned by a non-interpreter command is just text.
 //
-// PROGRAM-SCOPE INDIRECTION (2026-08-16, followup #26). Requiring the repo path
-// literal AT the write call left one line of indirection open, and it was walked
-// twice in one day:
+// BOUND DESTINATIONS. Requiring the repo path literal AT the write call leaves
+// simple variable indirection open (2026-08-16, followup #26):
 //
 //   python3 - <<EOF
 //   p1 = 'src/harness/x.ts'          # literal here
 //   open(p1, 'w').write(BODY)        # write there
 //   EOF
 //
-// So signal 2 is now scoped to the PROGRAM, not the call: any gated repo-source
-// literal anywhere in one inline program plus any write call anywhere in that
-// same program is both signals. The two-signal shape is unchanged — a read-only
-// program still never fires, and a program with no repo literal still never
-// fires. One refinement keeps the obvious FP out: a write call whose OWN
-// destination is a resolvable literal was already judged by the direct pass, so
-// `read src/x.ts → write /tmp/out.ts` is proven-safe and is not an indirect
-// write signal.
+// Resolve the destination's own simple binding, never another literal elsewhere
+// in the program. The old program-wide pairing blocked a JSON bookkeeping write
+// merely because it hashed runner/native.py (2026-10-15). Reassignments, scopes
+// and computed expressions that this bounded analysis cannot resolve are not
+// evidence of a source write; they belong on the advisory path.
 //
 // SCOPE, deliberately narrow:
 //   • A command carrying a shell redirect is NOT this guard's business — the
@@ -64,6 +60,7 @@
 
 import { join, resolve, sep } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
+import { stripCommentsByLine, stripForBraceScan } from "../checks/shared-text-utils.js";
 import { collectFlagPrograms, collectHeredocPrograms, type InlineProgram } from "../interpreter-programs.js";
 import { CODE_FILE_EXT_RE, resolveBashWriteTarget } from "../pre-checks-bash-write-detect.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
@@ -189,11 +186,9 @@ function scanProgramForRepoWrite(
 }
 
 /**
- * A write call whose DESTINATION is not a string literal — a variable, an
- * attribute, a call result. `mode`, when set, is a group that must name a
- * writing mode. These are exactly the calls the direct pass cannot judge, which
- * is why they only count as a signal alongside a repo literal elsewhere in the
- * same program.
+ * A write call whose DESTINATION is a simple variable rather than a literal.
+ * Capture the actual destination identifier (group 1), not
+ * an arbitrary source-looking literal. Complex expressions remain advisory.
  */
 interface IndirectWritePattern {
 	re: RegExp;
@@ -201,56 +196,92 @@ interface IndirectWritePattern {
 }
 
 const INDIRECT_WRITE_PATTERNS: readonly IndirectWritePattern[] = [
-	// python — open(dest, "w"), dest not a literal
-	{ re: /\bopen\s*\(\s*(?:file\s*=\s*)?(?!['"])[^,()]{1,80},\s*(?:mode\s*=\s*)?['"]([^'"]*)['"]/g, mode: 1 },
-	// python — Path(dest).write_text(…) / a Path variable's .write_text(…)
-	{ re: /\bPath\s*\(\s*(?!['"])[^)]{1,80}\)\s*\.\s*write_(?:text|bytes)\s*\(/g },
-	{ re: /\b[A-Za-z_$][\w$]*\s*\.\s*write_(?:text|bytes)\s*\(/g },
-	// node — fs write helpers whose first argument is an identifier or a call
-	{
-		re: /\b(?:fs\s*\.\s*)?(?:promises\s*\.\s*)?(?:writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream)\s*\(\s*(?!['"`])[A-Za-z_$(]/g,
-	},
-	// ruby — File.write(dest, …) / File.open(dest, "w"), dest not a literal
-	{ re: /\b(?:File|IO)\s*\.\s*(?:write|binwrite)\s*\(?\s*(?!['"])[A-Za-z_@$]/g },
-	{ re: /\bFile\s*\.\s*open\s*\(\s*(?!['"])[^,)]{1,80},\s*['"]([^'"]*)['"]/g, mode: 1 },
-	// perl — open(FH, ">", $dest)
-	{ re: /\bopen\s*\([^,\n]{1,64},\s*['"]\s*>>?\s*['"]\s*,\s*(?!['"])[^)\n]{1,64}\)/g },
+    // python — open(dest, "w"), dest not a literal
+    { re: /\bopen\s*\(\s*(?:file\s*=\s*)?([A-Za-z_]\w*)\s*,\s*(?:mode\s*=\s*)?['"]([^'"]*)['"]/g, mode: 2 },
+    // python — Path(dest).write_text(…) / a Path variable's .write_text(…)
+    { re: /\bPath\s*\(\s*([A-Za-z_]\w*)\s*\)\s*\.\s*write_(?:text|bytes)\s*\(/g },
+    { re: /\b([A-Za-z_]\w*)\s*\.\s*write_(?:text|bytes)\s*\(/g },
+    // node — fs write helpers whose first argument is an identifier
+    {
+        re: /\b(?:fs\s*\.\s*)?(?:promises\s*\.\s*)?(?:writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream)\s*\(\s*([A-Za-z_$][\w$]*)\s*[,)]/g,
+    },
+    // ruby — File.write(dest, …) / File.open(dest, "w"), dest not a literal
+    { re: /\b(?:File|IO)\s*\.\s*(?:write|binwrite)\s*\(?\s*([A-Za-z_$][\w$]*)\s*,/g },
+    { re: /\bFile\s*\.\s*open\s*\(\s*([A-Za-z_$][\w$]*)\s*,\s*['"]([^'"]*)['"]/g, mode: 2 },
+    // perl — open(FH, ">", $dest)
+    { re: /\bopen\s*\([^,\n]{1,64},\s*['"]\s*>>?\s*['"]\s*,\s*(\$[A-Za-z_]\w*)\s*\)/g },
 ];
 
-/** Every string literal in the program, in source order. */
-const STRING_LITERAL_RE = /['"`]([^'"`\n]{1,200})['"`]/g;
+/** Plain string/Path assignments only; no escapes, interpolation or expressions. */
+const SIMPLE_PATH_BINDING_RE = /(?:^|[;\n])[ \t]*(?:(?:const|let|var|my)\s+)?([A-Za-z_$][\w$]*)\s*=\s*(?:Path\s*\(\s*(['"])([^'"\\\r\n]+)\2\s*\)|(['"])([^'"\\\r\n]+)\4)[ \t]*(?=;|\r?$|#|\/\/)/gm;
 
-/** First write call with a non-literal destination, or null. */
-function findIndirectWriteCall(body: string): string | null {
-	for (const pattern of INDIRECT_WRITE_PATTERNS) {
-		for (const m of body.matchAll(pattern.re)) {
-			if (pattern.mode !== undefined && !WRITE_MODE_RE.test(m[pattern.mode] ?? "")) continue;
-			return m[0].trim().slice(0, EVIDENCE_MAX);
-		}
-	}
-	return null;
+/** A `with open(dest, "w") as f:` statement is straight-line code whose
+ *  write call the `with` keyword merely introduces; any other `with` (an
+ *  earlier block) is a scope this pass does not model. */
+const WITH_BEFORE_CALL_RE = /\bwith\s+$/;
+
+/** Resolve only a single-use binding in straight-line code before this write.
+ * Extra references can be reassignment, destructuring or shadowing: abstain
+ * rather than attempting language-wide dataflow. Strings/comments are inert. */
+function boundWriteTarget(body: string, executable: string, name: string, writeAt: number): string | null {
+    const prefix = executable.slice(0, writeAt).replace(WITH_BEFORE_CALL_RE, "");
+    if (/[{}:]|\b(?:def|class|lambda|function|sub|if|for|while|do|end|try|with|eval|exec|chdir)\b/.test(prefix)) return null;
+    const mentions = [...prefix.matchAll(/[A-Za-z_$][\w$]*/g)].filter(m => m[0] === name);
+    if (mentions.length !== 1) return null;
+    for (const binding of body.slice(0, writeAt).matchAll(SIMPLE_PATH_BINDING_RE)) {
+        if (binding[1] !== name) continue;
+        // The name is the last token before the `=`; a keyword prefix
+        // (`const s = …`) may contain the same letters, so never `indexOf`.
+        const head = binding[0].slice(0, binding[0].indexOf("="));
+        const nameAt = binding.index + head.lastIndexOf(name);
+        if (mentions[0]?.index !== nameAt) continue;
+        const target = binding[3] ?? binding[5];
+        // Perl/Ruby interpolation is not a literal destination.
+        return target && !/\$|#\{/.test(target) ? target : null;
+    }
+    return null;
+}
+
+const TRIPLE_QUOTED_RE = /('''|""")[\s\S]*?\1/g;
+
+/** Blank Python triple-quoted strings (delimiters included, newlines kept)
+ *  so the line-oriented strippers never see their bodies as code. Returns
+ *  null on an unterminated triple quote: the program's structure is unknown. */
+function blankTripleQuoted(body: string): string | null {
+    const blanked = body.replace(TRIPLE_QUOTED_RE, (m) => m.replace(/[^\n]/g, " "));
+    return /'''|"""/.test(blanked) ? null : blanked;
 }
 
 /**
- * Program-scope fallback: a gated repo-source literal anywhere in the program
- * plus a write call anywhere in it whose destination the direct pass could not
- * read. Signal 1 (the interpreter) already held to get here.
+ * Follow a simple destination binding. A filename used as input, a hash key or
+ * an output payload never supplies evidence about another write's destination.
  */
 function scanProgramForIndirectWrite(
-	program: InlineProgram,
-	cmd: string,
-	projectRoot: string,
+    program: InlineProgram,
+    cmd: string,
+    projectRoot: string,
 ): InterpreterWriteHit | null {
-	const writeCall = findIndirectWriteCall(program.body);
-	if (writeCall === null) return null;
-	for (const m of program.body.matchAll(STRING_LITERAL_RE)) {
-		const target = m[1];
-		if (target === undefined) continue;
-		const resolved = resolveGatedTarget(cmd, target, projectRoot);
-		if (resolved === null) continue;
-		return { interpreter: program.interpreter, form: program.form, writeCall, target, resolved, indirect: true };
-	}
-	return null;
+    // Multi-line literals are blanked before the line-oriented strippers run;
+    // the brace scanner already models JS template literals.
+    const flat = blankTripleQuoted(program.body);
+    if (flat === null) return null;
+    const executable = stripForBraceScan(stripCommentsByLine(flat));
+    for (const pattern of INDIRECT_WRITE_PATTERNS) {
+        for (const m of program.body.matchAll(pattern.re)) {
+            if (pattern.mode !== undefined && !WRITE_MODE_RE.test(m[pattern.mode] ?? "")) continue;
+            const name = m[1];
+            if (!name || executable[m.index] !== program.body[m.index]) continue;
+            // A property receiver is not a reference to a same-named local.
+            if (/[\w$.]/.test(program.body[m.index - 1] ?? "")) continue;
+            const target = boundWriteTarget(program.body, executable, name, m.index);
+            if (target === null) continue;
+            const resolved = resolveGatedTarget(cmd, target, projectRoot);
+            if (resolved === null) continue;
+            const writeCall = m[0].trim().slice(0, EVIDENCE_MAX);
+            return { interpreter: program.interpreter, form: program.form, writeCall, target, resolved, indirect: true };
+        }
+    }
+    return null;
 }
 
 /**
@@ -259,7 +290,7 @@ function scanProgramForIndirectWrite(
  *
  * Two passes, direct first: a write call naming its own repo-path literal is the
  * most specific evidence and gives the best message, so it wins when present.
- * Only when no program writes through a literal does the program-scope pass run.
+ * Only when no program writes through a literal does the variable-binding pass run.
  *
  * Public API — exported for the guard wiring and for direct unit testing
  * without constructing a hook event.
@@ -332,8 +363,8 @@ export function detectComputedInterpreterWrite(
  *  at the sanctioned channel — same voice as the redirect gate's message. */
 export function buildInterpreterWriteReason(hit: InterpreterWriteHit): string {
 	const how = hit.indirect
-		? `writes through \`${hit.writeCall}\`, and the same program names the tracked source file ` +
-			`${hit.resolved} (\`${hit.target}\`). Routing the path through a variable does not move ` +
+        ? `writes through \`${hit.writeCall}\`, whose destination is bound to the source file ` +
+            `${hit.resolved} (\`${hit.target}\`). Routing the path through a variable does not move ` +
 			`the write out of the repo. An interpreter `
 		: `writes a tracked source file at ${hit.resolved} (\`${hit.writeCall}\`). An interpreter `;
 	return (

@@ -1,0 +1,195 @@
+{
+ "schema": "tsc-scheduler-weights.v1",
+ "model": "logistic over 17 free edit features (E21 logistic_meta, typescript label)",
+ "provenance": {
+  "experiment": "E21 check scheduling, 2026-10-08 decision-model program",
+  "fit_date": "2026-10-08",
+  "cohort": "scratch/2026-10-08-decisions-orthogonal/e21-check-schedule/items-typescript.jsonl",
+  "cohort_sha256": "a5fae46a6a19b9aaa5c75686c42ea2180b3d904a33fca800f00cd66e54700178",
+  "cohort_repo": "interlinked-cli only (one repo; E23 showed this logistic does NOT transfer across repos)",
+  "n_train": 1125,
+  "train_positive": 264,
+  "n_holdout": 234,
+  "holdout_positive": 50,
+  "holdout_split": "1/5 of files, seed 7 (build_schedule.assign_splits)",
+  "holdout_auroc": 0.8052173913043478,
+  "fit": "score.fit_logistic: z-score, L2 1.0, 3000 GD steps, lr 0.05, train split only",
+  "threshold_method": "largest t keeping >= recall_point of reporting edits, 5-fold group cross-fit inside train",
+  "script": "scratch/2026-10-08-decisions-orthogonal/e21-check-schedule/fit_for_ship.py"
+ },
+ "features": [
+  "edit_chars",
+  "old_chars",
+  "edit_lines",
+  "old_lines",
+  "net_lines",
+  "import_lines_added",
+  "has_any",
+  "has_as",
+  "has_optchain",
+  "has_bang",
+  "brace_imbalance",
+  "is_test_file",
+  "is_write",
+  "is_apply_patch",
+  "is_subagent",
+  "is_claude",
+  "hour"
+ ],
+ "mean": [
+  1125.8284444444444,
+  281.47555555555556,
+  19.252444444444443,
+  4.986666666666666,
+  14.265777777777778,
+  0.7368888888888889,
+  0.04,
+  0.19644444444444445,
+  0.15466666666666667,
+  0.04088888888888889,
+  0.07377777777777778,
+  0.39022222222222225,
+  0.06488888888888888,
+  0.3377777777777778,
+  0.21955555555555556,
+  0.6622222222222223,
+  15.374222222222222
+ ],
+ "scale": [
+  1711.2305498009653,
+  561.1061254970019,
+  30.781355191407552,
+  11.601409877006922,
+  31.63454556884318,
+  1.9920105121527916,
+  0.19595918042265642,
+  0.39730847648392476,
+  0.3615866280880159,
+  0.19803279539103252,
+  0.47784371738010406,
+  0.4878000004938233,
+  0.24632970076771762,
+  0.4729523776905994,
+  0.41394554522078636,
+  0.4729523776905994,
+  5.88553424046803
+ ],
+ "weights": [
+  0.1357277928410643,
+  -0.1566718958890825,
+  0.12635307389014142,
+  0.28098874836594706,
+  0.019897652866493292,
+  0.4056543226802061,
+  0.13183952943236996,
+  -0.03484679393593327,
+  0.08824831156034856,
+  -0.023238311238007132,
+  -0.047665618442910736,
+  -0.1791068088497225,
+  -0.1472816142261522,
+  -0.7515148382177731,
+  -0.17441139696169064,
+  0.7515148382177734,
+  0.05086504494723475
+ ],
+ "bias": -1.7181998304048778,
+ "default_recall_point": 0.9,
+ "recall_points": [
+  {
+   "recall_point": 0.8,
+   "threshold": 0.267340861264741,
+   "train_crossfit_recall": 0.803030303030303,
+   "holdout_logistic_only": {
+    "n": 234,
+    "reporting": 50,
+    "deferred": 154,
+    "missed": 14,
+    "recall": 0.72
+   },
+   "holdout_with_import_rule": {
+    "n": 234,
+    "reporting": 50,
+    "deferred": 104,
+    "missed": 2,
+    "recall": 0.96
+   }
+  },
+  {
+   "recall_point": 0.85,
+   "threshold": 0.25748166250462734,
+   "train_crossfit_recall": 0.8522727272727273,
+   "holdout_logistic_only": {
+    "n": 234,
+    "reporting": 50,
+    "deferred": 144,
+    "missed": 13,
+    "recall": 0.74
+   },
+   "holdout_with_import_rule": {
+    "n": 234,
+    "reporting": 50,
+    "deferred": 96,
+    "missed": 2,
+    "recall": 0.96
+   }
+  },
+  {
+   "recall_point": 0.9,
+   "threshold": 0.23241328231494393,
+   "train_crossfit_recall": 0.9015151515151515,
+   "holdout_logistic_only": {
+    "n": 234,
+    "reporting": 50,
+    "deferred": 125,
+    "missed": 10,
+    "recall": 0.8
+   },
+   "holdout_with_import_rule": {
+    "n": 234,
+    "reporting": 50,
+    "deferred": 80,
+    "missed": 2,
+    "recall": 0.96
+   }
+  },
+  {
+   "recall_point": 0.95,
+   "threshold": 0.14836106983787237,
+   "train_crossfit_recall": 0.9507575757575758,
+   "holdout_logistic_only": {
+    "n": 234,
+    "reporting": 50,
+    "deferred": 100,
+    "missed": 6,
+    "recall": 0.88
+   },
+   "holdout_with_import_rule": {
+    "n": 234,
+    "reporting": 50,
+    "deferred": 64,
+    "missed": 1,
+    "recall": 0.98
+   }
+  },
+  {
+   "recall_point": 0.99,
+   "threshold": 0.020562521170874377,
+   "train_crossfit_recall": 0.9924242424242424,
+   "holdout_logistic_only": {
+    "n": 234,
+    "reporting": 50,
+    "deferred": 55,
+    "missed": 1,
+    "recall": 0.98
+   },
+   "holdout_with_import_rule": {
+    "n": 234,
+    "reporting": 50,
+    "deferred": 51,
+    "missed": 1,
+    "recall": 0.98
+   }
+  }
+ ]
+}

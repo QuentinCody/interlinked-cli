@@ -90,11 +90,11 @@ export class E2eFixture {
     readonly dataDir: string;
     readonly sessionPrefix = `e2e-${randomUUID()}`;
     private readonly env: NodeJS.ProcessEnv;
-    private readonly daemon: ChildProcess;
-    private readonly daemonExit: Promise<{ code: number | null; stdout: string; stderr: string }>;
+    private daemon: ChildProcess;
+    private daemonExit: Promise<{ code: number | null; stdout: string; stderr: string }>;
     private closed = false;
 
-    constructor(readonly cwd: string, readonly protocol: Protocol | "dual", rules: Record<string, unknown> = {}, readonly buildRoot = PROJECT_ROOT) {
+    constructor(readonly cwd: string, readonly protocol: Protocol | "dual", rules: Record<string, unknown> = {}, readonly buildRoot = PROJECT_ROOT, prepare?: (cwd: string) => void) {
         this.paths = socketPaths(cwd);
         this.dataDir = join(cwd, ".interlinked");
         mkdirSync(this.dataDir);
@@ -109,6 +109,7 @@ export class E2eFixture {
         execFileSync("git", ["init", "--quiet", cwd], { env: this.env });
         execFileSync("git", ["add", "README.md", ".gitignore"], { cwd, env: this.env });
         execFileSync("git", ["-c", "user.name=E2E Fixture", "-c", "user.email=e2e@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "--quiet", "--no-gpg-sign", "-m", "fixture"], { cwd, env: this.env });
+        prepare?.(cwd);
         this.daemon = spawn(process.execPath, [join(this.buildRoot, "dist/harness/server.js"), "--cwd", cwd,
             "--protocol", protocol, "--session-id", "default", "--idle-timeout", "0"], { cwd, env: this.env, stdio: ["ignore", "pipe", "pipe"] });
         this.daemonExit = childCompletion(this.daemon, 0);
@@ -242,6 +243,15 @@ export class E2eFixture {
         } finally { clearTimeout(timeout); }
     }
 
+    async restartDaemon(): Promise<void> {
+        await this.stopDaemon();
+        this.daemon = spawn(process.execPath, [join(this.buildRoot, "dist/harness/server.js"), "--cwd", this.cwd,
+            "--protocol", this.protocol, "--session-id", "default", "--idle-timeout", "0"], { cwd: this.cwd, env: this.env, stdio: ["ignore", "pipe", "pipe"] });
+        this.daemonExit = childCompletion(this.daemon, 0);
+        void this.daemonExit.catch(() => undefined);
+        await this.ready();
+    }
+
     async close(): Promise<void> {
         if (this.closed) return;
         this.closed = true;
@@ -256,14 +266,14 @@ export class E2eFixture {
     }
 }
 
-export async function createFixture(options: { protocol?: Protocol | "dual"; rules?: Record<string, unknown>; buildRoot?: string } = {}): Promise<E2eFixture> {
+export async function createFixture(options: { protocol?: Protocol | "dual"; rules?: Record<string, unknown>; buildRoot?: string; prepare?: (cwd: string) => void } = {}): Promise<E2eFixture> {
     const buildRoot = options.buildRoot ?? PROJECT_ROOT;
     assert(existsSync(join(buildRoot, "dist/harness/server.js")), "Run npm run build before test:e2e");
     const built = Math.min(statSync(join(buildRoot, "dist/harness/server.js")).mtimeMs, statSync(join(buildRoot, "dist/hook-entry.js")).mtimeMs);
     const stale = options.buildRoot ? undefined : sourceFiles(PROJECT_ROOT).filter(isProductSource).find((path) => statSync(join(PROJECT_ROOT, path)).mtimeMs > built);
     assert(!stale, `Stale dist (${stale}); run npm run build before test:e2e`);
     const fixtureTempDir = process.platform === "darwin" ? "/tmp" : tmpdir();
-    const fixture = new E2eFixture(realpathSync(mkdtempSync(join(fixtureTempDir, "e2e-"))), options.protocol ?? "dual", options.rules, buildRoot);
+    const fixture = new E2eFixture(realpathSync(mkdtempSync(join(fixtureTempDir, "e2e-"))), options.protocol ?? "dual", options.rules, buildRoot, options.prepare);
     try { await fixture.ready(); return fixture; }
     catch (error) { await fixture.close(); throw error; }
 }

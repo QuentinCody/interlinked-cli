@@ -310,7 +310,7 @@ bridge and preserves a bridge modified after installation.
 
 **Why:** Teams need shared safety policies (everyone should be blocked from `rm -rf /`), but individual developers may need exceptions (e.g., a DevOps engineer who legitimately uses `terraform destroy`).
 
-The rules are loaded at harness startup and hot-reloaded when files change. Built-in rules (<!-- gen:builtin_rule_count -->121<!-- /gen:builtin_rule_count --> rules across <!-- gen:builtin_rule_category_count -->25<!-- /gen:builtin_rule_category_count --> categories — see `docs/generated/guard-rules.md` for the full reference) are always active unless explicitly disabled in the local override file.
+The rules are loaded at harness startup and hot-reloaded when files change. Built-in rules (<!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> rules across <!-- gen:builtin_rule_category_count -->25<!-- /gen:builtin_rule_category_count --> categories — see `docs/generated/guard-rules.md` for the full reference) are always active unless explicitly disabled in the local override file.
 
 ### 7. Server Bridge — Coordination Without Dependency
 
@@ -334,7 +334,7 @@ The rules are loaded at harness startup and hot-reloaded when files change. Buil
 | `cli/src/harness/types.ts` | All type definitions: events, decisions, rules, cohort, reservations, config |
 | `cli/src/harness/server.ts` | Node.js Unix socket server — the main entry point (`node:net`) |
 | `cli/src/harness/evaluator.ts` | Guard evaluation — PreToolUse blocking + PostToolUse feedback |
-| `cli/src/harness/rules-loader.ts` | Rule loading: <!-- gen:builtin_rule_count -->121<!-- /gen:builtin_rule_count --> built-in + team JSON + personal overrides + hot-reload |
+| `cli/src/harness/rules-loader.ts` | Rule loading: <!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> built-in + team JSON + personal overrides + hot-reload |
 | `cli/src/harness/session-state.ts` | Per-session trajectory tracking (files, commands, tool counts) |
 | `cli/src/harness/cohort.ts` | Agent cohort manager (join/leave/lost detection, file tracking) |
 | `cli/src/harness/reservations.ts` | Auto file reservation (optimistic lock, 30s release, server sync) |
@@ -374,7 +374,7 @@ The rules are loaded at harness startup and hot-reloaded when files change. Buil
 **Auto-generated reference docs** (run `npm run docs` to regenerate):
 | File | Contents |
 |------|----------|
-| `cli/docs/generated/guard-rules.md` | All <!-- gen:builtin_rule_count -->121<!-- /gen:builtin_rule_count --> built-in guard rules by category |
+| `cli/docs/generated/guard-rules.md` | All <!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> built-in guard rules by category |
 | `cli/docs/generated/quality-checks.md` | All <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> PostToolUse quality checks |
 | `cli/docs/generated/structural-checks.md` | All <!-- gen:structural_check_count -->26<!-- /gen:structural_check_count --> structural checks by tier |
 | `cli/docs/generated/configuration.md` | Default config: diff-aware filtering + structural check settings |
@@ -469,7 +469,7 @@ The index should be added to `.gitignore` — it's machine-local and fast to reb
 
 ## Guard Rules — Overview
 
-> **Full reference:** See `docs/generated/guard-rules.md` (auto-generated, <!-- gen:builtin_rule_count -->121<!-- /gen:builtin_rule_count --> rules across <!-- gen:builtin_rule_category_count -->25<!-- /gen:builtin_rule_category_count --> categories).
+> **Full reference:** See `docs/generated/guard-rules.md` (auto-generated, <!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> rules across <!-- gen:builtin_rule_category_count -->25<!-- /gen:builtin_rule_category_count --> categories).
 
 ### Lifecycle Enforcement
 
@@ -477,7 +477,7 @@ The index should be added to `.gitignore` — it's machine-local and fast to reb
 |-------|-----------|--------|-----------|
 | Curl-to-MCP detection | Yes | Warn → Block | `curl localhost:PORT` (escalates after 5 calls) |
 
-### Built-in Rule Categories (<!-- gen:builtin_rule_count -->121<!-- /gen:builtin_rule_count --> rules across <!-- gen:builtin_rule_category_count -->25<!-- /gen:builtin_rule_category_count --> categories)
+### Built-in Rule Categories (<!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> rules across <!-- gen:builtin_rule_category_count -->25<!-- /gen:builtin_rule_category_count --> categories)
 
 Category counts below are derived from `docs/generated/guard-rules.md` (the
 auto-generated source of truth — regenerate with `npm run docs` after adding
@@ -501,6 +501,8 @@ or removing a rule).
 | Inline Scripts | 2 | Destructive ops in inline scripts, `bash -c` destructive |
 | Language Destructive | 6 | Python/Rust/Go/C/Java destructive filesystem operations |
 | Information Flow | 1 | Env exfiltration via shell redirection |
+
+**Literal-context gate (2026-10-08).** A Bash `block`, `ask` or `soft_block` rule that matches only text the command treats as data becomes a warning, not a stop: `[interlinked:guard] rule <id> matched inside a string literal (<context>); not blocked — the text is data, not an executed command`. `evaluator/literal-context.ts` finds four data contexts: an argument of `interlinked harness test` (or a `for` list whose variable reaches only `harness test`/echo/printf), a string or comment inside a `node -e` / `python3 -c` / `python3 - <<'PY'` / `perl -e` / `ruby -e` program with no execution token (`child_process`, `subprocess`, `system`, `exec`, `eval`, backticks…), a grep/rg pattern or `sed -n '/re/p'` script, and an echo/printf argument. The pipeline must end only in data sinks (never `sh`/`bash`/`eval`/`xargs`), and every redirect must write data. `literal-context-gate.ts` re-tests the rule's positive patterns on the command with those regions blanked, and the block stands if any pattern still matches. Command substitution, subshells, unterminated quotes and other constructs that the parser does not model give no region, so the block stands. Two raters judged 18–25 of 50 sampled blocks to be this shape.
 
 ### Security Checks (evaluator-level)
 
@@ -624,6 +626,93 @@ See `docs/generated/configuration.md` for the full default configuration referen
 - `diff_aware` — control which checks suppress pre-existing findings
 - `error_memory` — error pattern history with optional embeddings support
 
+### TypeScript check scheduler (experiment E21, default off)
+
+`quality_checks.typescript.scheduler` lets the daemon skip the synchronous
+`typescript` run for an edit that is predicted to report nothing. The
+predictor is a logistic over 17 free edit features (tool, text size, line
+counts, added import lines, type-token presence, test path, provider,
+subagent, hour). It is pure and deterministic:
+`src/harness/quality-checks/tsc-scheduler.ts`. The weights and their
+provenance (cohort sha256, fit date, holdout AUROC, threshold per recall
+point) are in `src/harness/quality-checks/tsc-scheduler-weights.json`. The
+refit script is
+`scratch/2026-10-08-decisions-orthogonal/e21-check-schedule/fit_for_ship.py`.
+
+```jsonc
+// .interlinked/guard-rules.local.json (local tier only; team config cannot enable it)
+{ "quality_checks": { "typescript": { "scheduler": { "enabled": true, "min_recall_point": 0.9 } } } }
+```
+
+- An edit is deferred when `p < threshold` for the recall point (default
+  0.90; fitted points 0.80, 0.85, 0.90, 0.95, 0.99; another value takes the
+  next stricter point). An edit that changes an import line is never deferred.
+- A deferred edit prints `[interlinked:typescript] deferred by scheduler (p=0.xx)`.
+  The file joins a durable per-session set under `.interlinked/tsc-scheduler/`.
+- The set is drained (one tsc run over all deferred files plus the edited
+  file) at the next single-file edit that the scheduler runs, and always at
+  Stop, SubagentStop, SessionEnd and commit. Each child actor has its own set.
+  The Stop drain reports its verdict. Type errors block Stop and remain durable
+  across retries and daemon replacement until resolved. A drain without a verdict
+  blocks Stop as NOT CHECKED; edits arriving during compilation remain pending.
+  Corrupt state is retained and keeps blocking until restored from a known-good
+  backup. An inapplicable project never claims a compiler execution.
+- The scheduler applies only where tsc would run synchronously. The native
+  PostToolBatch compiler queue and multi-file calls are unchanged.
+- Every decision is in the `check-results.jsonl` row as
+  `scheduler: {deferred, p, threshold, recall_point, override?, drained_files?, trigger}`;
+  `trigger` is `edit`, `stop`, `session_end`, or `commit`.
+  To see the deferred runs, use
+  `interlinked query checks --where scheduler.deferred=true`.
+
+Measured on one repository only (interlinked-cli, 1,359 labeled edits, file
+holdout 234): AUROC 0.805. At the 0.90 point the logistic alone defers 125/234
+runs and misses 10/50 reporting runs. With the import rule it defers 80/234
+and misses 2/50. On a second repository (E23) the same logistic scored AUROC
+0.510. Do not enable it on another codebase without a refit on that
+codebase's own `check-results.jsonl`. Related-test runs are not scheduled:
+no arm predicted them (AUROC 0.36–0.58).
+
+### False-positive filter for heuristic findings (experiment E18, default off)
+
+`fp_filter` withholds PostToolUse findings that are probably not worth a fix.
+The predictor is a logistic over free features: the check id (one-hot), the
+path class (test, scratch, archived), the severity, the per-session repeat
+count and the message length. It is pure and deterministic:
+`src/harness/fp-filter.ts`. The weights and their provenance (cohort sha256,
+fit date, holdout AUROC, threshold rule) are in
+`src/harness/fp-filter-weights.json`. The refit script is
+`scratch/2026-10-08-decisions-orthogonal/e18-fp-filter/fit_for_ship.py`.
+
+```jsonc
+// .interlinked/guard-rules.local.json (local tier only; team config cannot enable it)
+{ "fp_filter": { "enabled": true, "mode": "downgrade" } }   // or "hide"; optional "min_p"
+```
+
+- Only `[heuristic]` findings are scored. `[proven]` findings, `pre_block`
+  registry checks, no-verdict deferrals and blocking results are never touched.
+- A finding is suppressed when `p < min_p` (default: the shipped threshold,
+  0.0235). The suppressed findings become one trailer line,
+  `[interlinked:fp-filter] [heuristic] N findings suppressed by fp_filter (p<…)`.
+  In `downgrade` mode the trailer names the checks; in `hide` mode it gives the count only.
+- Every scored finding is still recorded in `check-results.jsonl` with
+  `fp_filter_p`; a suppressed one also carries `fp_filter_suppressed: true`
+  (on the finding, on its `checks[]` entry and on the row). To audit, use
+  `interlinked query checks --where fp_filter_suppressed=true`.
+- `interlinked verify --fp-filter` (or `fp_filter.enabled`) reports per check
+  how many findings the filter would suppress, in the streaming output and as
+  the `fp_filter` key of `--json`. Verify does not hide findings. It scores with
+  repeat count 0 and the per-issue message, so its counts approximate the hook.
+
+Measured on one repository only (interlinked-cli, 467 labeled findings, file
+holdout 148 with 26 true positives): AUROC 0.906 [0.85, 0.95]. At the shipped
+threshold (the highest one that keeps ≥ 90% of train true positives on
+out-of-fold predictions) it kept 26/26 holdout true positives and suppressed
+66/122 holdout false positives. 400 of the 467 labels are model labels. The
+weights are mostly a per-check genuine-rate prior, which changes between
+codebases. Do not enable it on another codebase without a refit on labels
+from that codebase.
+
 ## ML Content Scanner — Bidirectional PII/Secret Exfil Guard
 
 A detector-style layer that scans tool-call content with a learned token classifier (default: OpenAI's [privacy-filter](https://huggingface.co/openai/privacy-filter)) and returns canonical `ask` so an ask-capable interactive runner can request human confirmation. Provider rendering is explicit: Claude and supported Cursor gates use native ask; interactive Pi uses `ctx.ui.confirm`; headless Pi and OpenCode's stable tool gate deny, as do other ask-incapable pre-tool surfaces. This is distinct from the generative policy classifier (`src/harness/policy-classifier.ts`) — that one emits free-form verdicts; this one emits structured spans.
@@ -642,9 +731,9 @@ The scanner guards exfiltration in both directions:
 | Direction | Trigger | What happens | Exfil risk mitigated |
 |---|---|---|---|
 | **Outbound** (PreToolUse) | Write / Edit / MultiEdit / NotebookEdit content; Bash command body; WebFetch URL + prompt; external MCP tool string args | Scanner runs on each text part; if any span is detected the server returns `ask`. Ask-capable interactive runners prompt; ask-incapable or headless surfaces deny with the categorized reason. | PII being committed to disk, piped to curl, or sent to external services |
-| **Inbound** (PostToolUse) | `Read` / `Grep` / `Glob` return payloads | Scanner runs on `tool_response`; detections ratchet `session.sensitivity_level` to `Confidential` (or `HighlyConfidential` for `secret` / `account_number` labels) and push the step index into `pii_detected_steps` | Sensitive data read into agent context → subsequent outbound actions blocked by the existing taint-tracking rules (`network_block_at: Confidential`) without needing the scanner to re-detect anything |
+| **Inbound** (PostToolUse) | `Read` / `Grep` / `Glob` return payloads | Scanner runs on `tool_response`; detections ratchet `session.sensitivity_level` to `Confidential` (or `HighlyConfidential` for `secret` / `account_number` labels) and push the step index into `pii_detected_steps` | Sensitive data read into agent context → the session sensitivity rises and later outbound actions carry a taint warning |
 
-The inbound→outbound chain is the load-bearing integration: once a session reads PII, *every* subsequent network command is blocked by taint tracking even if the outbound command itself has been stripped of PII before send.
+Since 2026-10-08, taint tracking no longer blocks network commands (operator decision). Once a session reads PII, its sensitivity is tracked and warned, but later network commands are never blocked by taint.
 
 ### Taxonomy
 
@@ -754,6 +843,80 @@ Every scanner error path — spawn failure, timeout, network error, malformed re
 | `src/harness/content-scanner/opf-http.ts` | HTTP backend for HF / self-hosted / server-proxied |
 | `src/harness/content-scanner/registry.ts` | Factory: config → scanner |
 | `src/harness/content-scanner/post-scan.ts` | PostToolUse Read/Grep scan + taint ratchet |
+
+## Edit shadow (experiment, default off)
+
+`src/harness/jev/edit-shadow.ts` asks TypeSafe's Jev one fixed question after
+each successful Write/Edit/MultiEdit/apply_patch on an in-scope code file: does
+this edit warrant tests or a type-check before the next edit? An `apply_patch`
+gets one call, for its first in-scope file, with that file's hunk text.
+`shadow_scope` sets the scope: `cappable` (default, `isCappableFile`) or `code`
+(any .ts/.mts/.tsx/.js/.mjs/.py under the repo root, scratch/ included, except
+tests, `.d.ts` and generated/dist/node_modules paths). The answer is only logged.
+It adds no warning, never blocks and never changes a decision. Each call appends
+one row to `.interlinked/decision-shadow.jsonl` (`surface: "edit"`, `p`,
+`latency_ms`, `input_tokens`, `usd`, `model`, `error`, `question_id:
+"edit_needs_verification_v1"`, plus `session_id`, `agent` and `tool_use_id` for
+the offline join against the agent's next action). The ledger is shared with
+the decision shadows below, so `surface` tells the row kinds apart and
+`session_id` is the one session key. A failure is a row with `p: null` and an
+error class.
+
+Enable it in `.interlinked/guard-rules.local.json` with
+`"jev": {"enabled": true, "shadow_edits": true}` and `TYPESAFE_API_KEY` in the
+environment or `.interlinked/config.local.json`. Optional knobs:
+`shadow_max_spend_usd` (per daemon, default 0.50; after the cap, one
+`spend_cap` row and no more calls) and `shadow_timeout_ms` (default 1500).
+Simulated `harness test` events (`dry_run`) make no call and write no row.
+The edit text (up to 4,000 characters) and the replaced text go to a third
+party, so keep it off in repositories whose source must not leave the machine.
+
+## Decision shadows (default off)
+
+Decision shadows ask a decision model for a second opinion on two guard
+outcomes. They only log the answer. They add no warning, never block, never
+change a decision, and never delay the hook response: each call is scheduled on
+a later tick and nothing awaits it. Source: `src/harness/jev/decision-shadow.ts`
+(core), `block-shadow.ts`, `secret-shadow.ts`, `decision-shadow-redact.ts`.
+
+| Surface | Fires when | Question (frozen from) | Verdicts | Threshold |
+|---|---|---|---|---|
+| `guard_block` | the final PreToolUse decision is `block` for a shell tool (any rule) | E20 `question-destructive.json`: is the command destructive as written? | `would_hold` if p ≥ t, else `would_release` | 0.1476 (E20 Clef-flash, 100% train recall) |
+| `secret_hit` | a `secrets_detection` signature matches Bash or Read output (PostToolUse), or proposed Write/Edit/MultiEdit content (PreToolUse) | E19 `question.json`: is the match a real credential? | `would_keep` if p ≥ t, else `would_clear` | 0.479 (E19 Clef-flash, ≥95% train recall) |
+
+The `guard_block` state is the E20 render without `blocked_by_harness`:
+`{command, cwd: null, previous_calls}`. Credential-shaped tokens are redacted.
+E28 showed that the flag lowers Clef-flash recall. The `secret_hit` state is the
+E19 render `{rule_id, source_kind, masked_match, masked_context}`: the match
+keeps its first 4 and last 2 characters, and every signature match and
+high-entropy token in the ±150-character context is masked. The shadow does not
+send a state that still holds an unmasked match. The raw secret never leaves the
+machine.
+
+Each answer appends one row to `.interlinked/decision-shadow.jsonl`:
+`{ts, session_id, surface, rule_id, tool, tool_use_id, p, verdict,
+threshold_used, backend, model, latency_ms, state_sha256, dry_run}`. A failure
+(timeout, HTTP error, malformed answer, missing credentials) writes no row. It
+increments an in-process counter only. The limits are one call per
+(hook event, `tool_use_id`), 4 concurrent requests, 5,000 calls per daemon, and
+3,000 ms per request.
+
+Enable it in `.interlinked/guard-rules.local.json`:
+
+```json
+"decision_shadow": {"enabled": true, "backend": "clef_flash",
+  "surfaces": {"guard_block": true, "secret_hit": true}, "timeout_ms": 3000}
+```
+
+`backend: "clef_flash"` (default) calls Workers AI `@cf/cloudflare/clef-flash`.
+It needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, from the
+environment or as `cloudflare_api_token` / `cloudflare_account_id` in
+`.interlinked/config.local.json`. Use a long-lived API token: the hourly `cf`
+OAuth token expires under a daemon. `backend: "jev"` needs `jev.enabled: true`
+and `TYPESAFE_API_KEY`. Both thresholds are calibrated for Clef-flash only.
+`interlinked harness status` prints a `Decision shadow` line while the section
+is enabled, and names a missing credential as `backend unconfigured`.
+Simulated `harness test` events (`dry_run`) make no call and write no row.
 
 ## Future Work (Not Yet Implemented)
 

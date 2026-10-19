@@ -26,9 +26,12 @@ import { liftOutcomeEvidence } from "./outcome-evidence.js";
 import { runWithClock } from "./replay/harness-clock.js";
 import { maybeRecordReplaySnapshots, phaseForHookEvent } from "./replay/tree-snapshot.js";
 import { recordGuardDecision } from "./guard-tally.js";
+import { observePreToolUseForBlockShadow } from "./jev/block-shadow.js";
+import { schedulePreToolSecretShadow } from "./jev/secret-shadow.js";
 import { buildLatencyRecord } from "./server/latency-record.js";
 import { handleLifecycleEvent } from "./server/lifecycle-events.js";
 import { mergeCompilerDecision, runCompilerBoundary } from "./server/compiler-batch.js";
+import { runTscSchedulerBoundary } from "./server/tsc-scheduler-phase.js";
 import {
 	POST_TOOL_PIPELINE_FAILURE_WARNING,
 	runPostToolPipeline,
@@ -44,20 +47,23 @@ import { mergeTrajectoryShadow } from "./server/trajectory-shadow.js";
 import { isPostToolUse, isPreToolUse } from "./server-tool-helpers.js";
 import { captureTimeline } from "./timeline-capture.js";
 import { observeBlockWorkaround } from "./trajectory/block-fingerprint-session.js";
-import type { HarnessDecision, HarnessEvent, SessionTrajectory } from "./types.js";
+import type { GuardRulesConfig, HarnessDecision, HarnessEvent, SessionTrajectory } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 import { discardWorkspaceSnapshot } from "./workspace-effects.js";
 
 async function lifecycleWithCompiler(ctx: ServerRuntime, event: HarnessEvent, session: SessionTrajectory): Promise<HarnessDecision | null> {
     const lifecycle = await handleLifecycleEvent(ctx, event, session);
     if (isPreToolUse(event)) return lifecycle;
-    return mergeCompilerDecision(lifecycle, await runCompilerBoundary(ctx, event, session));
+    const compiled = mergeCompilerDecision(lifecycle, await runCompilerBoundary(ctx, event, session));
+    // E21 tsc scheduler: the mandatory Stop / SessionEnd drain of deferred files.
+    return mergeCompilerDecision(compiled, await runTscSchedulerBoundary(ctx, event, session));
 }
 
 async function guardsWithCompiler(ctx: ServerRuntime, event: HarnessEvent, session: SessionTrajectory): Promise<HarnessDecision> {
     const guarded = await runPreToolPipeline(ctx, event, session);
     if (guarded.decision !== "allow") return guarded;
-    return mergeCompilerDecision(guarded, await runCompilerBoundary(ctx, event, session));
+    const compiled = mergeCompilerDecision(guarded, await runCompilerBoundary(ctx, event, session));
+    return mergeCompilerDecision(compiled, await runTscSchedulerBoundary(ctx, event, session));
 }
 
 function reconcileBlockedPreTool(event: HarnessEvent, decision: HarnessDecision): void {
@@ -66,6 +72,18 @@ function reconcileBlockedPreTool(event: HarnessEvent, decision: HarnessDecision)
 		toolUseId: event.tool_use_id,
 		sessionId: event.session_id,
 	});
+}
+
+/** After the FINAL PreToolUse decision: drop a blocked call's workspace
+ *  snapshot, then feed the decision shadows (U1, default OFF) — a second
+ *  opinion on a shell block / a secret signature in proposed write content,
+ *  scheduled on a later tick, never awaited, never altering the decision.
+ *  Returns `decision` unchanged. */
+function settlePreToolDecision(event: HarnessEvent, decision: HarnessDecision, rules: GuardRulesConfig): HarnessDecision {
+	reconcileBlockedPreTool(event, decision);
+	observePreToolUseForBlockShadow(event, decision, rules);
+	schedulePreToolSecretShadow(event, rules);
+	return decision;
 }
 
 /** Persist only events outside the tool pipelines. Keeping this partition in a
@@ -155,6 +173,18 @@ function readEventLineSnapshotKeys(line: string): EventLineSnapshotKeys {
 	}
 }
 
+/** Restore a previous daemon's session before recording the next event. */
+function hydrateSession(ctx: ServerRuntime, event: HarnessEvent): void {
+	if (!event.session_id || ctx.sessions.get(event.session_id)) return;
+	const snap = readLiveSnapshot(ctx.cwd, event.session_id);
+	if (!snap) return;
+	const restored = ctx.sessions.hydrate(snap);
+	if (restored) {
+		ctx.log(`Hydrated session ${event.session_id} from live snapshot ` +
+			`(${restored.tool_call_count} tool calls, ${restored.files_written.size} files written)`);
+	}
+}
+
 /** Build the per-event evaluation pipeline. Returns the entry points the raw
  *  and framed socket servers call. All daemon state is reached through `deps`
  *  — the function bodies are moved verbatim from the monolithic server.ts. */
@@ -214,18 +244,7 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 		// daemon, restore it before recordEvent so the upcoming event lands on
 		// continuous trajectory state (acknowledged checks, edit counts, fired
 		// reminders, TDD cycles, ...) instead of resetting to a fresh session.
-		if (event.session_id && !sessions.get(event.session_id)) {
-			const snap = readLiveSnapshot(CWD, event.session_id);
-			if (snap) {
-				const restored = sessions.hydrate(snap);
-				if (restored) {
-					log(
-						`Hydrated session ${event.session_id} from live snapshot ` +
-							`(${restored.tool_call_count} tool calls, ${restored.files_written.size} files written)`,
-					);
-				}
-			}
-		}
+		hydrateSession(ctx, event);
 
 		// Update session trajectory.
 		// Per-event durability: the snapshot write moved out of this function and
@@ -235,6 +254,9 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 		// otherwise be lost on a daemon restart even though `recordEvent` mutated
 		// state that *was* captured. See `evaluateEventLine`'s try/finally.
 		const session = sessions.recordEvent(event);
+		// Limits are current policy, not historical trajectory. Reconcile older
+		// snapshots so a resumed session cannot retain a removed step cap.
+		session.step_limit = ctx.rules.taint_tracking.step_limits[session.sensitivity_level];
 
 		// G3: stamp the per-session monotonic ordinal on EVERY observed event —
 		// the daemon's serial observation is the canonical total order (parallel
@@ -287,9 +309,7 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 			observeBlockWorkaround(session, event, local, event.cwd ?? CWD, Date.now());
 			mergeTrajectoryShadow(event, local, ctx.rules, [...session.files_read]);
 			writeCollectionRecord(event, local);
-			const finalDecision = await forwardCloudPreToolUse(event, local);
-			reconcileBlockedPreTool(event, finalDecision);
-			return finalDecision;
+			return settlePreToolDecision(event, await forwardCloudPreToolUse(event, local), ctx.rules);
 		}
 
 		if (isPostToolUse(event)) {

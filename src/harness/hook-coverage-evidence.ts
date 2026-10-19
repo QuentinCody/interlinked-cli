@@ -1,5 +1,21 @@
+import { isJsonObject } from "../lib/json-types.js";
 import { wireAbsentOptional, wireArray, wireLiteral, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 import type { BatchCheckScope } from "./quality-checks/change-set-evidence.js";
+
+/** A manual review that cleared one pending version. Retained as history only. */
+export interface HookReviewReceipt { id: string; path: string; identity: string; evidence: string; reviewedAt: string; kind: "manual_review" }
+
+function reviewString(raw: Record<string, unknown>, key: string): string {
+    const value = raw[key];
+    if (typeof value !== "string") throw new Error(`Invalid hook review ${key}`);
+    return value;
+}
+
+export function parseHookReviewReceipt(raw: unknown): HookReviewReceipt {
+    if (!isJsonObject(raw) || raw.kind !== "manual_review") throw new Error("Invalid hook review receipt");
+    return { id: reviewString(raw, "id"), path: reviewString(raw, "path"), identity: reviewString(raw, "identity"),
+        evidence: reviewString(raw, "evidence"), reviewedAt: reviewString(raw, "reviewedAt"), kind: "manual_review" };
+}
 
 const isBatchCheckScope = wireObject<BatchCheckScope>({
     batchId: wireString, check: wireString, configurationHash: wireString,

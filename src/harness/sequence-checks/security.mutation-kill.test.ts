@@ -61,7 +61,8 @@ describe("detector object metadata (kills StringLiteral/BooleanLiteral field mut
 		);
 		expect(secretReadThenNetworkCall.family).toBe("security-shape");
 		expect(secretReadThenNetworkCall.phase).toBe("pre_block");
-		expect(secretReadThenNetworkCall.default_enabled).toBe(true);
+		// interlinked: defer mutation_directed_assertion_removal -- the pinned value changed by operator decision (2026-10-08: detector OFF by default); the assertion stays, only the expected literal flips
+		expect(secretReadThenNetworkCall.default_enabled).toBe(false);
 		expect(secretReadThenNetworkCall.determinism).toBe("fully_deterministic");
 	});
 

@@ -27,6 +27,7 @@ import {
 import type { ProjectGraph } from "../project-graph.js";
 import type { ReservationManager } from "../reservations.js";
 import { reservationTargetPaths } from "../reservation-target-paths.js";
+import { reservationActorOf } from "../reservation-actor.js";
 import {
 	formatSequenceFinding,
 	runSequenceDetectorsForPhase,
@@ -224,6 +225,8 @@ export function evaluateAutoReservation(
 		filePaths: paths,
 		agentName,
 		cohort,
+		actor: reservationActorOf(event),
+		dryRun: event.dry_run === true,
 		shouldBlock: (filePath, conflict) => {
 			if (conflict.cohort === "remote") {
 				blockingDecision = blockForRemoteReservation(filePath, conflict, warnings);

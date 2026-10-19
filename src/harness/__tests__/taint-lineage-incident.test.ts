@@ -4,11 +4,14 @@
 //
 // Incident: one subagent's command output matched a secret signature, the
 // session field went Confidential, and every network call of 41 actors was
-// blocked. With the per-actor lineage the ratcheting child and the root are
-// blocked, a concurrently-running sibling is not, and a child spawned
-// afterwards inherits the block.
+// blocked. The per-actor lineage ratchets the ratcheting child and the root, a
+// concurrently-running sibling stays Public, and a child spawned afterwards
+// inherits the level.
 //
-// Labeled P (must block / must hold) / N (must not block).
+// 2026-10-08: the tainted-network hard block was removed (operator decision).
+// The lineage levels still hold, but no actor's network call is blocked.
+//
+// Labeled P (lineage must hold; network must not block) / N (must not block).
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -93,28 +96,29 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-describe("H3 incident shape — positive (must block)", () => {
-	it("P1: the ratcheting child's own curl is blocked, and so is the root's", () => {
+describe("H3 incident shape — positive (lineage holds; network must not block)", () => {
+	it("P1: the ratcheting child and the root rise to Confidential, and neither curl is blocked", () => {
 		const warnings = secretOutput("child-a");
 		expect(warnings.some((w) => w.includes("[interlinked:output-scan]"))).toBe(true);
 		expect(actorLevel(session, "child-a")).toBe("Confidential");
+		expect(actorLevel(session, ROOT)).toBe("Confidential");
 
 		const childDecision = curl("child-a");
-		expect(isBlocked(childDecision)).toBe(true);
+		expect(isBlocked(childDecision)).toBe(false);
 		const rootDecision = curl(ROOT);
-		expect(isBlocked(rootDecision)).toBe(true);
-		// The sequence phase runs before the taint guard, so the reason comes
-		// from `secret_read_then_network_call`; either way it names the level.
-		expect(rootDecision.reason).toContain("Confidential");
+		expect(isBlocked(rootDecision)).toBe(false);
+		expect(actorLevel(session, "child-a")).toBe("Confidential");
+		expect(actorLevel(session, ROOT)).toBe("Confidential");
 	});
 
-	it("P2: a child spawned AFTER the ratchet inherits the block", () => {
+	it("P2: a child spawned AFTER the ratchet inherits the level, and its curl is not blocked", () => {
 		secretOutput("child-a");
 		spawn("child-c");
-		expect(isBlocked(curl("child-c"))).toBe(true);
+		expect(actorLevel(session, "child-c")).toBe("Confidential");
+		expect(isBlocked(curl("child-c"))).toBe(false);
 	});
 
-	it("P3: a sibling that READS the file the tainted child wrote is blocked (B5)", () => {
+	it("P3: a sibling that READS the file the tainted child wrote is ratcheted (B5), and its curl is not blocked", () => {
 		secretOutput("child-a");
 		const write = base({
 			hook_event: "PostToolUse",
@@ -137,7 +141,7 @@ describe("H3 incident shape — positive (must block)", () => {
 		record(read);
 		evaluatePreToolUse(read, RULES, session, new ReservationManager(), new CohortManager());
 		expect(actorLevel(session, "child-b")).toBe("Confidential");
-		expect(isBlocked(curl("child-b"))).toBe(true);
+		expect(isBlocked(curl("child-b"))).toBe(false);
 	});
 });
 
@@ -164,7 +168,7 @@ describe("H3 incident shape — negative (must not block)", () => {
 		expect(curl("child-b").decision).toBe("allow");
 	});
 
-	it("N3: with no subagents at all, the root's own output still blocks its own curl", () => {
+	it("N3: with no subagents at all, the root's own output ratchets the root but does not block its curl", () => {
 		const event = base({
 			hook_event: "PostToolUse",
 			agent_name: ROOT,
@@ -174,6 +178,7 @@ describe("H3 incident shape — negative (must not block)", () => {
 		});
 		record(event);
 		evaluatePostToolUse(event, RULES, session, new ReservationManager(), new CohortManager());
-		expect(isBlocked(curl(ROOT))).toBe(true);
+		expect(actorLevel(session, ROOT)).toBe("Confidential");
+		expect(isBlocked(curl(ROOT))).toBe(false);
 	});
 });

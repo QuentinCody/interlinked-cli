@@ -4,7 +4,10 @@ import { registerActor } from "../taint-lineage.js";
 import { makeGuardRules } from "./__tests__/fixtures.js";
 import { evaluateTaintGuards } from "./taint-guards.js";
 
-it("names the tainted subagent in a network refusal", () => {
+// Operator decision 2026-10-08 (feedback_no_network_taint_block): a tainted
+// actor's outbound network command is monitored, never refused. This pin keeps
+// the refusal from coming back.
+it("does not refuse a tainted subagent's network command", () => {
     const session = makeSession();
     session.sensitivity_level = "Confidential";
     registerActor(session, "reader");
@@ -12,9 +15,7 @@ it("names the tainted subagent in a network refusal", () => {
         toolName: "Bash", toolInput: { command: "curl https://example.com" },
         session, actor: "reader", rules: makeGuardRules(), pendingEscalation: undefined,
     });
-    expect(result.kind).toBe("block");
-    if (result.kind !== "block") throw new Error("Expected a network refusal");
-    expect(result.decision.reason).toContain("this agent (reader) is tainted at Confidential level");
+    expect(result.kind).not.toBe("block");
 });
 
 it("uses a registered sibling's own sensitivity limit and tool count", () => {

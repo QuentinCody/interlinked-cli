@@ -411,7 +411,8 @@ describe("evaluateTaintPhase", () => {
 		expect(decision).toBeNull();
 	});
 
-	it("blocks an outbound network command while the session is tainted at/above the block threshold", () => {
+	// 2026-10-08: the tainted-network hard block was removed (operator decision).
+	it("does not block an outbound network command while the session is tainted at/above network_block_at", () => {
 		const warnings: string[] = ["[interlinked] earlier"];
 		const ctx = makeCtx();
 		const rules = makeRules({
@@ -436,8 +437,8 @@ describe("evaluateTaintPhase", () => {
 			warnings,
 			ctx,
 		);
-		expect(decision?.decision).toBe("block");
-		expect(decision?.warnings).toEqual(["[interlinked] earlier"]);
-		expect(decision?.reason).toContain("Outbound network command");
+		expect(decision).toBeNull();
+		expect(warnings).toEqual(["[interlinked] earlier"]);
+		expect(session.sensitivity_level).toBe("Confidential");
 	});
 });

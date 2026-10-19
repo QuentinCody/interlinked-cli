@@ -81,7 +81,11 @@ export const lethalTrifectaStructural: SequenceDetector = {
 		"All three legs of the lethal trifecta active (private data + untrusted content + external comm)",
 	family: "injection",
 	phase: "pre_block",
-	default_enabled: true,
+	// 2026-10-08 operator decision: OFF by default, together with
+	// secret_read_then_network_call and exfil_to_public_writeable. The
+	// external-comm leg keyed off the same sticky session taint and blocked
+	// legitimate network calls after one false-positive secret signature.
+	default_enabled: false,
 	determinism: "fully_deterministic",
 	fn: (trajectory, candidate) => {
 		// Leg 1: private data access BY THIS ACTOR (B3) — its own level, plus
@@ -181,7 +185,8 @@ export const exfilToPublicWriteable: SequenceDetector = {
 		"Write/POST to a deterministically-public surface while at Confidential+",
 	family: "injection",
 	phase: "pre_block",
-	default_enabled: true,
+	// 2026-10-08 operator decision: OFF by default (see lethal_trifecta_structural).
+	default_enabled: false,
 	determinism: "fully_deterministic",
 	fn: (trajectory, candidate) => {
 		if (!isBashCandidate(candidate.tool_name)) return [];

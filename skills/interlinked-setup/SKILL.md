@@ -636,6 +636,10 @@ file is cleared and retried.
 checkout, refreshes this repo's hooks and deployed skills, and restarts the daemon **only if
 something the daemon executes changed**.
 
+Step budgets are unlimited at every sensitivity level. After reload, each session's next
+event refreshes its stored limit from current policy, including sessions restored from old
+snapshots with a 10,000-step cap. There is no need to delete snapshots or clear sensitivity.
+
 The package build is runtime-preserving, not a whole-directory transaction. One repository-scoped
 lease prevents concurrent compiler runs; an equivalent waiter coalesces after the owner finishes.
 The owner bundles, repairs declarations, copies assets, and checks every shipped entry in a sibling

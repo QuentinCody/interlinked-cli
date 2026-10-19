@@ -17,6 +17,14 @@
 import type { CohortManager } from "./cohort.js";
 import { harnessNow } from "./replay/harness-clock.js";
 import {
+	holderJoinFields,
+	ownerJoinFields,
+	type ReservationActor,
+	ReservationActorLedger,
+	requesterJoinFields,
+} from "./reservation-actor.js";
+import { reservationPathMatchesPattern } from "./reservation-path-pattern.js";
+import {
 	applyTransition,
 	canonicalAgent,
 	type ReservationCache,
@@ -59,6 +67,11 @@ export interface ReservationBatchOptions {
 	cohort: CohortManager;
 	/** Return true when this conflict should abort the whole acquisition. */
 	shouldBlock: (filePath: string, conflict: ReservationConflict) => boolean;
+	/** The requesting call; its join keys go on every row this batch emits. */
+	actor?: ReservationActor;
+	/** Simulated call (`interlinked harness test`): compute conflicts, but
+	 *  grant nothing and emit nothing — a dry run must not move the gate. */
+	dryRun?: boolean;
 }
 
 /** How long to hold a reservation after the last edit before auto-releasing (30s) */
@@ -79,6 +92,8 @@ export class ReservationManager {
 	private refreshInterval: ReturnType<typeof setInterval> | null = null;
 	private eventSink: ReservationEventSink | null = null;
 	private changeListeners = new Set<() => void>();
+	/** Grant-time join keys, replayed onto release and holder fields. */
+	private actors = new ReservationActorLedger();
 
 	/** Subscribe to local reservation changes; remote refresh is also reconciled by the watcher. */
 	onChange(listener: () => void): () => void {
@@ -147,10 +162,10 @@ export class ReservationManager {
 		const filePaths = [...new Set(options.filePaths)];
 		const conflicts: ReservationConflictAtPath[] = [];
 		for (const filePath of filePaths) {
-			const conflict = this.findConflict(filePath, options.agentName, options.cohort);
-			if (!conflict) continue;
-			conflicts.push({ filePath, conflict });
-			this.emitConflict(filePath, options.agentName, conflict);
+			const found = this.findConflict(filePath, options.agentName, options.cohort);
+			if (!found) continue;
+			conflicts.push({ filePath, conflict: found.conflict });
+			if (!options.dryRun) this.emitConflict(filePath, options.agentName, found, options.actor);
 		}
 
 		for (const conflictAtPath of conflicts) {
@@ -158,24 +173,28 @@ export class ReservationManager {
 				return conflictAtPath;
 			}
 		}
+		if (options.dryRun) return null;
 
 		const conflictedPaths = new Set(conflicts.map((entry) => entry.filePath));
 		for (const filePath of filePaths) {
 			if (!conflictedPaths.has(filePath)) {
-				this.grant(filePath, options.agentName, options.cohort);
+				this.grant(filePath, options.agentName, options.cohort, options.actor);
 			}
 		}
 		return null;
 	}
 
+	/** The holder's lease that covers `filePath`, with the PATTERN it was
+	 *  granted under: a glob lease (`src/auth/**`) is keyed by the glob, so the
+	 *  holder's grant-time actor is only findable by that key. */
 	private findConflict(
 		filePath: string,
 		agentName: string,
 		cohort: CohortManager,
-	): ReservationConflict | null {
+	): { conflict: ReservationConflict; pattern: string } | null {
 		for (const [pattern, entry] of this.cache) {
 			if (sameOwner(entry.agent_name, agentName)) continue; // Own reservation (any name variant)
-			if (this.pathMatchesPattern(filePath, pattern)) {
+			if (reservationPathMatchesPattern(filePath, pattern)) {
 				// Check if expired — prune via the SSoT transition.
 				if (entry.expires_at && new Date(entry.expires_at).getTime() < harnessNow()) {
 					applyTransition(this.cache, { kind: "expire", file: pattern });
@@ -187,7 +206,7 @@ export class ReservationManager {
 					cohort: isLocal ? "local" : "remote",
 					expires_at: entry.expires_at,
 				};
-				return conflict;
+				return { conflict, pattern };
 			}
 		}
 		return null;
@@ -196,7 +215,8 @@ export class ReservationManager {
 	private emitConflict(
 		filePath: string,
 		agentName: string,
-		conflict: ReservationConflict,
+		{ conflict, pattern }: { conflict: ReservationConflict; pattern: string },
+		actor: ReservationActor | undefined,
 	): void {
 		this.emit({
 			ts: new Date().toISOString(),
@@ -207,6 +227,8 @@ export class ReservationManager {
 			cohort: conflict.cohort,
 			expires_at: conflict.expires_at,
 			conflict_reason: "preexisting",
+			...requesterJoinFields(actor),
+			...holderJoinFields(this.actors.get(conflict.agent_name, pattern)),
 		});
 	}
 
@@ -219,8 +241,9 @@ export class ReservationManager {
 		this.releaseTimers.delete(timerKey);
 	}
 
-	private grant(filePath: string, agentName: string, cohort: CohortManager): void {
+	private grant(filePath: string, agentName: string, cohort: CohortManager, actor?: ReservationActor): void {
 		this.cancelOwnedReleaseTimer(filePath, agentName);
+		if (actor) this.actors.remember(agentName, filePath, actor);
 		const now = new Date();
 		const expires = new Date(now.getTime() + RESERVATION_TTL_S * 1000);
 		applyTransition(this.cache, {
@@ -241,6 +264,7 @@ export class ReservationManager {
 			agent_name: agentName,
 			cohort: "local",
 			expires_at: expires.toISOString(),
+			...requesterJoinFields(actor),
 		});
 
 		// Confirm with server asynchronously. Rejection is a real signal —
@@ -273,10 +297,12 @@ export class ReservationManager {
 		cohort: CohortManager,
 	): void {
 		const entry = this.cache.get(filePath);
+		const grantActor = this.actors.get(agentName, filePath);
 		// Only roll back if the entry is still ours; otherwise something
 		// else (release, expiry, remote upsert via refresh) has already moved
 		// the state and our rollback would be a phantom mutation.
 		if (entry && sameOwner(entry.agent_name, agentName) && entry.cohort === "local") {
+			this.actors.forget(agentName, filePath);
 			const owner = entry.agent_name;
 			applyTransition(this.cache, { kind: "release", file: filePath, agent: owner });
 			cohort.removeFileReservation(owner, filePath);
@@ -293,6 +319,7 @@ export class ReservationManager {
 			file: filePath,
 			agent_name: agentName,
 			conflict_reason: "server-rejected",
+			...requesterJoinFields(grantActor),
 		});
 	}
 
@@ -346,12 +373,15 @@ export class ReservationManager {
 
 		applyTransition(this.cache, { kind: "release", file: filePath, agent: owner });
 		cohort.removeFileReservation(owner, filePath);
+		const grantActor = this.actors.get(owner, filePath);
+		this.actors.forget(owner, filePath);
 		this.emit({
 			ts: new Date().toISOString(),
 			action: "release",
 			file: filePath,
 			agent_name: owner,
 			cohort: entry.cohort,
+			...ownerJoinFields(grantActor),
 		});
 
 		// Clear any pending timer
@@ -371,7 +401,7 @@ export class ReservationManager {
 	}
 
 	/** Release ALL reservations for an agent (on session end or disconnect) */
-	releaseAllForAgent(agentName: string, cohort: CohortManager): void {
+	releaseAllForAgent(agentName: string, cohort: CohortManager, actor?: ReservationActor): void {
 		const toRelease: string[] = [];
 		for (const [path, entry] of this.cache) {
 			if (sameOwner(entry.agent_name, agentName)) {
@@ -388,6 +418,7 @@ export class ReservationManager {
 				action: "release_all",
 				file: `[${toRelease.length} files]`,
 				agent_name: agentName,
+				...requesterJoinFields(actor),
 			});
 		}
 	}
@@ -462,35 +493,4 @@ export class ReservationManager {
 		this.releaseTimers.clear();
 	}
 
-	/** Simple path-to-pattern matching (exact match or glob) */
-	private pathMatchesPattern(filePath: string, pattern: string): boolean {
-		// Exact match
-		if (filePath === pattern) return true;
-
-		// Simple glob: "src/auth/**" matches "src/auth/login.ts"
-		if (pattern.endsWith("/**")) {
-			const prefix = pattern.slice(0, -3);
-			return filePath.startsWith(`${prefix}/`) || filePath === prefix;
-		}
-
-		// Simple glob: "**/*.ts" matches any .ts file; "**/Makefile" matches a
-		// Makefile in any directory. MUST be checked BEFORE the single-'*' arm:
-		// "**/..." also starts with '*', and the '*' arm would mishandle it
-		// (testing endsWith("*/...") — the literal '*' never matches a real path),
-		// silently making every "**/" reservation a no-op.
-		if (pattern.startsWith("**/")) {
-			const suffix = pattern.slice(3);
-			if (suffix.startsWith("*")) {
-				return filePath.endsWith(suffix.slice(1));
-			}
-			return filePath.endsWith(`/${suffix}`) || filePath === suffix;
-		}
-
-		// Simple glob: "*.env" matches ".env", "staging.env"
-		if (pattern.startsWith("*")) {
-			return filePath.endsWith(pattern.slice(1));
-		}
-
-		return false;
-	}
 }

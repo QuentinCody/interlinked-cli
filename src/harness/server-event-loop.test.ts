@@ -369,6 +369,28 @@ describe("processEvent — parse + dispatch (via evaluateEventLine)", () => {
 });
 
 describe("processEvent — lazy hydrate branch", () => {
+    it("replaces a restored step cap with current policy while retaining trajectory", async () => {
+        const h = makeHarness();
+        const restored: SessionTrajectory = {
+            ...makeSession(),
+            session_id: "s1",
+            sensitivity_level: "Confidential",
+            step_limit: 10_000,
+            tool_call_count: 10_001,
+            files_written: new Set(["foo.ts"]),
+        };
+        mReadSnap.mockReturnValueOnce({ session_id: "s1", step_limit: 10_000 });
+        h.sessions.hydrate.mockReturnValueOnce(restored);
+        h.sessions.recordEvent.mockReturnValueOnce(restored);
+
+        await createEventLoop(h.deps).evaluateEventLine(preEvent(), "raw");
+
+        expect(restored.step_limit).toBe(Number.POSITIVE_INFINITY);
+        expect(restored.sensitivity_level).toBe("Confidential");
+        expect(restored.tool_call_count).toBe(10_001);
+        expect(restored.files_written).toEqual(new Set(["foo.ts"]));
+    });
+
 	it("hydrates from a live snapshot and logs when restore succeeds", async () => {
 		const h = makeHarness();
 		mReadSnap.mockReturnValueOnce({ restored: true });

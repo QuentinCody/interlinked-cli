@@ -347,6 +347,8 @@ export interface CollectionRecord {
 	 *  key across activity/collection for one session — `ts` collides for
 	 *  parallel calls. Absent on cold-path/pre-G3 records. */
 	seq?: number;
+	/** Simulated event (`interlinked harness test`): the call never ran. */
+	dry_run?: true;
 	provider: string;
 	phase: "pre" | "post";
 	/**

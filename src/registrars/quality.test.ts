@@ -220,6 +220,7 @@ describe("registerQualityCommands — structure", () => {
 				"--cwd",
 				"--dead-code",
 				"--details",
+				"--fp-filter",
 				"--json",
 				"--only",
 				"--show-suppressions",

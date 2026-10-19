@@ -54,6 +54,9 @@ function registerCoverage(harness: Command): void {
     coverage.command("verify").description("Check pending file versions and retain exact-version evidence and findings")
         .option("--json", "Machine-readable output").option("--no-wait", "Start the daemon verification job and return immediately")
         .action(async (opts: OptionValues) => { const { harnessCoverageVerifyCommand } = await import("../commands/harness-coverage-verify.js"); await harnessCoverageVerifyCommand(opts); });
+    coverage.command("repair-history").description("Set aside a history log shorter than its committed pointer and restart the history; keeps state and pending obligations (offline; restart the daemon after)")
+        .option("--json", "Machine-readable output")
+        .action(async (opts: OptionValues) => { const { harnessCoverageRepairCommand } = await import("../commands/harness-coverage-repair.js"); await harnessCoverageRepairCommand(opts); });
     coverage.command("accept-policy <digest>").description("Explicitly accept the exact current protected-policy digest")
         .option("--json", "Machine-readable output")
         .action(async (digest: string, opts: OptionValues) => { const { harnessCoverageCommand } = await import("../commands/harness-capabilities.js"); await harnessCoverageCommand({ operation: "accept_policy", digest }, opts); });

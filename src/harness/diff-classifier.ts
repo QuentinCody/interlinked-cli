@@ -54,8 +54,10 @@ interface ClassifiedDiff {
  * executed content, even if the new content is "just" a comment.
  */
 export function classifyDiff(oldText: string, newText: string): ClassifiedDiff {
-	const oldExecuted = extractScannableText(oldText);
-	const newExecuted = extractScannableText(newText);
+	// A string-body edit is never a semantic change here, so quoted operands
+	// stay masked (rule matching keeps single-word operands visible instead).
+	const oldExecuted = extractScannableText(oldText, undefined, { quotedOperands: false });
+	const newExecuted = extractScannableText(newText, undefined, { quotedOperands: false });
 	const oldExecutedTrimmed = countNonWhitespace(oldExecuted);
 	const newExecutedTrimmed = countNonWhitespace(newExecuted);
 

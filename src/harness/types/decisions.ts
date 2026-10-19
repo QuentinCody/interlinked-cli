@@ -64,6 +64,9 @@ export interface HarnessDecision {
 	 *  bucket to a specific phase. Set by the daemon, forwarded into
 	 *  latency.jsonl. */
 	phase_breakdown?: Record<string, number>;
+	/** E21 tsc scheduler verdict for this call; copied verbatim into the
+	 *  check-results.jsonl row so the miss rate can be measured later. */
+	scheduler?: TscSchedulerRecord;
 	/** Grep acceleration statistics (when index intercepts a search) */
 	grep_stats?: GrepStats;
 	/** Summary line for display (e.g., "all clean (300ms)") */
@@ -186,6 +189,22 @@ export interface CheckResultEntry {
 	required_updates?: Array<{ file: string; kind: string; reason: string }> | undefined;
 	/** Confidence score 0.0-1.0 (structure findings only) */
 	confidence?: number | undefined;
+	/** E18 fp_filter: probability the finding is worth fixing (scored findings only). */
+	fp_filter_p?: number | undefined;
+	/** E18 fp_filter: true when the finding was withheld from the agent. */
+	fp_filter_suppressed?: boolean | undefined;
+}
+
+/** One tsc-scheduler verdict (`quality-checks/tsc-scheduler.ts`). An edit row
+ *  carries `p`; a drain row (deferred files checked) carries `drained_files`. */
+export interface TscSchedulerRecord {
+	deferred: boolean;
+	p?: number;
+	threshold?: number;
+	recall_point?: number;
+	override?: "import-touched";
+	drained_files?: number;
+	trigger?: "edit" | "stop" | "session_end" | "commit";
 }
 
 /** Grep acceleration statistics */

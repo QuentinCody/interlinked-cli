@@ -191,6 +191,16 @@ export interface RulePattern {
 	 * `pkill -f 'wrangler dev'` exceptions). Plan 01 §1.2.
 	 */
 	executed_only?: boolean;
+	/**
+	 * Name of a capture group in `regex` that holds a file operand. The
+	 * pattern then matches only when that operand, resolved against the
+	 * event's cwd (same-command `cd` hops and `VAR=` assignments applied),
+	 * is an existing regular file with contents. For rules whose harm IS the
+	 * destruction of contents (`: > file`): the daemon has the filesystem,
+	 * so creating an empty file is not a truncation. With no cwd, or an
+	 * operand the resolver cannot place, the match stands (fail closed).
+	 */
+	nonempty_file_group?: string;
 }
 
 // ===========================================

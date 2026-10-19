@@ -300,6 +300,15 @@ export function mergeLocalOverrides(
 	// on day one.
 	mergeOptionalSection(config, local, "scratchpad_guard");
 	mergeOptionalSection(config, local, "spec_checks");
+	// Jev edit shadow (default OFF) — a per-dev opt-in that needs a personal
+	// API key, so it is local-only by construction (experiment E7).
+	mergeOptionalSection(config, local, "jev");
+	// E18 false-positive filter (default OFF) — calibrated on one repository,
+	// so it is a per-dev opt-in and local-only (fp-filter.ts).
+	mergeOptionalSection(config, local, "fp_filter");
+	// Decision shadows (default OFF) — per-dev backend credentials, and the
+	// state leaves the machine, so it is local-only (jev/decision-shadow.ts).
+	mergeOptionalSection(config, local, "decision_shadow");
 	// Edit-contract checks (LG-3/LG-4 warn/measure tiers) — classified at
 	// introduction so `{"edit_contract": {"stale_read": "off"}}` in
 	// guard-rules.local.json works on day one.

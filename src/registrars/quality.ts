@@ -105,6 +105,10 @@ function registerVerifyCommand(program: Command): void {
 			"--dead-code",
 			"Run Supermodel's cloud dead-code analysis (opt-in; requires the `supermodel` CLI)",
 		)
+		.option(
+			"--fp-filter",
+			"Report per check how many [heuristic] findings the E18 fp_filter would suppress (also on when fp_filter.enabled)",
+		)
 		.action(async (target: string | undefined, opts: OptionValues) => {
 			const { verifyCommand } = await import("../commands/verify.js");
 			await verifyCommand({ ...opts, ...(target !== undefined ? { target } : {}) });

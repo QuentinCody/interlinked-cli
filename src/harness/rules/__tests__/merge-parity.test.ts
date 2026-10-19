@@ -40,6 +40,34 @@ describe("team quality-check input boundaries", () => {
 	});
 });
 
+// E21 tsc scheduler: a per-check field, so the top-level tables below cannot
+// see it. Pinned both ways: local enables it, team (attacker-reachable via a
+// PR) cannot, and the default stays OFF.
+describe("quality_checks.typescript.scheduler tier boundary", () => {
+	it("is absent (off) by default", () => {
+		expect(mkBaseConfig().quality_checks.typescript?.scheduler).toBeUndefined();
+	});
+
+	it("local override takes effect, including the recall point", () => {
+		const config = mkBaseConfig();
+		mergeLocalOverrides(config, { quality_checks: { typescript: { scheduler: { enabled: true, min_recall_point: 0.95 } } } });
+		expect(config.quality_checks.typescript?.scheduler).toEqual({ enabled: true, min_recall_point: 0.95 });
+		expect(config.quality_checks.typescript?.enabled).toBe(DEFAULT_CONFIG.quality_checks.typescript?.enabled);
+	});
+
+	it("local override with a malformed body reads as disabled", () => {
+		const config = mkBaseConfig();
+		mergeLocalOverrides(config, JSON.parse('{"quality_checks":{"typescript":{"scheduler":{"enabled":"yes","min_recall_point":7}}}}') as GuardRulesOverrides);
+		expect(config.quality_checks.typescript?.scheduler).toEqual({ enabled: false });
+	});
+
+	it("team override has no effect", () => {
+		const config = mkBaseConfig();
+		mergeTeamRules(config, { quality_checks: { typescript: { scheduler: { enabled: true } } } });
+		expect(config.quality_checks.typescript?.scheduler).toBeUndefined();
+	});
+});
+
 interface LocalProbe {
 	override: GuardRulesOverrides;
 	changed: (c: GuardRulesConfig) => boolean;
@@ -124,6 +152,20 @@ const LOCAL_PROBES = {
 	spec_checks: {
 		override: { spec_checks: { enabled: false } },
 		changed: (c) => c.spec_checks?.enabled === false,
+	},
+	jev: {
+		override: { jev: { enabled: true, shadow_edits: true, shadow_scope: "code" } },
+		changed: (c) => c.jev?.enabled === true && c.jev.shadow_edits === true && c.jev.shadow_scope === "code",
+	},
+	fp_filter: {
+		override: { fp_filter: { enabled: true, mode: "hide", min_p: 0.5 } },
+		changed: (c) => c.fp_filter?.enabled === true && c.fp_filter.mode === "hide" && c.fp_filter.min_p === 0.5,
+	},
+	decision_shadow: {
+		override: { decision_shadow: { enabled: true, backend: "jev", surfaces: { guard_block: false } } },
+		changed: (c) =>
+			c.decision_shadow?.enabled === true && c.decision_shadow.backend === "jev" &&
+			c.decision_shadow.surfaces?.guard_block === false,
 	},
 	edit_contract: {
 		override: { edit_contract: { stale_read: "off" } },
@@ -280,6 +322,9 @@ const NOT_TEAM = {
 	trajectory_shadow: { why: "personal tier", probe: { enabled: false } },
 	scratchpad_guard: { why: "personal softening tier", probe: { code_write_mode: "warn" } },
 	spec_checks: { why: "personal tier", probe: { enabled: false } },
+	jev: { why: "personal opt-in tier (needs a per-dev API key; sends edits to a third party)", probe: { enabled: true } },
+	fp_filter: { why: "personal opt-in tier (weights calibrated on one repository; hides findings)", probe: { enabled: true } },
+	decision_shadow: { why: "personal opt-in tier (per-dev backend credentials; sends masked state to a third party)", probe: { enabled: true } },
 	edit_contract: { why: "personal tier", probe: { stale_read: "off" } },
 	scratchpad_archive: { why: "personal tier", probe: { enabled: false } },
 	baseline_autofold: { why: "personal tier", probe: { enabled: false } },

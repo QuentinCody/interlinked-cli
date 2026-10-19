@@ -1,6 +1,6 @@
 import { isJsonObject } from "../lib/json-types.js";
 import { isHookCoverageReport } from "./hook-coverage-control.js";
-import type { CheckResultEntry, HarnessDecision } from "./types.js";
+import type { CheckResultEntry, HarnessDecision, TscSchedulerRecord } from "./types.js";
 import { decodeFrame, isError, type RpcError, type RpcMethod, type RpcResponse, type RpcResult, type TsgoDiagnostic } from "./daemon-protocol.js";
 import { wireAbsentOptional, wireArray, wireBoolean, wireLiteral, wireNumber, wireObject, wireOptional, wireRecord, wireString, type WireValidator } from "../lib/value-validation.js";
 
@@ -24,6 +24,8 @@ const checkResult = wireObject<CheckResultEntry>({
 	artifact_kind: wireAbsentOptional(wireOptional(wireString)), artifact_id: wireAbsentOptional(wireOptional(wireString)),
 	required_updates: wireAbsentOptional(wireOptional(wireArray(wireObject({ file: wireString, kind: wireString, reason: wireString })))),
 	confidence: wireAbsentOptional(wireOptional(wireNumber)),
+	fp_filter_p: wireAbsentOptional(wireOptional(wireNumber)),
+	fp_filter_suppressed: wireAbsentOptional(wireOptional(wireBoolean)),
 });
 
 export const isHarnessDecision = wireObject<HarnessDecision>({
@@ -39,6 +41,9 @@ export const isHarnessDecision = wireObject<HarnessDecision>({
 	checks_timing_ms: wireAbsentOptional(wireNumber), checks_ran: wireAbsentOptional(stringArray),
 	tool_breakdown: wireAbsentOptional(wireArray(wireObject({ tool: wireString, ms: wireNumber, finding_count: wireNumber }))),
 	phase_breakdown: wireAbsentOptional(wireRecord(wireNumber)),
+	scheduler: wireAbsentOptional(wireObject<TscSchedulerRecord>({ deferred: wireBoolean, p: wireAbsentOptional(wireNumber),
+		threshold: wireAbsentOptional(wireNumber), recall_point: wireAbsentOptional(wireNumber), override: wireAbsentOptional(wireLiteral("import-touched")),
+		drained_files: wireAbsentOptional(wireNumber), trigger: wireAbsentOptional(wireLiteral("edit", "stop", "session_end")) })),
 	grep_stats: wireAbsentOptional(wireObject({ candidates: wireNumber, total_files: wireNumber, selectivity_pct: wireNumber, match_count: wireNumber, accelerated: wireBoolean })),
 	summary: wireAbsentOptional(wireString),
 	_escalation: wireAbsentOptional(wireOptional(wireObject({ trigger: wireString, summary: wireString, tool_name: wireString, tool_input_redacted: wireRecord(wireString), sensitivity_level: wireLiteral("Public", "Internal", "Confidential", "HighlyConfidential"), step_number: wireNumber, recent_tool_sequence: stringArray }))),

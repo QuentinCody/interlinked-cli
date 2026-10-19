@@ -322,6 +322,25 @@ Finding `touched` or `acked` states are workflow facts, not proof that a defect 
 sum these sources into “saved LOC/time/money,” call them a gain, or say Interlinked caused them.
 
 ## The event-log model
+
+File-touch records distinguish `declared-target`, `observed-in-window`, and `shadow`.
+Keep shadow rows when investigating workspace changes, but filter `shadow != true` for
+per-actor totals. A shell observation is temporal correlation, not authenticated authorship;
+concurrent shell writers and daemon restarts limit attribution. Join reservation grants to
+file touches with `session_id`, `subagent_id`, and `tool_use_id`, not the display agent name.
+Release rows retain the owner's grant call in `grant_tool_use_id`; conflicts also carry
+`holder_*` fields. Missing join keys mean unavailable attribution, not a different actor.
+
+Simulated `harness test` records carry `dry_run: true`. Exclude these when counting executed
+calls or real guard blocks (for example `query blocks --where dry_run!=true`). Probes do not
+acquire reservations or call decision models. Opt-in decision/edit shadows share
+`decision-shadow.jsonl`; distinguish them by `surface` and retain failed/unconfigured states
+as missing predictions. Use **interlinked-harness** for their opt-in configuration.
+
+Hook-coverage receipts live in `hook-coverage-history.jsonl`; only the byte prefix named by
+`hook-coverage.json` is committed. Use **interlinked-verify** for migration and offline repair.
+Do not interpret a shorter history after an explicit loss repair as successful verification.
+
 Data dir: `INTERLINKED_DATA_DIR` → `config.local.json.data_dir` → `INTERLINKED_HOME` →
 `<cwd>/.interlinked/` (CWD-relative — run from the repo root).
 

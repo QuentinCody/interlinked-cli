@@ -48,7 +48,9 @@ describe("hook coverage persistence under retained history", () => {
         expect(saved.observation().pending).toEqual([]);
         expect(saved.snapshot().checks).toEqual([check]);
     });
-    it("writes bounded chunks while preserving all historical receipt bytes", () => {
+    // Replaced 2026-10-10 (F80): the bounded-chunk writer still rewrote all history on every
+    // save (F77: 1.55 ms/MB, 470 MB). History now lives in the append-only log instead.
+    it("keeps every historical receipt while a save writes only the current state", () => {
         const { path, ledger } = fixture();
         ledger.observe("source.ts", "a", "reservation");
         const history = Array.from({ length: 100 }, (_, i) => ({ ...receipt(ledger, "source.ts"), id: `old-${i}`, findings: ["x".repeat(16 * 1024)] }));
@@ -56,8 +58,8 @@ describe("hook coverage persistence under retained history", () => {
         const reopened = new HookCoverageLedger(path);
         const write = vi.spyOn(fs, "writeFileSync");
         reopened.observe("source.ts", "b", "reservation");
-        expect(write.mock.calls.length).toBeGreaterThan(1);
-        for (const call of write.mock.calls) expect(Buffer.byteLength(String(call[1]))).toBeLessThan(96 * 1024);
+        expect(write).toHaveBeenCalledTimes(1);
+        expect(Buffer.byteLength(String(write.mock.calls[0]![1]))).toBeLessThan(4 * 1024);
         expect(new HookCoverageLedger(path).snapshot().checks).toEqual(history);
     });
 

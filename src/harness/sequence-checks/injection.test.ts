@@ -982,10 +982,11 @@ describe("plan_vs_trajectory_drift", () => {
 // registry-consumed metadata, not behavior).
 // ==========================================================================
 describe("injection detector registry metadata", () => {
-	it("P1: lethal_trifecta_structural is family=injection, phase=pre_block, default_enabled=true", () => {
+	// Default-off since 2026-10-08 (the tainted-network block was removed).
+	it("P1: lethal_trifecta_structural is family=injection, phase=pre_block, default_enabled=false", () => {
 		expect(lethalTrifectaStructural.family).toBe("injection");
 		expect(lethalTrifectaStructural.phase).toBe("pre_block");
-		expect(lethalTrifectaStructural.default_enabled).toBe(true);
+		expect(lethalTrifectaStructural.default_enabled).toBe(false);
 	});
 
 	it("P2: fetched_external_then_secret_read is family=injection, phase=pre_warn, default_enabled=true", () => {
@@ -994,10 +995,11 @@ describe("injection detector registry metadata", () => {
 		expect(fetchedExternalThenSecretRead.default_enabled).toBe(true);
 	});
 
-	it("P3: exfil_to_public_writeable is family=injection, phase=pre_block, default_enabled=true", () => {
+	// Default-off since 2026-10-08 (the tainted-network block was removed).
+	it("P3: exfil_to_public_writeable is family=injection, phase=pre_block, default_enabled=false", () => {
 		expect(exfilToPublicWriteable.family).toBe("injection");
 		expect(exfilToPublicWriteable.phase).toBe("pre_block");
-		expect(exfilToPublicWriteable.default_enabled).toBe(true);
+		expect(exfilToPublicWriteable.default_enabled).toBe(false);
 	});
 
 	it("P4: github_issue_body_then_action is family=injection, phase=pre_warn, default_enabled=true", () => {

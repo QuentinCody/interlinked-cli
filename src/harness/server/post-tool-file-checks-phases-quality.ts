@@ -35,6 +35,7 @@ import {
 import { loadFileSuppressions, scanInlineSuppressions } from "../suppressions.js";
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent, SessionTrajectory } from "../types.js";
 import { collectDeletionHygieneDiffFindings } from "./deletion-hygiene-diff.js";
+import { annotateFpFilter, splitFpSuppressed } from "./fp-filter-phase.js";
 import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import type { ServerRuntime } from "./runtime-context.js";
 import { collectSuggestionFindings } from "./suggestion-checks.js";
@@ -218,6 +219,8 @@ export function collectQualityResultEntries(
 			novelty: r.novelty,
 			findingCount: r.findingCount,
 			writeAttribution: r.writeAttribution,
+			...(r.fpFilter ? { fp_filter_p: r.fpFilter.p } : {}),
+			...(r.fpFilter?.suppressed ? { fp_filter_suppressed: true } : {}),
 			determinism:
 				QUALITY_CHECK_META[r.name]?.determinism ??
 				GENERIC_CHECK_META[r.name]?.determinism ??
@@ -250,8 +253,11 @@ export function applyQualityDecision(
 	const feedback = session ? novelQualityFeedback(session,
 		`${feedbackRoot}\0${JSON.stringify(ctx.rules.quality_checks)}`, qualityResults, completed, checkedFile) : qualityResults;
 	const detailPath = join(getDataDir(ctx.cwd), "check-results.jsonl");
-	const advisory = compactQualityResults(feedback.filter(r => !isBlockingResult(r)), detailPath);
+	// E18 fp_filter (default off): withhold [heuristic] findings scored as likely FPs.
+	const { shown, trailer } = splitFpSuppressed(feedback.filter(r => !isBlockingResult(r)), ctx.rules.fp_filter);
+	const advisory = compactQualityResults(shown, detailPath);
 	if (advisory.length) decision.warnings = [...(decision.warnings ?? []), ...formatQualityDecisionWarnings(advisory)];
+	if (trailer) decision.warnings = [...(decision.warnings ?? []), trailer];
 	if (blocking.length > 0) {
 		decision.decision = "block";
 		decision.rule_id ??= blocking[0]?.name;
@@ -272,10 +278,13 @@ function isBlockingResult(result: QualityCheckResult): boolean {
 }
 
 /** Keep every observation, including findings hidden by acknowledgment. */
-export function prepareQualityFeedback(results: QualityCheckResult[], event: HarnessEvent, session: SessionTrajectory, acc: PerFileCheckCtx): QualityCheckResult[] {
+export function prepareQualityFeedback(results: QualityCheckResult[], event: HarnessEvent, session: SessionTrajectory, acc: PerFileCheckCtx, ctx?: Pick<ServerRuntime, "rules" | "cwd">): QualityCheckResult[] {
 	for (const result of results) {
 		if (event.write_attribution) result.writeAttribution = event.write_attribution;
 	}
+	// E18 fp_filter (default off): score BEFORE recording, so check-results.jsonl
+	// carries fp_filter_p / fp_filter_suppressed for every scored finding.
+	if (ctx) annotateFpFilter(results, ctx.rules.fp_filter, event, ctx.cwd);
 	collectQualityResultEntries(results, acc.allCheckResults);
 	const file = typeof event.tool_input?.file_path === "string" ? event.tool_input.file_path : "";
 	return results.filter(r => r.severity === "error" || isQualityDeferralName(r.name) || !isAcknowledged(session, file, r.name));

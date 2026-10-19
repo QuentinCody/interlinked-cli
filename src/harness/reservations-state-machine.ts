@@ -72,7 +72,24 @@ export interface ServerReservation {
  *  primitive. Used to write reservation-events.jsonl from the harness. */
 export type ReservationEventSink = (event: ReservationLogEvent) => void;
 
-export interface ReservationLogEvent {
+/** Join keys a reservation row carries so it joins to files-touched
+ *  (`file-touch.v1`) rows, which identify the actor by session_id +
+ *  subagent_id + tool_use_id — never by the reservation `agent_name`.
+ *  Grant/conflict rows describe the REQUESTING call; release rows carry the
+ *  owner's identity and the grant's call (`grant_tool_use_id`); conflict rows
+ *  also carry the HOLDER's identity. Absent on rows written without an actor. */
+export interface ReservationJoinFields {
+	session_id?: string;
+	subagent_id?: string | null;
+	tool_use_id?: string | null;
+	event_id?: string | null;
+	grant_tool_use_id?: string | null;
+	holder_session_id?: string;
+	holder_subagent_id?: string | null;
+	holder_tool_use_id?: string | null;
+}
+
+export interface ReservationLogEvent extends ReservationJoinFields {
 	ts: string;
 	action: "grant" | "release" | "conflict" | "release_all";
 	file: string;

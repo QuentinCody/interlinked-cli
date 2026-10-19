@@ -53,6 +53,10 @@ const GITIGNORE_ENTRIES = [
 	".interlinked/costs.jsonl",
 	".interlinked/harness-protocol.json",
 	".interlinked/hook-coverage.json",
+	// Append-only receipt history, plus legacy backups and set-aside logs from its migration.
+	".interlinked/hook-coverage-history.jsonl",
+	".interlinked/hook-coverage-history.jsonl.*",
+	".interlinked/hook-coverage.json.*",
 	".interlinked/hook-translations.jsonl",
 	".interlinked/logs/",
 	".interlinked/metrics/executions.jsonl",

@@ -8,6 +8,8 @@ import { readRecentDaemonEvents } from "../harness/daemon-ledger.js";
 import { recordInheritedDaemonSpawn } from "../harness/handover-churn.js";
 import { detectEnforcementGaps, formatEnforcementGapWarning } from "../harness/enforcement-gap.js";
 import { acquireStartupLock } from "../harness/startup-lock.js";
+import { type DecisionShadowStatus, describeDecisionShadowStatus } from "../harness/jev/decision-shadow.js";
+import { loadRules } from "../harness/rules-loader.js";
 import { c, header, kvLine } from "../lib/formatter.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 // Lifecycle/status helpers extracted to a sibling to hold this file under the
@@ -243,6 +245,7 @@ function operationalSignalLines(signals: {
 	lastEventAt: string | null;
 }): string[] {
 	const { rssMb, staleness, activeMode, lastEventAt } = signals;
+	const decisionShadow = readDecisionShadowStatus(process.cwd());
 	const lines: string[] = [];
 	if (rssMb !== null) {
 		lines.push(kvLine("RSS", `${rssMb} MB`));
@@ -255,7 +258,20 @@ function operationalSignalLines(signals: {
 	if (lastEventAt !== null) {
 		lines.push(kvLine("Last event", lastEventAt));
 	}
+	if (decisionShadow?.enabled) {
+		lines.push(kvLine("Decision shadow", decisionShadow.configured ? decisionShadow.line : c.yellow(decisionShadow.line)));
+	}
 	return lines;
+}
+
+/** `decision_shadow` as the loaded rules see it; null when the rules cannot
+ *  be read (a status call must not fail on a config problem). */
+function readDecisionShadowStatus(cwd: string): DecisionShadowStatus | null {
+	try {
+		return describeDecisionShadowStatus(loadRules(cwd));
+	} catch {
+		return null;
+	}
 }
 
 export async function harnessStatusCommand(opts: { json?: boolean }): Promise<void> {

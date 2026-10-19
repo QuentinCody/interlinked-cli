@@ -37,16 +37,22 @@ function verificationDuration(event: HarnessEvent): object {
     return { duration_ms: null, duration_status: "not-reported" };
 }
 
+/** files-touched rows. An observed effect carries `attribution` and, when the
+ *  call could not have made it (a sibling's write inside the call window),
+ *  `shadow: true` + `shadow_reason` — rule in `touch-attribution.ts`. Shadow
+ *  rows are kept so "the workspace changed during this call" stays visible;
+ *  per-actor counts must filter `shadow != true`. */
 export function nativeFileRecords(event: HarnessEvent): object[] {
     if (event.change_set) return event.change_set.files.map((effect) => ({
         schema: "file-touch.v1", ...eventIdentity(event), ...effect, file: effect.path,
+        ...(effect.attribution ? { shadow: effect.attribution === "shadow" } : {}),
         evidence: "filesystem-observation", observation_complete: event.change_set?.complete,
         before_captured_at: event.change_set?.before_captured_at, after_captured_at: event.change_set?.after_captured_at,
         lines_added: null, lines_removed: null, line_counts_status: "not-measured",
     }));
     const files = [...new Set(event.files_modified ?? [])];
     return files.map((file) => ({ schema: "file-touch.v1", ...eventIdentity(event), file,
-        evidence: "provider-declared", observation_complete: false,
+        evidence: "provider-declared", attribution: "declared-target", shadow: false, observation_complete: false,
         lines_added: null, lines_removed: null, line_counts_status: "not-measured" }));
 }
 

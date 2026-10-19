@@ -1,10 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, statSync } from "node:fs";
 import { isJsonObject } from "../lib/json-types.js";
-import { parseHookCheckReceipts, type HookCheckReceipt } from "./hook-coverage-evidence.js";
+import type { HookCheckReceipt, HookReviewReceipt } from "./hook-coverage-evidence.js";
 import { writeHookCoverageLedger } from "./hook-coverage-persistence.js";
 import { parseHookVerificationCheckpoint, type HookVerificationCheckpoint } from "./hook-coverage-job.js";
 import { historySummary, recentHistory } from "./hook-coverage-history.js";
+import { appendHistoryRows, assertHistoryCommitted, emptyHistoryPointer, fileStamp, historyLogPath, parseHistoryPointer, readHistory, readRecentHistory,
+    type HookHistoryPointer, type HookHistoryRow } from "./hook-coverage-history-log.js";
+import { hasInlineHistory, loadLedgerFile } from "./hook-coverage-migration.js";
+
+export type { HookReviewReceipt } from "./hook-coverage-evidence.js";
+
+/** Files up to this size parse whole; larger ones (only a legacy ledger) stream. */
+const PARSE_LIMIT_BYTES = 64 * 1024 * 1024;
 
 interface ObservedFile { identity: string; scope: "policy" | "reservation" }
 export interface HookFileObservation extends ObservedFile { path: string }
@@ -15,7 +23,7 @@ export interface HookPendingCheck {
     scope: "policy" | "reservation";
     writer: "unknown";
 }
-export interface HookReviewReceipt { id: string; path: string; identity: string; evidence: string; reviewedAt: string; kind: "manual_review" }
+/** The full view: current state plus every retained receipt (`snapshot()`). */
 export interface LedgerState {
     schema: 1;
     generation: number;
@@ -27,23 +35,8 @@ export interface LedgerState {
     checks: HookCheckReceipt[];
     recovery?: HookVerificationCheckpoint;
 }
-
-function reviewString(raw: Record<string, unknown>, key: string): string {
-    const value = raw[key];
-    if (typeof value !== "string") throw new Error(`Invalid hook review ${key}`);
-    return value;
-}
-
-function parseReview(raw: unknown): HookReviewReceipt {
-    if (!isJsonObject(raw) || raw.kind !== "manual_review") throw new Error("Invalid hook review receipt");
-    return { id: reviewString(raw, "id"), path: reviewString(raw, "path"), identity: reviewString(raw, "identity"), evidence: reviewString(raw, "evidence"), reviewedAt: reviewString(raw, "reviewedAt"), kind: "manual_review" };
-}
-
-function parseReviews(raw: unknown): HookReviewReceipt[] {
-    if (raw === undefined) return [];
-    if (!Array.isArray(raw)) throw new Error("Invalid hook reviews");
-    return raw.map(parseReview);
-}
+/** What the state file holds: no receipts, only the committed length of the history log. */
+export interface PersistedLedgerState extends Omit<LedgerState, "checks" | "reviews"> { history: HookHistoryPointer }
 
 function parseObservedFile(raw: unknown): ObservedFile {
     if (!isJsonObject(raw) || typeof raw.identity !== "string") throw new Error("Invalid hook file identity");
@@ -62,29 +55,82 @@ function parseGeneration(raw: unknown): number {
     return raw;
 }
 
-function parseState(raw: unknown): LedgerState {
+function parseState(raw: unknown, history: HookHistoryPointer): PersistedLedgerState {
     if (!isJsonObject(raw) || raw.schema !== 1 || typeof raw.generation !== "number") throw new Error("Invalid hook coverage ledger header");
     const generation = parseGeneration(raw.generation);
     if (!isJsonObject(raw.files) || !Array.isArray(raw.pending)) throw new Error("Invalid hook coverage entries");
     if (raw.acceptedPolicy !== null && typeof raw.acceptedPolicy !== "string") throw new Error("Invalid accepted policy identity");
     return { schema: 1, generation, policyGeneration: parseGeneration(raw.policyGeneration ?? generation),
         files: Object.fromEntries(Object.entries(raw.files).map(([path, value]) => [path, parseObservedFile(value)])),
-        pending: raw.pending.map(parsePending), acceptedPolicy: raw.acceptedPolicy, reviews: parseReviews(raw.reviews), checks: parseHookCheckReceipts(raw.checks),
+        pending: raw.pending.map(parsePending), acceptedPolicy: raw.acceptedPolicy, history,
         ...(raw.recovery === undefined ? {} : { recovery: parseHookVerificationCheckpoint(raw.recovery) }) };
 }
 
-/** Single daemon writer; atomic replacement preserves the previous state on failure. */
+/** A current ledger parses whole and is never rewritten on load; a legacy one migrates once. */
+function loadState(path: string, logPath: string): PersistedLedgerState {
+    if (!existsSync(path)) return { schema: 1, generation: 0, policyGeneration: 0, files: {}, pending: [], acceptedPolicy: null, history: emptyHistoryPointer() };
+    if (statSync(path).size <= PARSE_LIMIT_BYTES) {
+        const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+        if (!isJsonObject(raw)) return parseState(raw, emptyHistoryPointer());
+        if (!hasInlineHistory(raw)) return parseState(raw, parseHistoryPointer(raw.history));
+    }
+    return loadLedgerFile(path, logPath, parseState, state => writeHookCoverageLedger(path, state)).state;
+}
+
+export interface HistoryRepair {
+    repaired: boolean;
+    detail: string;
+    /** Where the partial log was set aside, when there was one. */
+    orphan?: string;
+}
+
+/**
+ * Operator repair for a history log shorter than its committed pointer (a
+ * cleared `hook-coverage-history.jsonl` beside a kept `hook-coverage.json`).
+ * The ledger constructor refuses that state so the daemon never reports LESS
+ * history than it committed; without a repair that refusal is permanent and
+ * the only exit is deleting the state file and its pending obligations. This
+ * keeps the state (files, pending, accepted policy, generation), sets aside
+ * whatever log remains, and restarts the history at zero. Never called by the
+ * daemon: evidence loss is acknowledged by a human, not healed in silence.
+ */
+export function repairHistoryLoss(path: string): HistoryRepair {
+    if (!existsSync(path)) return { repaired: false, detail: `no hook coverage ledger at ${path}` };
+    const logPath = historyLogPath(path);
+    const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (!isJsonObject(raw)) throw new Error("Invalid hook coverage ledger header");
+    if (hasInlineHistory(raw)) return { repaired: false, detail: "legacy inline-history ledger: it migrates on the next daemon start" };
+    const state = parseState(raw, parseHistoryPointer(raw.history));
+    const size = existsSync(logPath) ? statSync(logPath).size : 0;
+    if (size >= state.history.bytes) return { repaired: false, detail: `history intact: ${logPath} holds ${size} of ${state.history.bytes} committed bytes` };
+    const orphan = `${logPath}.orphan-${fileStamp()}-${randomUUID().slice(0, 8)}`;
+    if (existsSync(logPath)) renameSync(logPath, orphan);
+    writeHookCoverageLedger(path, { ...state, history: emptyHistoryPointer() });
+    const lost = `${state.history.checks} check receipt(s) and ${state.history.reviews} review(s) (${state.history.bytes} committed bytes, ${size} present)`;
+    return { repaired: true, detail: `history restarted; lost ${lost}; pending obligations kept (${state.pending.length})`, ...(size ? { orphan } : {}) };
+}
+
+/** Single daemon writer; atomic replacement preserves the previous state on failure.
+ * Receipts live in an append-only sibling log, so a save is O(current state), not O(history). */
 export class HookCoverageLedger {
-    private state: LedgerState;
+    private state: PersistedLedgerState;
+    private readonly logPath: string;
     constructor(private readonly path: string) {
-        this.state = existsSync(path) ? parseState(JSON.parse(readFileSync(path, "utf8"))) : { schema: 1, generation: 0, policyGeneration: 0, files: {}, pending: [], acceptedPolicy: null, reviews: [], checks: [] };
+        this.logPath = historyLogPath(path);
+        this.state = loadState(path, this.logPath);
+        assertHistoryCommitted(this.logPath, this.state.history);
     }
 
-    snapshot(): LedgerState { return structuredClone(this.state); }
+    /** Full view including every retained receipt. O(history): diagnostics and tests only. */
+    snapshot(): LedgerState {
+        const { history, ...current } = structuredClone(this.state);
+        return { ...current, ...readHistory(this.logPath, history.bytes) };
+    }
 
     /** Operator status keeps all pending work, but never copies unbounded history. */
     statusReport() {
-        const checks = recentHistory(this.state.checks), reviews = recentHistory(this.state.reviews);
+        const recent = readRecentHistory(this.logPath, this.state.history);
+        const checks = recentHistory(recent.checks, this.state.history.checks), reviews = recentHistory(recent.reviews, this.state.history.reviews);
         return { ...this.summary(), pending: structuredClone(this.state.pending), checks: checks.rows, reviews: reviews.rows,
             history: historySummary(this.path, checks.counts, reviews.counts) };
     }
@@ -148,11 +194,8 @@ export class HookCoverageLedger {
         if (!receipt.evidence.trim() || receipt.generation !== this.state.generation) return false;
         const entry = this.state.pending.find(candidate => candidate.id === receipt.id);
         if (!entry || entry.identity !== receipt.identity) return false;
-        const next = { ...this.state, reviews: [...this.state.reviews] };
-        next.pending = next.pending.filter(candidate => candidate.id !== receipt.id);
-        next.reviews.push({ id: entry.id, path: entry.path, identity: entry.identity, evidence: receipt.evidence, reviewedAt: new Date().toISOString(), kind: "manual_review" });
-        next.generation++;
-        this.save(next);
+        const review: HookReviewReceipt = { id: entry.id, path: entry.path, identity: entry.identity, evidence: receipt.evidence, reviewedAt: new Date().toISOString(), kind: "manual_review" };
+        this.save({ ...this.state, generation: this.state.generation + 1, pending: this.state.pending.filter(candidate => candidate.id !== receipt.id) }, [review]);
         return true;
     }
 
@@ -178,12 +221,17 @@ export class HookCoverageLedger {
         });
         const recovery = checkpoint ? structuredClone(parseHookVerificationCheckpoint(checkpoint(outcomes))) : undefined;
         if (accepted.length || recovery) this.save({ ...this.state, generation: this.state.generation + accepted.length,
-            pending: [...pending.values()], checks: [...this.state.checks, ...accepted], ...(recovery ? { recovery } : {}) });
+            pending: [...pending.values()], ...(recovery ? { recovery } : {}) }, accepted);
         return outcomes;
     }
 
-    private save(next: LedgerState): void {
-        writeHookCoverageLedger(this.path, next);
-        this.state = next;
+    /** Rows append first; the state write commits them by naming the new log length.
+     * If the state write fails, the append is rolled back and both old states remain. */
+    private save(next: PersistedLedgerState, rows: readonly HookHistoryRow[] = []): void {
+        const append = rows.length ? appendHistoryRows(this.logPath, this.state.history, rows) : undefined;
+        const committed = append ? { ...next, history: append.pointer } : next;
+        try { writeHookCoverageLedger(this.path, committed); }
+        catch (error) { append?.rollback(); throw error; }
+        this.state = committed;
     }
 }

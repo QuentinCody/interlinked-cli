@@ -319,11 +319,12 @@ duplicated policy numbers drift, which is a class this repo's own
 | `src/harness/types.ts` | All type definitions |
 | `src/harness/server.ts` | Node.js Unix socket server (main entry, `node:net`) |
 | `src/harness/evaluator.ts` | Guard evaluation: PreToolUse blocking + PostToolUse feedback |
-| `src/harness/rules-loader.ts` | <!-- gen:builtin_rule_count -->121<!-- /gen:builtin_rule_count --> built-in rules + JSON config + hot-reload |
+| `src/harness/rules-loader.ts` | <!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> built-in rules + JSON config + hot-reload |
 | `src/harness/session-state.ts` | Per-session trajectory tracking |
 | `src/harness/cohort.ts` | Agent cohort manager |
 | `src/harness/reservations.ts` | Auto file reservation with optimistic locking |
 | `src/harness/quality-checks.ts` | PostToolUse: <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> checks across 8+ languages (tsc, biome, cargo, rustfmt, mypy, ruff, etc.) |
+| `src/harness/quality-checks/tsc-scheduler.ts` | E21 tsc scheduler, `quality_checks.typescript.scheduler` (DEFAULT OFF, local only, calibrated on this repo alone): defers a predicted-clean synchronous tsc run; drained at the next kept run, Stop, SubagentStop, SessionEnd and commit (`server/tsc-scheduler-phase.ts`); errors and unavailable checks survive restart; rows carry `scheduler` (`query checks --where scheduler.deferred=true`) |
 | `src/harness/server-bridge.ts` | Server coordination: reservation sync, guard event reporting |
 | `src/harness/trigram-index.ts` | Trigram search index: build, query, serialize, dirty layer |
 | `src/harness/regex-trigrams.ts` | Regex → trigram decomposition, rg command parsing |
@@ -380,6 +381,8 @@ Advisory checks only run under `verify --all-checks`; default-gate ones run
 on every edit. Non-null-assertion enforcement is a ratchet metric alongside
 `as any` and suppression directives: the pre-edit count is baselined and any
 post-edit increase is flagged.
+
+E18 false-positive filter for `[heuristic]` PostToolUse findings (default OFF, local tier, calibrated on this repo only): `src/harness/fp-filter.ts` + `fp-filter-weights.json`, wired in `server/fp-filter-phase.ts`; `verify --fp-filter` reports would-suppress counts; audit with `interlinked query checks --where fp_filter_suppressed=true` (docs/harness.md).
 
 ### Bug-class checks generalized from review findings (added 2026-06)
 
@@ -576,7 +579,7 @@ sit at 54% (20/37), so backfill those first. Re-derive these numbers with
 **Auto-generated reference docs** (run `npm run docs` to regenerate):
 | File | Contents |
 |------|----------|
-| `docs/generated/guard-rules.md` | All <!-- gen:builtin_rule_count -->121<!-- /gen:builtin_rule_count --> built-in guard rules by category |
+| `docs/generated/guard-rules.md` | All <!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> built-in guard rules by category |
 | `docs/generated/quality-checks.md` | All <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> PostToolUse quality checks |
 | `docs/generated/structural-checks.md` | All <!-- gen:structural_check_count -->26<!-- /gen:structural_check_count --> structural checks by tier |
 | `docs/generated/configuration.md` | Default config: diff-aware filtering + structural check settings |

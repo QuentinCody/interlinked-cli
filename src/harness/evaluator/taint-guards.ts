@@ -3,10 +3,10 @@
 // ===========================================
 //
 // Enforces the session-sensitivity model (Public / Internal / Confidential /
-// Secret): ratchets sensitivity when the agent reads labelled files, blocks
-// outbound network commands once the session is tainted, escalates for the
-// classifier at the Internal threshold, and enforces step budgets with
-// graceful degradation to read-only once exceeded.
+// Secret): ratchets sensitivity when the agent reads labelled files and
+// enforces step budgets with graceful degradation to read-only once exceeded.
+// The former network hard-block and Internal-level escalation were removed on
+// 2026-10-08 (operator decision; see the stage 2 note in evaluateTaintGuards).
 //
 // Provenance axis (orthogonal to sensitivity): the
 // `checkProvenanceTaintToExternalAction` guard intercepts external-action
@@ -22,13 +22,10 @@ import { actorLevel, isSubagentActor } from "../taint-lineage.js";
 import {
 	actorStepCount,
 	classifyFileSensitivity,
-	formatTaintSources,
 	getStepBudgetWarning,
-	isOutboundNetworkCommand,
 	isStepLimitExceeded,
 	ratchetActorSensitivity,
 	SENSITIVITY_ORDER,
-	shouldBlockNetwork,
 } from "../taint-tracker.js";
 import { ratchetOnTaintedFileRead } from "./taint-lineage-flow.js";
 import type {
@@ -194,65 +191,9 @@ function applySensitivityRatchet(
 		return;
 	}
 	ratchetActorSensitivity(session, actor, { file: filePath, level: fileSensitivity }, taint);
-	const blockStatus = shouldBlockNetwork(session, taint, actor) ? "BLOCKED" : "monitored";
 	warnings.push(
-		`[interlinked:taint] Sensitivity escalated to ${fileSensitivity} after reading ${filePath}. Outbound network commands will be ${blockStatus}.`,
+		`[interlinked:taint] Sensitivity escalated to ${fileSensitivity} after reading ${filePath}. Outbound network commands are monitored, not blocked.`,
 	);
-}
-
-/**
- * Stage 2 — hard block on outbound network commands while the session is
- * tainted at/above the configured block threshold. Returns a terminal block
- * result, or null to continue the guard chain.
- */
-function checkTaintedNetworkBlock(
-	toolName: string,
-	toolInput: JsonObject,
-	taint: TaintTrackingConfig,
-	session: SessionTrajectory,
-	warnings: string[],
-	actor: string | undefined,
-): TaintGuardsResult | null {
-	if (!isBash(toolName) || !shouldBlockNetwork(session, taint, actor)) return null;
-	const cmd = readToolString(toolInput.command);
-	if (!isOutboundNetworkCommand(cmd)) return null;
-	const who = isSubagentActor(session, actor) ? `this agent (${actor})` : "this session";
-	return {
-		kind: "block",
-		decision: {
-			decision: "block",
-			reason: `BLOCKED: Outbound network command while ${who} is tainted at ${actorLevel(session, actor)} level (tainted by: ${formatTaintSources(session, actor)}). Sensitive data may be exfiltrated.`,
-			warnings,
-		},
-	};
-}
-
-/**
- * Stage 4a — escalate `tainted_network_internal` when a network command runs
- * at Internal sensitivity (Confidential+ is hard-blocked in stage 2). Returns
- * the escalation request, or null when it does not apply.
- */
-function buildTaintedNetworkInternalEscalation(
-	toolName: string,
-	toolInput: JsonObject,
-	taint: TaintTrackingConfig,
-	session: SessionTrajectory,
-	actor: string | undefined,
-): EscalationRequest | null {
-	if (!isBash(toolName) || shouldBlockNetwork(session, taint, actor)) return null;
-	const level = actorLevel(session, actor);
-	if (SENSITIVITY_ORDER[level] < SENSITIVITY_ORDER.Internal) return null;
-	const cmd = readToolString(toolInput.command);
-	if (!isOutboundNetworkCommand(cmd)) return null;
-	return {
-		trigger: "tainted_network_internal",
-		summary: `Network command while this agent is tainted at ${level} level (tainted by: ${formatTaintSources(session, actor)})`,
-		tool_name: toolName,
-		tool_input_redacted: { command: "[REDACTED — network command]" },
-		sensitivity_level: level,
-		step_number: session.tool_call_count,
-		recent_tool_sequence: session.tool_sequence.slice(-ESCALATION_TAIL_LENGTH),
-	};
 }
 
 /**
@@ -346,15 +287,18 @@ export function evaluateTaintGuards(args: TaintGuardsArgs): TaintGuardsResult {
 	// before the network check below, so a read-and-send in one command blocks.
 	warnings.push(...ratchetOnTaintedFileRead({ toolName, toolInput, taint, session, actor }));
 
-	// Stage 2 — hard block on network commands when tainted.
-	const networkBlock = checkTaintedNetworkBlock(toolName, toolInput, taint, session, warnings, actor);
-	if (networkBlock) return networkBlock;
+	// Stage 2 (REMOVED 2026-10-08, operator decision): the hard block on
+	// outbound network commands once the session was tainted. Taint is sticky
+	// and session-wide, so one false-positive secret signature in a tool output
+	// (lived twice: a public GitHub API body, then a subagent reading a report)
+	// silenced every network call for the rest of the session, loopback Ollama
+	// and the API that issued the key included. Sensitivity is still tracked
+	// and warned about; it never blocks or asks on network commands.
 
 	// Stage 3 — provenance axis (orthogonal to sensitivity): an external-action
 	// tool whose input references a taint source with untrusted provenance
-	// (fetched_external / mcp_remote) gets a confirmation prompt. The
-	// sensitivity-axis hard block above already catches Confidential+
-	// exfiltration; this catches Public-but-untrusted data flowing outward.
+	// (fetched_external / mcp_remote) gets a confirmation prompt. This catches
+	// Public-but-untrusted data flowing outward.
 	const provenanceAskDecision = checkProvenanceTaintToExternalAction(
 		toolName,
 		toolInput,
@@ -364,14 +308,8 @@ export function evaluateTaintGuards(args: TaintGuardsArgs): TaintGuardsResult {
 		return { kind: "ask", decision: { ...provenanceAskDecision, warnings } };
 	}
 
-	// Stage 4 — ESCALATION tainted_network_internal: network command at Internal
-	// sensitivity. Confidential+ is hard-blocked above; Internal is a judgment
-	// call for the classifier. First escalation wins (precedence over stage 5).
-	if (!escalation) {
-		escalation =
-			buildTaintedNetworkInternalEscalation(toolName, toolInput, taint, session, actor) ??
-			undefined;
-	}
+	// Stage 4 (REMOVED 2026-10-08 with stage 2): the `tainted_network_internal`
+	// classifier escalation for network commands at Internal sensitivity.
 
 	// Stage 5 — step budget warnings (at 80% and 95%) against the ACTOR's count.
 	// A sibling's ratchet lowers the root's stored limit, not this actor's.

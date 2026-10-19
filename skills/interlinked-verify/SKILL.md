@@ -37,6 +37,24 @@ after daemon restart. Do not delete this state to bypass verification. A queued 
 has no TypeScript verdict and must not be described as fully checked. Explicit verify
 and commit checks remain necessary for the required repository validation scope.
 
+The opt-in TypeScript scheduler (`quality_checks.typescript.scheduler`, OFF by
+default, local tier only) can defer the synchronous tsc run for an edit that a
+logistic predicts clean. The edit prints `[interlinked:typescript] deferred by
+scheduler (p=0.xx)` and gets no TypeScript verdict. The deferred files are
+checked together at the next edit that the scheduler runs and always at Stop. If
+you must claim a clean tree, run `interlinked verify` or tsc yourself. The weights
+were fitted on interlinked-cli only (holdout AUROC 0.805; AUROC 0.510 on a second
+repository). Every decision is in `check-results.jsonl`; to list the deferred
+runs, use `interlinked query checks --where scheduler.deferred=true`.
+
+Scheduler obligations are scoped to the session and child actor. Stop, SubagentStop,
+SessionEnd and commit drain that actor's pending work, even after the option is disabled.
+Compiler errors remain pending across retries and daemon replacement until a later check
+resolves them; diff filtering cannot demote an outstanding error into a pass. Work arriving
+during a drain stays pending. An inapplicable project is reported without claiming tsc ran.
+Unreadable deferred state is retained and continues to block completion. Restore that file
+from a known-good backup before retrying; deleting it or renaming it is not verification.
+
 Runner summaries from `rg -n`/`grep -n` are recognized with a single numeric line prefix.
 A failure in any recognized summary takes precedence over a pass; shell success after
 a pipe/trailing command alone still does not prove that tests passed.
@@ -443,6 +461,14 @@ Imported lint uses its asynchronous project runner during recovery; it is not a 
 deferral. Its ordinary tool timeout and resource admission still apply.
 Redirected stderr stays quiet. Ctrl-C stops the waiting CLI, not the daemon-owned job;
 inspect it from another terminal with `harness coverage status --progress --json`.
+If the daemon logs `[interlinked:hook-coverage] NOT MEASURED: Hook coverage history log …
+holds N of M committed bytes`, the append-only history log was shortened or removed while
+`hook-coverage.json` kept its pointer; the daemon refuses to report less history than it
+committed. Run `interlinked harness coverage repair-history` (offline, explicit): it sets the
+partial log aside as `hook-coverage-history.jsonl.orphan-<stamp>`, restarts the history at
+zero and keeps the current state and pending obligations. Stop the daemon first with
+`interlinked harness stop`; repair refuses an active daemon so its in-memory ledger cannot
+overwrite the repair. Start it again after the repair. Lost history is not recovered evidence.
 The waiting CLI refreshes pending identities and the matching job's detailed results before
 reporting completion, without copying historical receipts. Older daemons returning full
 reports remain supported. Incomplete or unmeasured checks exit nonzero even when findings
@@ -538,7 +564,9 @@ input plan, job ID, batch cursor, findings, unavailable details and original dea
 survive daemon replacement. The successor automatically resumes an interrupted batch
 under the same job ID; completed batches are not repeated. File identities and current
 policy are checked again before accepting new evidence. Receipts and batch progress
-commit atomically, so a crash cannot advance progress without saving its evidence.
+commit atomically, so a crash cannot advance progress without saving its evidence:
+receipts append to `.interlinked/hook-coverage-history.jsonl` first, and the state write
+that names the new log length commits them (a failed state write rolls the append back).
 Completed job results also survive restart for waiting clients. Restart does not renew
 the 30-minute budget; an expired job finishes with unmeasured work and pending versions.
 An older daemon's memory-only job cannot be reconstructed during this upgrade: its saved
@@ -646,6 +674,13 @@ check with the exact-revision repository gate without skipping either check.
 
 ## Select, explain and resume tests
 
+For substantial changes, identify the required verification scope before executing it.
+Record completed checks, the inputs they covered and unresolved work in the task plan.
+Repeat checks after relevant edits, failures, stale evidence or changed prerequisites;
+once the required checks pass on the final inputs, proceed to the handoff. Intentional
+flakiness/repetition experiments and required CI/coverage gates still need their own runs.
+Group related edits through the existing batch commands when they form one consistent change.
+
 ```bash
 interlinked tests plan --base HEAD --json
 interlinked tests run src/lib/config.ts --workers 2 --timeout 120000
@@ -659,6 +694,15 @@ requests. `--all` works without Git and asks the native runner for its full suit
 Plan loads the project's Vitest configuration in a bounded child but runs no assertions.
 Status returns pending inputs and the last observed job ID, PID, snapshot and state; a
 retained running observation is not proof its owner is still alive.
+
+Normal `tests plan`, `run` and `status` output bounds each plan-reason, test-entry and
+pending-input listing to 12 entries, shortening entries over 320 characters. Display
+elision is labeled separately from tests omitted from execution. `--details` expands
+the listings; `--json` retains all structured evidence. Runner diagnostics and execution
+reasons remain visible in full. Use `plan --details` for inspection; `run --details`
+still requests execution. A run's `Evidence:` line distinguishes completed/shared runs
+from reused receipts and reports missing runtime validation explicitly. A plan alone,
+an empty selection, a deferred run or a stale result never certifies a passing test run.
 
 **Static selection and result reuse are OFF by default (operator decision 2026-10-06).** Three
 review rounds found escapes in the effect classifier below (`mkdirSync`, aliased or
@@ -891,6 +935,18 @@ Run verify to see **pre-existing** findings in a file you're about to touch (the
 hides those as warnings).
 
 ## Check families & phases
+
+`interlinked verify --fp-filter` (also on when `fp_filter.enabled` is set in
+`guard-rules.local.json`) adds an `fp_filter` section: per check, how many
+`[heuristic]` findings the E18 false-positive filter would withhold at
+PostToolUse. The same counts are the `fp_filter` key of `--json`. Verify hides
+nothing; it is the audit surface. The filter is a free logistic
+(`src/harness/fp-filter.ts`) calibrated on one repository (holdout AUROC 0.906,
+26/26 true positives kept, 66/122 false positives suppressed), so it is off by
+default and its counts in another codebase are a prior, not a verdict. Verify
+scores with repeat count 0 and the per-issue message, so its counts approximate
+the hook. To audit what the hook actually withheld, use
+`interlinked query checks --where fp_filter_suppressed=true`.
 
 `html_duplicate_id` is a default PostToolUse/verify warning for repeated static IDs in
 an explicit `<body>` in `.html`/`.htm` files. It reports each later occurrence with the

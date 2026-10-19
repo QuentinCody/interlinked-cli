@@ -21,11 +21,11 @@ Event time and ingestion time are distinct. Raw evidence and state ledgers remai
 | `suggestion-summaries.jsonl` | quality | events | archive | harness/suggestion-scorer | Candidate calibration aggregates |
 | `warning-occurrences.jsonl` | quality | events | archive | harness/warning-evidence | Warning first, repeat, change and absence evidence |
 | `dedup-shadow.jsonl` | runtime | diagnostic | diagnostic | harness/event-dedup | Redundant hook deliveries and timing; observation only |
-| `reservation-events.jsonl` | coordination | events | archive | harness/reservations-state-machine | File lease grants, releases and conflicts |
+| `reservation-events.jsonl` | coordination | events | archive | harness/reservations-state-machine | File lease grants, releases and conflicts; join to files-touched on session_id + subagent_id + tool_use_id (holder_* on conflicts) |
 | `costs.jsonl` | usage | events | archive | harness/data-capture-usage | Per-message token deltas and model attribution |
 | `check-results.jsonl` | quality | events | archive | harness/check-results-sink | Per-call findings and execution coverage |
 | `sync-errors.jsonl` | transport | diagnostic | archive | lib/local-activity-sync | Optional server transport failures |
-| `files-touched.jsonl` | agent | events | archive | harness/data-capture-native | Per-file change receipts |
+| `files-touched.jsonl` | agent | events | archive | harness/data-capture-native | Per-file change receipts; shadow=true marks a sibling's change seen during this call (filter it for per-actor counts) |
 | `tests.jsonl` | quality | events | archive | harness/data-capture-native | Verification command results |
 | `test-events.jsonl` | quality | events | archive | lib/viz/reporter-vitest | Opt-in individual test cases and run boundaries |
 | `daemon-events.jsonl` | runtime | events | archive | harness/daemon-ledger | Daemon lifecycle, handovers and resource diagnostics |

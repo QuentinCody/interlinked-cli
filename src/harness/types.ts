@@ -39,6 +39,7 @@ export type {
 	ErrorMemoryConfig,
 	ErrorRecord,
 	FileReminder,
+	FpFilterConfig,
 	GitSessionScopeGateConfig,
 	GuardRulesConfig,
 	PlanCaptureConfig,
@@ -59,6 +60,7 @@ export type {
 	LogEntry,
 	ReservationAction,
 	ResolvedTarget,
+	TscSchedulerRecord,
 } from "./types/decisions.js";
 // --- env var safety classification (runtime constants) ---
 export { DANGEROUS_ENV_VARS, SAFE_ENV_VARS } from "./types/env-vars.js";

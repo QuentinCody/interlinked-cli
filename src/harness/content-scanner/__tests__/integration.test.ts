@@ -431,17 +431,16 @@ describe("content-scanner end-to-end — INBOUND (PostToolUse taint ratchet)", (
 	});
 });
 
-describe("content-scanner end-to-end — bidirectional chain (INBOUND → OUTBOUND block)", () => {
-	// The headline exfil-guard story:
+describe("content-scanner end-to-end — bidirectional chain (INBOUND ratchet → OUTBOUND monitored)", () => {
+	// The round-trip story:
 	//   1. Agent reads a file with PII.
 	//   2. runPostToolScan flags it, ratchets sensitivity to Confidential.
 	//   3. Agent tries to curl an external URL.
-	//   4. Existing taint-tracking rule (network_block_at: "Confidential")
-	//      kicks in and BLOCKS at PreToolUse — WITHOUT the content scanner
-	//      needing to re-detect anything in the outbound command.
-	//   This is the wiring that makes the content scanner a full round-trip
-	//   exfiltration guard instead of just a string filter.
-	it("detect-inbound → ratchet → downstream outbound curl blocked by existing taint rule", async () => {
+	//   4. Until 2026-10-08 the taint-tracking rule (network_block_at:
+	//      "Confidential") BLOCKED this call. That hard block was removed
+	//      (operator decision): sensitivity is still tracked and warned, but
+	//      the outbound call is no longer blocked by taint.
+	it("detect-inbound → ratchet → downstream outbound curl is not blocked by taint", async () => {
 		const cfg = makeScannerConfig();
 		const rules = makeRules(cfg);
 		const session = makeSession("round-trip");
@@ -469,10 +468,7 @@ describe("content-scanner end-to-end — bidirectional chain (INBOUND → OUTBOU
 		expect(session.sensitivity_level).toBe("Confidential");
 
 		// Step 2: agent then attempts to curl an external endpoint (outbound).
-		// The content scanner attaches its scan request, but the taint-tracking
-		// guard should BLOCK before the scanner even has to run. That block is
-		// what proves the inbound→outbound chain works without relying on the
-		// content scanner to re-detect the same data in the outbound command.
+		// The taint guard no longer blocks it; the session stays Confidential.
 		const outbound = evaluatePreToolUse(
 			makeEvent({
 				session_id: "round-trip",
@@ -487,7 +483,8 @@ describe("content-scanner end-to-end — bidirectional chain (INBOUND → OUTBOU
 			reservations,
 			cohort,
 		);
-		expect(outbound.decision).toBe("block");
-		expect(outbound.reason).toMatch(/sensit|confidential|taint|network/i);
+		expect(outbound.decision).not.toBe("block");
+		expect(outbound.reason ?? "").not.toMatch(/tainted at|exfiltrated/i);
+		expect(session.sensitivity_level).toBe("Confidential");
 	});
 });

@@ -67,9 +67,9 @@ export const DEFAULT_TAINT_CONFIG: TaintTrackingConfig = {
 	],
 	step_limits: {
 		Public: Number.POSITIVE_INFINITY,
-		Internal: 50_000,
-		Confidential: 10_000,
-		HighlyConfidential: 5_000,
+		Internal: Number.POSITIVE_INFINITY,
+		Confidential: Number.POSITIVE_INFINITY,
+		HighlyConfidential: Number.POSITIVE_INFINITY,
 	},
 	network_block_at: "Confidential",
 };

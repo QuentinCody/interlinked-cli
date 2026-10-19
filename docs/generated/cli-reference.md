@@ -796,6 +796,9 @@ Options:
                            scans in addition to the default high-signal audit
   --dead-code              Run Supermodel's cloud dead-code analysis (opt-in;
                            requires the `supermodel` CLI)
+  --fp-filter              Report per check how many [heuristic] findings the
+                           E18 fp_filter would suppress (also on when
+                           fp_filter.enabled)
   -h, --help               display help for command
 ```
 
@@ -2429,6 +2432,8 @@ Options:
   --artifacts-out <dir>       Copy the certified run's artifacts (fresh or
                               reused) into this directory after a passing run
   --json                      Machine-readable test plan or execution
+  --details                   Show complete test-plan and pending-input
+                              listings
   --static-selection          Let the effect classifier omit unaffected tests
                               and reuse passing results (off by default: it
                               cannot prove either safe)
@@ -2461,6 +2466,8 @@ Options:
   --artifacts-out <dir>       Copy the certified run's artifacts (fresh or
                               reused) into this directory after a passing run
   --json                      Machine-readable test plan or execution
+  --details                   Show complete test-plan and pending-input
+                              listings
   --static-selection          Let the effect classifier omit unaffected tests
                               and reuse passing results (off by default: it
                               cannot prove either safe)
@@ -2493,6 +2500,8 @@ Options:
   --artifacts-out <dir>       Copy the certified run's artifacts (fresh or
                               reused) into this directory after a passing run
   --json                      Machine-readable test plan or execution
+  --details                   Show complete test-plan and pending-input
+                              listings
   --static-selection          Let the effect classifier omit unaffected tests
                               and reuse passing results (off by default: it
                               cannot prove either safe)
@@ -2864,6 +2873,7 @@ Options:
 Commands:
   status [options]
   verify [options]                                               Check pending file versions and retain exact-version evidence and findings
+  repair-history [options]                                       Set aside a history log shorter than its committed pointer and restart the history; keeps state and pending obligations (offline; restart the daemon after)
   accept-policy [options] <digest>                               Explicitly accept the exact current protected-policy digest
   acknowledge [options] <id> <generation> <identity> <evidence>  Record manual review evidence for an exact pending file version; does not claim automated checks
   help [command]                                                 display help for command

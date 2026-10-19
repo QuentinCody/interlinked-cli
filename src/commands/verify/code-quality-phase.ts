@@ -3,6 +3,7 @@ import {
 	formatSeconds,
 	formatSlowestFiles,
 } from "./scan-progress.js";
+import { type FpFilterVerifyRequest, streamFpFilterSection } from "./fp-filter-section.js";
 import { streamAllCqSections } from "./streaming-output.js";
 import {
 	clearCodeQualityResults,
@@ -19,6 +20,8 @@ interface CodeQualityPhaseArgs {
 	allFlaggedFiles: Set<string>;
 	/** Wall clock the caller started the phase at; `emitVerifyRun` reuses it. */
 	startedAt: number;
+	/** When set, also stream the E18 fp_filter would-suppress counts. */
+	fpFilter?: FpFilterVerifyRequest | undefined;
 }
 
 /** Run, stream, and promptly release the long per-file check battery. */
@@ -33,6 +36,7 @@ export async function runCodeQualityPhase(args: CodeQualityPhaseArgs): Promise<v
 	try {
 		streamAllCqSections(cq, args.details, args.allFlaggedFiles);
 		streamUndocumentedEnvVars(cq.undocumentedEnvVars, args.allFlaggedFiles);
+		if (args.fpFilter) streamFpFilterSection(cq, args.cwd, args.fpFilter);
 	} finally {
 		// External tools run after this phase. Do not retain every inline finding
 		// while those subprocesses allocate their own output and parser state.

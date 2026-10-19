@@ -155,8 +155,16 @@ Host file policies require explicit bridge mapping and matching file snapshots.
   for the authoritative current inventory. Patterns are **ORed over positive entries;
   `negate:true` patterns are exceptions.** `executed_only` masks
   quoted/heredoc/comment text, so *mentioning* `rm -rf /` in an `echo` is allowed while the
-  bare command blocks. Compound commands (`&&`, `||`, `;`, `|`, newline) are decomposed and
-  each part checked.
+  bare command blocks. A quote around ONE shell word is an operand, not a mention: it stays
+  visible, so `truncate -s 0 "src/app.ts"` blocks like its unquoted twin, while a quoted body
+  with whitespace or a metacharacter (`git commit -m 'rm -rf /'`) stays masked. A quoted
+  argument of `eval` (or of `bash -c`, `python -c`, `node -e`) is code and is scanned. Compound
+  commands (`&&`, `||`, `;`, `|`, newline) are decomposed and each part checked.
+- If a stopping rule matches only data, you get `[interlinked:guard] rule <id> matched inside a
+  string literal (…); not blocked` instead of a block. Data here is a `harness test` argument, a
+  grep/rg pattern, an echo/printf argument, or a string in a `node -e`/`python3 -c` program with
+  no `child_process`/`subprocess`/`system`/`exec`. If the text can reach `sh`, `bash`, `eval`,
+  `xargs`, or a script that the same command runs, the block stands.
 - Python `open(...)` checks inspect executable calls and recognize write and append modes;
   read-only calls and quoted examples do not establish a file write. Keep malformed tool
   input tests at the raw hook-input boundary rather than passing invalid normalized events.
@@ -188,6 +196,14 @@ Host file policies require explicit bridge mapping and matching file snapshots.
 | **Bash-edit obligation** (`bash-edit-obligation`) | a bash-channel edit left an INTRODUCED `pre_block`-class finding on disk; until it is fixed, write-class tool calls to OTHER files are refused (edits to the flagged file and reads stay allowed; the gate re-checks and self-releases) | fix the flagged file first |
 | **Hand-rolled patch applier** | a throwaway script in the scratchpad or `scratch/` that calls `writeFileSync`/`appendFileSync`/`write_text` on a path outside its sandbox (`"src/…"`, `process.cwd()`, `../`) — a re-implementation of Edit with the gates removed | probes that only READ repo source; scripts writing beside themselves; committed codegen under `scripts/` |
 | **Content pre_block** (introduced-only) | edit that *introduces* merge-conflict markers, `eval()`, and other zero-FP checks | pre-existing instances (warn, not block) |
+
+Inline interpreter writes (`builtin-interpreter-write`) require evidence about the
+write's own destination: a literal source path or a simple variable binding to it.
+Reading or hashing a source file while writing a JSON ledger does not establish a
+source edit. The guard does not pair unrelated filenames with writes elsewhere in
+the program. Reassigned, shadowed or otherwise unresolved destinations are not
+grounds for this hard block; computed-write warnings remain advisory. Actual
+source writes still belong in Write/Edit or the supported Interlinked write flow.
 
 ## When you're BLOCKED: what to do
 
@@ -231,7 +247,8 @@ newline continues the same command and retains its interactive restrictions. A n
      call itself — the Bash command text, or the content you are writing — and must name the
      detector id **exactly**. The call then runs and the harness logs
      `[interlinked:sequence-deferred]` with your reason. These detectors latch on session
-     state, so without the marker one confidential read can block later outbound network calls.
+     state. Since 2026-10-08 `secret_read_then_network_call` is default-off: sensitivity is
+     tracked and warned, never blocked, on outbound network calls.
 
 5. **When NOT to suppress:** `[proven]` findings (tsc/biome/gitleaks/semgrep actually ran) and
    any destructive/security **guard-rule** block. Suppression directives affect **checks**, not
@@ -239,8 +256,9 @@ newline continues the same command and retains its interactive restrictions. A n
    wrong for your repo, the fix is config (below), not a comment. Don't add
 	`@ts-ignore`/`biome-ignore` to silence a `[proven]` check — that trips `suppressions-unjustified`.
 
-**Loopback requests after a sensitive read.** The sensitivity guard and
-`secret_read_then_network_call` share destination-aware classification. Explicit HTTP(S)
+**Loopback requests after a sensitive read.** Since 2026-10-08 the sensitivity guard
+tracks and warns, but never blocks, outbound network calls; the rules below apply when
+`secret_read_then_network_call` is enabled. It uses destination-aware classification. Explicit HTTP(S)
 curl requests to `localhost`, IPv4 loopback (`127.0.0.0/8`), or IPv6 loopback (`::1`)
 are exempt, including ordinary request/data/header flags. Simple nc/ncat/netcat loopback
 connections are also exempt. Wget requires `--max-redirect=0` and a supported simple
@@ -252,11 +270,15 @@ environment assignments selecting proxies or client configuration also retain gu
 This is a static command classifier; it does not inspect ambient client configuration or
 prove what a local service does with received data. Other guards continue to apply.
 
-Sensitivity and step budgets follow the acting worker and its ancestors. An already-running
-clean sibling keeps its own sensitivity and configured step limit; new children inherit
-their parent's current sensitivity. This also applies to the optional content scanner.
-Unknown actors and legacy state retain the conservative session-level fallback. Exhausted
-workers receive handoff guidance; the guard does not suggest a commit it would block.
+Sensitivity follows the acting worker and its ancestors. An already-running clean sibling
+keeps its own sensitivity; new children inherit their parent's current sensitivity. This
+also applies to the optional content scanner. Unknown actors and legacy state retain the
+conservative session-level fallback.
+
+All sensitivity levels have unlimited tool-call budgets by default. Long sessions do not
+enter read-only mode or receive budget warnings merely because of their call count. After
+rebuilding and restarting, the next event applies current step-limit policy even to a
+restored session with an older finite cap, preserving its sensitivity and trajectory.
 
 Git scope checks normalize absolute session write paths and Git's repository-relative
 paths against the repository root, including commands invoked from subdirectories.
@@ -487,6 +509,34 @@ executable positions of flat, quote-aware command lists. Quoted search patterns
 and look-alike names are never compiler invocations. Commands with comments,
 newlines, substitutions, or grouping run unchanged through the normal tool.
 
+## TypeScript check scheduler (off by default)
+
+`[interlinked:typescript] deferred by scheduler (p=0.xx)` means the daemon
+did not run tsc for that edit. A logistic over free edit features predicted a
+clean result. This is not a pass. The file stays in a per-session deferred set
+until tsc runs. The next edit that the scheduler runs checks the set, and Stop
+always checks it. A Stop drain with type errors or without a verdict blocks
+Stop. Do not describe a deferred edit as type-checked. The scheduler is OFF by
+default. It is calibrated on one repository (interlinked-cli) and does not
+transfer across repositories. Only `guard-rules.local.json` can enable it:
+`{"quality_checks":{"typescript":{"scheduler":{"enabled":true}}}}`. An edit that
+changes an import line is never deferred. To list the deferred runs, use
+`interlinked query checks --where scheduler.deferred=true`.
+
+## False-positive filter for `[heuristic]` findings (off by default)
+
+`[interlinked:fp-filter] [heuristic] N findings suppressed by fp_filter (p<…)`
+means the daemon withheld N `[heuristic]` findings that a free logistic (check
+id, path class, severity, repeat count, message length) scored as probably not
+worth a fix. It never touches `[proven]` findings, `pre_block` checks or blocking
+results. The filter is OFF by default. It is calibrated on one repository
+(interlinked-cli: holdout AUROC 0.906, kept 26/26 true positives, suppressed
+66/122 false positives). Only `guard-rules.local.json` can enable it:
+`{"fp_filter":{"enabled":true,"mode":"downgrade"}}` (`"hide"` gives the count
+only; `min_p` moves the cut). Each suppressed finding is still recorded in
+`check-results.jsonl`. To audit them, use
+`interlinked query checks --where fp_filter_suppressed=true`.
+
 ## Grep acceleration
 The guard intercepts `Grep` tool calls and Bash `rg`/`grep`, queries a trigram index for
 candidate files, and can answer the search directly (block-and-answer) faster than a full
@@ -568,6 +618,17 @@ never inferred read-only from their text. Restore the runtime before relying on 
   Neither has dedicated native MCP, subagent, or worktree lifecycle events. Do not infer an
   absent event from silence; the shared `git worktree add` shell block still applies.
 - **PII content scanner** is separate and opt-in: `interlinked scanner on|off|toggle|status|review`.
+- **Decision shadows** (opt-in `decision_shadow` in guard-rules.local.json) log a model's
+  second opinion and never change a verdict. A `guard_block` row means a shell block was
+  asked "is this destructive as written?": `would_release` (p < 0.1476) says the model saw
+  no destructive action, and `would_hold` says it agrees with the block. A `secret_hit` row
+  means a secret signature was asked "is this a real credential?": `would_clear`
+  (p < 0.479) says it is likely a placeholder or fixture, and `would_keep` says it is
+  likely real. Release rate = `would_release` rows / all `guard_block` rows; read them with
+  `interlinked query .interlinked/decision-shadow.jsonl --where surface=guard_block`
+  (add `--by verdict` for the split). A release is NOT permission: the block still stands.
+  The same ledger holds the edit-shadow rows (`surface=edit`, question
+  `edit_needs_verification_v1`); every row kind keys its session as `session_id`.
 - Env bypasses (logged, documented-flows only): `INTERLINKED_DISABLE_PACKAGE_GUARD=1`,
   `INTERLINKED_DISABLE_BASELINE_GUARD=1`, `INTERLINKED_DISABLE_SCRATCH_GUARD=1`.
 

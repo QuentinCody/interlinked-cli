@@ -134,6 +134,15 @@ describe("coverage check scope", () => {
         expect(new Set(batches.flat().map(entry => entry.id)).size).toBe(34);
     });
 
+    // F80 pin: moving receipts to the history log must not change the checker's envelope.
+    it("N: runs recovery checks as dry-run events, never as provider observations", async () => {
+        const { root, entries } = fixture();
+        await createHookCoverageChecker(root, () => ({}))(entries);
+        const events = mocks.quality.mock.calls.map(call => call[0] as HarnessEvent);
+        expect(events).toHaveLength(entries.length);
+        expect(events.every(event => event.dry_run === true && event.session_id === "hook-coverage-verification")).toBe(true);
+    });
+
     it("keeps absent versions pending for an explicit deletion review", async () => {
         const { root, first } = fixture();
         const missing = { ...first, identity: "missing" };

@@ -323,6 +323,7 @@ describe("workspace snapshot gate", () => {
 		expect(mRememberWorkspaceSnapshot).toHaveBeenCalledWith({
 			toolUseId: "tu-2",
 			sessionId: "s",
+			declaredTargets: [],
 			root: "/repo",
 		});
 	});

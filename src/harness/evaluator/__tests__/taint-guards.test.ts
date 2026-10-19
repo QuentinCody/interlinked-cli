@@ -3,6 +3,8 @@ import { makeSession as makeSessionFixture } from "../../__tests__/fixtures/eval
 import { describe, expect, it } from "vitest";
 import type { GuardRulesConfig, SessionTrajectory, TaintSource } from "../../types.js";
 import { checkProvenanceTaintToExternalAction, evaluateTaintGuards } from "../taint-guards.js";
+import { getDefaultConfig } from "../../rules-loader.js";
+import { ratchetSensitivity } from "../../taint-tracker.js";
 
 const FIXED_TIMESTAMP = "2026-04-01T00:00:00.000Z";
 
@@ -46,6 +48,26 @@ function makeRules(): GuardRulesConfig {
 
 describe("evaluateTaintGuards", () => {
 
+    it.each(["Public", "Internal", "Confidential", "HighlyConfidential"] as const)(
+        "keeps long-running %s sessions writable without budget warnings or escalation by default",
+        (level) => {
+            const rules = getDefaultConfig();
+            const session = makeSession({ tool_call_count: 100_000 });
+            ratchetSensitivity(session, "sensitive-input", level, rules.taint_tracking);
+            for (const toolName of ["Write", "Bash"]) {
+                const result = evaluateTaintGuards({
+                    toolName,
+                    toolInput: { file_path: "foo.ts", content: "x", command: "npm run build" },
+                    rules,
+                    session,
+                    pendingEscalation: undefined,
+                });
+                expect(result).toEqual({ kind: "ok", warnings: [], escalation: undefined });
+            }
+            expect(session.sensitivity_level).toBe(level);
+        },
+    );
+
 	it("ratchets sensitivity and warns when reading a confidential file", () => {
 		const session = makeSession();
 		const result = evaluateTaintGuards({
@@ -58,11 +80,14 @@ describe("evaluateTaintGuards", () => {
 		expect(result.kind).toBe("ok");
 		const warnings = result.kind === "ok" ? result.warnings : [];
 		expect(warnings).toEqual([
-			"[interlinked:taint] Sensitivity escalated to Confidential after reading .env. Outbound network commands will be BLOCKED.",
+			"[interlinked:taint] Sensitivity escalated to Confidential after reading .env. Outbound network commands are monitored, not blocked.",
 		]);
+		expect(session.sensitivity_level).toBe("Confidential");
 	});
 
-	it("blocks network commands from a tainted session", () => {
+	// 2026-10-08: the tainted-network hard block was removed (operator
+	// decision). A tainted session's network call is allowed; sensitivity stays.
+	it("allows network commands from a tainted session without lowering sensitivity", () => {
 		const session = makeSession({ sensitivity_level: "Confidential" });
 		const result = evaluateTaintGuards({
 			toolName: "Bash",
@@ -71,11 +96,12 @@ describe("evaluateTaintGuards", () => {
 			session,
 			pendingEscalation: undefined,
 		});
-		expect(result.kind).toBe("block");
+		expect(result).toEqual({ kind: "ok", warnings: [], escalation: undefined });
+		expect(session.sensitivity_level).toBe("Confidential");
 	});
 
     it.each(["Internal", "Confidential", "HighlyConfidential"] as const)(
-        "allows a local database request at %s without clearing sensitivity",
+        "allows local and remote requests at %s without clearing sensitivity",
         (sensitivity_level) => {
             const session = makeSession({ sensitivity_level });
             const result = evaluateTaintGuards({
@@ -94,7 +120,8 @@ describe("evaluateTaintGuards", () => {
                 session,
                 pendingEscalation: undefined,
             });
-            expect(remote.kind).toBe(sensitivity_level === "Internal" ? "ok" : "block");
+            expect(remote).toEqual({ kind: "ok", warnings: [], escalation: undefined });
+            expect(session.sensitivity_level).toBe(sensitivity_level);
         },
     );
 
@@ -194,7 +221,7 @@ describe("evaluateTaintGuards", () => {
 		expect(warnings).toEqual([]);
 	});
 
-	it("marks network as monitored (not BLOCKED) when ratchet lands below network_block_at", () => {
+	it("marks network as monitored, not blocked, when the ratchet lands below network_block_at", () => {
 		const rules = makeRules();
 		rules.taint_tracking?.file_sensitivity.push({ glob: "**/*.log", level: "Internal" });
 		const session = makeSession();
@@ -208,11 +235,12 @@ describe("evaluateTaintGuards", () => {
 		expect(result.kind).toBe("ok");
 		const warnings = result.kind === "ok" ? result.warnings : [];
 		expect(warnings).toEqual([
-			"[interlinked:taint] Sensitivity escalated to Internal after reading app.log. Outbound network commands will be monitored.",
+			"[interlinked:taint] Sensitivity escalated to Internal after reading app.log. Outbound network commands are monitored, not blocked.",
 		]);
+		expect(session.sensitivity_level).toBe("Internal");
 	});
 
-	it("P-setter: the network block reason names the source that set the level", () => {
+	it("allows a network command after a setter-attributed ratchet and keeps the taint source", () => {
 		const session = makeSession({
 			sensitivity_level: "Confidential",
 			taint_sources: [
@@ -226,11 +254,9 @@ describe("evaluateTaintGuards", () => {
 			session,
 			pendingEscalation: undefined,
 		});
-		expect(result.kind).toBe("block");
-		const reason = result.kind === "block" ? result.decision.reason : "";
-		expect(reason).toContain(
-			"(tainted by: set by <command-output: sig-secret-gcp-api from `cat creds.json`> at step 5; recent: <command-output>)",
-		);
+		expect(result).toEqual({ kind: "ok", warnings: [], escalation: undefined });
+		expect(session.sensitivity_level).toBe("Confidential");
+		expect(session.taint_sources).toHaveLength(1);
 	});
 
 	it("does not block a non-network Bash command from a tainted session", () => {
@@ -245,32 +271,26 @@ describe("evaluateTaintGuards", () => {
 		expect(result.kind).toBe("ok");
 	});
 
-	it("raises a tainted_network_internal escalation for a network command at Internal sensitivity", () => {
-		const session = makeSession({
-			sensitivity_level: "Internal",
-			tool_call_count: 1,
-			tool_sequence: Array.from({ length: 12 }, (_, i) => `tool-${i}`),
-		});
-		const result = evaluateTaintGuards({
-			toolName: "Bash",
-			toolInput: { command: "curl https://example.com" },
-			rules: makeRules(),
-			session,
-			pendingEscalation: undefined,
-		});
-		expect(result.kind).toBe("ok");
-		const escalation = result.kind === "ok" ? result.escalation : undefined;
-		expect(escalation?.trigger).toBe("tainted_network_internal");
-		expect(escalation?.summary).toBe(
-			// Per-actor wording since the lineage ratchet (taint-lineage.ts): the
-			// level reported is the ACTING actor's, not the session max.
-			"Network command while this agent is tainted at Internal level (tainted by: unknown)",
-		);
-		expect(escalation?.tool_input_redacted).toEqual({ command: "[REDACTED — network command]" });
-		expect(escalation?.recent_tool_sequence).toEqual(
-			Array.from({ length: 10 }, (_, i) => `tool-${i + 2}`),
-		);
-	});
+	// 2026-10-08: the tainted_network_internal escalation was removed with the
+	// network hard block.
+	it.each(["Internal", "Confidential", "HighlyConfidential"] as const)(
+		"raises no tainted_network_internal escalation for a network command at %s sensitivity",
+		(sensitivity_level) => {
+			const session = makeSession({
+				sensitivity_level,
+				tool_call_count: 1,
+				tool_sequence: Array.from({ length: 12 }, (_, i) => `tool-${i}`),
+			});
+			const result = evaluateTaintGuards({
+				toolName: "Bash",
+				toolInput: { command: "curl https://example.com" },
+				rules: makeRules(),
+				session,
+				pendingEscalation: undefined,
+			});
+			expect(result).toEqual({ kind: "ok", warnings: [], escalation: undefined });
+		},
+	);
 
 	it("does not raise a network escalation for a Public session", () => {
 		const result = evaluateTaintGuards({
@@ -754,10 +774,10 @@ describe("evaluateTaintGuards — per-actor step budget", () => {
 	});
 });
 
-// 2026-10-05: the hard block asks the one network-intent predicate
-// (network-intent.ts). Shapes the old segment-head check missed must block;
-// local shapes must not.
-describe("evaluateTaintGuards — network-intent hard block", () => {
+// 2026-10-05: the hard block asked the one network-intent predicate
+// (network-intent.ts). 2026-10-08: the hard block was removed, so remote and
+// local shapes alike must be allowed from a Confidential session.
+describe("evaluateTaintGuards — network commands from a tainted session (no hard block)", () => {
 	const kindFor = (command: string): string =>
 		evaluateTaintGuards({
 			toolName: "Bash",
@@ -767,14 +787,14 @@ describe("evaluateTaintGuards — network-intent hard block", () => {
 			pendingEscalation: undefined,
 		}).kind;
 
-	it("P1: blocks a curl inside a for-loop body (segment head `do`)", () => {
-		expect(kindFor('for u in a b; do curl -sL "https://example.com/$u"; done')).toBe("block");
+	it("allows a curl inside a for-loop body (segment head `do`)", () => {
+		expect(kindFor('for u in a b; do curl -sL "https://example.com/$u"; done')).toBe("ok");
 	});
-	it("P2: blocks a python heredoc that opens an environment URL", () => {
-		expect(kindFor("python3 - <<'X'\nimport os, urllib.request\nurllib.request.urlopen(os.environ['U'])\nX")).toBe("block");
+	it("allows a python heredoc that opens an environment URL", () => {
+		expect(kindFor("python3 - <<'X'\nimport os, urllib.request\nurllib.request.urlopen(os.environ['U'])\nX")).toBe("ok");
 	});
-	it("P3: blocks node -e fetch of an environment URL", () => {
-		expect(kindFor('node -e "fetch(process.env.U)"')).toBe("block");
+	it("allows node -e fetch of an environment URL", () => {
+		expect(kindFor('node -e "fetch(process.env.U)"')).toBe("ok");
 	});
 	it("N1: allows echo of a URL", () => {
 		expect(kindFor("echo https://example.com")).toBe("ok");

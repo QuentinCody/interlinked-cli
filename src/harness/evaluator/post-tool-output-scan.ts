@@ -31,6 +31,7 @@ import type {
 	SessionTrajectory,
 	TaintTrackingConfig,
 } from "../types.js";
+import { scheduleSecretHitShadow } from "../jev/secret-shadow.js";
 import { applySecretOutputTaint } from "./secret-output-origin.js";
 import { scanReadSecretLeaks } from "./secret-read-origin.js";
 import { isBash, isReadOperation } from "./tool-classifiers.js";
@@ -107,6 +108,9 @@ function scanBashSecretLeaks(scan: BashSecretScan): string[] {
 	}
 	const secretMatches = scanSecretsSignatures(toScan);
 	if (secretMatches.length === 0) return [];
+	// U1 decision shadow (default OFF): log a second opinion on this hit, on a
+	// later tick; never awaited, never changes the taint effect below.
+	scheduleSecretHitShadow(event, rules, toScan, secretMatches);
 
 	// Origin-aware: content fetched from the public internet does not ratchet;
 	// a documented public credential context ratchets to Internal only; every

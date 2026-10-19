@@ -13,6 +13,12 @@ async function parse(...args: string[]): Promise<void> {
 
 beforeEach(() => { vi.mocked(testsCommand).mockReset(); });
 
+it.each(["plan", "run", "status"])("accepts --details for tests %s without opting into static selection", async kind => {
+    await parse(kind, "--details");
+    expect(testsCommand).toHaveBeenCalledWith(kind, [], expect.objectContaining({ details: true }));
+    expect(vi.mocked(testsCommand).mock.calls[0]?.[2]).not.toHaveProperty("staticSelection");
+});
+
 describe("tests run/plan/status --coverage-reporter — positive (must fire)", () => {
     it("P1: a repeated --coverage-reporter collects every module path in order", async () => {
         // test-contract: public-api — the flag is documented as repeatable, so each occurrence adds one reporter module

@@ -81,6 +81,8 @@ interface OutputJsonArgs {
 	projectE2e?: JsonObject;
 	/** Which rules judged this run (`rules-fingerprint.ts`); absent → emitted as null. */
 	rules?: RulesFingerprint;
+	/** E18 fp_filter would-suppress counts (`verify/fp-filter-section.ts`); absent → no key. */
+	fpFilter?: JsonObject | undefined;
 }
 
 /**
@@ -366,11 +368,12 @@ export function outputJson(args: OutputJsonArgs): void {
  * keys a consumer sees. `rules` is null (never absent) when no fingerprint was
  * computed, so "not computed" stays distinguishable from a pre-schema report.
  */
-function serializeVerifyJson(result: JsonObject, { rules, projectE2e }: Pick<OutputJsonArgs, "rules" | "projectE2e">): string {
+function serializeVerifyJson(result: JsonObject, { rules, projectE2e, fpFilter }: Pick<OutputJsonArgs, "rules" | "projectE2e" | "fpFilter">): string {
 	const tagged: JsonObject = {
 		schema_version: VERIFY_JSON_SCHEMA,
 		rules: rules ? { schema: rules.schema, rules_hash: rules.rules_hash, inputs: rules.inputs } : null,
 		...result,
+		...(fpFilter ? { fp_filter: fpFilter } : {}),
 		// F6: the project e2e verdict (`verify/project-e2e-section.ts`); absent policy ⇒ unconfigured.
 		project_e2e: projectE2e ?? { status: "unconfigured" },
 	};

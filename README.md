@@ -181,7 +181,7 @@ for `setup` or `init` only when you need the login and workspace steps they add.
 ## What you get
 
 - **Guard harness.** A local Unix-socket server evaluates each delivered hook
-  event against <!-- gen:builtin_rule_count -->121<!-- /gen:builtin_rule_count -->
+  event against <!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count -->
   deterministic safety rules (destructive commands, secrets in writes,
   sensitive-file reads, lockfile drift, etc.) and returns block/allow
   or ask decisions in about 1–5 ms for cheap rules. External project checks

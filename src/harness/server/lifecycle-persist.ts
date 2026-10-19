@@ -9,6 +9,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { deleteLiveSnapshot } from "../live-snapshot.js";
+import { reservationActorOf } from "../reservation-actor.js";
 import { sanitizeSessionId } from "../session-paths.js";
 import type { buildTurnEndSummary } from "../turn-end.js";
 import type { HarnessEvent, SessionTrajectory } from "../types.js";
@@ -94,7 +95,7 @@ export function cleanupSessionState(
 ): void {
 	const { cohort, sessions, reservations } = ctx;
 	cohort.agentLeft(event);
-	reservations.releaseAllForAgent(event.agent_name || session.agent_name, cohort);
+	reservations.releaseAllForAgent(event.agent_name || session.agent_name, cohort, reservationActorOf(event));
 	sessions.remove(event.session_id);
 	ctx.asyncFindings.clearSession(event.session_id);
 	// Pair the trajectory.json archive with live-snapshot deletion —

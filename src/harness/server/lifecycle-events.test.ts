@@ -1131,7 +1131,7 @@ describe("Stop handler — branch coverage", () => {
 		vi.spyOn(reservations, "releaseAllForAgent").mockImplementation(() => {});
 		const ctx = bCtx({ reservations });
 		await stop(ctx, {}, bSession({ agent_name: "session-agent" }));
-		expect(reservations.releaseAllForAgent).toHaveBeenCalledWith("session-agent", ctx.cohort);
+		expect(reservations.releaseAllForAgent).toHaveBeenCalledWith("session-agent", ctx.cohort, expect.objectContaining({ tool_use_id: null }));
 	});
 
 	it("prefers event.agent_name for reservation release when present", async () => {
@@ -1139,7 +1139,7 @@ describe("Stop handler — branch coverage", () => {
 		vi.spyOn(reservations, "releaseAllForAgent").mockImplementation(() => {});
 		const ctx = bCtx({ reservations });
 		await stop(ctx, { agent_name: "event-agent" }, bSession({ agent_name: "session-agent" }));
-		expect(reservations.releaseAllForAgent).toHaveBeenCalledWith("event-agent", ctx.cohort);
+		expect(reservations.releaseAllForAgent).toHaveBeenCalledWith("event-agent", ctx.cohort, expect.objectContaining({ tool_use_id: null }));
 		expect(bLog).toContain("Agent left: event-agent");
 	});
 

@@ -53,6 +53,23 @@ describe("buildCheckRow", () => {
 		]);
 	});
 
+	it("flags fp_filter-suppressed findings on the entry and the row (auditable)", () => {
+		const suppressed: CheckResultEntry = { ...magicFinding, name: "function_arg_count", fp_filter_p: 0.01, fp_filter_suppressed: true };
+		const row = buildCheckRow(postEvent({ tool_use_id: "t9" }), decisionWith({ check_results: [tsFinding, suppressed] }));
+		expect(row?.fp_filter_suppressed).toBe(true);
+		expect(row?.checks[1]).toEqual({ id: "function_arg_count", severity: "warning", determinism: "heuristic", fp_filter_suppressed: true });
+		expect(row?.finding_details?.[1]?.fp_filter_p).toBe(0.01);
+		const clean = buildCheckRow(postEvent({ tool_use_id: "t10" }), decisionWith({ check_results: [tsFinding, magicFinding] }));
+		expect(clean?.fp_filter_suppressed).toBeUndefined();
+	});
+
+	it("carries the tsc-scheduler verdict on the row so the E21 miss rate can be re-derived", () => {
+		const scheduler = { deferred: true, p: 0.0197, threshold: 0.2324, recall_point: 0.9, trigger: "edit" as const };
+		const row = buildCheckRow(postEvent({ tool_use_id: "t11" }), decisionWith({ check_results: [magicFinding], scheduler }));
+		expect(row?.scheduler).toEqual(scheduler);
+		expect(buildCheckRow(postEvent({ tool_use_id: "t12" }), decisionWith({ check_results: [magicFinding] }))?.scheduler).toBeUndefined();
+	});
+
 	it("records a clean call (checks ran, nothing fired) with the file from tool_input", () => {
 		const ev = postEvent({ tool_use_id: "t2", tool_name: "Write", tool_input: { file_path: "src/clean.ts" } });
 		const row = buildCheckRow(ev, decisionWith({ decision: "allow", checks_ran: ["typescript"], check_results: [] }));

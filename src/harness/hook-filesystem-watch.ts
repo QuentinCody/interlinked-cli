@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, readdirSync, watch, type FSWatcher } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { HookCoverageLedger, type HookFileObservation } from "./hook-coverage-ledger.js";
+import { FileIdentityCache } from "./hook-file-identity.js";
 import { HookCoverageVerification, type HookCoverageChecker } from "./hook-coverage-verification.js";
 
 const ROOT_POLICY_FILES = ["package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", "tsconfig.json"];
@@ -25,15 +25,6 @@ function missing(error: unknown): boolean {
 function listed(directory: string): string[] {
     try { return readdirSync(directory); }
     catch (error) { if (missing(error)) return []; throw error; }
-}
-
-function identityOf(path: string): string {
-    try {
-        const stat = lstatSync(path);
-        if (stat.isSymbolicLink()) throw new Error(`unmeasured symbolic link: ${path} -> ${readlinkSync(path)}`);
-        if (!stat.isFile() || stat.size > 64 * 1024 * 1024) throw new Error(`unmeasured non-file or oversized policy: ${path}`);
-        return createHash("sha256").update(readFileSync(path)).digest("hex");
-    } catch (error) { if (missing(error)) return "missing"; throw error; }
 }
 
 function selectedPaths(options: WatchOptions, unmeasured: string[]): WatchedPaths {
@@ -71,6 +62,7 @@ class HookFilesystemWatch {
     private timer: ReturnType<typeof setTimeout> | undefined;
     private readonly interval: ReturnType<typeof setInterval>;
     private lastReconciled: string | null = null;
+    private readonly identities = new FileIdentityCache();
 
     constructor(private readonly options: WatchOptions) {
         this.ledger = new HookCoverageLedger(join(options.root, ".interlinked", "hook-coverage.json"));
@@ -122,9 +114,10 @@ class HookFilesystemWatch {
     private measureSelected(): void {
         const observations: HookFileObservation[] = [];
         for (const [path, scope] of this.selected) {
-            try { observations.push({ path, identity: identityOf(path), scope }); }
+            try { observations.push({ path, identity: this.identities.identityOf(path), scope }); }
             catch (error) { this.unmeasured.push(String(error)); }
         }
+        this.identities.retain(this.selected.keys());
         this.ledger.observeBatch(observations);
     }
 

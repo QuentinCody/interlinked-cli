@@ -10,4 +10,7 @@
 // Repeated warnings are heuristic session advice, never a repository quality score.
 // Restoring only persistent_warning_escalation to fully_deterministic reproduces
 // the prior 18176196 hash; no other catalog classification changed in this review.
-export const REVIEWED_REGISTRY_HASH = "7d91c267c03ff2bb42bc3a3265750cc5477bdc85a3dacded69f331a5c55d92b5";
+// U4 (2026-10-09) adds three guard rules (builtin-file-truncate, builtin-chmod-000,
+// builtin-chown-recursive): enforcement rows with no score authority; removing those
+// three rows reproduces the prior 7d91c267 hash.
+export const REVIEWED_REGISTRY_HASH = "827bd023ba29cc85054e8bbf3e7c4703f5b8c4a9d9f9d843d9b9f9ef962babc6";

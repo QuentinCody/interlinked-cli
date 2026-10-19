@@ -31,7 +31,14 @@ import type {
 } from "../types.js";
 import { evaluateActiveWhen } from "./active-when.js";
 import { sessionScratchpadAllows } from "./filesystem-guards.js";
+import type { MatchRuleFn } from "../command-rule-dispatch.js";
 import { commandKeywordTokens, shouldEvaluateByKeywords } from "./keyword-quick-reject.js";
+import {
+	compoundLiteralWarning,
+	lazyLiteralGate,
+	literalOnlyWarning,
+	literalWarningPrefix,
+} from "./literal-context-gate.js";
 import { formatAskReason, formatAskSystemMessage, formatReason, matchesRule, shouldEvaluateRule } from "./rule-matching.js";
 import {
 	buildScratchpadCodeReason,
@@ -145,6 +152,7 @@ function evaluateRuleLoop(
 	agentRole: ReturnType<typeof inferAgentRole>,
 	warnings: string[],
 ): HarnessDecision | null {
+	const literalGate = lazyLiteralGate(toolName, cmd);
 	for (const rule of rules.rules) {
 		if (!shouldEvaluateRule(rule, "PreToolUse", toolName)) continue;
 		if (!ruleAppliesToRole(rule, agentRole)) continue;
@@ -158,9 +166,18 @@ function evaluateRuleLoop(
 				extraExceptions: rules.extra_exceptions,
 				toolName,
 				session,
+				cwd: event.cwd,
 			})
 		)
 			continue;
+
+		// A stopping rule that matched only text the command treats as data
+		// (harness-test argument, grep pattern, inline-program string) warns.
+		const literal = literalOnlyWarning(rule, matchInput, literalGate);
+		if (literal) {
+			warnings.push(literal);
+			continue;
+		}
 
 		const decision = applyRuleAction(rule, event, cmd, toolInput, session, warnings);
 		if (decision) return decision;
@@ -303,26 +320,34 @@ function evaluateCompoundDecomposition(
 	cmd: string,
 	toolInput: JsonObject,
 	warnings: string[],
+	cwd: string | undefined,
 ): HarnessDecision | null {
 	// Any shell separator triggers decomposition — including newlines, pipes
 	// and background `&`. Restricting this to `&&`/`||`/`;` left a compound
 	// bypass open: `npm publish --dry-run\nnpm publish` never decomposed, so
 	// the first segment's `--dry-run` suppressed the rule for the second.
 	if (isBash(toolName) && /[;&|\n]/.test(cmd)) {
-		const compoundResult = evaluateCompoundCommand(
-			cmd,
-			rules.rules,
-			rules.extra_exceptions,
-			(c, inp, rule, extras) =>
-				matchesRule({
-					command: c,
-					toolInput: inp,
-					rule,
-					extraExceptions: extras,
-					toolName,
-					session,
-				}),
-		);
+		const matcher: MatchRuleFn = (c, inp, rule, extras) =>
+			matchesRule({
+				command: c,
+				toolInput: inp,
+				rule,
+				extraExceptions: extras,
+				toolName,
+				session,
+				cwd,
+			});
+		const compoundResult = evaluateCompoundCommand(cmd, rules.rules, rules.extra_exceptions, matcher);
+		const literal =
+			compoundResult.decision === "block"
+				? compoundLiteralWarning(toolName, cmd, compoundResult.rule_id, rules.rules, rules.extra_exceptions, matcher)
+				: null;
+		if (literal) {
+			warnings.push(...compoundResult.warnings);
+			const prefix = literalWarningPrefix(compoundResult.rule_id ?? "compound-subcommand");
+			if (!warnings.some((w) => w.startsWith(prefix))) warnings.push(literal);
+			return null;
+		}
 		if (compoundResult.decision === "block") {
 			return {
 				decision: "block",
@@ -419,5 +444,5 @@ export function evaluateDestructiveRules(
 	);
 	if (bashWriteDecision) return bashWriteDecision;
 
-	return evaluateCompoundDecomposition(rules, session, toolName, cmd, toolInput, warnings);
+	return evaluateCompoundDecomposition(rules, session, toolName, cmd, toolInput, warnings, event.cwd);
 }

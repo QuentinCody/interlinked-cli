@@ -93,25 +93,10 @@ const ALL_RULES: SignatureRule[] = [
 // Scanner Functions
 // ===========================================
 
-/** Regex metasyntax that a `literal_metachar_safe` signature's tokens never carry. */
-const REGEX_METASYNTAX = /[[\]{}\\|]|\(\?/;
-/** Bound on dropped regex-source spans per pattern (each retry starts one char later). */
-const MAX_SOURCE_SPANS = 256;
-
-/** First match of `pattern` in `content` that is not regex source text.
- *  For a `literal_metachar_safe` rule a span carrying metasyntax is skipped and
- *  the search resumes ONE character later, so a real token that starts inside
- *  a dropped span is still found (fail safe). Other rules: plain first match. */
-function firstTokenMatch(rule: SignatureRule, pattern: RegExp, content: string): RegExpExecArray | null {
-	if (!rule.literal_metachar_safe) return pattern.exec(content);
-	const re = new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, "") + "g");
-	for (let tries = 0; tries < MAX_SOURCE_SPANS; tries++) {
-		const m = re.exec(content);
-		if (m === null || !REGEX_METASYNTAX.test(m[0])) return m;
-		re.lastIndex = m.index + 1;
-	}
-	return pattern.exec(content);
-}
+// Regex-source spans (review 3b item 5) used to be skipped at match time for
+// the userinfo-shaped rules. Since E19 (2026-10-08) those rules spell out the
+// RFC 3986 userinfo alphabet, which cannot contain regex metasyntax, so a plain
+// first match is the whole mechanism.
 
 /** Scan content against all signature rules, optionally filtered by category */
 export function scanForSignatures(
@@ -131,7 +116,7 @@ export function scanForSignatures(
 
 	for (const rule of rules) {
 		for (const pattern of rule.patterns) {
-			const match = firstTokenMatch(rule, pattern, content);
+			const match = pattern.exec(content);
 			if (match) {
 				matches.push({
 					category: rule.category,

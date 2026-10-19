@@ -94,7 +94,7 @@ Supply-chain, env injection, and repetition shapes — secret-then-network, down
 
 ### `secret_read_then_network_call`
 - **Phase:** `pre_block`
-- **Default:** `enabled`
+- **Default:** `disabled`
 - **Determinism:** `fully_deterministic`
 - **Description:** Network call after sensitive read; potential exfiltration
 
@@ -104,7 +104,7 @@ Lethal-trifecta / prompt-injection / exfiltration shapes — defense-in-depth ac
 
 ### `exfil_to_public_writeable`
 - **Phase:** `pre_block`
-- **Default:** `enabled`
+- **Default:** `disabled`
 - **Determinism:** `fully_deterministic`
 - **Description:** Write/POST to a deterministically-public surface while at Confidential+
 
@@ -122,7 +122,7 @@ Lethal-trifecta / prompt-injection / exfiltration shapes — defense-in-depth ac
 
 ### `lethal_trifecta_structural`
 - **Phase:** `pre_block`
-- **Default:** `enabled`
+- **Default:** `disabled`
 - **Determinism:** `fully_deterministic`
 - **Description:** All three legs of the lethal trifecta active (private data + untrusted content + external comm)
 

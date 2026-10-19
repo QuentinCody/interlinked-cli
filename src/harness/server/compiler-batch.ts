@@ -90,7 +90,7 @@ function groupProjects(ctx: ServerRuntime, paths: string[]): Map<string, string[
 
 const NOT_APPLICABLE = "external_check_not_applicable";
 /** `executed` counts the project groups the compiler actually ran for; a group without a tsconfig is NOT APPLICABLE and never counts as executed. */
-async function runPendingChecks(ctx: ServerRuntime, pending: CompilerBatch, metrics: ToolBreakdownEntry[]): Promise<{ results: QualityCheckResult[]; executed: number }> {
+export async function runPendingChecks(ctx: ServerRuntime, pending: CompilerBatch, metrics: ToolBreakdownEntry[]): Promise<{ results: QualityCheckResult[]; executed: number }> {
     const check = ctx.rules.quality_checks.typescript;
     if (!check?.enabled) throw new Error("TypeScript policy changed while work was pending; restore the check and retry");
     const results: QualityCheckResult[] = [];
@@ -112,12 +112,12 @@ function recordExecution(decision: HarnessDecision, results: QualityCheckResult[
     if (skipped.length) decision.checks_skipped = skipped.map(row => ({ check: "typescript", category: "config_disabled" as const, reason: `not applicable: ${row.detail ?? row.message}` }));
 }
 
-function diagnosticKeys(result: QualityCheckResult): string[] {
+export function diagnosticKeys(result: QualityCheckResult): string[] {
     return result.diagnosticKeys ?? (result.detail ?? result.message).split("\n")
         .map(line => line.replace(/\([\d,…]+\)(?=:)/g, "(<line>)").trim());
 }
 
-function preserveOutstandingErrors(results: QualityCheckResult[], previous: string[]): void {
+export function preserveOutstandingErrors(results: QualityCheckResult[], previous: readonly string[]): void {
     const unresolved = new Set(previous);
     for (const result of results) {
         if (result.name !== "typescript" || !diagnosticKeys(result).some(key => unresolved.has(key))) continue;

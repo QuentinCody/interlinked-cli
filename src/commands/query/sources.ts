@@ -29,14 +29,14 @@ export const QUERY_SOURCES: QuerySource[] = [
 		file: "activity.jsonl",
 		where: ["type=guard_block"],
 		fields: ["tool", "guard_rule_id", "summary"],
-		hint: "what the guard refused, with rule ids",
+		hint: "what the guard refused, with rule ids (harness-test probes carry dry_run=true; add --where dry_run!=true)",
 	},
 	{
 		name: "guards",
 		file: "activity.jsonl",
 		where: ["type~=guard_"],
 		fields: ["type", "tool", "guard_rule_id", "summary"],
-		hint: "every guard verdict (block/warn/allow)",
+		hint: "every guard verdict (block/warn/allow; probes carry dry_run=true)",
 	},
 	{
 		name: "checks",
@@ -98,8 +98,8 @@ export const QUERY_SOURCES: QuerySource[] = [
 		name: "reservations",
 		file: "reservation-events.jsonl",
 		where: [],
-		fields: ["action", "file", "agent_name"],
-		hint: "multi-agent file leases (grant/release/conflict)",
+		fields: ["action", "file", "agent_name", "session_id", "tool_use_id"],
+		hint: "multi-agent file leases (grant/release/conflict); join to files-touched on session_id+subagent_id+tool_use_id",
 	},
 	{
 		name: "suggestions",

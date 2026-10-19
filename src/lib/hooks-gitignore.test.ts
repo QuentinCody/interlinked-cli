@@ -22,7 +22,8 @@ it("keeps harness output churn out of tool effects while preserving source, poli
     execFileSync("git", ["add", "-f", ".interlinked/timeline.jsonl"], { cwd: root });
     const before = captureWorkspaceSnapshot(root);
     for (const path of ["capture-receipts.jsonl", "logs/latency.jsonl", "metrics/executions.jsonl",
-        "test-runs/latest.json", "capture/state/session.json", "hook-translations.jsonl", "hook-coverage.json", "decision-metrics/runs/research.json"]) {
+        "test-runs/latest.json", "capture/state/session.json", "hook-translations.jsonl", "hook-coverage.json", "hook-coverage-history.jsonl",
+        "hook-coverage.json.legacy-2026-10-10T00-00-00.000Z", "hook-coverage-history.jsonl.orphan-x", "decision-metrics/runs/research.json"]) {
         write(`.interlinked/${path}`, "runtime output");
     }
     write(".interlinked/guard-rules.json", "{}");

@@ -189,6 +189,46 @@ describe("signatures — regex-source spans (literal_metachar_safe)", () => {
 	});
 });
 
+// E19 (2026-10-08): 369/369 real-world signature hits in our logs were false
+// positives; three families were regex shape, not judgment. userinfo is the
+// RFC 3986 §3.2.1 alphabet and bounded; a password value never starts with `$`
+// or carries braces (shell / template expansion).
+describe("signatures — E19 false-positive families", () => {
+	const ids = (s: string) => scanSecrets(s).map((m) => m.rule_id);
+	describe("— positive (must fire)", () => {
+		it("P1: a real URL credential still fires", () => {
+			expect(ids("git clone https://deploy:hunter2pw@git.example.com/repo.git")).toContain("sig-secret-url-credentials");
+		});
+		it("P2: a real connection string with sub-delims and pct-encoding still fires", () => {
+			expect(ids("DATABASE_URL=postgres://app:p%40ss-w0rd!@db.internal:5432/app")).toContain("sig-secret-db-connection");
+			expect(ids("redis://:s3cretpass@cache.internal:6379")).toContain("sig-secret-db-connection");
+		});
+		it("P3: a literal password value still fires", () => {
+			expect(ids('PASSWORD="correct-horse-battery"')).toContain("sig-secret-generic-password");
+			expect(ids('{"password": "correcthorse9"}')).toContain("sig-secret-generic-password");
+		});
+	});
+	describe("— negative (must not fire)", () => {
+		it("N1: JSON-LD `\"@context\":\"https://…\"` is not a URL credential", () => {
+			const jsonld = '{"@context":"https://schema.org","@type":"WebSite","name":"Cloudflare","url":"https://www.cloudflare.com/","potentialAction":{"@type":"SearchAction"}}';
+			expect(ids(jsonld)).not.toContain("sig-secret-url-credentials");
+		});
+		it("N2: a connection-string prefix does not run across quotes, newlines or diff hunks", () => {
+			const diff = 'URL: "postgres://localhost/app"\n@@ -4,6 +4,14 @@ cd "$(dirname "$0")/.." || exit\nsource ./helpers.sh\n+PID="/tmp/x.pid"\n+finish() { kill $PID; }\n+trap finish EXIT@';
+			expect(ids(diff)).not.toContain("sig-secret-db-connection");
+			expect(ids("jdbc:mysql://localhost/db\n+ * next line user@host")).not.toContain("sig-secret-db-connection");
+		});
+		it("N3: a `${VAR}@host` template is not a URL credential", () => {
+			expect(ids('export REMOTE="https://${ARTIFACTS_TOKEN_SECRET}@${ARTIFACTS_REMOTE#https://}"')).not.toContain("sig-secret-url-credentials");
+		});
+		it("N4: a shell / template expansion is not a password literal", () => {
+			expect(ids('export ARTIFACTS_TOKEN_SECRET="${ARTIFACTS_TOKEN%%\\?expires=*}"')).not.toContain("sig-secret-generic-password");
+			expect(ids('PASSWORD="$DB_PASSWORD_FROM_ENV"')).not.toContain("sig-secret-generic-password");
+			expect(ids('{"password": "{{ vault.db_password }}"}')).not.toContain("sig-secret-generic-password");
+		});
+	});
+});
+
 // Provider tokens ported from sanctum-oss
 // (reference-repos/sanctum-oss/crates/sanctum-firewall/src/patterns.rs).
 describe("signatures — secrets detection (provider tokens)", () => {

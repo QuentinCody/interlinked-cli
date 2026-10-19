@@ -17,7 +17,19 @@ export function readLocalQualityCheckOverride(value: unknown): Partial<QualityCh
 	if (typeof value.command === "string") result.command = value.command;
 	if (typeof value.description === "string") result.description = value.description;
 	readCheckTuning(result, value);
+	const scheduler = readSchedulerOverride(value.scheduler);
+	if (scheduler) result.scheduler = scheduler;
 	return result;
+}
+
+/** `typescript.scheduler` (E21): LOCAL tier only — team config cannot enable a
+ *  check deferral (applySafeQualityFields never copies it). An absent or
+ *  non-boolean `enabled` reads as false; a recall point outside (0, 1] is dropped. */
+function readSchedulerOverride(value: unknown): QualityCheckConfig["scheduler"] | null {
+	if (!isJsonObject(value)) return null;
+	const point = value.min_recall_point;
+	const valid = finite(point) && point > 0 && point <= 1;
+	return { enabled: value.enabled === true, ...(valid ? { min_recall_point: point } : {}) };
 }
 
 function readCheckTuning(result: Partial<QualityCheckConfig>, value: JsonObject): void {

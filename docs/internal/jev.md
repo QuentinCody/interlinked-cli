@@ -1,8 +1,10 @@
 # Internal Jev evaluation
 
 Jev is internal research as of 2026-09-22. The public CLI does not register a
-`jev` command, and the harness does not call Jev automatically. Old `jev` entries
-in guard configuration have no effect. A possible paid semantic-review service
+`jev` command. Since 2026-10-08 the harness calls Jev automatically in exactly one
+place: the opt-in, log-only edit shadow (`jev.enabled` and `jev.shadow_edits`
+in guard-rules.local.json, both default off; see `docs/harness.md`, "Edit
+shadow"). No other `jev` config entry has an effect. A possible paid semantic-review service
 is future work; no customer credential or billing flow is shipped here.
 
 Run from a source checkout with development dependencies installed:

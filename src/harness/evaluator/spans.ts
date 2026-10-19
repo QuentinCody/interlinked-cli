@@ -28,6 +28,7 @@
 
 import { nonNull } from "../../lib/non-null.js";
 import { isRuntimeDataHeredoc } from "./heredoc-runtime-mask.js";
+import { quotedOperandText } from "./spans-quoted-operand.js";
 
 type SpanKind = "executed" | "inline_code" | "quoted" | "comment" | "heredoc";
 
@@ -245,11 +246,21 @@ export function resolveHeredocTarget(
 const INLINE_EXEC_FLAG_RE =
 	/(?:^|[\s;&|`(])(?:(?:sudo|doas|command|nohup|time)\s+)*(?:[A-Za-z_]\w*=\S*\s+)*(?:[\w./-]*\/)?(?:sh|bash|zsh|ksh|dash|fish|python[\w.]*|pypy[\w.]*|node|nodejs|deno|bun|ruby|perl|php|pwsh|powershell)(?:\.exe)?\s[^;&|`\n]*?(?:-\w*[ce]|-p|-pe|--command|--eval|-Command|-EncodedCommand)(?:=|\s+)$/i;
 
+/** `eval` payload: a quoted argument of `eval` when `eval` is the segment's
+ *  command word (wrappers and env assignments allowed) is shell code, not
+ *  data — `eval "truncate -s 0 src/app.ts"` runs the truncation. `grep eval
+ *  "…"` does not match: `eval` must follow the segment start. (2026-10-09:
+ *  every `executed_only` rule missed this wrapper, 58/170 on the v2 corpus.) */
+const EVAL_PAYLOAD_RE =
+	/(?:^|[;&|`(]\s*)(?:(?:sudo|doas|command|builtin|nohup|time|exec)\s+){0,4}(?:[A-Za-z_]\w*=\S*\s+){0,8}eval\s[^;&|`\n]*$/;
+
 /** True when the quote opening at `quoteStart` is an interpreter's inline
- *  exec payload. Looks back only within the opener's own line. */
+ *  exec payload or an `eval` argument. Looks back only within the opener's
+ *  own line. */
 function isInlineExecPayload(cmd: string, quoteStart: number): boolean {
 	const lineStart = cmd.lastIndexOf("\n", quoteStart - 1) + 1;
-	return INLINE_EXEC_FLAG_RE.test(cmd.slice(lineStart, quoteStart));
+	const before = cmd.slice(lineStart, quoteStart);
+	return INLINE_EXEC_FLAG_RE.test(before) || EVAL_PAYLOAD_RE.test(before);
 }
 
 // Closes the current run at `end` (pushing a span if non-empty) and re-opens a
@@ -443,14 +454,29 @@ function isScannableSpan(s: Span): boolean {
 	return s.kind === "heredoc" && s.scannable === true;
 }
 
-export function extractScannableText(cmd: string, spans?: Span[]): string {
+export interface ScannableTextOptions {
+	/** Keep single-word quoted operands visible (default true — what rule
+	 *  patterns need). The diff classifier passes false: a string-body edit
+	 *  is not a semantic change there, whatever the body is. */
+	quotedOperands?: boolean;
+}
+
+export function extractScannableText(
+	cmd: string,
+	spans?: Span[],
+	opts: ScannableTextOptions = {},
+): string {
 	const ss = spans ?? classifySpans(cmd);
+	const operands = opts.quotedOperands !== false;
 	const buf: string[] = [];
 	for (const s of ss) {
 		if (isScannableSpan(s)) {
 			buf.push(s.text);
 		} else {
-			buf.push(" ".repeat(s.end - s.start));
+			// A single-word quoted operand stays visible (`rm -rf "/etc"`);
+			// see spans-quoted-operand.ts.
+			const visible = operands && s.kind === "quoted" ? quotedOperandText(s.text) : null;
+			buf.push(visible ?? " ".repeat(s.end - s.start));
 		}
 	}
 	return buf.join("");

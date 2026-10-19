@@ -57,6 +57,7 @@ import { DEFAULT_ADVISORY_SKIPS, TOOL_IDS } from "./verify/advisory.js";
 import { getEffectiveSkipChecks, getSkipTools } from "./verify/advisory-skips.js";
 import { cloneRepo, isGitUrl, normalizeGitUrl, repoDisplayName } from "./verify/clone-repo.js";
 import { runCodeQualityPhase } from "./verify/code-quality-phase.js";
+import { fpFilterJsonFor, resolveVerifyFpFilter } from "./verify/fp-filter-section.js";
 import { discoverFiles } from "./verify/file-discovery.js";
 import { outputJson } from "./verify/output-json.js";
 import { createScanProgress } from "./verify/scan-progress.js";
@@ -117,6 +118,7 @@ interface VerifyOpts {
 	allChecks?: boolean;
 	deadCode?: boolean;
 	skip?: string;
+	fpFilter?: boolean;
 }
 
 /**
@@ -342,6 +344,7 @@ async function runVerifyWithHeavyProcessLease(cwd: string, opts: VerifyOpts): Pr
 			details,
 			allFlaggedFiles,
 			startedAt: cqStart,
+			fpFilter: resolveVerifyFpFilter(cwd, opts.fpFilter),
 		});
 	}
 
@@ -484,6 +487,7 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 		structureSection: opts.structure ? buildStructureJsonSection(cwd, opts) : undefined,
 		projectE2e: projectE2e.json,
 		rules: computeRulesFingerprint(cwd),
+		fpFilter: fpFilterJsonFor(cq, cwd, opts.fpFilter),
 	});
 }
 

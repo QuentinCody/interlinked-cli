@@ -1,7 +1,7 @@
 import { isJsonObject } from "../lib/json-types.js";
 import { wireLiteral, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 
-const LIMIT_PER_KIND = 100;
+export const LIMIT_PER_KIND = 100;
 const MAX_BYTES_PER_KIND = 1024 * 1024;
 interface HistoryCounts { total: number; returned: number; omitted: number }
 export interface HookCoverageHistory {
@@ -41,8 +41,9 @@ function jsonBudget(value: unknown, remaining: number): number {
     return 32;
 }
 
-/** Bound both candidate work and returned bytes. Omitted rows remain in the ledger. */
-export function recentHistory<T>(rows: readonly T[]): { rows: T[]; counts: HistoryCounts } {
+/** Bound both candidate work and returned bytes. Omitted rows remain in the history log.
+ * `total` counts every retained row when `rows` is only the recent tail. */
+export function recentHistory<T>(rows: readonly T[], total = rows.length): { rows: T[]; counts: HistoryCounts } {
     const selected: T[] = [];
     let remaining = MAX_BYTES_PER_KIND - 2;
     for (let index = rows.length - 1; index >= Math.max(0, rows.length - LIMIT_PER_KIND); index--) {
@@ -53,7 +54,7 @@ export function recentHistory<T>(rows: readonly T[]): { rows: T[]; counts: Histo
         selected.push(row);
         remaining -= bytes;
     }
-    return { rows: structuredClone(selected), counts: { total: rows.length, returned: selected.length, omitted: rows.length - selected.length } };
+    return { rows: structuredClone(selected), counts: { total, returned: selected.length, omitted: total - selected.length } };
 }
 
 export function historySummary(ledgerPath: string, checks: HistoryCounts, reviews: HistoryCounts): HookCoverageHistory {

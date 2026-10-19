@@ -126,6 +126,8 @@ describe("registerQualityCommands — command + option descriptions (mutation-ki
 				"Include broad advisory smell checks and dead-code scans in addition to the default high-signal audit",
 			"--dead-code":
 				"Run Supermodel's cloud dead-code analysis (opt-in; requires the `supermodel` CLI)",
+			"--fp-filter":
+				"Report per check how many [heuristic] findings the E18 fp_filter would suppress (also on when fp_filter.enabled)",
 		});
 	});
 

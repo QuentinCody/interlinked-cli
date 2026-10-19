@@ -8,6 +8,7 @@ import type {
 	ProjectWideCheckConfig,
 	StructuralChecksConfig,
 } from "./config-structural.js";
+import type { DecisionShadowConfig, JevConfig } from "../jev/types.js";
 import type { PerEditCoverageConfig } from "./config-per-edit-coverage-config.js";
 import type { VerificationStopChecksConfig } from "./config-verification-stop-checks-config.js";
 import type { ClassifierConfig } from "./policy.js";
@@ -56,6 +57,18 @@ export interface CurlMcpConfig {
 	message: string;
 }
 
+/** `fp_filter` section (see `harness/fp-filter.ts`). */
+export interface FpFilterConfig {
+	/** Master switch. Default false. */
+	enabled: boolean;
+	/** "downgrade": suppressed findings collapse into one trailer line that
+	 *  names their checks; "hide": the trailer carries only the count.
+	 *  Default "downgrade". */
+	mode?: "downgrade" | "hide";
+	/** Suppress when p < min_p. Default: the shipped train-set threshold. */
+	min_p?: number;
+}
+
 export interface QualityCheckConfig {
 	enabled: boolean;
 	/** Shell command to run (file path appended) */
@@ -90,6 +103,19 @@ export interface QualityCheckConfig {
 	offline?: boolean;
 	/** `affected_tests` only: selected test-file cap (default 150); larger/full plans remain queued. */
 	max_dependent_tests?: number;
+	/** `typescript` only: E21 edit scheduler (`quality-checks/tsc-scheduler.ts`). DEFAULT OFF; local tier only. */
+	scheduler?: TscSchedulerConfig;
+}
+
+/** Defers the synchronous `typescript` run when a fitted logistic over free
+ *  edit features predicts the run reports nothing. Deferred files are checked
+ *  at the next run the scheduler keeps, and always at Stop / SessionEnd.
+ *  Calibrated on ONE repository (interlinked-cli, E21). */
+export interface TscSchedulerConfig {
+	enabled: boolean;
+	/** Train recall the threshold keeps (0.80, 0.85, 0.90, 0.95, 0.99 are
+	 *  fitted; another value takes the next stricter fitted point). Default 0.90. */
+	min_recall_point?: number;
 }
 
 // ===========================================
@@ -227,6 +253,21 @@ export interface GuardRulesConfig {
 	 *  are always allowed; the mandatory tmp-secrets scan is separate and not
 	 *  governed by this mode. See `evaluator/scratchpad-write-guard.ts`. */
 	scratchpad_guard?: { code_write_mode?: "block" | "warn" | "off" };
+	/** Jev (TypeSafe System One) — DEFAULT OFF, personal tier (the key lives in
+	 *  config.local.json as `TYPESAFE_API_KEY`). Today only the edit shadow
+	 *  (`jev/edit-shadow.ts`, `shadow_edits`) reads it: log-only, never warns. */
+	jev?: JevConfig;
+	/** Decision shadows (U1, 2026-10-08) — DEFAULT OFF, personal tier (the
+	 *  backend credentials are per-dev). A guard block on a shell command and a
+	 *  secret-signature hit each get one logged decision-model second opinion in
+	 *  `.interlinked/decision-shadow.jsonl`; never warns, never blocks
+	 *  (`jev/decision-shadow.ts`). */
+	decision_shadow?: DecisionShadowConfig;
+	/** E18 false-positive filter for `[heuristic]` PostToolUse findings —
+	 *  DEFAULT OFF, personal tier: the weights were calibrated on ONE repository
+	 *  (`fp-filter.ts`, `fp-filter-weights.json`). A top-level section, not a
+	 *  `quality_checks` entry: that record is iterated as the check list. */
+	fp_filter?: FpFilterConfig;
 	/** Cross-file spec fact ledger + drift warnings on markdown edits
 	 *  (docs/design/spec-audit-runtime-checks.md §3.2). Default on. */
 	spec_checks?: { enabled?: boolean };

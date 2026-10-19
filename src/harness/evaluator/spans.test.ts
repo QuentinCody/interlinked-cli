@@ -98,6 +98,50 @@ describe("extractScannableText", () => {
 		expect(/\brm\s+-rf\b/.test(cmd)).toBe(true); // raw input would falsely match
 		expect(/\brm\s+-rf\b/.test(extractScannableText(cmd))).toBe(false); // sanitized input does not
 	});
+
+	// Quoted single-word operands (2026-10-09): a quote around ONE shell word is
+	// an operand, so it stays visible; anything wider stays masked.
+	it('P1: a double-quoted path operand reads like its unquoted twin (rm -rf "/etc")', () => {
+		const cmd = 'rm -rf "/etc"';
+		const out = extractScannableText(cmd);
+		expect(out).toHaveLength(cmd.length);
+		expect(/\brm\s+-rf\s+\/etc\b/.test(out)).toBe(true);
+	});
+
+	it("P2: a single-quoted path operand is visible and index-aligned", () => {
+		const cmd = "truncate -s 0 'src/app.ts' && ls";
+		const out = extractScannableText(cmd);
+		expect(out.indexOf("src/app.ts")).toBe(cmd.indexOf("src/app.ts"));
+		expect(out.indexOf("ls")).toBe(cmd.indexOf("ls"));
+	});
+
+	it("P3: a quoted variable operand reads like the unquoted form", () => {
+		expect(extractScannableText('chown -R root "$HOME"')).toMatch(/chown -R root\s+\$HOME/);
+	});
+
+	it("P4: an unterminated quoted operand is still visible", () => {
+		expect(extractScannableText('rm -rf "/etc')).toMatch(/rm -rf\s+\/etc/);
+	});
+
+	it("N1: a quoted body with whitespace stays masked (commit message)", () => {
+		expect(extractScannableText("git commit -m 'rm -rf /'")).not.toContain("rm");
+	});
+
+	it("N2: a quoted body with an operator or a substitution stays masked", () => {
+		expect(extractScannableText('echo "a;b"')).not.toContain("a;b");
+		expect(extractScannableText('echo "$(rm -rf /)"')).not.toContain("rm");
+		expect(extractScannableText('echo "a|b"')).not.toContain("a|b");
+	});
+
+	it("N3: a quoted body with a backslash escape or a nested quote stays masked", () => {
+		expect(extractScannableText('echo "a\\"b"')).not.toContain("a");
+		expect(extractScannableText(`echo 'a"b'`)).not.toContain("a");
+	});
+
+	it("N4: empty quotes and an ANSI-C escape stay masked", () => {
+		expect(extractScannableText('rm -rf ""')).toBe("rm -rf   ");
+		expect(extractScannableText("echo $'\\n'")).toBe(`echo ${" ".repeat(5)}`);
+	});
 });
 
 // Data-sink-aware heredoc masking + inline-exec payload classification —
@@ -414,6 +458,18 @@ describe("resolveHeredocTarget", () => {
 });
 
 describe("inline-exec payload classification", () => {
+	it("P: an eval string payload is scannable (eval is the command word)", () => {
+		expect(extractScannableText('eval "truncate -s 0 src/app.ts"')).toContain("truncate -s 0 src/app.ts");
+		expect(extractScannableText("x=1; sudo eval 'rm -rf /'")).toContain("rm -rf /");
+		expect(extractScannableText('ls && FOO=1 eval "chmod -R 000 src"')).toContain("chmod -R 000 src");
+	});
+
+	it("N: `eval` as an ordinary argument does not make the next quote code", () => {
+		expect(extractScannableText('grep eval "rm -rf /"')).not.toContain("rm -rf");
+		expect(extractScannableText('echo "eval rm -rf /"')).not.toContain("rm -rf");
+		expect(extractScannableText("git commit -m 'eval: rm -rf /'")).not.toContain("rm -rf");
+	});
+
 	it("classifies bash -c payloads as inline_code (scannable)", () => {
 		const cmd = "bash -c 'rm -rf /'";
 		const spans = classifySpans(cmd);

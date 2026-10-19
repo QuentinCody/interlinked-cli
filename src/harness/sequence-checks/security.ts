@@ -34,7 +34,11 @@ export const secretReadThenNetworkCall: SequenceDetector = {
 	description: "Network call after sensitive read; potential exfiltration",
 	family: "security-shape",
 	phase: "pre_block",
-	default_enabled: true,
+	// 2026-10-08 operator decision: OFF by default. Session taint is sticky, so
+	// one false-positive secret signature blocked every later network call
+	// (loopback Ollama included). Re-enable per repo through the sequence
+	// detector config if a deployment wants the block back.
+	default_enabled: false,
 	determinism: "fully_deterministic",
 	fn: (trajectory, candidate) => {
 		if (!isBashCandidate(candidate.tool_name)) return [];

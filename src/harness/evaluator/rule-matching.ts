@@ -17,6 +17,7 @@ import type {
 	RulePattern,
 	SessionTrajectory,
 } from "../types.js";
+import { isNonemptyFile } from "./rule-matching-file-predicate.js";
 import { passesExtraExceptions, passesTemporalGating } from "./rule-matching-guards.js";
 import { extractScannableText } from "./spans.js";
 import { classifyToolExternality } from "./tool-classifiers.js";
@@ -94,6 +95,10 @@ export interface MatchRuleContext {
 	 *  a session in scope (compound-command decomposer) keep working;
 	 *  rules with temporal predicates fall through to allow there. */
 	session?: SessionTrajectory | undefined;
+	/** The event's working directory, for patterns that declare
+	 *  `nonempty_file_group`. Absent (recurrence scan, legacy callers) ⇒
+	 *  the filesystem predicate is skipped and the regex match stands. */
+	cwd?: string | undefined;
 }
 
 /** Return values from {@link evaluatePatterns}: either the rule's patterns
@@ -109,16 +114,29 @@ type PatternResult =
 /** Apply opt-in projections (`strip_wrappers`, `executed_only`) to the
  *  raw field value before regex matching. Order: mask non-executed spans
  *  first (preserves indices via space-fill), then strip wrapper prefixes
- *  from the resulting executed-only string. Both off → identity. */
-function projectForPattern(value: string, pattern: RulePattern): string {
+ *  from the resulting executed-only string. Both off → identity.
+ *  Public API — also consumed by `literal-context-gate.ts`. */
+export function projectForPattern(value: string, pattern: RulePattern): string {
 	let v = value;
 	if (pattern.executed_only) v = extractScannableText(v);
 	if (pattern.strip_wrappers) v = normalizeCommandWrappers(v);
 	return v;
 }
 
+/** One pattern against one projected value, including the optional
+ *  `nonempty_file_group` filesystem predicate (`rule-matching-file-predicate.ts`). */
+function patternMatches(value: string, pattern: RulePattern, cwd: string | undefined): boolean {
+	const regex = getCachedRegex(pattern.regex, pattern.flags ?? "i");
+	const projected = projectForPattern(value, pattern);
+	const group = pattern.nonempty_file_group;
+	if (group === undefined || cwd === undefined) return regex.test(projected);
+	const operand = regex.exec(projected)?.groups?.[group];
+	if (operand === undefined) return false;
+	return isNonemptyFile(value, operand, cwd);
+}
+
 /** Evaluate the positive + negated pattern pair against a resolved input value. */
-function evaluatePatterns(rule: GuardRule, toolInput: JsonObject, fallback: string): PatternResult {
+function evaluatePatterns(rule: GuardRule, toolInput: JsonObject, fallback: string, cwd: string | undefined): PatternResult {
 	const positivePatterns = rule.patterns.filter((p) => !p.negate);
 	const negatedPatterns = rule.patterns.filter((p) => p.negate);
 
@@ -130,8 +148,7 @@ function evaluatePatterns(rule: GuardRule, toolInput: JsonObject, fallback: stri
 		// annotate explicitly to keep TS from over-narrowing this to "always truthy".
 		const value: unknown = getField(toolInput, pattern.field) || fallback;
 		if (!value) continue;
-		const regex = getCachedRegex(pattern.regex, pattern.flags ?? "i");
-		if (regex.test(projectForPattern(String(value), pattern))) {
+		if (patternMatches(String(value), pattern, cwd)) {
 			anyPositiveMatched = true;
 			break;
 		}
@@ -144,8 +161,7 @@ function evaluatePatterns(rule: GuardRule, toolInput: JsonObject, fallback: stri
 		// so this falsy guard stays live for genuinely falsy field values.
 		const value: unknown = getField(toolInput, pattern.field) || fallback;
 		if (!value) continue;
-		const regex = getCachedRegex(pattern.regex, pattern.flags ?? "i");
-		if (regex.test(projectForPattern(String(value), pattern))) return PATTERN_RESULT_NEGATED;
+		if (patternMatches(String(value), pattern, cwd)) return PATTERN_RESULT_NEGATED;
 	}
 	return PATTERN_RESULT_MATCH;
 }
@@ -197,7 +213,7 @@ export function matchesRule(ctx: MatchRuleContext): boolean {
 	if (!passesFileExtensionScope(rule, toolInput)) return false;
 	if (!passesToolExternalityGate(rule, ctx)) return false;
 
-	const patternResult = evaluatePatterns(rule, toolInput, command);
+	const patternResult = evaluatePatterns(rule, toolInput, command, ctx.cwd);
 	if (patternResult !== PATTERN_RESULT_MATCH) return false;
 
 	// Check extra exceptions from local config (substring allowlist on command),

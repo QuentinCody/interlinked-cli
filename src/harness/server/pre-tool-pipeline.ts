@@ -28,6 +28,7 @@ import { runCommitShippabilityGate } from "../evaluator/commit-shippability-gate
 import { runCommitFunctionTokenGate } from "../evaluator/commit-function-token-gate.js";
 import { runCommitLaunderingGate } from "../evaluator/commit-laundering-gate.js";
 import { evaluatePreToolUse, extractPermissionPattern } from "../evaluator.js";
+import { declaredTouchTargets } from "../touch-attribution.js";
 import {
 	baselineCallKey,
 	rememberBaselineSnapshot,
@@ -174,6 +175,8 @@ function rememberPreToolEffects(ctx: ServerRuntime, event: HarnessEvent): void {
 		rememberWorkspaceSnapshot({
 			toolUseId: event.tool_use_id,
 			sessionId: event.session_id,
+			subagentId: event.subagent_id,
+			declaredTargets: declaredTouchTargets(event, ctx.cwd),
 			root: ctx.cwd,
 		});
 	}

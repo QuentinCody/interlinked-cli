@@ -207,11 +207,14 @@ export const PROCESS_AND_FILESYSTEM_RULES: GuardRule[] = [
 			// Walker bounded to the push's own shell segment (`[^;&|<>()\n]`)
 			// so `git push origin && echo --force` can't span the `&&`;
 			// executed_only masks quoted/heredoc mentions. `(?![-\w])` excludes
-			// every `--force-*` variant. Bounded-walker discipline adapted from
-			// destructive_command_guard #124.
+			// every `--force-*` variant; the leading `\s` makes `--force` its own
+			// argument, so a branch named `feature--force` (quoted or not) is not
+			// a force push — single-word quoted operands are visible to
+			// executed_only since 2026-10-09. Bounded-walker discipline adapted
+			// from destructive_command_guard #124.
 			{
 				field: "command",
-				regex: "\\bgit\\s+push\\b[^;&|<>()\\n]*?--force(?![-\\w])",
+				regex: "\\bgit\\s+push\\b[^;&|<>()\\n]*?\\s--force(?![-\\w])",
 				executed_only: true,
 			},
 			// Short flag incl. bundles — `-f`, `-uf`, `-fq`, `-vf`. Any `git

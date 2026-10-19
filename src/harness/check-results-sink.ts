@@ -22,6 +22,8 @@ interface CheckRowEntry {
 	severity: string;
 	determinism: "proven" | "heuristic";
 	phase?: string;
+	/** E18 fp_filter withheld this finding from the agent (still recorded). */
+	fp_filter_suppressed?: true;
 }
 
 interface CheckRow {
@@ -44,6 +46,12 @@ interface CheckRow {
 	file?: string;
 	decision: "allow" | "block";
 	ran?: number;
+	/** True when fp_filter withheld at least one finding in this row — the
+	 *  top-level key `interlinked query checks --where fp_filter_suppressed=true` matches. */
+	fp_filter_suppressed?: true;
+	/** E21 tsc-scheduler verdict, present only when the scheduler decided —
+	 *  `interlinked query checks --where scheduler.deferred=true` matches. */
+	scheduler?: HarnessDecision["scheduler"];
 	checks: CheckRowEntry[];
 }
 
@@ -82,6 +90,7 @@ export function buildCheckRow(event: HarnessEvent, decision: HarnessDecision): C
 			determinism: c.determinism === "fully_deterministic" ? "proven" : "heuristic",
 		};
 		if (c.phase) entry.phase = c.phase;
+		if (c.fp_filter_suppressed) entry.fp_filter_suppressed = true;
 		return entry;
 	});
 
@@ -102,6 +111,8 @@ export function buildCheckRow(event: HarnessEvent, decision: HarnessDecision): C
 	const file = extractFile(event, decision.check_results);
 	if (file) row.file = file;
 	if (ranList.length > 0) row.ran = ranList.length;
+	if (checks.some((c) => c.fp_filter_suppressed)) row.fp_filter_suppressed = true;
+	if (decision.scheduler) row.scheduler = decision.scheduler;
 	return row;
 }
 

@@ -44,6 +44,13 @@ import {
 	MAX_FILES,
 } from "./workspace-effects-git-scan.js";
 import { shouldObserveWorkspaceEffects } from "./workspace-effects-read-only-tools.js";
+import {
+	attributeWorkspaceEffects,
+	recordAttributedTouches,
+	type TouchAttributionFields,
+	toRootRelative,
+	touchActorKey,
+} from "./touch-attribution.js";
 
 export {
 	formatWorkspaceResidueWarning,
@@ -70,7 +77,9 @@ export interface WorkspaceSnapshot {
 	files: Readonly<Record<string, WorkspaceFileFingerprint>>;
 }
 
-export interface WorkspaceFileEffect {
+/** `attribution` / `shadow_reason` are set by `consumeWorkspaceSnapshot` when
+ *  the caller supplies the tool identity (rule: `touch-attribution.ts`). */
+export interface WorkspaceFileEffect extends TouchAttributionFields {
 	path: string;
 	kind: WorkspaceEffectKind;
 	before_sha256: string | null;
@@ -96,6 +105,10 @@ interface PendingSnapshot {
 	sessionId: string;
 	snapshot: WorkspaceSnapshot;
 	seededReconciled: boolean;
+	/** `touchActorKey` of the calling actor. */
+	actorKey: string;
+	/** Root-relative paths the in-flight call declared it will write. */
+	declaredTargets: readonly string[];
 }
 
 const pendingByToolId = new Map<string, PendingSnapshot>();
@@ -246,13 +259,20 @@ function clearPendingOnly(): void {
 export function rememberWorkspaceSnapshot(opts: {
 	toolUseId?: string | undefined;
 	sessionId: string;
+	subagentId?: string | undefined;
+	/** The call's own write targets, so a concurrent caller's diff can
+	 *  recognize this call's in-flight write as not its own. */
+	declaredTargets?: readonly string[];
 	root: string;
 }): void {
 	if (pendingSize() >= PENDING_CEILING) clearPendingOnly();
+	const root = resolve(opts.root);
 	const pending: PendingSnapshot = {
 		sessionId: opts.sessionId,
 		snapshot: captureWorkspaceSnapshot(opts.root),
 		seededReconciled: !lastReconciledBySession.has(opts.sessionId),
+		actorKey: touchActorKey(opts.sessionId, opts.subagentId),
+		declaredTargets: (opts.declaredTargets ?? []).map((p) => toRootRelative(root, p)),
 	};
 	if (pending.seededReconciled) {
 		lastReconciledBySession.set(opts.sessionId, pending.snapshot);
@@ -293,22 +313,62 @@ export function discardWorkspaceSnapshot(opts: {
 	}
 }
 
-/** Consume the matching pre-call snapshot and observe what actually changed. */
+/** Root-relative targets declared by OTHER actors' calls still in flight. */
+function inFlightTargetsOfOthers(actorKey: string): Set<string> {
+	const targets = new Set<string>();
+	const add = (pending: PendingSnapshot) => {
+		if (pending.actorKey === actorKey) return;
+		for (const path of pending.declaredTargets) targets.add(path);
+	};
+	for (const pending of pendingByToolId.values()) add(pending);
+	for (const queue of pendingAnonymous.values()) queue.forEach(add);
+	return targets;
+}
+
+/** Label each effect with what this call could have caused (touch-attribution.ts). */
+function attributeChangeSet(
+	changeSet: WorkspaceChangeSet,
+	actorKey: string,
+	call: { toolName: string | undefined; declaredTargets: readonly string[] },
+	root: string,
+): WorkspaceChangeSet {
+	const files = attributeWorkspaceEffects({
+		root: resolve(root),
+		actorKey,
+		toolName: call.toolName,
+		declaredTargets: call.declaredTargets,
+		beforeCapturedAt: changeSet.before_captured_at,
+		inFlightTargetsOfOthers: inFlightTargetsOfOthers(actorKey),
+		effects: changeSet.files,
+		nowMs: Date.now(),
+	});
+	return { ...changeSet, files };
+}
+
+/** Consume the matching pre-call snapshot and observe what actually changed.
+ *  With `call`, every effect is labeled `declared-target` / `observed-in-window`
+ *  / `shadow`, and only the attributed ones are recorded as this actor's. */
 export function consumeWorkspaceSnapshot(opts: {
 	toolUseId?: string | undefined;
 	sessionId: string;
 	subagentId?: string | undefined;
 	root: string;
+	call?: { toolName: string | undefined; declaredTargets: readonly string[] };
 }): WorkspaceChangeSet | null {
 	const pending = takePending(opts.toolUseId, opts.sessionId);
 	if (!pending) return null;
 	const after = captureWorkspaceSnapshot(opts.root);
 	lastReconciledBySession.set(opts.sessionId, after);
-	const changeSet = diffWorkspaceSnapshots(pending.snapshot, after);
+	const actorKey = touchActorKey(opts.sessionId, opts.subagentId);
+	const raw = diffWorkspaceSnapshots(pending.snapshot, after);
+	const changeSet = opts.call ? attributeChangeSet(raw, actorKey, opts.call, opts.root) : raw;
+	const owned = changeSet.files.filter((effect) => effect.attribution !== "shadow");
+	recordAttributedTouches(actorKey, owned, Date.now());
 	// Feed the cross-actor attribution registry so Stop residue can distinguish
-	// this actor's unreconciled write from a peer's reconciled work.
+	// this actor's unreconciled write from a peer's reconciled work. A shadow
+	// is a peer's write: recording it here would steal the peer's ownership.
 	initEffectAttributionStore(opts.root);
-	recordReconciledEffects(opts.sessionId, changeSet.files, opts.subagentId);
+	recordReconciledEffects(opts.sessionId, owned, opts.subagentId);
 	return changeSet;
 }
 

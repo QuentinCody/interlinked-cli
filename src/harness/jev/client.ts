@@ -5,7 +5,8 @@
 // to "not measured" — a Jev verdict is a SCORING signal merged tighten-only,
 // never a gate (docs/external-pulse/typesafe-jev.md §3b). The spend ledger is
 // per client instance: the internal runner creates a client per action, so
-// `max_spend_usd` bounds that action, not an install. No public hook calls Jev.
+// `max_spend_usd` bounds that action, not an install. The one hook-path caller
+// is the opt-in edit shadow (`edit-shadow.ts`), which never warns or blocks.
 
 import { resolveApiKey } from "../policy-classifier.js";
 import type { JevAnswer, JevConfig, JevEntry, JevQuestion, JevResponse } from "./types.js";
@@ -86,7 +87,13 @@ export class JevClient {
 
 	/** Evaluate `questions` against `state`; `null` on any failure or when the spend ceiling is crossed. */
 	async ask(state: JevEntry, questions: Record<string, JevQuestion>): Promise<JevResponse | null> {
-		if (this.ledger.usd >= this.maxSpendUsd) return null;
+		const result = await this.askDetailed(state, questions);
+		return result.ok ? result.response : null;
+	}
+
+	/** Same contract as `ask`, but a failure keeps its class (for shadow ledgers). Never throws. */
+	async askDetailed(state: JevEntry, questions: Record<string, JevQuestion>): Promise<JevAskResult> {
+		if (this.ledger.usd >= this.maxSpendUsd) return { ok: false, error: "spend_cap" };
 		this.ledger.calls++;
 		try {
 			const res = await this.fetchImpl(this.endpoint, {
@@ -95,21 +102,31 @@ export class JevClient {
 				body: JSON.stringify({ model: this.model, state, questions }),
 				signal: AbortSignal.timeout(this.timeoutMs),
 			});
-			if (!res.ok) return this.fail();
+			if (!res.ok) return this.fail(`http_${res.status}`);
 			const parsed = parseJevResponse(await res.json());
-			if (!parsed) return this.fail();
+			if (!parsed) return this.fail("malformed");
 			this.ledger.input_tokens += parsed.usage.input_tokens;
 			this.ledger.usd += parsed.usage.input_tokens * JEV_USD_PER_INPUT_TOKEN;
-			return parsed;
-		} catch {
-			return this.fail();
+			return { ok: true, response: parsed };
+		} catch (err) {
+			return this.fail(classifyThrown(err));
 		}
 	}
 
-	private fail(): null {
+	private fail(error: string): JevAskResult {
 		this.ledger.failures++;
-		return null;
+		return { ok: false, error };
 	}
+}
+
+/** Outcome of `askDetailed`: the parsed response, or a short error class
+ *  (`spend_cap`, `timeout`, `http_<status>`, `malformed`, `network`). */
+export type JevAskResult = { ok: true; response: JevResponse } | { ok: false; error: string };
+
+/** `AbortSignal.timeout` rejects with a `TimeoutError`; everything else thrown by fetch/json is network-shaped. */
+function classifyThrown(err: unknown): string {
+	if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) return "timeout";
+	return "network";
 }
 
 /**

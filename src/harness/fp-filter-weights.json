@@ -1,0 +1,256 @@
+{
+	"schema": "fp-filter-weights.v1",
+	"provenance": {
+		"experiment": "E18 (2026-10-08 decision-model program), arm logistic_cheap",
+		"fit_script": "scratch/2026-10-08-decisions-orthogonal/e18-fp-filter/fit_for_ship.py",
+		"cohort": "e18-fp-filter/items.jsonl",
+		"cohort_sha256": "fb8ab67857ae19210816e1dcccb5f06e2aa60aeb972c6b60ed77a37fd0bb7e99",
+		"fitted": "2026-10-08",
+		"repo": "interlinked-cli (one repository only; agent-hardened)",
+		"labels": "67 two-rater gold + 400 Opus labels (Fable blind second pass 40/40 agree)",
+		"train": {
+			"n": 319,
+			"pos": 33
+		},
+		"holdout": {
+			"n": 148,
+			"pos": 26
+		},
+		"holdout_auroc": 0.9057377049180327,
+		"holdout_auroc_ci95_group_bootstrap": [
+			0.8463499339055484,
+			0.9515541237610398
+		],
+		"threshold_rule": "highest t keeping >= 90% of train TPs on 5-fold out-of-fold p",
+		"operating_point": {
+			"holdout_tp_kept": 26,
+			"holdout_tp": 26,
+			"holdout_fp_suppressed": 66,
+			"holdout_fp": 122,
+			"train_oof_tp_kept": 30,
+			"train_tp": 33,
+			"train_oof_fp_suppressed": 159,
+			"train_fp": 286
+		},
+		"max_abs_drift_vs_e18_preds": 2.220446049250313e-16
+	},
+	"threshold": 0.02349223656972509,
+	"checks": [
+		"assertion_roulette",
+		"complexity",
+		"conditional_in_test",
+		"data_clump",
+		"expression_size",
+		"function_arg_count",
+		"json_parse_unsafe",
+		"magic_literal_in_conditional",
+		"magic_number",
+		"nested_ternaries",
+		"non_deterministic_test",
+		"process_env_outside_config",
+		"same_typed_primitive_params",
+		"ubs_division_by_variable",
+		"ubs_large_function",
+		"ubs_magic_number_no_const",
+		"ubs_print_debug_leak",
+		"unjustified_cast",
+		"untestable_time_in_source",
+		"write_without_mkdir"
+	],
+	"features": [
+		"chk_assertion_roulette",
+		"chk_complexity",
+		"chk_conditional_in_test",
+		"chk_data_clump",
+		"chk_expression_size",
+		"chk_function_arg_count",
+		"chk_json_parse_unsafe",
+		"chk_magic_literal_in_conditional",
+		"chk_magic_number",
+		"chk_nested_ternaries",
+		"chk_non_deterministic_test",
+		"chk_other",
+		"chk_process_env_outside_config",
+		"chk_same_typed_primitive_params",
+		"chk_ubs_division_by_variable",
+		"chk_ubs_large_function",
+		"chk_ubs_magic_number_no_const",
+		"chk_ubs_print_debug_leak",
+		"chk_unjustified_cast",
+		"chk_untestable_time_in_source",
+		"chk_write_without_mkdir",
+		"is_test",
+		"path_scratch",
+		"path_archived",
+		"sev_error",
+		"repeat_count",
+		"message_len"
+	],
+	"intercept": -1.7689096821134405,
+	"coefficients": {
+		"chk_assertion_roulette": -0.8222282116811069,
+		"chk_complexity": 0.28186038406018565,
+		"chk_conditional_in_test": 2.1425136337398785,
+		"chk_data_clump": -0.24876219512963316,
+		"chk_expression_size": -1.5426836559186965,
+		"chk_function_arg_count": -2.3154768115928333,
+		"chk_json_parse_unsafe": -0.10216502810623744,
+		"chk_magic_literal_in_conditional": 0.8145704656715994,
+		"chk_magic_number": 2.4778787030832974,
+		"chk_nested_ternaries": 2.18635335471545,
+		"chk_non_deterministic_test": -0.6131080871613335,
+		"chk_other": 1.2187650315093135,
+		"chk_process_env_outside_config": -2.2993669096798093,
+		"chk_same_typed_primitive_params": -2.3048321762631327,
+		"chk_ubs_division_by_variable": -1.7420830212268092,
+		"chk_ubs_large_function": -1.6810243542739107,
+		"chk_ubs_magic_number_no_const": 1.7382211723844003,
+		"chk_ubs_print_debug_leak": -0.6272048656050994,
+		"chk_unjustified_cast": 1.7809503256505517,
+		"chk_untestable_time_in_source": -2.2679974389613724,
+		"chk_write_without_mkdir": -1.1279149232686305,
+		"is_test": -2.378240729642467,
+		"path_scratch": -2.8631966640676367,
+		"path_archived": -1.2757712789277236,
+		"sev_error": 0.0,
+		"repeat_count": 0.049530744653944664,
+		"message_len": -0.002896117439514923
+	},
+	"parity": [
+		{
+			"check": "magic_number",
+			"file": "src/harness/server/compiler-batch.ts",
+			"severity": "warning",
+			"repeat_count": 1,
+			"message_len": 63,
+			"label": 1,
+			"p": 0.6401567082263594
+		},
+		{
+			"check": "non_null_assertion",
+			"file": "src/harness/project-e2e/stability.ts",
+			"severity": "warning",
+			"repeat_count": 0,
+			"message_len": 69,
+			"label": 1,
+			"p": 0.32082636604783904
+		},
+		{
+			"check": "magic_literal_in_conditional",
+			"file": "src/harness/e2e-boundary.ts",
+			"severity": "warning",
+			"repeat_count": 0,
+			"message_len": 70,
+			"label": 0,
+			"p": 0.23920055540397864
+		},
+		{
+			"check": "spec_count_claim",
+			"file": ".interlinked/agent-output/antithesis/deep/learn/L-deep-04.md",
+			"severity": "warning",
+			"repeat_count": 2,
+			"message_len": 126,
+			"label": 0,
+			"p": 0.006999017289683138
+		},
+		{
+			"check": "ubs_division_by_variable",
+			"file": "scratch/2026-10-07-fresh-verification/agent-harness/native-shell-boundary-v1/test_qualify.py",
+			"severity": "warning",
+			"repeat_count": 1,
+			"message_len": 166,
+			"label": 0,
+			"p": 0.00010269393004150102
+		},
+		{
+			"check": "conditional_in_test",
+			"file": "src/commands/harness-process.integration.test.ts",
+			"severity": "warning",
+			"repeat_count": 0,
+			"message_len": 83,
+			"label": 0,
+			"p": 0.09578037008672594
+		},
+		{
+			"check": "function_arg_count",
+			"file": "src/harness/checks/shared-text-utils-ast.ts",
+			"severity": "warning",
+			"repeat_count": 0,
+			"message_len": 76,
+			"label": 0,
+			"p": 0.013327725942700727
+		},
+		{
+			"check": "ubs_print_debug_leak",
+			"file": "scratch/2026-10-06-jev-next/verification/assemble_labels.py",
+			"severity": "warning",
+			"repeat_count": 1,
+			"message_len": 129,
+			"label": 0,
+			"p": 0.0037457537888988274
+		},
+		{
+			"check": "expression_size",
+			"file": ".interlinked/agent-output/coverage-durable-recovery/large-ledger-probe.mjs",
+			"severity": "warning",
+			"repeat_count": 0,
+			"message_len": 139,
+			"label": 0,
+			"p": 0.0003883863109568452
+		},
+		{
+			"check": "magic_number",
+			"file": "src/lib/metrics/evidence-store.ts",
+			"severity": "warning",
+			"repeat_count": 1,
+			"message_len": 60,
+			"label": 1,
+			"p": 0.6421556763770847
+		},
+		{
+			"check": "magic_number",
+			"file": "src/lib/decision-metrics/runtime.ts",
+			"severity": "warning",
+			"repeat_count": 0,
+			"message_len": 62,
+			"label": 1,
+			"p": 0.629345432609547
+		},
+		{
+			"check": "boundary_copy_no_revalidation",
+			"file": "src/__tests__/pre-push-coverage.integration.test.ts",
+			"severity": "warning",
+			"repeat_count": 0,
+			"message_len": 95,
+			"label": 0,
+			"p": 0.039033603529651247
+		},
+		{
+			"check": "ubs_magic_number_no_const",
+			"file": "src/lib/metrics/adapter-types.ts",
+			"severity": "warning",
+			"repeat_count": 0,
+			"message_len": 72,
+			"label": 1,
+			"p": 0.44048129797964214
+		},
+		{
+			"check": "freshness_sensitive_reference",
+			"file": "scratch/2026-10-08-failure-groups/embed.py",
+			"severity": "warning",
+			"repeat_count": 0,
+			"message_len": 230,
+			"label": 0,
+			"p": 0.016635378343467597
+		},
+		{
+			"check": "ubs_division_by_variable",
+			"file": "scratch/2026-10-07-natural-push/research/retrieval-audit/audit.py",
+			"severity": "warning",
+			"repeat_count": 0,
+			"message_len": 139,
+			"label": 0,
+			"p": 0.0011386760895705404
+		}
+	]
+}

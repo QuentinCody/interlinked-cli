@@ -19,6 +19,9 @@ export interface QualityCheckResult {
 	writeAttribution?: "declared-target" | "observed-workspace";
     /** Full unformatted diagnostic identities for durable batch repair tracking. */
     diagnosticKeys?: string[];
+	/** E18 false-positive filter verdict (`server/fp-filter-phase.ts`); set only
+	 *  when `fp_filter.enabled` and the check is an eligible `[heuristic]` one. */
+	fpFilter?: { p: number; suppressed: boolean };
 }
 
 /** Per-tool execution metrics surfaced from the engine into latency telemetry.

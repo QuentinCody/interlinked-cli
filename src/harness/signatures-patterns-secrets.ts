@@ -138,15 +138,15 @@ export const SECRETS_RULES: SignatureRule[] = [
 		severity: "critical",
 		description: "Database connection string with credentials",
 		patterns: [
-			/mongodb(\+srv)?:\/\/[^:]+:[^@]+@/,
-			/postgres(ql)?:\/\/[^:]+:[^@]+@/,
-			/mysql:\/\/[^:]+:[^@]+@/,
-			/redis:\/\/:[^@]+@/,
+			// userinfo is spelled out as the RFC 3986 §3.2.1 alphabet (unreserved /
+			// pct-encoded / sub-delims), bounded, so a match can never run across
+			// quotes, whitespace or diff hunks (E19: 27 of 66 real-world hits were
+			// `[^@]+` spans of 200–10,000 chars through unrelated text).
+			/mongodb(\+srv)?:\/\/[A-Za-z0-9._~%!$&'()*+,;=-]{1,128}:[A-Za-z0-9._~%!$&'()*+,;=-]{1,256}@/,
+			/postgres(ql)?:\/\/[A-Za-z0-9._~%!$&'()*+,;=-]{1,128}:[A-Za-z0-9._~%!$&'()*+,;=-]{1,256}@/,
+			/mysql:\/\/[A-Za-z0-9._~%!$&'()*+,;=-]{1,128}:[A-Za-z0-9._~%!$&'()*+,;=-]{1,256}@/,
+			/redis:\/\/:[A-Za-z0-9._~%!$&'()*+,;=-]{1,256}@/,
 		],
-		// The span is `scheme://userinfo@`. RFC 3986 §3.2.1 userinfo is
-		// unreserved / pct-encoded / sub-delims / ":" — never `[ ] { } \ |`
-		// or `?`. A span carrying them is regex or template source.
-		literal_metachar_safe: true,
 	},
 	{
 		id: "sig-secret-generic-password",
@@ -154,9 +154,11 @@ export const SECRETS_RULES: SignatureRule[] = [
 		severity: "high",
 		description: "Hardcoded password in structured data",
 		patterns: [
-			/"password"\s*:\s*"[^\s"]{8,}"/i,
-			/PASSWORD\s*=\s*["'][^\s"']{8,}["']/,
-			/SECRET\s*=\s*["'][^\s"']{8,}["']/,
+			// A value that starts with `$` or carries `{`/`}` is a shell / template
+			// expansion (`"${TOKEN%%?expires=*}"`), not a literal (E19: 8 hits).
+			/"password"\s*:\s*"(?!\$)[^\s"{}]{8,}"/i,
+			/PASSWORD\s*=\s*["'](?!\$)[^\s"'{}]{8,}["']/,
+			/SECRET\s*=\s*["'](?!\$)[^\s"'{}]{8,}["']/,
 		],
 	},
 	{
@@ -181,11 +183,12 @@ export const SECRETS_RULES: SignatureRule[] = [
 		severity: "high",
 		description: "Credentials embedded in URL (user:password@host)",
 		patterns: [
-			// Catches https://user:pass@host but excludes DB connection strings (already covered)
-			/https?:\/\/[^:/\s]+:[^@/\s]{4,}@(?!localhost|127\.0\.0\.1)/,
+			// Catches https://user:pass@host but excludes DB connection strings (already covered).
+			// userinfo is the RFC 3986 alphabet: a `"` or `{` in the span is JSON text
+			// (`"@context":"https://schema.org","@type"` — 22 of 104 E19 hits) or a
+			// `${TOKEN}@` template, never a credential.
+			/https?:\/\/[A-Za-z0-9._~%!$&'()*+,;=-]{1,128}:[A-Za-z0-9._~%!$&'()*+,;=-]{4,256}@(?!localhost|127\.0\.0\.1)/,
 		],
-		// Same RFC 3986 §3.2.1 userinfo grammar as sig-secret-db-connection.
-		literal_metachar_safe: true,
 	},
 	{
 		id: "sig-secret-docker-auth",

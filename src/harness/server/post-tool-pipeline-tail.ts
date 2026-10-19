@@ -13,6 +13,7 @@ import type {
 	HarnessEvent,
 	SessionTrajectory,
 } from "../types.js";
+import { declaredTouchTargets } from "../touch-attribution.js";
 import { consumeWorkspaceSnapshot } from "../workspace-effects.js";
 import { pushWarnings } from "./post-tool-pipeline-tracking.js";
 import type { ServerRuntime } from "./runtime-context.js";
@@ -25,6 +26,7 @@ export function attachObservedChangeSet(event: HarnessEvent, cwd: string): void 
 		sessionId: event.session_id,
 		subagentId: event.subagent_id,
 		root: cwd,
+		call: { toolName: event.tool_name, declaredTargets: declaredTouchTargets(event, cwd) },
 	});
 	if (!observed) return;
 	event.change_set = observed;

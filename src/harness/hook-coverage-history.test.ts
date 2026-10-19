@@ -26,10 +26,10 @@ function fixture(count: number, large = false) {
         evidence: "human review", reviewedAt: "2026-10-06T00:00:00Z", kind: "manual_review" as const }));
     const path = join(root, ".interlinked", "hook-coverage.json");
     writeFileSync(path, JSON.stringify({ ...state, checks, reviews }));
-    const before = readFileSync(path, "utf8");
+    // Loading migrates the legacy inline history once; status must not write after that.
     const watcher = startHookFilesystemWatch({ root, reservations: () => [] });
     cleanups.push(watcher.stop);
-    return { path, before, watcher };
+    return { path, before: readFileSync(path, "utf8"), watcher };
 }
 
 // Incident: one status response serialized 103 MB and raised RSS from 492 MB to 1.38 GB.
@@ -77,5 +77,6 @@ describe("coverage status retained history bounds", () => {
         expect(report.history?.checks).toMatchObject({ total: 3, returned: 2, omitted: 1 });
         expect(report.checks?.some(row => row.id === "oversized")).toBe(false);
         expect(readFileSync(path, "utf8")).toBe(before);
+        expect(watcher.ledger.snapshot().checks.some(row => row.id === "oversized")).toBe(true);
     });
 });

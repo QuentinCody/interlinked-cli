@@ -65,6 +65,8 @@ export interface LocalActivityEvent {
 	event_id?: string;
 	/** Present only on records written by the daemon. */
 	writer?: "daemon";
+	/** Simulated event (`interlinked harness test`): the call never ran. */
+	dry_run?: true;
 	error?: unknown;
 	is_interrupt?: boolean;
 	cwd?: string;

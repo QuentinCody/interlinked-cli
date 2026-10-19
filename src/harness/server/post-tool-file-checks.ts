@@ -56,6 +56,7 @@ import { runRegistryParityPhase } from "./registry-parity-phase.js";
 import { runReviewReconcilePhase } from "./review-reconcile-phase.js";
 import { getGraphForFile, type ServerRuntime } from "./runtime-context.js";
 import { runSpecLedgerPhase } from "./spec-ledger-phase.js";
+import type { TscSchedulePlan } from "./tsc-scheduler-phase.js";
 
 /** Cross-iteration / cross-phase accumulator for the PostToolUse per-file
  *  fan-out. The orchestrator creates one of these per event and passes it
@@ -79,6 +80,8 @@ export interface PerFileCheckCtx {
 	editedFilePaths?: readonly string[];
 	/** Lazily created external batch shared by every path in this request. */
 	externalCheckBatch?: ChangeSetExternalBatch;
+	/** E21 tsc-scheduler plan for the file being checked (set and consumed per file). */
+	tscSchedule?: TscSchedulePlan | undefined;
 	/** Once-per-event guard: the project-wide sweep fires at most once
 	 *  even when a patch touches many files. */
 	projectWideSweepFired: boolean;

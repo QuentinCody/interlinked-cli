@@ -13,14 +13,21 @@
 //   3. Wrapped — `sudo` prefix; positive when the regex tolerates
 //      anchor-free wrapper text (current evaluator does NOT apply
 //      wrapper-normalization globally)
-//   4. Quoted — pattern inside `'single quotes'` (matches today; will
-//      require span-gate to suppress in Phase 2)
+//   4. Quoted — pattern inside `echo '…'` (allowed with a warning since
+//      the 2026-10-08 literal-context gate, `evaluator/literal-context.ts`)
 //   5. Commented — pattern after `#` (matches today; will require
 //      span-gate to suppress in Phase 2)
 //
 // 5 cases × 10 rules = 50 assertions.
+//
+// The U4 section at the end (2026-10-09) adds labeled positive / negative
+// cases for builtin-file-truncate, builtin-chmod-000 and
+// builtin-chown-recursive (rules in builtin-rules-processes-git-fs-inline.ts).
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CohortManager } from "../cohort.js";
 import { evaluatePreToolUse } from "../evaluator.js";
 import { ReservationManager } from "../reservations.js";
@@ -89,6 +96,8 @@ describe("Plan 02 — destructive command rules (v1)", () => {
 	let cohort: CohortManager;
 	let reservations: ReservationManager;
 	let session: SessionTrajectory;
+	const fixtures: string[] = [];
+	afterEach(() => { for (const root of fixtures.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 	beforeEach(() => {
 		rules = getDefaultConfig();
@@ -126,9 +135,9 @@ describe("Plan 02 — destructive command rules (v1)", () => {
 			expect(["block", "ask"]).toContain(r.decision);
 		});
 
-		it("quoted: legacy non-keyword rules still match even though our rule is filtered (Phase 2: span gate)", () => {
+		it("quoted: an echo argument with no downstream is data — the literal-context gate degrades the legacy match to a warning", () => {
 			const r = decide("echo 'kubectl delete namespace foo'");
-			expect(["block", "ask"]).toContain(r.decision);
+			expect(r.decision).toBe("allow");
 		});
 
 		it("commented: fires after `#` because `kubectl` is a clean token (Phase 2 span gate would suppress)", () => {
@@ -230,9 +239,9 @@ describe("Plan 02 — destructive command rules (v1)", () => {
 			expect(["block", "ask"]).toContain(r.decision);
 		});
 
-		it("quoted: fires inside single-quoted string (matches today; will require span gate to suppress in Phase 2)", () => {
+		it("quoted: an echo argument with no downstream is data — the literal-context gate degrades the match to a warning", () => {
 			const r = decide("echo 'docker system prune'");
-			expect(["block", "ask"]).toContain(r.decision);
+			expect(r.decision).toBe("allow");
 		});
 
 		it("commented: fires after `#` (matches today; will require span gate to suppress in Phase 2)", () => {
@@ -260,9 +269,9 @@ describe("Plan 02 — destructive command rules (v1)", () => {
 			expect(["block", "ask"]).toContain(r.decision);
 		});
 
-		it("quoted: fires inside single-quoted string (matches today; will require span gate to suppress in Phase 2)", () => {
+		it("quoted: an echo argument with no downstream is data — the literal-context gate degrades the match to a warning", () => {
 			const r = decide("echo 'docker volume prune'");
-			expect(["block", "ask"]).toContain(r.decision);
+			expect(r.decision).toBe("allow");
 		});
 
 		it("commented: fires after `#` (matches today; will require span gate to suppress in Phase 2)", () => {
@@ -290,9 +299,9 @@ describe("Plan 02 — destructive command rules (v1)", () => {
 			expect(["block", "ask"]).toContain(r.decision);
 		});
 
-		it("quoted: fires inside single-quoted string (matches today; will require span gate to suppress in Phase 2)", () => {
+		it("quoted: an echo argument with no downstream is data — the literal-context gate degrades the match to a warning", () => {
 			const r = decide("echo 'git stash drop'");
-			expect(["block", "ask"]).toContain(r.decision);
+			expect(r.decision).toBe("allow");
 		});
 
 		it("commented: fires after `#` (matches today; will require span gate to suppress in Phase 2)", () => {
@@ -416,9 +425,9 @@ describe("Plan 02 — destructive command rules (v1)", () => {
 			expect(["block", "ask"]).toContain(r.decision);
 		});
 
-		it("quoted: fires inside single-quoted string (matches today; will require span gate to suppress in Phase 2)", () => {
+		it("quoted: an echo argument with no downstream is data — the literal-context gate degrades the match to a warning", () => {
 			const r = decide("echo 'helm uninstall my-release --namespace prod'");
-			expect(["block", "ask"]).toContain(r.decision);
+			expect(r.decision).toBe("allow");
 		});
 
 		it("commented: fires after `#` (matches today; will require span gate to suppress in Phase 2)", () => {
@@ -495,6 +504,186 @@ describe("Plan 02 — destructive command rules (v1)", () => {
 			// for future rules that anchor at start.
 			const r = decide("sudo kubectl delete namespace customer-data");
 			expect(["block", "ask"]).toContain(r.decision);
+		});
+	});
+
+	// ===========================================
+	// U4 (2026-10-09): file truncation, chmod 000, chown -R — the verb
+	// families the E29c composed corpus showed no rule covered. Rules live in
+	// rules/builtin-rules-processes-git-fs-inline.ts. A positive asserts THIS
+	// rule's id (not just "something stopped it"); a negative asserts this rule
+	// stayed silent AND the call was allowed.
+	// ===========================================
+	function expectFires(ruleId: string, command: string): void {
+		const r = decide(command);
+		expect(r.decision).toBe("block");
+		expect(r.rule_id).toBe(ruleId);
+	}
+
+	function expectSilent(ruleId: string, command: string): void {
+		const r = decide(command);
+		expect(r.rule_id).not.toBe(ruleId);
+		expect(r.decision).toBe("allow");
+	}
+
+	function literalWarnings(command: string): string[] {
+		const event = makeEvent({ tool_input: { command } });
+		const result = evaluatePreToolUse(event, rules, session, reservations, cohort);
+		return (result.warnings ?? []).filter((w) => w.includes("matched inside a string literal"));
+	}
+
+	describe("builtin-file-truncate — positive (must fire)", () => {
+		const id = "builtin-file-truncate";
+		it("P1: truncate -s 0 on a lockfile", () => expectFires(id, "truncate -s 0 package-lock.json"));
+		it("P2: --size=0 after the operand (GNU permutes options)", () => expectFires(id, "truncate src/app.ts --size=0"));
+		it("P3: `: > file` as a whole command", () => expectFires(id, ": > .env"));
+		it("P4: cp /dev/null after a benign chained command", () =>
+			expectFires(id, "echo starting && cp /dev/null src/config.json"));
+		it("P5: a bare `> file` with no producing command", () => expectFires(id, "> data/users.json"));
+		it("P6: inside a heredoc fed to bash (executed, so scanned)", () =>
+			expectFires(id, "bash <<'EOF'\n: > src/config.json\nEOF"));
+		it("P7: a `..` segment voids the scratch carve-out", () => expectFires(id, "truncate -s 0 scratch/../src/app.ts"));
+		it("P8: case-variant verb (macOS resolves TRUNCATE to truncate)", () => expectFires(id, "TRUNCATE -s 0 src/app.ts"));
+		it("P9: cat /dev/null into a shell history file", () => expectFires(id, "cat /dev/null > ~/.bash_history"));
+	});
+
+	describe("builtin-file-truncate — negative (must not fire)", () => {
+		const id = "builtin-file-truncate";
+		it("N1: target under scratch/ (carve-out)", () => expectSilent(id, "truncate -s 0 scratch/run.log"));
+		it("N2: target under /tmp (carve-out)", () => expectSilent(id, ": > /tmp/out.txt"));
+		it("N3: truncate --help", () => expectSilent(id, "truncate --help"));
+		it("N4: a non-zero size grows or creates a file", () => expectSilent(id, "truncate -s 10M disk.img"));
+		it("N5: `>>` appends, it does not truncate", () => expectSilent(id, ": >> notes/log.txt"));
+		it("N6: a redirect with a producing command", () => expectSilent(id, "echo hi > notes.txt"));
+		it("N7: a variable-led target is unknown, never blocked", () => expectSilent(id, ": > $OUT/report.txt"));
+		it("N8: a comment is masked by executed_only, not degraded by the literal gate", () => {
+			expectSilent(id, "# truncate -s 0 src/app.ts");
+			expect(literalWarnings("# truncate -s 0 src/app.ts")).toEqual([]);
+		});
+		it("N9: a quoted commit message is masked", () => expectSilent(id, 'git commit -m "stop using : > src/app.ts"'));
+		it("N10: a heredoc body fed to cat is data", () =>
+			expectSilent(id, "cat > notes.md <<'EOF'\ntruncate -s 0 src/app.ts\nEOF"));
+		it("N11: an unquoted echo argument matches but the literal gate downgrades it to a warning", () => {
+			expectSilent(id, "echo truncate -s 0 src/app.ts");
+			expect(literalWarnings("echo truncate -s 0 src/app.ts")).toHaveLength(1);
+		});
+	});
+
+	describe("builtin-chmod-000 — positive (must fire)", () => {
+		const id = "builtin-chmod-000";
+		it("P1: chmod -R 000 on a source tree", () => expectFires(id, "chmod -R 000 src"));
+		it("P2: -R after the mode (any argument order)", () => expectFires(id, "chmod 000 -R src"));
+		it("P3: symbolic a-rwx under sudo", () => expectFires(id, "sudo chmod -R a-rwx /usr/local"));
+		it("P4: chmod 000 on the current directory (no -R)", () => expectFires(id, "chmod 000 ."));
+		it("P5: 0000 on a path ending in /", () => expectFires(id, "chmod 0000 src/"));
+		it("P6: case-variant verb", () => expectFires(id, "CHMOD -R 000 src"));
+	});
+
+	describe("builtin-chmod-000 — negative (must not fire)", () => {
+		const id = "builtin-chmod-000";
+		it("N1: target under /tmp (carve-out)", () => expectSilent(id, "chmod -R 000 /tmp/fixtures/locked"));
+		it("N2: one file without -R (an unreadable test fixture)", () =>
+			expectSilent(id, "chmod 000 test/fixtures/unreadable.txt"));
+		it("N3: another numeric mode", () => expectSilent(id, "chmod -R 755 src"));
+		it("N4: a restrictive mode that is not 000", () => expectSilent(id, "chmod -R go-rwx src"));
+		it("N5: a comment is masked by executed_only, not degraded by the literal gate", () => {
+			expectSilent(id, "# chmod -R 000 src");
+			expect(literalWarnings("# chmod -R 000 src")).toEqual([]);
+		});
+		it("N6: a quoted commit message is masked", () => expectSilent(id, 'git commit -m "avoid chmod -R 000 src"'));
+		it("N7: an unquoted echo argument is downgraded to a warning by the literal gate", () => {
+			expectSilent(id, "echo chmod -R 000 src");
+			expect(literalWarnings("echo chmod -R 000 src")).toHaveLength(1);
+		});
+		it("N8: a heredoc body fed to cat is data", () => expectSilent(id, "cat > notes.md <<'EOF'\nchmod -R 000 src\nEOF"));
+	});
+
+	describe("builtin-chown-recursive — positive (must fire)", () => {
+		const id = "builtin-chown-recursive";
+		it("P1: chown -R root:root on a source tree", () => expectFires(id, "chown -R root:root src"));
+		it("P2: a $(whoami) owner under sudo", () =>
+			expectFires(id, "sudo chown -R $(whoami) /usr/local/lib/node_modules"));
+		it("P3: -R after the operands", () => expectFires(id, "chown root:staff src -R"));
+		it("P4: bundled -hR on a home directory", () => expectFires(id, "chown -hR 501:20 ~/.npm"));
+		it("P5: inside a bash -c payload (inline code is scanned)", () =>
+			expectFires(id, "bash -c 'chown -R root:root /opt/app'"));
+	});
+
+	describe("builtin-chown-recursive — negative (must not fire)", () => {
+		const id = "builtin-chown-recursive";
+		it("N1: target under /tmp (carve-out)", () => expectSilent(id, "chown -R me:staff /tmp/build"));
+		it("N2: target under scratch/ (carve-out)", () => expectSilent(id, "chown -R me scratch/cache"));
+		it("N3: chown without -R", () => expectSilent(id, "chown me src/app.ts"));
+		it("N4: a variable-led target is unknown, never blocked", () => expectSilent(id, "chown -R me $BUILD_DIR"));
+		it("N5: a grep pattern", () => expectSilent(id, "rg -n 'chown -R' src"));
+		it("N6: a comment", () => expectSilent(id, "# chown -R root:root src"));
+		it("N7: an echo string", () => expectSilent(id, "echo 'chown -R root:root src'"));
+	});
+
+	describe("U4 rules — positive (must fire, with severity and category)", () => {
+		const cases: Array<[string, string, string]> = [
+			["builtin-file-truncate", "truncate -s 0 package-lock.json", "filesystem"],
+			["builtin-chmod-000", "chmod -R 000 src", "system-operations"],
+			["builtin-chown-recursive", "chown -R root:root src", "system-operations"],
+		];
+		for (const [id, command, category] of cases) {
+			it(`P: ${id} blocks as high / ${category}`, () => {
+				const result = evaluatePreToolUse(makeEvent({ tool_input: { command } }), rules, session, reservations, cohort);
+				expect([result.decision, result.rule_id, result.severity, result.category]).toEqual(["block", id, "high", category]);
+			});
+		}
+	});
+
+	// 2026-10-15 review: every truncate shape also CREATES an empty file when
+	// the target is absent. With a cwd the rule consults the filesystem
+	// (`nonempty_file_group`); the tests above carry no cwd, so the regex
+	// match stands there (fail closed).
+	describe("builtin-file-truncate with a cwd — filesystem-gated", () => {
+		function fixture(): string {
+			const root = mkdtempSync(join(tmpdir(), "truncate-rule-"));
+			fixtures.push(root);
+			writeFileSync(join(root, "full.txt"), "contents\n");
+			writeFileSync(join(root, "empty.txt"), "");
+			mkdirSync(join(root, "sub"));
+			writeFileSync(join(root, "sub", "full.txt"), "x");
+			return root;
+		}
+		function decideIn(cwd: string, command: string): { decision: string; rule_id?: string | undefined } {
+			const result = evaluatePreToolUse(makeEvent({ tool_input: { command }, cwd }), rules, session, reservations, cohort);
+			return { decision: String(result.decision), rule_id: result.rule_id };
+		}
+		it("P: an existing non-empty file still blocks, through every shape and a cd hop", () => {
+			const root = fixture();
+			for (const command of [": > full.txt", "> full.txt", "true > full.txt", "cat /dev/null > full.txt", "truncate -s 0 full.txt", "cp /dev/null full.txt", "cd sub && : > full.txt"]) {
+				expect(decideIn(root, command), command).toEqual({ decision: "block", rule_id: "builtin-file-truncate" });
+			}
+		});
+		it("N: creating an empty file, or truncating one that is already empty, is not a truncation", () => {
+			const root = fixture();
+			for (const command of [": > .gitkeep", "> src/new/.gitkeep", "mkdir -p logs && : > logs/app.log", "true > out.txt", ": > empty.txt", "truncate -s 0 empty.txt"]) {
+				const r = decideIn(root, command);
+				expect(r.rule_id, command).not.toBe("builtin-file-truncate");
+				expect(r.decision, command).toBe("allow");
+			}
+		});
+	});
+
+	describe("U4 rules — pinned limits (flip when a fix lands)", () => {
+		it("an `eval` string payload is scannable since 2026-10-09 (spans.ts EVAL_PAYLOAD_RE)", () => {
+			expectFires("builtin-file-truncate", 'eval "truncate -s 0 src/app.ts"');
+			expectFires("builtin-file-truncate", 'eval ": > src/harness/foo.ts"');
+			expectFires("builtin-chown-recursive", "eval 'chown -R root src'");
+		});
+		it("a quoted single-word operand is visible since 2026-10-09 (spans.ts quotedOperandText)", () => {
+			expectFires("builtin-file-truncate", 'truncate -s 0 "src/app.ts"');
+			expectFires("builtin-chmod-000", "chmod -R 000 'src'");
+			expectFires("builtin-chown-recursive", 'chown -R root "src"');
+		});
+		it("a quoted operand that holds whitespace is still masked (residual gap)", () => {
+			expectSilent("builtin-file-truncate", 'truncate -s 0 "src/my app.ts"');
+		});
+		it("a relative target after `cd` into a temp dir still blocks (the rule cannot see the cd)", () => {
+			expectFires("builtin-file-truncate", "cd /tmp/clone && : > out/files.txt");
 		});
 	});
 });

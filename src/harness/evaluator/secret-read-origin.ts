@@ -17,6 +17,7 @@
 
 import { resolve } from "node:path";
 import { isCommittedTestFixture } from "../committed-test-fixture.js";
+import { scheduleSecretHitShadow } from "../jev/secret-shadow.js";
 import { scanSecrets } from "../signatures.js";
 import type { GuardRulesConfig, HarnessEvent, SessionTrajectory } from "../types.js";
 import { externalOriginOf, redactedExcerpt } from "./external-origin-files.js";
@@ -69,6 +70,8 @@ export function scanReadSecretLeaks(
 	const text = readResponseText(event.tool_response).slice(0, scanning.max_scan_bytes);
 	const matches = text.length > READ_SCAN_MIN_BYTES ? scanSecrets(text) : [];
 	if (matches.length === 0) return [];
+	// U1 decision shadow (default OFF): second opinion logged on a later tick.
+	scheduleSecretHitShadow(event, rules, text, matches);
 	const ruleIds = matches.map((m) => m.rule_id);
 	const idList = ruleIds.join(", ");
 	const path = resolve(event.cwd || process.cwd(), rawPath);

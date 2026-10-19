@@ -435,6 +435,7 @@ export function buildCollectionRecord(event: JsonObject): CollectionRecord | nul
 		turn_id: strField(event, "turn_id"),
 		tool_use_id: strField(event, "tool_use_id"),
 		...(typeof event.seq === "number" ? { seq: event.seq } : {}),
+		...(event.dry_run === true ? { dry_run: true as const } : {}),
 		provider: detectProvider(event),
 		phase,
 		...(outcome ? { outcome } : {}),

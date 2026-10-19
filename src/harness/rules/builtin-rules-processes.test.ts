@@ -712,6 +712,11 @@ const NEAR_MISSES: Array<{ label: string; command: string }> = [
 	{ label: "rm -rf inside node_modules", command: "rm -rf node_modules/.cache" },
 	{ label: "git push --force-with-lease", command: "git push --force-with-lease origin main" },
 	{ label: "git push --force-if-includes", command: "git push --force-if-includes origin main" },
+	// `--force` must be its own argument: a branch name that merely contains the
+	// text is not a force push, quoted or not (quoted single-word operands are
+	// visible to executed_only since 2026-10-09, so the regex carries the `\s`).
+	{ label: "git push to a branch whose name contains --force", command: "git push origin feature--force" },
+	{ label: "git push to a quoted branch whose name contains --force", command: 'git push origin "feature--force"' },
 	{ label: "plain git push", command: "git push origin main" },
 	{ label: "git worktree list", command: "git worktree list" },
 	{ label: "git worktree remove", command: "git worktree remove ../feature" },

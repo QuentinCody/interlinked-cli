@@ -41,6 +41,7 @@ import { collectLockfileInstallWarnings } from "./lockfile-install-check.js";
 import { collectFunctionTokenPulseWarnings } from "./function-token-pulse.js";
 import { collectPostWriteFileWarnings } from "./post-tool-write-warnings.js";
 import { collectProjectE2eWarnings } from "../project-e2e/hooks.js";
+import { scheduleEditShadow } from "../jev/edit-shadow.js";
 import { recordStubsIntroduced } from "./post-tool-stub-tracking.js";
 import {
 	globMatch,
@@ -132,6 +133,10 @@ export function evaluatePostToolUse(
 	// obligations under .interlinked/e2e-policy.json. Free when no policy exists.
 	warnings.push(...collectProjectE2eWarnings(event));
 	recordStubsIntroduced(event, rules, session);
+	// Experiment E7 (opt-in `jev.shadow_edits`, default OFF): log one Jev
+	// verdict per cappable-file edit to decision-shadow.jsonl. Contributes no
+	// warning and is never awaited (jev/edit-shadow.ts).
+	scheduleEditShadow(event, rules);
 	// Side-effecting only (no warning): tag the session's taint_sources when a
 	// Bash command web-fetched attacker-controllable content (gh/glab/curl/...),
 	// mirroring the WebFetch `fetched_external` provenance the output-scan path

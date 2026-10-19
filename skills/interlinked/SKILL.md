@@ -15,6 +15,12 @@ For repeated implementation advice (`repeated_implementation`), load
 **interlinked-verify**. This is an advisory AST comparison for Python and JS/TS,
 reported after a changeset and in the Stop/verification review. It is not a hard gate.
 
+Use **interlinked-harness** for opt-in decision/edit shadows, **interlinked-verify** for
+the optional TypeScript scheduler and heuristic false-positive filter, and
+**interlinked-observability** for simulation filtering, shadow file touches and reservation
+joins. These predictors remain disabled by default; passing implementation tests does not
+establish cross-repository calibration or authorize promotion into guard policy.
+
 
 Use **interlinked-verify** for `tests contracts import|inspect|run`: portable executable
 examples, expected-value provenance and retained previous expectations. Use
@@ -78,7 +84,8 @@ Everything is per-`cwd` under `<repo>/.interlinked/`. Key files:
 | `test-runs/` | local | durable pending requests, validated passing receipts, native reports and the last observed job |
 | `*-baseline.json`, `metric-caps.json` | mixed | ratchet water-lines (coverage/mutation/line-cap/caps); the daemon folds session evidence into three of them at SessionEnd, tighten-only — see **interlinked-quality-gates** |
 | `baseline-folds.jsonl` | local | audit row per SessionEnd water-line fold (what tightened, what was refused) |
-| `hook-coverage.json` | local | daemon-owned protected/reserved file observations, pending versions, manual reviews and automated check receipts; writer identity remains unknown |
+| `hook-coverage.json` | local | daemon-owned protected/reserved file observations, pending versions, the recovery job, and the committed length of the receipt history; writer identity remains unknown |
+| `hook-coverage-history.jsonl` | local | append-only manual reviews and automated check receipts (one row each); only the prefix that `hook-coverage.json` names is committed. A pre-split ledger migrates once on daemon start and is kept as `hook-coverage.json.legacy-<iso>` |
 | `mutation-manifest.json` | mixed | stable per-mutant state for the live per-edit mutation ratchet |
 | `mutation-cloud-v3.local.json` | gitignored | experimental protocol-v3 endpoint, authority, key, runtime, and scheduler configuration |
 | `mutation-journal.sqlite` | local | authority-scoped durable mutation jobs, leases, authenticated evidence, manifest head, and outbox |

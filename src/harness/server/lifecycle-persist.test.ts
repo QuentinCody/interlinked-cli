@@ -90,6 +90,7 @@ describe("cleanupSessionState", () => {
 		expect(vi.mocked(ctx.reservations.releaseAllForAgent)).toHaveBeenCalledWith(
 			"tester",
 			ctx.cohort,
+			expect.objectContaining({ session_id: "sess-1" }),
 		);
 		expect(vi.mocked(ctx.sessions.remove)).toHaveBeenCalledWith("sess-1");
 		expect(vi.mocked(ctx.asyncFindings.clearSession)).toHaveBeenCalledWith("sess-1");

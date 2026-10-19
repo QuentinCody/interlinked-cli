@@ -37,6 +37,7 @@ import {
 } from "./post-tool-file-checks-phases-quality.js";
 import type { ServerRuntime } from "./runtime-context.js";
 import { queueBatchCompiler } from "./compiler-batch.js";
+import { externalAndScheduledResults, scheduleTypescript } from "./tsc-scheduler-phase.js";
 
 // Re-export the scored-suggestions phase so the orchestrator keeps importing
 // it from this module entry (it now lives in the -quality sibling).
@@ -55,7 +56,9 @@ const SHOTGUN_THRESHOLD_HIGH = 60;
 function qualityChecksForCall(ctx: ServerRuntime, event: HarnessEvent, file: string, acc: PerFileCheckCtx): GuardRulesConfig["quality_checks"] {
     const checks = ctx.rules.quality_checks;
     // Existing atomic multi-file calls already have a shared compiler run.
-    if ((acc.editedFilePaths?.length ?? 0) > 1 || !queueBatchCompiler(ctx, event, file)) return checks;
+    if ((acc.editedFilePaths?.length ?? 0) > 1) return checks;
+    // E21 scheduler (default off) only sees edits that would run tsc synchronously.
+    if (!queueBatchCompiler(ctx, event, file)) return scheduleTypescript(ctx, event, file, checks, acc);
     acc.allCheckResults.push({ name: "external_check_deferred", source: "quality", severity: "warning", determinism: "fully_deterministic",
         message: "TypeScript scheduled for native PostToolBatch; no compiler verdict for this intermediate edit", file });
     return Object.fromEntries(Object.entries(checks).filter(([name]) => name !== "typescript"));
@@ -156,9 +159,7 @@ export async function runQualityPhase(
 		// still run. See `editedFileInRepo` above.
 		editedFileInRepo,
 	} });
-	const batchedExternalResults = acc.externalCheckBatch
-		? await acc.externalCheckBatch.resultsForFile(editedFilePath)
-		: [];
+	const batchedExternalResults = await externalAndScheduledResults(ctx, acc, editedFilePath, decision);
 	const rawQualityResults = [...batchedExternalResults, ...perFileQualityResults];
 	// Phase mark — runQualityChecks ran tsc/biome/inline checks.
 	// The subprocess time is captured in tool_breakdown; this
@@ -170,7 +171,8 @@ export async function runQualityPhase(
 	// Skip re-firing warnings the user already acknowledged for this file+check.
 	// Errors and no-verdict deferrals always re-fire regardless of acknowledgment:
 	// suppressing a deferral could make the tail incorrectly report all-clean.
-	const qualityResults = prepareQualityFeedback(rawQualityResults, checkEvent, session, acc);
+	// `ctx` lets the E18 fp_filter (default off) score findings before recording.
+	const qualityResults = prepareQualityFeedback(rawQualityResults, checkEvent, session, acc, ctx);
 
 	// --- Sibling expansion (PostToolUse fan-out) ---
 	// When a finding hits a known type-erasure / boundary pattern, query

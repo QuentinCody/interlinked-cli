@@ -5,14 +5,16 @@ import { hashBytes } from "../lib/metrics/inventory.js";
 import { changedTestInputs, loadTestPlan } from "../harness/test-plan-inputs.js";
 import { pendingTests } from "../harness/test-requests.js";
 import { scheduleTests, type ScheduleTestsOptions } from "../harness/test-scheduler.js";
-import type { TestPlan } from "../harness/test-plan.js";
 import { readTestRunObservation } from "../harness/test-run-observation.js";
 import { receiptStorePath, type TestExecution } from "../harness/test-run-receipt.js";
 import { stageFromEnvironment } from "../harness/verification-stages.js";
 import { isJsonObject } from "../lib/json-types.js";
+import { formatPendingTestPaths, formatTestEvidence, formatTestPlan } from "./tests-output.js";
+
+export { formatTestPlan } from "./tests-output.js";
 
 interface TestsOptions {
-    cwd?: string; base?: string; all?: boolean; json?: boolean; timeout?: string; workers?: string;
+    cwd?: string; base?: string; all?: boolean; json?: boolean; details?: boolean; timeout?: string; workers?: string;
     coverage?: boolean; coverageReporter?: string[]; receiptStore?: string; artifactsOut?: string;
     /** Opt into classifier-based omission and reuse (off by default since 2026-10-06; CI comparison mode measures it). */
     staticSelection?: boolean;
@@ -68,14 +70,6 @@ function exportArtifacts(root: string, result: TestExecution, store: string | un
     return exported;
 }
 
-export function formatTestPlan(plan: TestPlan): string {
-    const summary = `${plan.mode}: ${plan.tests.length} test files; ${plan.omitted.length} omitted; estimated serial time ${plan.estimatedSerialMs === null ? "unmeasured" : `${plan.estimatedSerialMs} ms`}`;
-    const estimate = plan.classifierEstimate;
-    const estimateLine = estimate ? [`Classifier estimate (not applied unless --static-selection): ${estimate.omitted} omitted; reuse ${estimate.reusable ? "eligible" : "not eligible"}`] : [];
-    return [summary, `Snapshot: ${plan.snapshot}`, `Result reuse: ${plan.reusable ? "eligible after runtime validation" : "disabled for uncertain inputs"}`,
-        ...estimateLine, ...plan.reasons, ...plan.tests.map(test => `${test.path}: ${test.reasons.join("; ")}`)].join("\n");
-}
-
 /** Schedules the run with the CLI's coverage/store choices and exports the certified artifacts when asked. */
 async function runScheduled(root: string, changed: string[], timeoutMs: number, options: TestsOptions): Promise<TestExecution & { exported: string[] }> {
     const receiptStore = options.receiptStore ? resolve(root, options.receiptStore) : undefined;
@@ -108,7 +102,7 @@ export async function testsCommand(kind: "plan" | "run" | "status", paths: strin
         const pending = pendingTests(root);
         if (kind === "status") {
             const latest = readTestRunObservation(root);
-            output(mode, { ...pending, latest }, { normal: () => `${pending.ids.length} pending requests\n${pending.paths.join("\n")}\nLast observation: ${latest ? `${latest.status} ${latest.runId} at ${latest.observedAt} (owner PID ${latest.pid})` : "none"}` });
+            output(mode, { ...pending, latest }, { normal: () => `${pending.ids.length} pending requests; ${pending.paths.length} pending inputs; full suite requested: ${pending.full ? "yes" : "no"}\n${formatPendingTestPaths(pending.paths, options.details)}\nLast observation: ${latest ? `${latest.status} ${latest.runId} at ${latest.observedAt} (owner PID ${latest.pid})` : "none"}` });
             return;
         }
         const timeoutMs = positive(options.timeout, 60_000, 3_600_000);
@@ -116,11 +110,11 @@ export async function testsCommand(kind: "plan" | "run" | "status", paths: strin
         if (kind === "plan") {
             const plan = await loadTestPlan(root, [...new Set([...changed, ...pending.paths])], timeoutMs, options.all === true || pending.full,
                 { staticSelection: options.staticSelection === true });
-            output(mode, plan, { normal: () => formatTestPlan(plan) });
+            output(mode, plan, { normal: () => formatTestPlan(plan, options.details) });
             return;
         }
         const result = await runScheduled(root, changed, timeoutMs, options);
-        output(mode, result, { normal: () => [`${result.status}${result.reused ? " (reused)" : ""}: ${result.durationMs} ms; run ${result.runId}`, formatTestPlan(result.plan),
+        output(mode, result, { normal: () => [`${result.status}${result.reused ? " (reused)" : ""}: ${result.durationMs} ms; run ${result.runId}`, formatTestEvidence(result), formatTestPlan(result.plan, options.details),
             result.reason, result.output, ...result.exported.map(path => `artifact: ${path}`), ...checkoutWritesLines(result.checkoutWrites)].join("\n") });
         // A failed run is exit 1; deferred/stale runs produced NO verdict and exit 75 (EX_TEMPFAIL), like the bounded runner.
         if (result.status === "failed") process.exitCode = 1;

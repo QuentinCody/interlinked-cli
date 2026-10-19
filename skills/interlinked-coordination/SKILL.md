@@ -70,6 +70,14 @@ interlinked handoff alice bob
 ```
 
 ## File reservations — automatic, no `reserve` command
+
+Reservation evidence carries the requesting session, child actor and tool-call identity;
+conflict rows also identify the holder when its grant was observed locally. Releases retain
+the owner's grant identity. Join this evidence to file-touch records using those keys,
+never the display name alone. A reservation expresses ownership of a lease, not proof of
+who wrote the file. `harness test` simulates conflicts without granting or releasing leases.
+Use **interlinked-observability** for shadow file touches and evidence joins.
+
 Reservations are an **automatic side-effect of writing**, enforced in the daemon (there is no
 `interlinked reserve`). On a Write/Edit, over each path the call mutates:
 - **No conflict →** optimistic local grant (5-min TTL) + async server confirm. If the server

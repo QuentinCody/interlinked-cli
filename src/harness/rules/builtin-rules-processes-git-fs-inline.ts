@@ -3,11 +3,49 @@
 // Built-in Rules — System / Filesystem / Git / Inline destructive (clusters)
 // ===========================================
 // Extracted from builtin-rules-processes.ts to hold that file under the
-// line cap. Pure GuardRule data — no functions, no module-private state.
-// Each array is spread back into PROCESS_AND_FILESYSTEM_RULES at its original
-// position so rule order is byte-identical to before the split.
+// line cap. Pure GuardRule data plus the constant regex fragments below — no
+// functions, no mutable state. Each array is spread back into
+// PROCESS_AND_FILESYSTEM_RULES at its original position.
 
 import type { GuardRule } from "../types.js";
+
+// --- Fragments shared by builtin-chmod-000 / -chown-recursive / -file-truncate (2026-10-09, E29c
+// corpus). Every pattern runs on the executed_only projection: quotes, comments and data-sink
+// heredoc bodies are blank, so a QUOTED operand is invisible (as for every executed_only rule).
+
+/** In-command whitespace; a newline ends the command. */
+const WS = "[ \\t]";
+/** One shell word. A `$(…)` substitution, spaces included, belongs to it. */
+const WORD = "(?:[^\\s;&|<>()`$]|\\$(?!\\()|\\$\\([^()\\n]{0,200}\\))+";
+const WORD_END = "(?=[\\s;&|<>()`]|$)";
+/** Scratch/temp carve-out: a path strictly under /tmp, /var/tmp, /var/folders (also under /private),
+ *  $TMPDIR, a scratch/ directory, or /dev/ (a device, not a file). A `..` segment voids it. */
+const SCRATCH_OR_TEMP =
+	"[\"']?(?:(?:/private)?/(?:var/)?tmp/|(?:/private)?/var/folders/|\\$(?:TMPDIR|TMP|TEMP|\\{(?:TMPDIR|TMP|TEMP)(?::?[-=+?][^}\\s]*)?\\})/|(?:\\./)?scratch/|(?:~/|/)(?:[^\\s;&|<>()`/]+/)*scratch/|/dev/)" +
+	"(?!(?:[^\\s;&|<>()`]*/)?\\.\\.(?:/|[\\s;&|<>()`]|$))(?!/)" +
+	WORD + WORD_END;
+/** Led by a variable other than $HOME: unknown value, never blocks (real `: > $P/x` writes are scratch). */
+const VARIABLE_LED = "[\"']?\\$(?!HOME\\b|\\{HOME\\})";
+/** A blockable operand: not an option, not scratch/temp, not variable-led. */
+const TARGET = `(?!-)(?!${SCRATCH_OR_TEMP})(?!${VARIABLE_LED})${WORD}${WORD_END}`;
+/** Up to 32 more words of the same command; bounded so repeated verbs cannot go quadratic. */
+const MORE_WORDS = `(?:${WS}+${WORD}){0,32}?${WS}+`;
+const RECURSIVE_FLAG = `(?:-[A-Za-z]*R[A-Za-z]*|--recursive)${WORD_END}`;
+const MODE_000 = `(?:0{1,4}|a=|ugo=|a-rwx|ugo-rwx)${WORD_END}`;
+/** Command position: start, `;`, `|`, an unescaped newline, a lone `&` (not `&>`), or the quote
+ *  that opens an `eval` payload (`eval ": > f"` — the payload is scannable and its first word is
+ *  a command). Not any quote: `python … -p 'x' > log` keeps its payload quotes in the projection
+ *  and a closing quote before `>` is not a command position. Then/do/else may follow. */
+const COMMAND_START = `(?:^|[;|]|(?<=(?:^|[\\s;&|])eval${WS}+)["']|(?<!\\\\)\\n|&(?!>))(?:${WS}*(?:then|do|else)(?=${WS}))?`;
+/** The command ends after the target and any trailing redirections (or the payload's closing quote). */
+const COMMAND_END = `(?:${WS}+\\d*(?:>>?|<)(?:&[\\d-]|${WS}*${WORD}))*(?=${WS}*(?:$|[;&|\\n)"']))`;
+/** truncate's words: -r and -s take an argument, alone or after -c/-o. */
+const TRUNCATE_WORD = `(?:-[co]*[rs](?:${WORD}|${WS}+${WORD})|--(?:size|reference)(?:=${WORD}|=|${WS}+${WORD})|(?:-[co]+|--(?:no-create|io-blocks)|--)${WORD_END}|(?!-)${WORD})`;
+const TRUNCATE_WORDS = `(?:${WS}+${TRUNCATE_WORD}){0,32}?${WS}+`;
+const TRUNCATE_ZERO = `(?:-[co]*s${WS}*0+(?:[KMGTPEZY](?:i?B)?|[kmgt]|B)?|--size(?:=|${WS}+)0+(?:[KMGTPEZY](?:i?B)?|[kmgt]|B)?|-[co]*r${WS}*/dev/null|--reference(?:=|${WS}+)/dev/null)${WORD_END}`;
+const NOOP_WRAPPER = `(?:sudo|doas|command|builtin|nohup|exec|time|env(?:${WS}+-[A-Za-z]+)*(?:${WS}+[A-Za-z_]\\w*=(?:${WORD})?)*)`;
+/** A bare `> file` needs a path-shaped target (slash or extension): a markdown `> quote` stays quiet. */
+const PATH_SHAPED = "(?=[^\\s;&|<>()`]*(?:/|\\.[A-Za-z0-9]))";
 
 export const PROCESS_RULES_SYSTEM_FS: GuardRule[] = [
 	// --- System operations ---
@@ -32,6 +70,57 @@ export const PROCESS_RULES_SYSTEM_FS: GuardRule[] = [
 		patterns: [{ field: "command", regex: "\\bchmod\\s+(-R\\s+)?777\\b" }],
 		reason: "chmod 777 creates security vulnerabilities (world-writable)",
 		suggestion: "Use more restrictive permissions",
+		severity: "high",
+		category: "system-operations",
+	},
+	{
+		// Verbs are case-tolerant (macOS runs CHMOD as chmod); flags are not (-R recurses, -r is a mode).
+		id: "builtin-chmod-000",
+		enabled: true,
+		trigger: "PreToolUse",
+		tool_match: ["Bash", "Shell", "run_command"],
+		action: "block",
+		patterns: [
+			// Recursive 000 in any argument order: -R, the mode and a non-scratch/temp target.
+			{
+				field: "command",
+				regex: `(?<![\\w.-])[Cc][Hh][Mm][Oo][Dd](?=${MORE_WORDS}${RECURSIVE_FLAG})(?=${MORE_WORDS}${MODE_000})(?=${MORE_WORDS}(?!${MODE_000})${TARGET})`,
+				flags: "",
+				executed_only: true,
+			},
+			// 000 on a directory-shaped target (. .. ~ / * $HOME, or ending in /); one file stays allowed.
+			{
+				field: "command",
+				regex: `(?<![\\w.-])[Cc][Hh][Mm][Oo][Dd](?=${MORE_WORDS}${MODE_000})(?=${MORE_WORDS}(?:\\.\\.?|~|/|\\*|\\$HOME|\\$\\{HOME\\}|(?!${SCRATCH_OR_TEMP})(?!${VARIABLE_LED})[^\\s;&|<>()\`]*/[.*]?)${WORD_END})`,
+				flags: "",
+				executed_only: true,
+			},
+		],
+		reason: "chmod 000 removes every permission bit; on a directory or with -R it locks every user out of the tree",
+		suggestion:
+			"Use a specific mode instead (e.g. chmod -R go-rwx <dir>). Targets under scratch/ or a temp dir are not blocked.",
+		severity: "high",
+		category: "system-operations",
+	},
+	{
+		id: "builtin-chown-recursive",
+		enabled: true,
+		trigger: "PreToolUse",
+		tool_match: ["Bash", "Shell", "run_command"],
+		action: "block",
+		patterns: [
+			// -R anywhere, an owner word, then a later target that is not scratch/temp.
+			{
+				field: "command",
+				regex: `(?<![\\w.-])[Cc][Hh][Oo][Ww][Nn](?=${MORE_WORDS}${RECURSIVE_FLAG})(?=${MORE_WORDS}(?!-)${WORD}${MORE_WORDS}${TARGET})`,
+				flags: "",
+				executed_only: true,
+			},
+		],
+		reason:
+			"chown -R changes the owner of a whole directory tree; files can become unwritable for you and only root can restore the previous owners",
+		suggestion:
+			"Change the owner of specific files, or ask the user to run it. Targets under scratch/ or a temp dir are not blocked.",
 		severity: "high",
 		category: "system-operations",
 	},
@@ -203,6 +292,61 @@ export const PROCESS_RULES_GIT_FS_INLINE: GuardRule[] = [
 		reason: "wipefs erases filesystem signatures from block devices",
 		suggestion: "Ask the user to run this manually",
 		severity: "critical",
+		category: "filesystem",
+	},
+	{
+		id: "builtin-file-truncate",
+		enabled: true,
+		trigger: "PreToolUse",
+		tool_match: ["Bash", "Shell", "run_command"],
+		action: "block",
+		// Each shape also CREATES an empty file (`: > .gitkeep`), so `target` + nonempty_file_group gate on a real one.
+		patterns: [
+			// truncate to size 0 (-s 0, -s0, --size=0, -r /dev/null), any order, a non-scratch/temp target.
+			{
+				field: "command",
+				regex: `(?<![\\w.-])[Tt][Rr][Uu][Nn][Cc][Aa][Tt][Ee](?=${TRUNCATE_WORDS}${TRUNCATE_ZERO})(?=${TRUNCATE_WORDS}(?<target>${TARGET}))`,
+				flags: "",
+				executed_only: true,
+				nonempty_file_group: "target",
+			},
+			// `: > f`, `true > f`, `cat /dev/null > f` as a whole command (not `>>`, `>&`, `&>`).
+			{
+				field: "command",
+				regex: `${COMMAND_START}${WS}*(?:${NOOP_WRAPPER}${WS}+)*(?::|true|cat${WS}+/dev/null)${WS}*>(?![>&])\\|?${WS}*(?<target>${TARGET})${COMMAND_END}`,
+				flags: "",
+				executed_only: true,
+				nonempty_file_group: "target",
+			},
+			// A bare `> f` with no producing command.
+			{
+				field: "command",
+				regex: `${COMMAND_START}${WS}*>(?![>&])\\|?${WS}*${PATH_SHAPED}(?<target>${TARGET})${COMMAND_END}`,
+				flags: "",
+				executed_only: true,
+				nonempty_file_group: "target",
+			},
+			{
+				field: "command",
+				regex: `(?<![\\w.-])[Cc][Pp](?:${WS}+-[A-Za-z]+)*${WS}+/dev/null(?:${WS}+-[A-Za-z]+)*${WS}+(?<target>${TARGET})${COMMAND_END}`,
+				flags: "",
+				executed_only: true,
+				nonempty_file_group: "target",
+			},
+			// `truncate --help` / `--version` exits before touching any file.
+			{
+				field: "command",
+				regex: `(?<![\\w.-])[Tt][Rr][Uu][Nn][Cc][Aa][Tt][Ee]${WS}+--(?:help|version)\\b`,
+				flags: "",
+				negate: true,
+				executed_only: true,
+			},
+		],
+		reason:
+			"Truncating a file to zero bytes (truncate -s 0, : > file, a bare > file, cp /dev/null file) destroys its contents",
+		suggestion:
+			"To replace the contents use the Write or Edit tool; to remove the file, delete it deliberately. Targets under scratch/ or a temp dir (/tmp, $TMPDIR), and files that do not exist yet or are already empty, are not blocked.",
+		severity: "high",
 		category: "filesystem",
 	},
 	{
