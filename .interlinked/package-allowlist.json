@@ -117,6 +117,41 @@
         "approved_by": "quentincody",
         "reason": "Weft contest probe P2: git writes from a Cloudflare Worker over Artifacts smart HTTP (user-authorized probes 2026-10-07)",
         "license": "MIT"
+      },
+      "@cloudflare/think": {
+        "approved_at": "2026-10-13T19:50:55.358Z",
+        "approved_by": "QuentinCody",
+        "reason": "Explicit approval in Weft implementation conversation for pinned Think integration packages and lockfile dependencies",
+        "version_range": "0.20.2",
+        "license": "MIT"
+      },
+      "agents": {
+        "approved_at": "2026-10-13T19:51:30.995Z",
+        "approved_by": "QuentinCody",
+        "reason": "Explicit approval in Weft implementation conversation for pinned Think integration packages and lockfile dependencies",
+        "version_range": "0.28.1",
+        "license": "MIT"
+      },
+      "ai": {
+        "approved_at": "2026-10-13T19:51:46.336Z",
+        "approved_by": "QuentinCody",
+        "reason": "Explicit approval in Weft implementation conversation for pinned Think integration packages and lockfile dependencies",
+        "version_range": "7.0.139",
+        "license": "Apache-2.0"
+      },
+      "zod": {
+        "approved_at": "2026-10-13T19:52:01.666Z",
+        "approved_by": "QuentinCody",
+        "reason": "Explicit approval in Weft implementation conversation for pinned Think integration packages and lockfile dependencies",
+        "version_range": "4.6.7",
+        "license": "MIT"
+      },
+      "workers-ai-provider": {
+        "approved_at": "2026-10-13T19:52:21.506Z",
+        "approved_by": "QuentinCody",
+        "reason": "Explicit approval in Weft implementation conversation for pinned Think integration packages and lockfile dependencies",
+        "version_range": "4.0.0",
+        "license": "MIT"
       }
     },
     "pypi": {
@@ -133,9 +168,48 @@
         "reason": "User approved pytz==2025.2 for the isolated fresh-verification Python 3.9 research environment; no global install or project dependency changes.",
         "version_range": "2025.2",
         "license": "MIT"
+      },
+      "kokoro": {
+        "approved_at": "2026-10-11T14:09:55.087Z",
+        "approved_by": "QuentinCody",
+        "reason": "User explicitly approved Kokoro 0.9.4 and required speech dependencies for the original Weft af_heart narration",
+        "version_range": "0.9.4"
+      },
+      "en-core-web-sm": {
+        "approved_at": "2026-10-11T14:16:34.528Z",
+        "approved_by": "QuentinCody",
+        "reason": "Required English speech dependency covered by explicit user approval of Kokoro and speech dependencies",
+        "version_range": "3.8.0"
+      },
+      "mlx-audio": {
+        "approved_at": "2026-10-11T14:18:41.415Z",
+        "approved_by": "QuentinCody",
+        "reason": "User explicitly approved MLX Audio 0.5.8 and dependencies to compare Qwen3-TTS and VoxCPM2 narration locally",
+        "version_range": "0.5.8",
+        "license": "MIT"
+      },
+      "sqlparse": {
+        "approved_at": "2026-10-13T08:10:03.661Z",
+        "approved_by": "QuentinCody",
+        "reason": "User explicitly approved sqlparse 0.6.0 for isolated Python 3.11 research, including its package-specific license-metadata exception if needed.",
+        "version_range": "0.6.0"
+      },
+      "whatever": {
+        "approved_at": "2026-10-25T10:21:49.541Z",
+        "approved_by": "QuentinCody",
+        "reason": "User approved isolated whatever==0.7 setup for the Funcy nomination-to-repair experiment",
+        "version_range": "0.7"
       }
     },
-    "cargo": {},
+    "cargo": {
+      "wasm-pack": {
+        "approved_at": "2026-10-14T15:12:51.098Z",
+        "approved_by": "QuentinCody",
+        "reason": "User approval for exact wasm-pack 0.13.1 installation only in /Users/quentincody/confidence-weft-integration; mirrored here because this conversation hook evaluates original workspace scope",
+        "version_range": "0.13.1",
+        "license": "MIT OR Apache-2.0"
+      }
+    },
     "rubygems": {},
     "go": {},
     "composer": {},
@@ -144,6 +218,18 @@
     "nuget": {}
   },
   "lockfile_snapshots": {
+    "Cargo.lock": {
+      "sha256": "b10f93a31c2c0dc2012c5c21e29758642bd2604de9e61c13e623ad786dbc03ca",
+      "approved_at": "2026-10-14T15:11:15.058Z",
+      "approved_by": "QuentinCody",
+      "reason": "Mirror of normal CLI snapshot approval for /Users/quentincody/confidence-weft-integration at 0eb3abebdb488e31b9e1ed04d14dcaebae913c5d; conversation hook evaluates original workspace scope"
+    },
+    "Cargo.toml": {
+      "sha256": "795dd339af068fe04d1c0b812afc2f826bc66c161e458081829949cf34b24a6b",
+      "approved_at": "2026-10-14T15:11:38.749Z",
+      "approved_by": "QuentinCody",
+      "reason": "Mirror of normal CLI snapshot approval for /Users/quentincody/confidence-weft-integration at 0eb3abebdb488e31b9e1ed04d14dcaebae913c5d; conversation hook evaluates original workspace scope"
+    },
     "package.json": {
       "sha256": "ad2045134eb0363651d2f97d6c515cabbf693bab545564fdb0fae3f05d024a3a",
       "approved_at": "2026-09-01T00:55:50.313Z",

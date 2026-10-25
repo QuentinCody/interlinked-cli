@@ -83,6 +83,12 @@ cloud/
 # Third-party reference repos cloned for design/research only — never committed.
 reference-repos/
 
+# Local research, experiments, and retained evidence.
+/research/
+
+# Local JSONL data and experiment fixtures; keep TypeScript source/tests visible.
+/src/lib/data/**/*.jsonl
+
 # Local evaluation output stays private; reusable comparison drivers are versioned.
 /evals/*
 !/evals/compare-builds.mjs
@@ -91,6 +97,25 @@ reference-repos/
 !/evals/fixed-feedback.test.mjs
 !/evals/report-comparison.mjs
 !/evals/report-comparison.test.mjs
+!/evals/claim-verification/
+/evals/claim-verification/*
+!/evals/claim-verification/*.mts
+!/evals/claim-verification/tsconfig.json
+!/evals/claim-verification/README.md
+!/evals/claim-verification/RESULTS-2026-10-19.md
+!/evals/claim-verification/RESULTS-2026-10-20.md
+!/evals/claim-verification/RESULTS-2026-10-20-DECISION-GRAPHS.md
+!/evals/claim-verification/grounding-holdout.json
+!/evals/claim-verification/EVIDENCE-INVENTORY.md
+!/evals/claim-verification/LABELING-QUEUE.md
+!/evals/claim-verification/NEXT.md
+!/evals/tool-output-efficiency/
+/evals/tool-output-efficiency/*
+!/evals/tool-output-efficiency/*.mts
+!/evals/tool-output-efficiency/*.py
+!/evals/tool-output-efficiency/*.md
+!/evals/tool-output-efficiency/tsconfig.json
+!/evals/tool-output-efficiency/.gitignore
 !/evals/lib/
 /evals/lib/*
 !/evals/lib/native-hook-metrics.mjs
