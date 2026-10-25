@@ -125,8 +125,13 @@ export function updateRuntimeEstimateMs(
 
 /** One stored baseline value: a legacy bare fraction, or fraction + the
  *  test-scope id that measured it (see evaluator/coverage-scope.ts — a drop
- *  comparison across DIFFERENT scopes is meaningless and used to false-block). */
-type StoredBaselineValue = number | { f: number; scope?: string };
+ *  comparison across DIFFERENT scopes is meaningless and used to false-block)
+ *  + `hw`, the cross-scope HIGH-WATER: the highest fraction ever accepted for
+ *  the file under the full suite. A bare number N is a full-suite value, so it
+ *  reads as `{f: N, scope: "full", hw: N}`. `hw` is omitted on disk when it
+ *  equals what the shape already implies (a full-scope `f`), so pre-hw files and
+ *  their round-trips are byte-identical. */
+type StoredBaselineValue = number | { f: number; scope?: string; hw?: number };
 
 /** Map of repo-relative POSIX path → stored baseline value at last allow. */
 type CoverageBaseline = Record<string, StoredBaselineValue>;
@@ -179,12 +184,62 @@ export function readFileCoverageBaselineEntry(
 	return decodeBaselineValue(data[relPath]);
 }
 
+function finiteOrNull(v: unknown): number | null {
+	return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function maxOrNull(a: number | null, b: number | null): number | null {
+	if (a === null) return b;
+	if (b === null) return a;
+	return Math.max(a, b);
+}
+
+/** True for a scope that names the full suite: `"full"`, or no recorded scope
+ *  at all (legacy bare numbers, and every unscoped writer, are full-suite). */
+function isFullScope(scope: unknown): boolean {
+	return scope === "full" || typeof scope !== "string";
+}
+
+/**
+ * The cross-scope high-water of one stored value, or null when no full-suite
+ * fraction was ever accepted for it: the explicit `hw`, raised to `f` when `f`
+ * itself is a full-suite value. Mirrored by coverage-edit-baseline-integrity.ts
+ * (the hand-edit gate) — both MUST derive it the same way.
+ */
+export function coverageHighWaterOf(value: unknown): number | null {
+	const bare = finiteOrNull(value);
+	if (bare !== null) return bare;
+	if (!isJsonObject(value)) return null;
+	const f = finiteOrNull(value.f);
+	if (f === null) return null;
+	return maxOrNull(finiteOrNull(value.hw), isFullScope(value.scope) ? f : null);
+}
+
+/** The cross-scope high-water for one file (see {@link coverageHighWaterOf}),
+ *  or null when the file has no entry or no full-suite value was ever accepted. */
+export function readFileCoverageHighWater(projectRoot: string, relPath: string): number | null {
+	const data = readJsonFile<CoverageBaseline>(interlinkedPath(projectRoot, BASELINE_FILE));
+	if (!data) return null;
+	return coverageHighWaterOf(data[relPath]);
+}
+
+/** Encode one entry, carrying `hw` only when the shape does not already imply it. */
+function encodeBaselineValue(fraction: number, scope: string | undefined, hw: number | null): StoredBaselineValue {
+	const impliedHw = isFullScope(scope) ? fraction : null;
+	const explicit = hw !== null && hw !== impliedHw;
+	if (scope === undefined) return explicit ? { f: fraction, scope: "full", hw } : fraction;
+	return explicit ? { f: fraction, scope, hw } : { f: fraction, scope };
+}
+
 /**
  * Persist `fraction` (0..1) as the new baseline covered-fraction for `relPath`,
  * merging into any existing baseline map. Called only after an edit is ALLOWED,
  * so the baseline always reflects the last state the gate let through. When
  * `scope` is given, the entry records which test scope measured the fraction —
  * the drop ratchet only compares within one scope and re-anchors across scopes.
+ * The cross-scope high-water `hw` is RETAINED from the prior entry and only
+ * ever rises (from a full-suite write): no write through this function can
+ * lower it, whatever scope or fraction it carries.
  */
 export function writeFileCoverageBaseline(
 	projectRoot: string,
@@ -195,7 +250,8 @@ export function writeFileCoverageBaseline(
 	if (!Number.isFinite(fraction)) return;
 	const path = interlinkedPath(projectRoot, BASELINE_FILE);
 	const data = readJsonFile<CoverageBaseline>(path) ?? {};
-	data[relPath] = scope === undefined ? fraction : { f: fraction, scope };
+	const hw = maxOrNull(coverageHighWaterOf(data[relPath]), isFullScope(scope) ? fraction : null);
+	data[relPath] = encodeBaselineValue(fraction, scope, hw);
 	writeJsonFile(path, data);
 }
 

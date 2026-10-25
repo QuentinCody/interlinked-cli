@@ -14,6 +14,7 @@
 // `signatures-patterns-secrets.ts`.
 
 import { createHash } from "node:crypto";
+import { shellUnits, splitSegments as shellSegments } from "../evaluator/commit-parse-shell.js";
 
 // ===========================================
 // Hashing
@@ -145,25 +146,30 @@ const EGRESS_VERBS: ReadonlySet<string> = new Set([
 	"telnet", "ftp", "socat", "http", "https", "httpie",
 ]);
 
-/** Shell prefixes to skip when finding a segment's head verb. */
-const PREFIX_SKIP = /^(?:sudo|env|nohup|time|exec|command|builtin|\w+=.*)$/;
-
-/** Split a command into pipeline / sequence segments. */
+/**
+ * Top-level pipeline / sequence segments, trimmed and non-empty. Delegates to
+ * THE canonical segmenter (commit-parse-shell.ts), so quotes, `#` comments,
+ * heredoc bodies and newlines are read the way the commit gate reads them
+ * (red-team 2026-10-21 round 4: the old regex split saw none of them).
+ */
 export function splitSegments(cmd: string): string[] {
-	return cmd
-		.split(/\n|;|&&|\|\||[|&]/)
+	return shellSegments(cmd)
 		.map((s) => s.trim())
 		.filter((s) => s.length > 0);
 }
 
-/** The head verb of each segment (basename, lowercased, prefixes stripped). */
+/**
+ * The head verb of each top-level command (basename, lowercased). Wrappers
+ * (`sudo`, `env`, `VAR=`, `nohup`, `time`, `exec`, `command`, …) are stripped
+ * by the canonical unwrapper; `builtin` is the one prefix it does not know. An
+ * assignment-only command (`T=$(git write-tree)`) has no head. Commands inside
+ * substitutions and inline programs are not top-level heads.
+ */
 export function commandHeads(cmd: string): string[] {
 	const heads: string[] = [];
-	for (const seg of splitSegments(cmd)) {
-		const toks = seg.split(/\s+/).filter((t) => t.length > 0);
-		let i = 0;
-		while (i < toks.length && PREFIX_SKIP.test(toks[i] ?? "")) i++;
-		const head = toks[i];
+	for (const unit of shellUnits(cmd)) {
+		if (unit.scope !== "") continue;
+		const head = unit.argv.find((t) => t !== "builtin");
 		if (head) heads.push((head.split("/").pop() ?? head).toLowerCase());
 	}
 	return heads;

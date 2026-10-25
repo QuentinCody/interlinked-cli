@@ -39,6 +39,14 @@ describe("isFunctionComplexityBaselinePath", () => {
 describe("detectFunctionComplexityBaseline — positive (must fire)", () => {
 	const base = ledger({ cap: 16, entries: [entry("src/a.ts", "big", 20), entry("src/b.ts", "other", 30)] });
 
+	it.each([{}, { metrics: null }, { metrics: [] }])("treats missing or invalid metrics as no grandfather grants: %j", before => {
+		expect(detect(before, base).map(f => f.rule)).toEqual([
+			"cyclomatic:grandfather-new:src/a.ts:big",
+			"cyclomatic:grandfather-new:src/b.ts:other",
+		]);
+		expect(detect(base, before)).toEqual([]);
+	});
+
 	it("blocks raising a metric cap", () => {
 		const found = detect(base, ledger({ cap: 18, entries: base.metrics.cyclomatic.entries }));
 		expect(found).toHaveLength(1);

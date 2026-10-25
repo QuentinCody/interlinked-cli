@@ -299,19 +299,21 @@ describe("detectConfigLoosening — parsing + fail-open edges", () => {
 		).toEqual([]);
 	});
 
-	it("returns empty when the proposed (after) text is unparseable", () => {
-		// Can't parse the proposed file → defer to tsc/biome; fail open.
+	it("flags a proposed (after) text TypeScript cannot parse as a loosening (round 4)", () => {
+		// A tsconfig the compiler cannot read enforces no flag: an existing
+		// parseable tsconfig replaced by unparseable text is a loosening.
 		const before = `{ "compilerOptions": { "strict": true } }`;
 		const after = `{ "compilerOptions": { "strict": false`; // truncated, invalid
-		expect(detectConfigLoosening("tsconfig.json", before, after)).toEqual([]);
+		const findings = detectConfigLoosening("tsconfig.json", before, after);
+		expect(findings.map((f) => f.rule)).toEqual(["tsconfig-parse"]);
+		expect(findings[0]?.message).toContain("cannot be parsed");
 	});
 
-	it("returns empty when the proposed (after) text is empty (safeJsonParse('') → null)", () => {
-		// beforeText is non-empty so the new-file guard is passed; the empty
-		// `after` must funnel through safeJsonParse's `!text` short-circuit and
-		// fail open rather than throw.
+	it("flags an empty proposed (after) text: TypeScript reads it as {} and strict is lost (round 4)", () => {
+		// beforeText is non-empty so the new-file guard is passed; TypeScript
+		// reads "" with no error and every flag at its loose default.
 		const before = `{ "compilerOptions": { "strict": true } }`;
-		expect(detectConfigLoosening("tsconfig.json", before, "")).toEqual([]);
+		expect(detectConfigLoosening("tsconfig.json", before, "").map((f) => f.rule)).toContain("strict");
 	});
 
 	it("does not throw when compilerOptions is a non-object scalar", () => {
@@ -525,19 +527,20 @@ describe("evaluateConfigLooseningForEvent — applicability gating", () => {
 		expect(decision).toBeNull();
 	});
 
-	it("returns null for a config file with neither content nor old/new strings", () => {
-		// e.g. a Read-shaped tool_input — nothing to reconstruct.
-		expect(
-			evaluateConfigLooseningForEvent(makeEvent({ file_path: "tsconfig.json" })),
-		).toBeNull();
+	// Red team 2026-10-21 round 3: a write-tool call whose result cannot be
+	// reconstructed fails CLOSED on a strictness water-line (it used to allow).
+	it("refuses a tsconfig write with neither content nor old/new strings", () => {
+		const decision = evaluateConfigLooseningForEvent(makeEvent({ file_path: "tsconfig.json" }));
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("cannot determine");
 	});
 
-	it("returns null when old_string is present but new_string is missing", () => {
-		expect(
-			evaluateConfigLooseningForEvent(
-				makeEvent({ file_path: "tsconfig.json", old_string: '"strict": true' }),
-			),
-		).toBeNull();
+	it("refuses a tsconfig edit whose old_string is present but new_string is missing", () => {
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: "tsconfig.json", old_string: '"strict": true' }),
+		);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("cannot determine");
 	});
 });
 
@@ -648,7 +651,7 @@ describe("evaluateConfigLooseningForEvent — Write tool against git HEAD", () =
 		expect(decision).toBeNull();
 	});
 
-	it("fails open when the file path resolves outside its own repo root", { timeout: 60_000 }, () => {
+	it("judges a path through a directory symlink against the real repository's HEAD", { timeout: 60_000 }, () => {
 		// readHeadVersion guards against `relative(repoRoot, absFile)` producing a
 		// `..`-prefixed path (a file that resolves outside the repo `git -C` found
 		// for its dirname). The divergence is constructed with an EXPLICIT symlink
@@ -673,10 +676,12 @@ describe("evaluateConfigLooseningForEvent — Write tool against git HEAD", () =
 		try {
 			const link = join(linkParent, "repo");
 			symlinkSync(real, link, "dir");
-			// Pass the path THROUGH the symlink as file_path. content loosens
-			// strict, so a phantom-baseline bug would surface as a false `ask`;
-			// correct behavior is null (the path resolves outside the repo root
-			// git reported, so no valid HEAD baseline can be located).
+			// Pass the path THROUGH the symlink as file_path. Since the red team
+			// 2026-10-21 round 3 the gate canonicalizes the directory first (the
+			// spelling git reports), so the write is judged against the REAL
+			// repository's HEAD: the file behind the link is the committed
+			// tsconfig, and strict true → false is a genuine loosening. The old
+			// fail-open here was a symlink alias of the water-line.
 			const decision = evaluateConfigLooseningForEvent(
 				makeEvent(
 					{
@@ -686,7 +691,8 @@ describe("evaluateConfigLooseningForEvent — Write tool against git HEAD", () =
 					link,
 				),
 			);
-			expect(decision).toBeNull();
+			expect(decision?.decision).toBe("block");
+			expect(decision?.reason).toContain("[strict]");
 		} finally {
 			rmSync(linkParent, { recursive: true, force: true });
 		}
@@ -783,7 +789,10 @@ describe("evaluateConfigLooseningForEvent — Edit tool reconstruction path", ()
 		expect(decision?.reason).toContain("strict");
 	});
 
-	it("rejects a non-string old_string instead of reconstructing it", () => {
+	// Red team 2026-10-21 round 3: reconstruction goes through
+	// edit-reconstruction.ts. A malformed or inapplicable Edit is never coerced
+	// into a result, and on a strictness water-line it is refused (fail closed).
+	it("refuses a non-string old_string instead of reconstructing it", () => {
 		dir = makeRepoWithCommittedFile(
 			"tsconfig.json",
 			`{ "compilerOptions": { "strict": true } }`,
@@ -798,10 +807,11 @@ describe("evaluateConfigLooseningForEvent — Edit tool reconstruction path", ()
 				dir,
 			),
 		);
-		expect(decision).toBeNull();
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("cannot determine");
 	});
 
-	it("rejects a non-string new_string instead of reconstructing it", () => {
+	it("refuses a non-string new_string instead of reconstructing it", () => {
 		dir = makeRepoWithCommittedFile(
 			"tsconfig.json",
 			`{ "compilerOptions": { "strict": true } }`,
@@ -816,10 +826,11 @@ describe("evaluateConfigLooseningForEvent — Edit tool reconstruction path", ()
 				dir,
 			),
 		);
-		expect(decision).toBeNull();
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("cannot determine");
 	});
 
-	it("returns null when the Edit's old_string is not found on disk", () => {
+	it("refuses a tsconfig Edit whose old_string is not found on disk", () => {
 		dir = makeRepoWithCommittedFile(
 			"tsconfig.json",
 			`{ "compilerOptions": { "strict": true } }`,
@@ -834,10 +845,12 @@ describe("evaluateConfigLooseningForEvent — Edit tool reconstruction path", ()
 				dir,
 			),
 		);
-		expect(decision).toBeNull();
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("old_string does not occur");
 	});
 
 	// test-contract: boundary — malformed Edit fields are rejected even when a non-string old_string would coerce to a matching disk substring
+	// (package.json is ask-mode, so the fail-closed answer is an ask that names the undecidable input, never a coerced finding)
 	it("does not reconstruct a loosening from a numeric old_string", () => {
 		dir = makeRepoWithCommittedFile(
 			"package.json",
@@ -853,7 +866,9 @@ describe("evaluateConfigLooseningForEvent — Edit tool reconstruction path", ()
 				dir,
 			),
 		);
-		expect(decision).toBeNull();
+		expect(decision?.decision).toBe("ask");
+		expect(decision?.reason).toContain("cannot determine");
+		expect(decision?.reason).not.toContain("engines.node");
 	});
 
 	it("returns null when the disk file does not exist (readDiskContent → null)", () => {
@@ -897,7 +912,8 @@ describe("evaluateConfigLooseningForEvent — Edit tool reconstruction path", ()
 		// No `cwd` on the event + a relative config path forces readDiskContent
 		// down the `resolve(process.cwd(), file)` fallback. The test runner's cwd
 		// is the repo root, whose package.json exists; a synthetic old_string that
-		// is absent from it makes reconstruction return null → decision null.
+		// is absent from it makes reconstruction undecidable → an ask (package.json
+		// is ask-mode) naming the RESOLVED path, which proves the fallback.
 		// This exercises the cwd-fallback branch without mutating process state.
 		const decision = evaluateConfigLooseningForEvent(
 			makeEvent({
@@ -906,7 +922,9 @@ describe("evaluateConfigLooseningForEvent — Edit tool reconstruction path", ()
 				new_string: '"__interlinked_synthetic_absent_key__": "vendor-model-v7"',
 			}),
 		);
-		expect(decision).toBeNull();
+		expect(decision?.decision).toBe("ask");
+		expect(decision?.reason).toContain(`${process.cwd()}/package.json`);
+		expect(decision?.reason).toContain("old_string does not occur");
 	});
 });
 

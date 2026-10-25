@@ -303,7 +303,7 @@ function readFunctionTokenCap(value: unknown): number | undefined {
 
 /** Parse a raw object into the present, valid overrides only. Caps must be
  *  strictly positive; a coverage floor of 0 is valid (means "no floor"). */
-function normalizeOverrides(raw: unknown): MetricCapsOverrides {
+export function normalizeOverrides(raw: unknown): MetricCapsOverrides {
 	if (typeof raw !== "object" || raw === null) return {};
 	const obj: RawMetricCaps = raw;
 	const out: MetricCapsOverrides = {};

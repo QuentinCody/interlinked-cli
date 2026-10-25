@@ -5,7 +5,7 @@ import type { HookRpcMethod } from "./harness/daemon-protocol.js";
 import { callLegacyHarness, isLegacyHarnessSocket } from "./harness/legacy-client.js";
 import type { HarnessDecision } from "./harness/types.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
-import { findRepoRoot } from "./hook-entry-project.js";
+import { findRepoRoot } from "./lib/interlinked-root.js";
 import { nonNull } from "./lib/non-null.js";
 import { resolveHookDataDir } from "./hook-entry-event.js";
 import { writeHookTransportReceipt, type HookTransportReceipt } from "./lib/hook-transport-receipt.js";

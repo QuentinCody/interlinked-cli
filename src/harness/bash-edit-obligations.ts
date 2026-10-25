@@ -18,6 +18,15 @@ import { isJsonObject } from "../lib/json-types.js";
 // same multi-language set the Write/Edit gates run; the baseline comes from
 // git (index, then HEAD, then strict for untracked files).
 //
+// Session scope (2026-10-21 incident): an obligation binds the session that
+// owns it. A row with a non-empty `session_id` (a declared shell write) refuses
+// write-class calls ONLY from that same session id — its subagents share the
+// id, so they stay bound — and every other session gets a warning line naming
+// the file, the check ids and the owning session, never a block. A row with
+// `session_id: ""` (writer unknown) still refuses every session. Before this
+// rule, a different live session's untracked `it.todo` test files
+// (`placeholder_test`) refused every Write/Edit of five unrelated subagents.
+//
 // Persistence: write-through JSON under `.interlinked/`, lazily reloaded — a
 // daemon restart must not amnesty an open obligation (the effect-attribution
 // lesson, 2026-08-23). `dry_run` never persists (CLAUDE.md rule).
@@ -287,11 +296,27 @@ function dischargeFixedObligations(
 	return open;
 }
 
+/** True when an obligation refuses this session: its own session, or an
+ *  unknown writer (`""`), which binds every session. */
+function bindsSession(ob: BashEditObligation, sessionId: string): boolean {
+	return ob.session_id === "" || ob.session_id === sessionId;
+}
+
+function foreignObligationWarning(ob: BashEditObligation): string {
+	return (
+		`[interlinked:bash-edit-obligation] ${ob.file} (${ob.checkIds.join(", ")}) has an open ` +
+		`obligation owned by session ${ob.session_id}. It refuses write-class calls only in that ` +
+		`session, so this call is not refused.`
+	);
+}
+
 /**
  * PreToolUse gate: refuse write-class tool calls to files OTHER than an open
- * obligation's target. Self-discharging — every evaluation re-verifies each
- * obligation against current disk content first, so a fixed finding releases
- * the gate without any explicit close step.
+ * obligation's target. Only obligations that bind the calling session refuse
+ * (see "Session scope" above); another session's obligations only warn.
+ * Self-discharging — every evaluation re-verifies each obligation against
+ * current disk content first, so a fixed finding releases the gate without any
+ * explicit close step.
  */
 export function evaluateBashEditObligationGate(
 	event: HarnessEvent,
@@ -306,7 +331,13 @@ export function evaluateBashEditObligationGate(
 	if (open.size === 0 || !WRITE_TOOLS.has(toolName)) return null;
 	const target = targetRel(event, cwd);
 	if (target !== null && open.has(target)) return null;
-	const summary = [...open.values()]
+	const binding: BashEditObligation[] = [];
+	for (const ob of open.values()) {
+		if (bindsSession(ob, event.session_id)) binding.push(ob);
+		else warnings.push(foreignObligationWarning(ob));
+	}
+	if (binding.length === 0) return null;
+	const summary = binding
 		.map((o) => `${o.file} (${o.checkIds.join(", ")})`)
 		.join("; ");
 	return {

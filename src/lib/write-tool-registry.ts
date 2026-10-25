@@ -31,6 +31,10 @@
 // disjoint — so widening this registry cannot quietly re-admit a Read or a Grep
 // to the per-file pipeline.
 
+import { normalizeToolName } from "../harness/adapters/normalization.js";
+import { isReadOnlyToolName } from "./hook-read-only-tools.js";
+import { nonNull } from "./non-null.js";
+
 /**
  * How a write tool tells the daemon WHICH file it touched.
  *
@@ -126,4 +130,81 @@ export function writeToolEntry(name: string | null | undefined): WriteToolEntry 
 /** True when this tool declares the file it edits (see {@link WriteToolChannel}). */
 export function isDirectFileEditTool(name: string | null | undefined): boolean {
 	return writeToolEntry(name)?.channel === "direct";
+}
+
+// ===========================================
+// Content-gate classification (red team 2026-10-21, round 3)
+// ===========================================
+// The PreToolUse content gates (baseline integrity, config loosening) must
+// judge EVERY spelling a runner delivers for a direct writer, not only the
+// exact names above. They used a private list that missed OpenCode `edit` /
+// `write`, Gemini `replace`, `Update`, `notebook_edit`, `file_edit`, VS Code
+// Copilot `create_file` / `replace_string_in_file` and `ApplyPatch`, so each of
+// those loosened a water-line with no finding. This classifier compares in the
+// normalized snake_case form (`normalizeToolName`), so a casing variant of a
+// registered name is the same tool.
+//
+// These aliases are NOT added to `WRITE_TOOLS`: that table also drives the
+// installed PostToolUse matchers and the quality pipeline's direct-edit list,
+// and widening it changes those surfaces. The gates only need the predicate.
+
+/** Normalized spellings of direct writers that are not in {@link WRITE_TOOLS}. */
+const GATE_WRITE_ALIASES: readonly string[] = [
+	"replace", // Gemini CLI edit tool (`expected_replacements` = replace_all)
+	"multiedit", // OpenCode multi-edit
+	"patch", // OpenCode patch tool (`patchText`)
+	"file_write", // FileWrite
+	"file_edit", // FileEdit
+	"create_file", // VS Code Copilot
+	"replace_string_in_file", // VS Code Copilot
+	"replace_string", // VS Code Copilot (older spelling)
+	"multi_replace_string_in_file", // VS Code Copilot
+	"insert_edit_into_file", // VS Code Copilot
+	"edit_notebook_file", // VS Code Copilot
+];
+
+/** Verbs that mark an unregistered tool name as write-capable (fail-closed side). */
+const WRITE_VERBS: ReadonlySet<string> = new Set([
+	"write",
+	"edit",
+	"patch",
+	"replace",
+	"create",
+	"update",
+	"insert",
+	"append",
+	"save",
+	"overwrite",
+	"modify",
+	"put",
+]);
+
+let directWriterKeys: ReadonlySet<string> | null = null;
+
+/** Normalized names of every direct writer: the registry plus the gate aliases. */
+function directWriterKeySet(): ReadonlySet<string> {
+	directWriterKeys ??= new Set([
+		...DIRECT_FILE_EDIT_TOOLS.map((name) => normalizeToolName(name)),
+		...GATE_WRITE_ALIASES,
+	]);
+	return directWriterKeys;
+}
+
+/**
+ * Public API — true when a PreToolUse content gate must treat this tool call
+ * as a direct file write: a registered direct writer or a known alias in any
+ * casing, or an unregistered, non-read-only name whose last segment carries a
+ * write verb (`mcp__filesystem__write_file`). The shell channel is excluded —
+ * a shell command is judged by its own arm. Unknown names that carry no write
+ * verb return false.
+ */
+export function isWriteCapableToolName(name: string | null | undefined): boolean {
+	if (!name) return false;
+	if (writeToolEntry(name)?.channel === "shell") return false;
+	const key = normalizeToolName(name);
+	if (directWriterKeySet().has(key)) return true;
+	if (isReadOnlyToolName(name)) return false;
+	// split always yields at least one segment, even for an empty normalized key.
+	const lastSegment = nonNull(key.split("__").pop());
+	return lastSegment.split("_").some((token) => WRITE_VERBS.has(token));
 }

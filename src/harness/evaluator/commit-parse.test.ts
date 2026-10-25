@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isGitPushCommand, parseGitCommit } from "./commit-parse.js";
+import { isGitPushCommand, listGitInvocations, parseGitCommit } from "./commit-parse.js";
+
+describe("listGitInvocations input boundary", () => {
+	it.each([undefined, null, "", 42, { command: "git commit" }])("does not coerce malformed input into a shell command (%j)", (command) => {
+		expect(listGitInvocations(command)).toEqual([]);
+	});
+});
 
 describe("parseGitCommit", () => {
 	it("detects `git commit -m x`", () => {

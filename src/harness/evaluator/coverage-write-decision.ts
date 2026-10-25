@@ -9,7 +9,7 @@
 
 import { RED_BAR_MARKER, UNCOVERED_MARKER } from "../coverage-debt.js";
 import { type FunctionCoverage, type PerFileCoverage } from "../coverage-final-reader.js";
-import { readFileCoverageBaselineEntry } from "../coverage-obligation-ledger.js";
+import { readFileCoverageBaselineEntry, readFileCoverageHighWater } from "../coverage-obligation-ledger.js";
 import { minCoverageFor } from "../metric-caps.js";
 import type { HarnessDecision } from "../types.js";
 import { hasPerLineData } from "./coverage-crap-decision.js";
@@ -163,11 +163,14 @@ export function blockForRedBar(
  * guard is the per-LINE added-line check, which runs first (line `decideFromCoverage`
  * → the `"block" in verdict` return) and exactly refuses a newly-uncovered line.
  * This %-drop check is a coarser backstop comparing `now` against the stored
- * baseline — but ONLY within the same test scope: baselines record the scope
- * that measured them (coverage-scope.ts), and a cross-scope comparison
- * re-anchors instead of blocking (2026-07-24: a file pinned at 100% from a
- * broad run false-blocked EVERY edit once selection narrowed to a scope that
- * could only reach 98.7%). Within one scope the epsilon absorbs sub-line float
+ * baseline. Baselines record the scope that measured them (coverage-scope.ts);
+ * a cross-scope comparison re-anchors only upward, and nothing goes below the
+ * file's full-suite high-water without a full-suite measurement — see
+ * `highWaterVerdict` (this re-opens the 2026-07-24 bio shape — a file pinned
+ * at 100% by a broad run, a narrowed scope reaching 98.7% — as a fail-closed
+ * block that names how to re-measure, deliberately: the red-team 2026-10-21
+ * churn sequence turned that exemption into an unbounded downward re-key).
+ * The SAME epsilon is the high-water tolerance. Within one scope it absorbs sub-line float
  * wobble (1.0 → 0.9997) while catching a real multi-line regression; the
  * commit-time full-suite gate re-checks against the complete measurement.
  */
@@ -185,14 +188,24 @@ function sampleUncoveredLines(cov: PerFileCoverage): number[] {
 	return [...lines].sort((a, b) => a - b).slice(0, UNCOVERED_SAMPLE_MAX);
 }
 
+/** A scope change the drop check describes in the block reason: the stored
+ *  scope (a legacy scope-less entry is named "full") and today's. */
+interface ScopeChange {
+	from: string;
+	to: string;
+}
+
 /** The actionable block for a per-file coverage regression vs the baseline.
  *  Unrounded percentages (98.7%, not "99%") and named uncovered lines — the
- *  rounded form hid the one-line gap behind an apparent 1% mystery. */
+ *  rounded form hid the one-line gap behind an apparent 1% mystery. With a
+ *  `scopeChange` the reason names both scopes: the drop was measured under a
+ *  DIFFERENT affected-test set, and the gate refused to re-anchor downward. */
 function blockForDrop(
 	relPath: string,
 	prior: number,
 	now: number,
 	uncoveredSample: number[] = [],
+	scopeChange?: ScopeChange | "full-high-water",
 ): HarnessDecision {
 	const where =
 		uncoveredSample.length > 0
@@ -202,7 +215,7 @@ function blockForDrop(
 		decision: "block",
 		reason:
 			`[interlinked:coverage] BLOCKED: this edit drops ${relPath} coverage from ` +
-			`${pctPrecise(prior)} to ${pctPrecise(now)} under the same affected-test scope. ` +
+			`${pctPrecise(prior)} to ${pctPrecise(now)}${dropScopePhrase(scopeChange)}. ` +
 			`The changed code itself passed the added-coverage check — the drop comes from ` +
 			`previously-covered code going uncovered${where}. Restore or extend the covering ` +
 			`test(s), then retry.`,
@@ -210,6 +223,20 @@ function blockForDrop(
 		severity: "medium",
 		category: "coverage",
 	};
+}
+
+/** How {@link blockForDrop} names the comparison: same scope, a changed scope,
+ *  or a full-suite measurement against the file's full-suite high-water. */
+function dropScopePhrase(scopeChange: ScopeChange | "full-high-water" | undefined): string {
+	if (scopeChange === "full-high-water") {
+		return ", its full-suite high-water, measured under the full suite — a real coverage drop";
+	}
+	if (scopeChange) {
+		return `. The affected-test scope changed (${scopeChange.from} → ${scopeChange.to}); a changed ` +
+			`test set re-anchors a water-line upward only — a baseline is never lowered by ` +
+			`adding or removing companion tests`;
+	}
+	return " under the same affected-test scope";
 }
 
 /** Block when a file's coverage is below the configured floor (`min_coverage`,
@@ -237,10 +264,75 @@ export interface CoverageDecisionOut {
 	scopeChanged?: { priorFraction: number };
 }
 
-/** Same-scope drop check with cross-scope re-anchor semantics: a baseline
- *  earned under a different (or legacy scope-less) test set is not comparable —
- *  every legacy 1.0 entry would otherwise false-block all edits once selection
- *  narrowed — so it signals the re-anchor instead of blocking. */
+/** The command a high-water block names: it runs the full suite under
+ *  coverage, the only measurement allowed to accept a value below `hw`. */
+const FULL_REMEASURE_HINT =
+	"Re-measure under the FULL suite — land the change as an apply_patch that also touches the " +
+	"file's test (the per-edit gate then runs the full suite), or run your full coverage suite and " +
+	"`interlinked coverage check` to see the full-suite number";
+
+/** A scoped (narrower-than-full) measurement fell below the file's full-suite
+ *  high-water. Not proof of a drop, not proof of none: only a full-route
+ *  measurement may store a value below `hw`, and none ran in this evaluation,
+ *  so the gate fails CLOSED (the water-line may only tighten). */
+function blockForUnconfirmedBelowHighWater(
+	relPath: string,
+	hw: number,
+	now: number,
+	scopeId: string,
+	uncoveredSample: number[],
+): HarnessDecision {
+	const where = uncoveredSample.length > 0 ? ` (uncovered now: line ${uncoveredSample.join(", line ")})` : "";
+	return {
+		decision: "block",
+		reason:
+			`[interlinked:coverage] BLOCKED: this edit drops ${relPath} coverage from its full-suite ` +
+			`high-water ${pctPrecise(hw)} to ${pctPrecise(now)} under the narrower affected-test scope ` +
+			`${scopeId}${where}. A changed or narrowed test set never lowers a full-suite water-line; ` +
+			`only a full-suite measurement at or above ${pctPrecise(hw)} may re-anchor it. ` +
+			`${FULL_REMEASURE_HINT}. Or extend the selected tests to cover the file, then retry.`,
+		rule_id: "per-edit-coverage",
+		severity: "medium",
+		category: "coverage",
+	};
+}
+
+/** True when `scopeId` measured the full suite. An absent scope id is a
+ *  scope-less caller, whose write the ledger records as full-suite. */
+function isFullRoute(scopeId: string | undefined): boolean {
+	return scopeId === undefined || scopeId === "full";
+}
+
+/**
+ * The cross-scope HIGH-WATER check (red-team 2026-10-21, "scope re-anchor by
+ * companion-test churn", round 2). The ledger keeps `hw`, the highest fraction
+ * ever accepted for the file under the full suite (a legacy bare number N is
+ * `hw: N`). No decision may store a value below `hw - epsilon` unless THIS
+ * evaluation measured the full suite: a full-route measurement below it is a
+ * real drop and blocks; a scoped one cannot tell, and blocks fail-closed. So
+ * neither churning companion tests (full → scoped), alternating routes, nor a
+ * legacy entry re-keys the water-line downward — the old exemption let a
+ * stored "full"/legacy entry re-anchor DOWN under any narrower scope.
+ */
+function highWaterVerdict(
+	hw: number | null,
+	relPath: string,
+	now: number,
+	scopeId: string | undefined,
+	uncoveredSample: number[],
+	tolerance: number,
+): HarnessDecision | null {
+	if (hw === null || now >= hw - tolerance) return null;
+	if (isFullRoute(scopeId)) return blockForDrop(relPath, hw, now, uncoveredSample, "full-high-water");
+	return blockForUnconfirmedBelowHighWater(relPath, hw, now, scopeId ?? "unknown", uncoveredSample);
+}
+
+/** Drop check with scope semantics, AFTER {@link highWaterVerdict} passed.
+ *  Same scope: a drop beyond epsilon blocks. Different scope: a HIGHER-or-equal
+ *  measurement re-anchors (signalled via `out.scopeChanged`); a lower one
+ *  BLOCKS whatever the stored scope — a water-line is never re-keyed downward
+ *  by a changed test set (a full/legacy entry's `f` never exceeds its `hw`, so
+ *  the high-water check already decided those). */
 function dropVerdict(
 	entry: { fraction: number; scope: string | null },
 	relPath: string,
@@ -248,22 +340,22 @@ function dropVerdict(
 	scopeId: string | undefined,
 	uncoveredSample: number[],
 	out: CoverageDecisionOut | undefined,
-	dropEpsilon?: number,
+	tolerance: number,
 ): HarnessDecision | null {
-	if (scopeId !== undefined && entry.scope !== scopeId) {
-		if (out) out.scopeChanged = { priorFraction: entry.fraction };
-		return null;
+	const dropped = now < entry.fraction - tolerance;
+	const crossScope = scopeId !== undefined && entry.scope !== scopeId;
+	if (dropped) {
+		const change = crossScope ? { from: entry.scope ?? "full", to: scopeId } : undefined;
+		return blockForDrop(relPath, entry.fraction, now, uncoveredSample, change);
 	}
-	if (now < entry.fraction - (dropEpsilon ?? COVERAGE_DROP_EPSILON)) {
-		return blockForDrop(relPath, entry.fraction, now, uncoveredSample);
-	}
+	if (crossScope && out) out.scopeChanged = { priorFraction: entry.fraction };
 	return null;
 }
 
-/** Per-file coverage regression check: the non-decrease drop vs the baseline
- *  (same-scope only — see dropVerdict), then the absolute `min_coverage`
- *  floor. Returns a block or null. Folding both into one helper keeps
- *  `decideFromCoverage` at low complexity. */
+/** Per-file coverage regression check: the cross-scope high-water, the
+ *  non-decrease drop vs the baseline (see dropVerdict), then the absolute
+ *  `min_coverage` floor. Returns a block or null. Folding them into one helper
+ *  keeps `decideFromCoverage` at low complexity. */
 function perFileRegressionBlock(
 	projectRoot: string,
 	relPath: string,
@@ -273,9 +365,12 @@ function perFileRegressionBlock(
 	out?: CoverageDecisionOut,
 	dropEpsilon?: number,
 ): HarnessDecision | null {
+	const tolerance = dropEpsilon ?? COVERAGE_DROP_EPSILON;
+	const hwBlock = highWaterVerdict(readFileCoverageHighWater(projectRoot, relPath), relPath, now, scopeId, uncoveredSample, tolerance);
+	if (hwBlock) return hwBlock;
 	const entry = readFileCoverageBaselineEntry(projectRoot, relPath);
 	if (entry !== null) {
-		const drop = dropVerdict(entry, relPath, now, scopeId, uncoveredSample, out, dropEpsilon);
+		const drop = dropVerdict(entry, relPath, now, scopeId, uncoveredSample, out, tolerance);
 		if (drop) return drop;
 	}
 	const floor = minCoverageFor(projectRoot);

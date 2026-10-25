@@ -563,6 +563,8 @@ vi.mock("./evaluator/pre-tool.js", () => ({
 let astComplexityAvailableOverride = true;
 vi.mock("./checks/cyclomatic-ast.js", () => ({
 	astComplexityAvailable: vi.fn(() => astComplexityAvailableOverride),
+	// Water-line modules on the import path parse with it; null = TypeScript unavailable.
+	parseTsSource: vi.fn(() => null),
 }));
 
 // ---------------------------------------------------------------------------

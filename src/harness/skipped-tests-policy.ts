@@ -45,7 +45,7 @@ export function emptySkippedTestsBaseline(): SkippedTestsBaseline {
  * values directly, and a type-confused value (a string, say) would let a
  * numeric comparison silently misbehave instead of enforcing the ratchet.
  */
-function parseSkippedTestsBaseline(value: unknown): SkippedTestsBaseline | null {
+export function parseSkippedTestsBaseline(value: unknown): SkippedTestsBaseline | null {
 	if (!isJsonObject(value)) return null;
 	if (value.version !== 1) return null;
 	if (typeof value.max_skipped !== "number") return null;

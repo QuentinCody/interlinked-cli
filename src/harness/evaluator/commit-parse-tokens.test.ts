@@ -9,7 +9,6 @@ import {
 	parseCdTarget,
 	shellSplit,
 	shortClusterTakesValue,
-	splitSegments,
 	stripLeadingPrefix,
 } from "./commit-parse-tokens.js";
 
@@ -41,53 +40,8 @@ describe("shellSplit", () => {
 	});
 });
 
-// ===========================================
-// splitSegments / consumeQuoteOrEscape — backslash escape branch
-// ===========================================
-
-describe("splitSegments", () => {
-	it("keeps a backslash-escaped semicolon inside one segment (escape branch)", () => {
-		// `\;` must not be read as a top-level separator.
-		const segs = splitSegments("echo a\\;b");
-		expect(segs).toEqual(["echo a\\;b"]);
-	});
-
-	it("splits on unescaped separators (no escape involved)", () => {
-		expect(splitSegments("git status; git commit -m x")).toEqual([
-			"git status",
-			" git commit -m x",
-		]);
-	});
-
-	it("splits on && and || compound separators", () => {
-		expect(splitSegments("cd x && git commit -m y")).toEqual(["cd x ", " git commit -m y"]);
-		expect(splitSegments("git add . || git commit -m y")).toEqual([
-			"git add . ",
-			" git commit -m y",
-		]);
-	});
-
-	it("treats a quoted separator as literal, not a boundary", () => {
-		expect(splitSegments('git commit -m "a; b"')).toEqual(['git commit -m "a; b"']);
-	});
-
-	it("skips an empty segment produced by a double separator", () => {
-		// pushSegment's `cur.length > 0` guard drops the empty segment between
-		// the two consecutive `;`s instead of emitting "".
-		expect(splitSegments("git status;;git commit -m x")).toEqual([
-			"git status",
-			"git commit -m x",
-		]);
-	});
-
-	it("splits single ampersand and pipe separators without dropping the next token", () => {
-		expect(splitSegments("left&right|final")).toEqual(["left", "right", "final"]);
-	});
-
-	it("keeps a trailing backslash literal when scanning a segment", () => {
-		expect(splitSegments("echo trailing\\")).toEqual(["echo trailing\\"]);
-	});
-});
+// splitSegments moved to the shell segmenter (commit-parse-shell.ts); its
+// pins live in commit-parse-shell.test.ts.
 
 // ===========================================
 // stripLeadingPrefix — sudo/env/VAR= handling (already-tested elsewhere via

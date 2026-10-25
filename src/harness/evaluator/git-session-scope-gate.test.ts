@@ -299,6 +299,45 @@ describe("parseGitVerb — mutation-sensitive command boundaries", () => {
 });
 
 // ============================================================
+// Head command from the canonical segmenter (commit-parse-shell.ts).
+// The old `split(/&&|\|\||;/)` cut inside quotes, did not split on a
+// newline or a pipe, and read a leading `# note` line as the command.
+// ============================================================
+
+describe("parseGitVerb — head command segmented like the shell — positive", () => {
+	it("P1: a newline ends the head command, so the next line's args do not leak in", () => {
+		expect(parseGitVerb("git add a.ts\nrm -rf b")).toEqual({
+			verb: "add",
+			args: ["a.ts"],
+			deferToForcePush: false,
+		});
+	});
+
+	it("P2: a quoted `;` stays inside the commit message", () => {
+		expect(parseGitVerb('git commit -m "fix; refactor" a.ts')?.args).toEqual(["-m", "fix; refactor", "a.ts"]);
+	});
+
+	it("P3: a leading comment line is skipped, as the shell skips it", () => {
+		expect(parseGitVerb("# stage the fix\ngit add a.ts")?.args).toEqual(["a.ts"]);
+	});
+
+	it("P4: a pipe and a trailing comment end the head command", () => {
+		expect(parseGitVerb("git add a.ts | cat")?.args).toEqual(["a.ts"]);
+		expect(parseGitVerb("git add a.ts # why")?.args).toEqual(["a.ts"]);
+	});
+});
+
+describe("parseGitVerb — head command segmented like the shell — negative", () => {
+	it("N1: a git verb on a LATER line is not the head command", () => {
+		expect(parseGitVerb("echo hi\ngit add a.ts")).toBeNull();
+	});
+
+	it("N2: an empty head word (`''; git add x`) yields no tokens and no verb", () => {
+		expect(parseGitVerb("''; git add x")).toBeNull();
+	});
+});
+
+// ============================================================
 // Mutation hardening — git add resolution
 // ============================================================
 

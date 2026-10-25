@@ -24,17 +24,18 @@ import {
 	isAllFlag,
 	isIncludeFlag,
 	literalDir,
-	parseCdTarget,
-	shellSplit,
 	shortClusterTakesValue,
-	splitSegments,
-	stripLeadingPrefix,
 } from "./commit-parse-tokens.js";
+import { cdTargetOf, isGitBinary, ScopedCwd, type ShellUnit, shellUnits } from "./commit-parse-shell.js";
 
 // Re-export the blessed shell-structure tokenizers so `harness/shell-structure.ts`
 // (and its downstream `taint-tracker.ts`) keep importing them from this module's
-// public surface — the split is an internal refactor, not an API move.
-export { shellSplit, splitSegments, stripLeadingPrefix } from "./commit-parse-tokens.js";
+// public surface — the split is an internal refactor, not an API move. The ONE
+// segmenter is the shell scan in commit-parse-shell.ts: `splitSegments` and
+// `shellUnits` share it, so every classifier sees newlines, comments, heredoc
+// bodies and line continuations the way the git parsers do (red-team 2026-10-21).
+export { splitSegments } from "./commit-parse-shell.js";
+export { shellSplit, stripLeadingPrefix } from "./commit-parse-tokens.js";
 
 /** The shape of a detected `git commit` invocation. */
 export interface CommitParse {
@@ -162,8 +163,7 @@ function hasPathspecFromFile(rest: string[]): boolean {
  * against the command's directory (repo root → broad via the rebase; a
  * subdirectory `git add .` stages only that subtree).
  */
-function addSegmentPaths(segment: string): { paths: string[]; broad: boolean; updateOnly: boolean } {
-	const tokens = stripLeadingPrefix(shellSplit(segment));
+function addSegmentPaths(tokens: string[]): { paths: string[]; broad: boolean; updateOnly: boolean } {
 	const { subIdx } = scanGitGlobalFlags(tokens);
 	// The caller already proved this is `git add` with the same parser.
 	const paths: string[] = [];
@@ -200,14 +200,11 @@ function addSegmentPaths(segment: string): { paths: string[]; broad: boolean; up
 	return { paths, broad: fromFile || (allish && paths.length === 0), updateOnly };
 }
 
-/** True when a segment is a `git add …` (its staging constructs the commit's content). */
-function isGitAddSegment(segment: string): boolean {
-	const tokens = stripLeadingPrefix(shellSplit(segment));
-	if (tokens.length < 2) return false;
-	const head = tokens[0];
-	if (head !== "git" && !nonNull(head).endsWith("/git")) return false;
+/** The git subcommand of an unwrapped argv (`git -C d -c k=v <verb>`), or null when argv is not git. */
+function gitVerb(tokens: string[]): string | null {
+	if (tokens.length < 2 || !isGitBinary(tokens[0])) return null;
 	const { subIdx } = scanGitGlobalFlags(tokens);
-	return subIdx >= 0 && tokens[subIdx] === "add";
+	return subIdx >= 0 ? nonNull(tokens[subIdx]) : null;
 }
 
 /**
@@ -216,6 +213,9 @@ function isGitAddSegment(segment: string): boolean {
  * directory: multiple `-C` flags compound exactly like `cd` (each relative `-C`
  * is interpreted against the preceding one), so they fold through `combineCwd`.
  */
+/** git global options whose value is the SEPARATE next token (`--git-dir <path>`). */
+const GIT_GLOBAL_VALUE_FLAGS: ReadonlySet<string> = new Set(["-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"]);
+
 function scanGitGlobalFlags(tokens: string[]): { subIdx: number; cDir: string | null } {
 	let i = 1;
 	let cDir: string | null = null;
@@ -228,8 +228,8 @@ function scanGitGlobalFlags(tokens: string[]): { subIdx: number; cDir: string | 
 			i += 2; // flag + its argument
 			continue;
 		}
-		if (t === "-c") {
-			i += 2; // config `key=val` — consume both
+		if (GIT_GLOBAL_VALUE_FLAGS.has(nonNull(t))) {
+			i += 2; // `-c key=val`, `--git-dir <path>` — consume both
 			continue;
 		}
 		if (nonNull(t).startsWith("-")) {
@@ -241,16 +241,11 @@ function scanGitGlobalFlags(tokens: string[]): { subIdx: number; cDir: string | 
 	return { subIdx: -1, cDir };
 }
 
-/** Parse ONE shell segment for a `git commit`, capturing its `-C` dir, or null. */
-function parseSegment(segment: string): SegmentCommit | null {
-	const tokens = stripLeadingPrefix(shellSplit(segment));
-	if (tokens.length < 2) return null;
-	// Head must be `git` (or a path ending in /git), not a comment or other binary.
-	const head = tokens[0];
-	if (head !== "git" && !nonNull(head).endsWith("/git")) return null;
-
+/** Parse ONE unwrapped command for a `git commit`, capturing its `-C` dir, or null. */
+function parseSegment(tokens: string[]): SegmentCommit | null {
+	if (gitVerb(tokens) !== "commit") return null;
+	// gitVerb already proved this index names commit using the same immutable token scan.
 	const { subIdx, cDir } = scanGitGlobalFlags(tokens);
-	if (subIdx < 0 || tokens[subIdx] !== "commit") return null;
 
 	const rest = tokens.slice(subIdx + 1);
 	// `-n` may ride in a cluster (`-anm "x"`); attached values are excluded the
@@ -278,7 +273,7 @@ function parseSegment(segment: string): SegmentCommit | null {
  *  through {@link processCommitSegment}: the `cd` chain so far and what any
  *  preceding `git add` segment(s) staged. Mutated in place by each call. */
 interface RunningCommitState {
-	runCwd: string | null; // accumulated `cd` chain, relative to shell cwd
+	cwd: ScopedCwd; // accumulated `cd` chain per scope, relative to shell cwd
 	sawGitAdd: boolean; // a `git add …` before the commit constructs its content
 	addBroad: boolean; // a bare `git add -A`/`-u` (or from-file) stages the whole worktree
 	addPaths: string[]; // narrow `git add <paths>` staged paths
@@ -292,15 +287,15 @@ interface RunningCommitState {
  * (a `cd` or `git add`) or matches nothing, meaning the caller's loop should
  * keep scanning subsequent segments.
  */
-function processCommitSegment(segment: string, state: RunningCommitState): CommitParse | null {
-	const cd = parseCdTarget(segment);
+function processCommitSegment(unit: ShellUnit, state: RunningCommitState): CommitParse | null {
+	const cd = cdTargetOf(unit.argv);
 	if (cd !== null) {
-		state.runCwd = combineCwd(state.runCwd, cd);
+		state.cwd.cd(unit.scope, cd);
 		return null;
 	}
-	if (isGitAddSegment(segment)) {
+	if (gitVerb(unit.argv) === "add") {
 		state.sawGitAdd = true;
-		const a = addSegmentPaths(segment);
+		const a = addSegmentPaths(unit.argv);
 		if (a.broad) state.addBroad = true;
 		else {
 			state.addPaths.push(...a.paths);
@@ -308,9 +303,9 @@ function processCommitSegment(segment: string, state: RunningCommitState): Commi
 		}
 		return null;
 	}
-	const seg = parseSegment(segment);
+	const seg = parseSegment(unit.argv);
 	if (!seg) return null;
-	const effective = combineCwd(state.runCwd, seg.cDir);
+	const effective = combineCwd(state.cwd.of(unit), seg.cDir);
 	const parse: CommitParse = { isCommit: seg.isCommit, noVerify: seg.noVerify };
 	if (seg.all) parse.all = true;
 	if (state.sawGitAdd || seg.pathspecs.length > 0 || seg.pathspecFromFile) {
@@ -341,17 +336,64 @@ function processCommitSegment(segment: string, state: RunningCommitState): Commi
 export function parseGitCommit(command: unknown): CommitParse | null {
 	if (!command || typeof command !== "string") return null;
 	const state: RunningCommitState = {
-		runCwd: null,
+		cwd: new ScopedCwd(),
 		sawGitAdd: false,
 		addBroad: false,
 		addPaths: [],
 		updateOnlyPaths: [],
 	};
-	for (const segment of splitSegments(command)) {
-		const result = processCommitSegment(segment, state);
+	for (const unit of shellUnits(command)) {
+		const result = processCommitSegment(unit, state);
 		if (result) return result;
 	}
 	return null;
+}
+
+/**
+ * Git plumbing verbs that write trees, commits or refs. A commit assembled from
+ * them (`git write-tree` → `git commit-tree` → `git update-ref`) never contains
+ * the token `commit`, so {@link parseGitCommit} cannot see it; the commit-time
+ * baseline gate treats any of these as a commit of the INDEX (red-team
+ * 2026-10-21, "plumbing-verb commit"). `update-index` / `hash-object` additionally
+ * stage WORKTREE bytes, so the gate reads the worktree for those.
+ */
+export const GIT_PLUMBING_COMMIT_VERBS: ReadonlySet<string> = new Set([
+	"write-tree", "commit-tree", "update-ref", "mktree", "read-tree", "update-index",
+	"hash-object", "fast-import", "replace",
+]);
+
+/** Plumbing verbs whose input is the WORKTREE (they stage bytes from disk). */
+export const GIT_PLUMBING_WORKTREE_VERBS: ReadonlySet<string> = new Set(["update-index", "hash-object"]);
+
+/** One `git <verb> …` invocation found anywhere in a compound command. */
+export interface GitInvocation {
+	verb: string;
+	/** Tokens after the verb (a trailing `)` / backtick of a substitution stripped). */
+	args: string[];
+	/** Effective directory (cd chain + `-C`), relative to the shell cwd, or null. */
+	cwd: string | null;
+}
+
+/**
+ * Every git invocation `command` runs, in execution order — including those in
+ * command substitutions (`T=$(git write-tree)`), subshells, `sh -c` programs,
+ * and lines after a comment or a heredoc (commit-parse-shell.ts models the
+ * shell). Comments, quoted strings and heredoc bodies are data, never a head.
+ * Used by the commit-time baseline gate to see plumbing commits and `git rm`
+ * of a tracked water-line in the same command as the commit.
+ */
+export function listGitInvocations(command: unknown): GitInvocation[] {
+	if (!command || typeof command !== "string") return [];
+	const out: GitInvocation[] = [];
+	const cwd = new ScopedCwd();
+	for (const unit of shellUnits(command)) {
+		const cd = cdTargetOf(unit.argv);
+		if (cd !== null) cwd.cd(unit.scope, cd);
+		if (gitVerb(unit.argv) === null) continue;
+		const { subIdx, cDir } = scanGitGlobalFlags(unit.argv);
+		out.push({ verb: nonNull(unit.argv[subIdx]), args: unit.argv.slice(subIdx + 1), cwd: combineCwd(cwd.of(unit), cDir) });
+	}
+	return out;
 }
 
 /**
@@ -366,13 +408,5 @@ export function parseGitCommit(command: unknown): CommitParse | null {
  */
 export function isGitPushCommand(command: unknown): boolean {
 	if (!command || typeof command !== "string") return false;
-	for (const segment of splitSegments(command)) {
-		const tokens = stripLeadingPrefix(shellSplit(segment));
-		if (tokens.length < 2) continue;
-		const head = tokens[0];
-		if (head !== "git" && !nonNull(head).endsWith("/git")) continue;
-		const { subIdx } = scanGitGlobalFlags(tokens);
-		if (subIdx >= 0 && tokens[subIdx] === "push") return true;
-	}
-	return false;
+	return shellUnits(command).some((unit) => gitVerb(unit.argv) === "push");
 }

@@ -1,6 +1,9 @@
 import { makeGuardRules as completeGuardRulesConfigFixture } from "./evaluator/__tests__/fixtures.js";
 import { nonNull } from "../lib/non-null.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // Same mocking strategy as evaluator-unified.test.ts: mock out the delegated
 // evaluators and the baseline-effect-guard helpers so evaluateUnified's own
@@ -14,12 +17,15 @@ vi.mock("./evaluator.js", () => ({
 
 const baselineCallKeyMock = vi.fn((opts: unknown) => JSON.stringify(opts));
 const consumeBaselineSnapshotMock = vi.fn((_key: string, _root: string): string | null => null);
+const rememberBaselineSnapshotMock = vi.fn((_key: string, _root: string): void => undefined);
 vi.mock("./evaluator/baseline-effect-guard.js", () => ({
 	baselineCallKey: (opts: unknown) => baselineCallKeyMock(opts),
 	consumeBaselineSnapshot: (key: string, root: string) => consumeBaselineSnapshotMock(key, root),
+	rememberBaselineSnapshot: (key: string, root: string) => rememberBaselineSnapshotMock(key, root),
 }));
 
 import { CohortManager } from "./cohort.js";
+import { BASELINE_RESTORE_PREFIX } from "./evaluator/config-effect-guard.js";
 import {
 	budgetFor,
 	DEFAULT_BUDGETS,
@@ -74,6 +80,7 @@ afterEach(() => {
 	baselineCallKeyMock.mockImplementation((opts: unknown) => JSON.stringify(opts));
 	consumeBaselineSnapshotMock.mockReset();
 	consumeBaselineSnapshotMock.mockImplementation(() => null);
+	rememberBaselineSnapshotMock.mockReset();
 	vi.useRealTimers();
 });
 
@@ -281,8 +288,8 @@ describe("budgetFor — DEFAULT_BUDGETS literal values", () => {
 });
 
 // ---------------------------------------------------------------------------
-// withBaselineEffectWarning (reached only via post-tool routing): dry_run
-// gate, the callKey object shape, the cwd ?? fallback, and the !warning gate.
+// withBaselineEffectWarning (reached only via post-tool routing): callKey
+// shape, normalized cwd, absent warning, and restoration delivery.
 // ---------------------------------------------------------------------------
 function makePostToolEvent(over: Partial<UnifiedHookEvent> = {}): UnifiedHookEvent {
 	return makeEvent({
@@ -301,9 +308,17 @@ function makePostToolEvent(over: Partial<UnifiedHookEvent> = {}): UnifiedHookEve
 }
 
 describe("evaluateUnified — post-tool baseline-effect gating", () => {
-	// test-contract: bug — mutant 847d34a0 flips `event.dry_run` to a
-	// hardcoded `true`, which would short-circuit and merge no warning even
-	// though `consumeBaselineSnapshot` (mocked here) reports a real loosening.
+	it.each([undefined, "earlier reason"])("delivers restoration as a block while preserving an existing reason: %s", async reason => {
+		const message = `${BASELINE_RESTORE_PREFIX} restored the coverage floor`;
+		consumeBaselineSnapshotMock.mockReturnValue(message);
+		postMock.mockReturnValue({ decision: "allow", warnings: ["earlier warning"], reason });
+		const result = await evaluateUnified(makePostToolEvent(), makeCtx());
+		expect(result.decision).toBe("block");
+		expect(result.reason).toBe(reason ? `${reason}\n\n${message}` : message);
+		expect(result.warnings).toEqual(["earlier warning", message]);
+	});
+	// test-contract: invariant — the unified post-tool path must deliver an
+	// observed loosening warning rather than short-circuit before consuming it.
 	it("surfaces a baseline-loosening warning on a real (non-dry-run) post-tool call", async () => {
 		consumeBaselineSnapshotMock.mockReturnValue("BASELINE LOOSENED: caps.json");
 		postMock.mockReturnValue({ decision: "allow" });
@@ -358,6 +373,66 @@ describe("evaluateUnified — post-tool baseline-effect gating", () => {
 		);
 		expect(decision.warnings).toContain("BASELINE LOOSENED: caps.json");
 		expect(decision.warnings).toContain("existing");
+	});
+});
+
+describe("evaluateUnified — pre-tool baseline-effect snapshot", () => {
+	it("pairs both phases at the configured project when the session works in a nested folder", async () => {
+		const root = mkdtempSync(join(tmpdir(), "unified-baseline-root-"));
+		try {
+			mkdirSync(join(root, ".interlinked"));
+			writeFileSync(join(root, ".interlinked", "config.json"), "{}");
+			const cwd = join(root, "nested");
+			mkdirSync(join(cwd, ".interlinked"), { recursive: true });
+			writeFileSync(join(cwd, ".interlinked", "payload-keys.json"), "{}");
+			preMock.mockReturnValue({ decision: "allow" });
+			postMock.mockReturnValue({ decision: "allow" });
+			await evaluateUnified(makeEvent({ context: { cwd } }), makeCtx());
+			await evaluateUnified(makePostToolEvent({ context: { cwd } }), makeCtx());
+			expect(rememberBaselineSnapshotMock.mock.calls[0]?.[1]).toBe(root);
+			expect(consumeBaselineSnapshotMock.mock.calls[0]?.[1]).toBe(root);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	// test-contract: bug — red team 2026-10-21 round 2: the unified path
+	// consumed snapshots but never took one, so the effect arm was inert here.
+	it("takes the pre-call snapshot under the same key the post-tool half consumes", async () => {
+		preMock.mockReturnValue({ decision: "allow" });
+		await evaluateUnified(makeEvent({ tool_use_id: "tu-7", session_id: "sess-3" }), makeCtx());
+		expect(rememberBaselineSnapshotMock).toHaveBeenCalledOnce();
+		expect(rememberBaselineSnapshotMock).toHaveBeenCalledWith(
+			JSON.stringify({ toolUseId: "tu-7", sessionId: "sess-3", timestamp: "2026-04-23T00:00:00.000Z" }),
+			"/repo",
+		);
+		expect(consumeBaselineSnapshotMock).not.toHaveBeenCalled();
+	});
+
+	// test-contract: invariant — the snapshot must exist before any gate can
+	// short-circuit (pre-tool-pipeline.ts: "remember the water-lines BEFORE
+	// anything can return"), so a blocked call still pairs with its post half.
+	it("snapshots before the inner evaluator runs, even when it blocks", async () => {
+		const order: string[] = [];
+		rememberBaselineSnapshotMock.mockImplementation(() => {
+			order.push("remember");
+		});
+		preMock.mockImplementation(() => {
+			order.push("evaluate");
+			return { decision: "block", reason: "guard" };
+		});
+		const decision = await evaluateUnified(makeEvent(), makeCtx());
+		expect(order).toEqual(["remember", "evaluate"]);
+		expect(decision).toEqual({ decision: "block", reason: "guard" });
+	});
+
+	// test-contract: boundary — only the pre-tool phase takes the "before"
+	// half; a post-tool or lifecycle event must not overwrite a pending snapshot.
+	it("a post-tool or lifecycle event takes no snapshot", async () => {
+		postMock.mockReturnValue({ decision: "allow" });
+		await evaluateUnified(makePostToolEvent(), makeCtx());
+		await evaluateUnified(makeEvent({ phase: "session-start", action: { kind: "session_lifecycle", event: "start" } }), makeCtx());
+		expect(rememberBaselineSnapshotMock).toHaveBeenCalledTimes(0);
 	});
 });
 

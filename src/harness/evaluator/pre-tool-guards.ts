@@ -19,7 +19,7 @@ import type {
 	HarnessEvent,
 	SessionTrajectory,
 } from "../types.js";
-import { baselineBashWriteRefusal } from "./baseline-bash-guard.js";
+import { baselineBashWriteRefusal, configBashWriteRefusal } from "./baseline-bash-guard.js";
 import { evaluateBaselineIntegrityForEvent } from "./baseline-integrity-gate.js";
 import { evaluateConfigLooseningForEvent } from "./config-loosening-gate.js";
 import { analyzeApplyPatchDoom, analyzeStrReplaceDoom, formatDoomReason } from "./edit-doom.js";
@@ -33,6 +33,7 @@ import { computeFullNewContent, containsSecrets } from "./pre-tool-helpers.js";
 import { evaluateCharacterizeForEvent } from "./characterize-before-touch.js";
 import { evaluateTddNewFileGateForEvent } from "./tdd-new-file-gate.js";
 import { isBash, isFileOperation, isFileWrite } from "./tool-classifiers.js";
+import { isContentWriteCandidate } from "./write-targets.js";
 
 /** The harness event's tool-input bag, normalized to a non-undefined object. */
 type ToolInput = NonNullable<HarnessEvent["tool_input"]>;
@@ -271,17 +272,46 @@ function mergeGateWarnings(d: HarnessDecision, warnings: string[]): HarnessDecis
  * through so the vitest arm's fail-open abstentions (typescript unavailable,
  * spread member, parse error) reach the agent instead of being computed and
  * dropped (found 2026-09-04 by the P3 verifier).
+ *
+ * Bash arm (red team 2026-10-21, "Shell-write bypass — the gate is wired for
+ * file-write tools only"): `sed -i '' 's/"strict": true/"strict": false/'
+ * tsconfig.json`, a `node -e` writeFileSync and a plain redirect were all
+ * allowed because only the edit tools reached this gate. A shell write to a
+ * BLOCKING config water-line (tsconfig*.json, vitest/vite config) is refused
+ * outright — its bytes cannot be compared with HEAD before it runs.
  */
 export function evaluateConfigLooseningGate(
 	event: HarnessEvent,
 	toolName: string,
 	warnings: string[],
 ): HarnessDecision | null {
-	if (isFileWrite(toolName)) {
-		const d = evaluateConfigLooseningForEvent(event, warnings);
-		if (d) return mergeGateWarnings(d, warnings);
+	// Content arm (red team 2026-10-21 round 3): a direct writer in ANY runner
+	// spelling (the write-tool registry, not `isFileWrite`), or any tool that
+	// carries a V4A patch — a shell `apply_patch <<'EOF'` heredoc included.
+	if (isContentWriteCandidate(toolName, event.tool_input)) {
+		const contentDecision = evaluateConfigLooseningForEvent(event, warnings);
+		if (contentDecision) return mergeGateWarnings(contentDecision, warnings);
+	}
+	if (isBash(toolName)) {
+		const reason = configBashWriteRefusal(bashCommandOf(event), event.cwd ?? process.cwd());
+		if (reason) {
+			return {
+				decision: "block",
+				reason,
+				rule_id: "config_loosening_gate",
+				severity: "high",
+				category: "config",
+				warnings,
+			};
+		}
 	}
 	return null;
+}
+
+/** The command string of a shell tool call, or "" when absent or not a string. */
+function bashCommandOf(event: HarnessEvent): string {
+	const raw = event.tool_input?.command;
+	return typeof raw === "string" ? raw : "";
 }
 
 /**
@@ -296,12 +326,13 @@ export function evaluateConfigLooseningGate(
  * see only the edit tools, so `echo … > .interlinked/metric-caps.json` — or
  * sed/tee/cp/an interpreter one-liner — loosened every ratchet at once,
  * unobserved. A shell command's resulting bytes cannot be inspected before it
- * runs, so that path is refused outright rather than adjudicated.
+ * runs, so that path is refused outright rather than adjudicated — for EVERY
+ * write verb since the 2026-10-21 red team retracted the reversible-write
+ * carve-out (baseline-bash-guard.ts header). Routed through `isBash` so the
+ * Shell / run_command aliases reach the same arm.
  */
 function bashBaselineRefusal(event: HarnessEvent, warnings: string[]): HarnessDecision | null {
-	const raw = event.tool_input?.command;
-	const cmd = typeof raw === "string" ? raw : "";
-	const reason = baselineBashWriteRefusal(cmd, event.cwd ?? process.cwd());
+	const reason = baselineBashWriteRefusal(bashCommandOf(event), event.cwd ?? process.cwd());
 	if (!reason) return null;
 	return { decision: "block", reason, rule_id: "baseline_integrity_gate", warnings };
 }
@@ -311,11 +342,14 @@ export function evaluateBaselineIntegrityGate(
 	toolName: string,
 	warnings: string[],
 ): HarnessDecision | null {
-	if (isFileWrite(toolName)) {
-		const d = evaluateBaselineIntegrityForEvent(event);
-		if (d) return { ...d, warnings };
+	// Content arm (red team 2026-10-21 round 3): the write-tool registry
+	// decides which names write, and a V4A patch in any tool — `apply_patch
+	// <<'EOF'` through a shell included — is judged by its reconstruction.
+	if (isContentWriteCandidate(toolName, event.tool_input)) {
+		const contentDecision = evaluateBaselineIntegrityForEvent(event);
+		if (contentDecision) return { ...contentDecision, warnings };
 	}
-	if (toolName === "Bash") return bashBaselineRefusal(event, warnings);
+	if (isBash(toolName)) return bashBaselineRefusal(event, warnings);
 	return null;
 }
 

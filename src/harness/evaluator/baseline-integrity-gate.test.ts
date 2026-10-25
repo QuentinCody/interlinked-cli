@@ -24,6 +24,17 @@ function detect(file: string, before: unknown, after: unknown, exists = alwaysEx
 }
 
 describe("detectBaselineGaming — not a baseline file / no HEAD", () => {
+	it("allows removing the exemption list while retaining the tested-file floor", () => {
+		expect(detect(UNTESTED, { min_coverage_pct: 80, files: ["src/a.ts"] }, { min_coverage_pct: 80 })).toEqual([]);
+	});
+
+	it.each([
+		[{ version: 1, metrics: { cyclomatic: { cap: 16, entries: [] } } }, "cyclomatic:water-line-unparseable"],
+		[{ version: 1, metrics: {} }, "water-line-unparseable"],
+	])("identifies which existing complexity section an unparseable rewrite removes", (before, rule) => {
+		expect(detectBaselineGaming("/repo/.interlinked/function-complexity-baseline.json", JSON.stringify(before), "{broken"))
+			.toEqual([expect.objectContaining({ rule })]);
+	});
 	it("does not grandfather exemptions from malformed prior exemption lists", () => {
 		expect(detect(UNTESTED, { files: "src/a.ts" }, { files: ["src/a.ts"] }))
 			.toEqual([expect.objectContaining({ rule: "exempt-added:src/a.ts" })]);
@@ -38,9 +49,12 @@ describe("detectBaselineGaming — not a baseline file / no HEAD", () => {
 	it("returns [] for a brand-new baseline (no before text)", () => {
 		expect(detectBaselineGaming(COV, "", '{"files":{}}')).toEqual([]);
 	});
-	it("fails open on unparseable JSON", () => {
+	// Contract changed 2026-10-21 (red team round 3, V01–V06): only an
+	// unparseable PRE-image is "no water-line"; an unparseable post-image of an
+	// existing one is a loosening (the runtime would read no water-line at all).
+	it("treats an unparseable pre-image as no water-line, and an unparseable post-image as a loosening", () => {
 		expect(detectBaselineGaming(COV, "{not json", '{"files":{}}')).toEqual([]);
-		expect(detectBaselineGaming(COV, '{"files":{}}', "{not json")).toEqual([]);
+		expect(detectBaselineGaming(COV, '{"files":{}}', "{not json").map((f) => f.rule)).toEqual(["water-line-unparseable"]);
 	});
 });
 
@@ -66,8 +80,10 @@ describe("detectBaselineGaming — fails open per-side, not just when BOTH sides
 	const validBefore = JSON.stringify({ files: { "src/a.ts": { lines_pct: 90 } } });
 	const validAfterWithEntry = JSON.stringify({ min_coverage_pct: 60, files: ["src/a.ts"] });
 
-	it("fails open when only the PROPOSED (after) side is unparseable", () => {
-		expect(detectBaselineGaming(COV, validBefore, "{not json", alwaysExists)).toEqual([]);
+	it("BLOCKS when only the PROPOSED (after) side is unparseable (the runtime would read no water-line)", () => {
+		const found = detectBaselineGaming(COV, validBefore, "{not json", alwaysExists);
+		expect(found.map((f) => f.rule)).toEqual(["water-line-unparseable"]);
+		expect(found[0]?.message).toMatch(/not strict JSON \(.+\)/);
 	});
 
 	it("fails open when only the CURRENT (before) side is unparseable", () => {
@@ -125,7 +141,7 @@ describe("coverage-edit-baseline.json — flat map, values may only rise", () =>
 		expect(f).toHaveLength(1);
 		expect(f[0]?.rule).toBe("coverage-edit:src/a.ts");
 		expect(f[0]?.message).toBe(
-			"coverage-edit-baseline for src/a.ts lowered 0.9→0.4 within the same test scope. Per-edit coverage may only rise (a scope change re-anchors automatically).",
+			"coverage-edit-baseline for src/a.ts lowered 0.9→0.4. Per-edit coverage may only rise; the runtime re-anchors a changed test scope itself, a hand edit never does.",
 		);
 	});
 	it("ALLOWS a raised value and a new entry", () => {
@@ -147,24 +163,48 @@ describe("coverage-edit-baseline.json — flat map, values may only rise", () =>
 		expect(detect(COV_EDIT, { "src/a.ts": "garbage" }, {})).toEqual([]);
 		expect(detect(COV_EDIT, { "src/a.ts": { f: "bad", scope: "x" } }, {})).toEqual([]);
 	});
-	it("skips a proposed entry it cannot decode rather than crashing on `.scope` access", () => {
-		expect(detect(COV_EDIT, { "src/a.ts": 0.9 }, { "src/a.ts": "garbage" })).toEqual([]);
+	// Was a negative ("skips a proposed entry it cannot decode"). Converted by the
+	// 2026-10-21 red-team review: the runtime reads an undecodable entry as "no
+	// baseline" and reseeds, so replacing the value is the same exemption as
+	// deleting the key. It still must not crash on `.scope` access.
+	it("BLOCKS replacing an entry with a value the runtime cannot decode (no crash on `.scope`)", () => {
+		const f = detect(COV_EDIT, { "src/a.ts": 0.9 }, { "src/a.ts": "garbage" });
+		expect(f).toHaveLength(1);
+		expect(f[0]?.rule).toBe("coverage-edit:src/a.ts");
+		expect(f[0]?.message).toContain("cannot decode");
 	});
 
-	// Scoped-object shape ({f, scope}) — the per-edit gate stores which test set
-	// measured a fraction so it re-anchors across scopes instead of false-blocking.
+	// Scoped-object shape ({f, scope}) — the per-edit RUNTIME stores which test
+	// set measured a fraction and re-anchors across scopes itself via an internal
+	// write. A HAND edit has no business moving a scope at all.
 	it("BLOCKS a same-scope fraction lowering in the object shape", () => {
 		const before = { "src/a.ts": { f: 0.9, scope: "scoped:aaa" } };
 		const after = { "src/a.ts": { f: 0.4, scope: "scoped:aaa" } };
-		expect(detect(COV_EDIT, before, after)).toHaveLength(1);
+		expect(detect(COV_EDIT, before, after).map((f) => f.rule)).toContain("coverage-edit:src/a.ts");
 	});
-	it("ALLOWS a lower fraction under a DIFFERENT scope (legitimate re-anchor)", () => {
+	// Was "ALLOWS a lower fraction under a DIFFERENT scope (legitimate re-anchor)".
+	// Converted by the 2026-10-21 red-team review (scope-string re-anchor): a
+	// legitimate re-anchor is an internal runtime write that never reaches this
+	// gate, so a hand edit that moves the scope AND lowers f is gaming twice.
+	it("BLOCKS a lower fraction under a DIFFERENT scope (hand re-key is not a re-anchor)", () => {
 		const before = { "src/a.ts": { f: 1, scope: "scoped:broad" } };
 		const after = { "src/a.ts": { f: 0.66, scope: "scoped:narrow" } };
-		expect(detect(COV_EDIT, before, after)).toEqual([]);
+		const rules = detect(COV_EDIT, before, after).map((f) => f.rule);
+		expect(rules).toContain("coverage-edit:src/a.ts");
+		expect(rules).toContain("coverage-edit-scope:src/a.ts");
 	});
-	it("ALLOWS re-anchoring a legacy bare-number entry into the scoped shape", () => {
-		expect(detect(COV_EDIT, { "src/a.ts": 1 }, { "src/a.ts": { f: 0.66, scope: "scoped:x" } })).toEqual([]);
+	// Was "ALLOWS re-anchoring a legacy bare-number entry into the scoped shape".
+	// Converted by the 2026-10-21 red-team review: every entry in a legacy file is
+	// loosenable by wrapping it in {f, scope} — the live daemon allowed exactly this.
+	it("BLOCKS lowering a legacy bare-number entry by wrapping it in the scoped shape", () => {
+		const rules = detect(COV_EDIT, { "src/a.ts": 1 }, { "src/a.ts": { f: 0.66, scope: "scoped:x" } }).map((f) => f.rule);
+		expect(rules).toContain("coverage-edit:src/a.ts");
+		expect(rules).toContain("coverage-edit-scope:src/a.ts");
+	});
+	it("ALLOWS a hand raise that keeps the scope (the only hand move left)", () => {
+		const before = { "src/a.ts": { f: 0.9, scope: "scoped:0123456789ab" } };
+		const after = { "src/a.ts": { f: 0.95, scope: "scoped:0123456789ab" } };
+		expect(detect(COV_EDIT, before, after)).toEqual([]);
 	});
 	it("BLOCKS a same-scope lowering across the legacy/object boundary (null scope both sides)", () => {
 		// A bare number decodes to scope null; an object with no scope also null →
@@ -462,8 +502,10 @@ describe("metric-caps.json — caps may only tighten", () => {
 	it("ignores non-numeric min_coverage values rather than string-comparing them", () => {
 		expect(detect(CAPS, { ...base, min_coverage: "80" }, { ...base, min_coverage: "10" })).toEqual([]);
 	});
-	it("requires BOTH min_coverage values to be numeric before comparing", () => {
-		expect(detect(CAPS, { ...base, min_coverage: 60 }, { ...base, min_coverage: "10" })).toEqual([]);
+	it("judges a non-numeric min_coverage by the runtime fallback (red team 2026-10-21 round 4: 60 → \"10\" leaves a floor of 0)", () => {
+		const found = detect(CAPS, { ...base, min_coverage: 60 }, { ...base, min_coverage: "10" });
+		expect(found.map((f) => f.rule)).toEqual(["min_coverage"]);
+		expect(found[0]?.after).toBe(0);
 	});
 	it("BLOCKS raising max_predicate_drift — the drift count may only fall", () => {
 		const b = { ...base, max_predicate_drift: 7 };
@@ -520,6 +562,14 @@ function mkEvent(toolInput: Record<string, unknown>, cwd?: string): HarnessEvent
 }
 
 describe("evaluateBaselineIntegrityForEvent", () => {
+	it("fails closed on an unapplicable baseline patch even without a tool name", () => {
+		const { tool_name: _name, ...event } = mkEvent({
+			_raw_patch: `*** Begin Patch\n*** Update File: ${CAPS}\n@@\n-not the current content\n+{}\n*** End Patch`,
+		});
+		const decision = evaluateBaselineIntegrityForEvent(event, { getDisk: () => '{"max_cyclomatic":20}' });
+		expect(decision).toMatchObject({ decision: "block" });
+		expect(decision?.reason).toContain("this tool");
+	});
 	it("ignores events without file input and permits an absent ordinary baseline", () => {
 		const { tool_input: _input, ...event } = mkEvent({});
 		expect(evaluateBaselineIntegrityForEvent(event)).toBeNull();
@@ -582,13 +632,13 @@ describe("evaluateBaselineIntegrityForEvent", () => {
 	it("fails open when the baseline does not exist yet", () => {
 		expect(evaluateBaselineIntegrityForEvent(mkEvent({ file_path: COV, content: lower }), { getDisk: () => null })).toBeNull();
 	});
-	it("fails open when an Edit cannot be reconstructed", () => {
-		expect(
-			evaluateBaselineIntegrityForEvent(
-				mkEvent({ file_path: COV, old_string: "absent", new_string: "x" }),
-				{ getDisk: () => head },
-			),
-		).toBeNull();
+	it("FAILS CLOSED when an Edit cannot be reconstructed (red team 2026-10-21)", () => {
+		const d = evaluateBaselineIntegrityForEvent(
+			mkEvent({ file_path: COV, old_string: "absent", new_string: "x" }),
+			{ getDisk: () => head },
+		);
+		expect(d).toMatchObject({ decision: "block", rule_id: "baseline_integrity_gate" });
+		expect(d?.reason).toContain("Write of the full file content");
 	});
 
 	it("does not touch disk for a non-baseline file (early-return guard fires before reading)", () => {
@@ -667,7 +717,10 @@ describe("evaluateBaselineIntegrityForEvent", () => {
 			mkEvent({ file_path: COV, old_string: 123, new_string: "10" }),
 			{ getDisk: () => customHead },
 		);
-		expect(d).toBeNull();
+		// Not coerced into a "lowered 123→10" finding; refused as undecidable instead (fail closed).
+		expect(d?.decision).toBe("block");
+		expect(d?.reason).toContain("cannot determine");
+		expect(d?.reason).not.toContain("lowered");
 	});
 
 	it("requires new_string to actually be a string type (rejects a numeric new_string rather than coercing it)", () => {
@@ -675,7 +728,9 @@ describe("evaluateBaselineIntegrityForEvent", () => {
 			mkEvent({ file_path: COV, old_string: "90", new_string: 10 }),
 			{ getDisk: () => head },
 		);
-		expect(d).toBeNull();
+		expect(d?.decision).toBe("block");
+		expect(d?.reason).toContain("cannot determine");
+		expect(d?.reason).not.toContain("lowered");
 	});
 
 	it("shapes the block decision precisely: severity, category, reason text, and multi-finding join separator", () => {

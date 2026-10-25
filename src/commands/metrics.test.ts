@@ -54,6 +54,8 @@ vi.mock("./verify/file-discovery.js", () => ({ discoverFiles: m.discoverFiles })
 vi.mock("../harness/checks/cyclomatic-ast.js", () => ({
 	computeCyclomaticAst: m.computeCyclomaticAst,
 	astComplexityAvailable: m.astComplexityAvailable,
+	// Water-line modules on the import path parse with it; null = TypeScript unavailable.
+	parseTsSource: () => null,
 }));
 vi.mock("../harness/checks/cyclomatic.js", () => ({
 	computeCyclomaticComplexity: m.computeCyclomaticComplexity,

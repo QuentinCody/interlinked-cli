@@ -42,6 +42,8 @@ import { resolve } from "node:path";
 import { findProjectRoot } from "../../lib/hook-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import type { SessionTrajectory } from "../types.js";
+import { leadingCommand } from "./commit-parse-shell.js";
+import { shellSplit } from "./commit-parse-tokens.js";
 import {
 	GIT_TIMEOUT_MS,
 	isCommitAllFlag,
@@ -224,11 +226,13 @@ export function parseGitVerb(rawCommand: string): ParsedGitCommand | null {
 	if (!/\bgit\b/.test(cmd)) return null;
 
 	// We only parse the FIRST simple command in the line. Compound chains
-	// (`a && b`, `a; b`, `a | b`) are handled by the existing compound
-	// decomposer; if a chain starts with `git push`, only the push is
-	// examined here.
-	const firstSegment = nonNull(cmd.split(/&&|\|\||;/, 1)[0]).trim();
-	const tokens = shellSplit(firstSegment);
+	// (`a && b`, `a; b`, `a | b`, a newline) are handled by the existing
+	// compound decomposer; if a chain starts with `git push`, only the push
+	// is examined here. The head command comes from the canonical segmenter
+	// (commit-parse-shell.ts), so a quoted `;` stays inside its argument, a
+	// newline separates, and a leading `# note` line is a comment — the old
+	// `split(/&&|\|\||;/)` disagreed on all three.
+	const tokens = shellSplit(leadingCommand(cmd));
 	if (tokens.length === 0) return null;
 
 	// Optional leading `env VAR=val`-style wrappers — rare in agent
@@ -284,49 +288,6 @@ function skipGitGlobalOptions(tokens: string[], startIndex: number): number {
 		break;
 	}
 	return i;
-}
-
-/** Minimal shell-aware splitter for the parser. Handles single + double
- *  quotes and backslash escapes; passes through everything else. NOT a
- *  general bash parser — it doesn't expand vars, glob, or subshells.
- *  The harness already runs a more thorough decomposer for compound
- *  commands; this splitter only needs to keep paths with spaces (in
- *  quotes) intact. */
-function shellSplit(input: string): string[] {
-	const out: string[] = [];
-	let cur = "";
-	let inSingle = false;
-	let inDouble = false;
-	for (let i = 0; i < input.length; i++) {
-		const c = nonNull(input[i]);
-		if (c === "\\" && i + 1 < input.length && !inSingle) {
-			cur += nonNull(input[i + 1]);
-			i++;
-			continue;
-		}
-		if (c === "'" && !inDouble) {
-			inSingle = !inSingle;
-			continue;
-		}
-		if (c === '"' && !inSingle) {
-			inDouble = !inDouble;
-			continue;
-		}
-		if (/\s/.test(c) && !inSingle && !inDouble) {
-			flushToken(out, cur);
-			cur = "";
-			continue;
-		}
-		cur += c;
-	}
-	flushToken(out, cur);
-	return out;
-}
-
-/** Appends the token `shellSplit` has accumulated so far, skipping the empty
- *  token that runs of whitespace would otherwise produce. */
-function flushToken(out: string[], token: string): void {
-	if (token.length > 0) out.push(token);
 }
 
 // ============================================================

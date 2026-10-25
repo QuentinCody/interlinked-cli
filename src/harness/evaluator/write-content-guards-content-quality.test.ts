@@ -853,6 +853,18 @@ describe("content-quality A2 — eval() / new Function()", () => {
 	it("N2: `new FunctionFactory()` is not `new Function()`", () => {
 		expect(injects("const f = new FunctionFactory();\n")).toEqual([]);
 	});
+
+	it("N3: eval( in a doc comment is not eval() (2026-10-21 FP on claim-evidence.ts)", () => {
+		expect(injects("/** Operating points from the eval (see header). */\nconst x = 1;\n")).toEqual([]);
+	});
+
+	it("N4: eval( and new Function( inside string literals are not calls", () => {
+		expect(injects('const a = "eval(x)";\nconst b = \'new Function("y")\';\n')).toEqual([]);
+	});
+
+	it("P4: eval() inside a template interpolation is still code", () => {
+		expect(injects("const r = `${eval(src)}`;\n").length).toBe(1);
+	});
 });
 
 describe("content-quality A3 — Math.random() deriving a security-sensitive value", () => {

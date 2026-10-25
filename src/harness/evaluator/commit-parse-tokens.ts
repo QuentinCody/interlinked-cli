@@ -30,15 +30,15 @@ interface ShellSplitScan {
 
 /**
  * Handle a backslash-escape or a quote toggle at character `c` for
- * {@link shellSplit}. Unlike {@link consumeQuoteOrEscape} (which keeps the
- * quote characters themselves, for segment splitting) this drops them — a
- * shell token never contains its own delimiting quotes. Returns the number of
+ * {@link shellSplit}. It drops the quote characters — a shell token never
+ * contains its own delimiting quotes. Returns the number of
  * EXTRA characters consumed (1 for an escape that swallowed the next char, 0
  * for a quote toggle), or `null` when `c` is neither. Mutates `scan` in place.
  */
 function consumeShellQuoteOrEscape(scan: ShellSplitScan, c: string, next: string | undefined): number | null {
 	if (c === "\\" && next !== undefined && !scan.inSingle) {
-		scan.cur += next;
+		// Backslash-newline is a line continuation: both characters vanish.
+		if (next !== "\n") scan.cur += next;
 		return 1;
 	}
 	if (c === "'" && !scan.inDouble) {
@@ -77,73 +77,6 @@ export function shellSplit(input: string): string[] {
 function pushSegment(segments: string[], cur: string): string {
 	if (cur.length > 0) segments.push(cur);
 	return "";
-}
-
-/** Mutable scan state shared by the segment splitter's per-character helpers. */
-interface SegmentScan {
-	cur: string;
-	inSingle: boolean;
-	inDouble: boolean;
-}
-
-/**
- * Handle a backslash-escape or a quote toggle at character `c`. Returns the
- * number of EXTRA characters consumed (1 for an escape that swallowed the next
- * char, 0 for a quote toggle), or `null` when `c` is neither — so the caller
- * falls through to separator / literal handling. Mutates `scan` in place.
- */
-function consumeQuoteOrEscape(scan: SegmentScan, c: string, next: string | undefined): number | null {
-	if (c === "\\" && next !== undefined && !scan.inSingle) {
-		scan.cur += c + next;
-		return 1;
-	}
-	if (c === "'" && !scan.inDouble) {
-		scan.inSingle = !scan.inSingle;
-		scan.cur += c;
-		return 0;
-	}
-	if (c === '"' && !scan.inSingle) {
-		scan.inDouble = !scan.inDouble;
-		scan.cur += c;
-		return 0;
-	}
-	return null;
-}
-
-/** True when `c` is a top-level (unquoted) shell separator: `;`, `|`, `&`. */
-function isTopLevelSeparator(scan: SegmentScan, c: string): boolean {
-	return !scan.inSingle && !scan.inDouble && (c === ";" || c === "|" || c === "&");
-}
-
-/**
- * Split a compound shell line into top-level segments on `;`, `&&`, `||`, and
- * pipes — quote-aware so a separator inside a commit message is ignored. Each
- * segment is parsed for a `git commit` independently (so `cd x && git commit -m y`
- * is detected). The per-character quote / escape / separator logic lives in
- * {@link consumeQuoteOrEscape} and {@link isTopLevelSeparator} to keep this loop
- * low-complexity.
- */
-export function splitSegments(command: string): string[] {
-	const segments: string[] = [];
-	const scan: SegmentScan = { cur: "", inSingle: false, inDouble: false };
-	for (let i = 0; i < command.length; i++) {
-		const c = nonNull(command[i]);
-		const next = command[i + 1];
-		const consumed = consumeQuoteOrEscape(scan, c, next);
-		if (consumed !== null) {
-			i += consumed;
-			continue;
-		}
-		if (isTopLevelSeparator(scan, c)) {
-			// Consume a paired `&&` / `||` as one separator.
-			if ((c === "&" && next === "&") || (c === "|" && next === "|")) i++;
-			scan.cur = pushSegment(segments, scan.cur);
-			continue;
-		}
-		scan.cur += c;
-	}
-	pushSegment(segments, scan.cur);
-	return segments;
 }
 
 /** Drop a leading `sudo` / `env VAR=…` / `VAR=…` prefix so `git` is the head token. */
@@ -283,7 +216,7 @@ export function shortClusterTakesValue(token: string): boolean {
 	if (token.length < 2 || token[0] !== "-" || token[1] === "-") return false;
 	const letters = token.slice(1);
 	for (let i = 0; i < letters.length; i++) {
-		const ch = letters[i] ?? "";
+		const ch = letters.charAt(i);
 		if (!/[A-Za-z]/.test(ch)) return false;
 		if (OPTIONAL_ATTACHED_LETTERS.includes(ch)) return false;
 		if (VALUE_SHORT_LETTERS.includes(ch)) return i === letters.length - 1;

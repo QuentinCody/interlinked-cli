@@ -13,6 +13,7 @@
 // behavior while adding the surface the new adapter layer needs.
 
 import type { JsonObject } from "../lib/json-types.js";
+import { findRepoRoot } from "../lib/interlinked-root.js";
 import type { CohortManager } from "./cohort.js";
 import type { ErrorHistory } from "./error-history.js";
 import { evaluatePostToolUse, evaluatePreToolUse } from "./evaluator.js";
@@ -20,7 +21,8 @@ import { liftOutcomeEvidence } from "./outcome-evidence.js";
 import type { ProjectGraph } from "./project-graph.js";
 import type { ReservationManager } from "./reservations.js";
 import type { RouteMap } from "./route-map.js";
-import { baselineCallKey, consumeBaselineSnapshot } from "./evaluator/baseline-effect-guard.js";
+import { baselineCallKey, consumeBaselineSnapshot, rememberBaselineSnapshot } from "./evaluator/baseline-effect-guard.js";
+import { BASELINE_RESTORE_PREFIX } from "./evaluator/config-effect-guard.js";
 import type { SessionTracker } from "./session-state.js";
 import type {
 	AgentSource,
@@ -194,6 +196,10 @@ function runEvaluator(
 	ctx: EvaluateUnifiedContext,
 ): Promise<HarnessDecision> {
 	if (event.phase === "pre-tool") {
+		// The effect arm's "before" half — taken before the evaluator can
+		// return, so its post-tool half (withBaselineEffectWarning) has a
+		// snapshot to compare against on this path too.
+		rememberBaselineEffect(harnessEvent);
 		return Promise.resolve(
 			evaluatePreToolUse(
 				harnessEvent,
@@ -223,21 +229,35 @@ function runEvaluator(
 	return Promise.resolve({ decision: "allow" });
 }
 
+/** Key pairing a call's pre-tool snapshot with its post-tool comparison. */
+function effectKey(event: HarnessEvent): string {
+	return baselineCallKey({
+		toolUseId: event.tool_use_id,
+		sessionId: event.session_id,
+		timestamp: event.timestamp,
+	});
+}
+
+/** Snapshot the water-lines before the call runs (pre-tool-pipeline.ts does
+ *  the same on the socket path). Normalized unified events have no dry-run
+ *  field; the socket pipeline handles its separate dry-run contract. */
+function rememberBaselineEffect(event: HarnessEvent & { cwd: string }): void {
+	rememberBaselineSnapshot(effectKey(event), findRepoRoot(event.cwd) ?? event.cwd);
+}
+
 /**
  * Effect-arm bridge for the UNIFIED path (Cursor and friends), which does not
  * run the server's pre/post pipelines. Same shared helpers as the socket path,
  * so both runners get identical semantics from one implementation.
  */
 function withBaselineEffectWarning(event: HarnessEvent & { cwd: string }, decision: HarnessDecision): HarnessDecision {
-	if (event.dry_run) return decision;
-	const key = baselineCallKey({
-		toolUseId: event.tool_use_id,
-		sessionId: event.session_id,
-		timestamp: event.timestamp,
-	});
-	const warning = consumeBaselineSnapshot(key, event.cwd);
+	const warning = consumeBaselineSnapshot(effectKey(event), findRepoRoot(event.cwd) ?? event.cwd, { dryRun: event.dry_run });
 	if (!warning) return decision;
-	return { ...decision, warnings: [...(decision.warnings ?? []), warning] };
+	const merged = { ...decision, warnings: [...(decision.warnings ?? []), warning] };
+	// A restore (the effect arm put pre-call bytes back) is surfaced as a
+	// blocking result so it is human-visible, as on the socket path.
+	if (!warning.includes(BASELINE_RESTORE_PREFIX)) return merged;
+	return { ...merged, decision: "block", reason: decision.reason ? `${decision.reason}\n\n${warning}` : warning };
 }
 
 async function runWithBudget(

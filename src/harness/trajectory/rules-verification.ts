@@ -15,13 +15,8 @@
 // block: "no verifier observed" is a discipline signal, not deterministic harm,
 // so a blocked legitimate commit would fail the low-FP bar.
 
-import {
-	isPostEdit,
-	isSourceCodeFile,
-	isTestFile,
-	isVerifyCommand,
-	splitSegments,
-} from "./helpers.js";
+import { listGitInvocations } from "../evaluator/commit-parse.js";
+import { isPostEdit, isSourceCodeFile, isTestFile, isVerifyCommand } from "./helpers.js";
 import type { ToolEvent, TrajectoryRule, Verdict } from "./types.js";
 
 function nudge(ruleId: string, severity: Verdict["severity"], reason: string): Verdict {
@@ -56,33 +51,13 @@ function isPostVerify(event: ToolEvent): boolean {
 }
 
 /**
- * git commit / git push in any pipeline segment. Skips bare `git add` and the
- * `git -C <dir>` / `git -c k=v` global-option forms so the subcommand is read
- * correctly (e.g. `git -C repo commit` still matches).
+ * git commit / git push anywhere the command runs, read by THE canonical git
+ * lexer (`listGitInvocations`, shared with the commit gate). Bare `git add` is
+ * not a commit; git global options (`git -C repo commit`, `-c k=v`,
+ * `--git-dir`) are skipped; a commented, quoted or heredoc-body commit is data.
  */
 function isGitCommitOrPush(cmd: string): boolean {
-	for (const seg of splitSegments(cmd)) {
-		const toks = seg.split(/\s+/).filter((t) => t.length > 0);
-		const gi = toks.findIndex((t) => t === "git" || t.endsWith("/git"));
-		if (gi === -1) continue;
-		if (segmentSubcommandIsCommitOrPush(toks, gi)) return true;
-	}
-	return false;
-}
-
-/** True when the first real subcommand after the `git` token (at index `gi`) is commit/push. */
-function segmentSubcommandIsCommitOrPush(toks: string[], gi: number): boolean {
-	for (let i = gi + 1; i < toks.length; i++) {
-		const t = toks[i] ?? "";
-		if (t === "-C" || t === "-c") {
-			i++; // this global option consumes its argument
-			continue;
-		}
-		if (t.startsWith("-")) continue; // other flags
-		if (t === "commit" || t === "push") return true;
-		break; // the first real subcommand isn't commit/push
-	}
-	return false;
+	return listGitInvocations(cmd).some((inv) => inv.verb === "commit" || inv.verb === "push");
 }
 
 // ============================================================

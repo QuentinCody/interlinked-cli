@@ -49,6 +49,36 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("checkCommitBaselineGate", () => {
+	it("blocks broad removals while ignoring baselines that were never tracked", () => {
+		const decision = checkCommitBaselineGate(commitEvent("git rm -r -- .interlinked && git commit -m remove"));
+		expect(decision).toMatchObject({ decision: "block" });
+		expect(decision?.reason).toContain(`[deleted] ${REL}`);
+		expect(decision?.reason).not.toContain("[deleted] .interlinked/metric-caps.json");
+	});
+
+	it.each(["-A", "--pathspec-from-file=list"])("checks worktree bytes before a broad add followed by write-tree (%s)", (options) => {
+		writeBaseline(REL, { max_lines: 800, files: {} });
+		writeFileSync(join(root, "list"), `${REL}\n`);
+		const decision = checkCommitBaselineGate(commitEvent(`git add ${options} && git write-tree`));
+		expect(decision).toMatchObject({ decision: "block" });
+		expect(decision?.reason).toContain("max_lines");
+	});
+
+	it("checks every baseline when a commit pathspec resolves to the repository root", () => {
+		writeBaseline(REL, { max_lines: 800, files: {} });
+		expect(checkCommitBaselineGate(commitEvent("git commit -m raise -- ."))?.reason).toContain("max_lines");
+	});
+
+	it("does not attribute a removal in a different repository to this commit", () => {
+		const other = join(root, "other");
+		mkdirSync(other);
+		execFileSync("git", ["-C", other, "init", "-q"]);
+		expect(checkCommitBaselineGate(commitEvent("git -C other rm -r -- .interlinked && git commit -m unchanged"))).toBeNull();
+	});
+
+	it("does not invent a repository for a commit whose selected directory is absent", () => {
+		expect(checkCommitBaselineGate(commitEvent("git -C absent commit -m unavailable"))).toBeNull();
+	});
 	it("blocks a commit that stages a loosened baseline (cap raised)", () => {
 		writeBaseline(REL, { max_lines: 800, files: {} });
 		git("add", "-f", REL);
@@ -109,6 +139,9 @@ describe("checkCommitBaselineGate", () => {
 });
 
 describe("runCommitBaselineGate (pipeline wrapper)", () => {
+	it("preserves an allowed pipeline result when the committed baselines are unchanged", () => {
+		expect(runCommitBaselineGate(commitEvent("git commit -m unrelated"), allow())).toBeNull();
+	});
 	it("blocks a loosened staged baseline even when the preceding phase has an empty warning list", () => {
 		writeBaseline(REL, { max_lines: 800, files: {} });
 		git("add", "-f", REL);

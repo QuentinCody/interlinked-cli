@@ -6,6 +6,7 @@ import {
 	baselineCallKey,
 	consumeBaselineSnapshot,
 } from "../evaluator/baseline-effect-guard.js";
+import { BASELINE_RESTORE_PREFIX } from "../evaluator/config-effect-guard.js";
 import type { ToolBreakdownEntry } from "../quality-checks.js";
 import type {
 	CheckResultEntry,
@@ -127,7 +128,12 @@ export function emitAllCleanSummary(options: {
 	postDecision.summary = `[interlinked] ✓ ${rules.rules.length} guard rules, ${checkSummary} — all clean (${elapsedMs}ms)`;
 }
 
-/** Append the loosening warning when this call moved a quality water-line. */
+/**
+ * Close the effect arm for this call: a water-line or blocking config file it
+ * loosened is restored to its pre-call bytes inside consumeBaselineSnapshot.
+ * A restore is surfaced as a BLOCKING result (human-visible, not a collapsed
+ * warning); a record-only loosening stays a warning.
+ */
 export function appendBaselineEffect(
 	event: HarnessEvent,
 	decision: HarnessDecision,
@@ -139,6 +145,15 @@ export function appendBaselineEffect(
 		sessionId: event.session_id,
 		timestamp: event.timestamp,
 	});
-	const warning = consumeBaselineSnapshot(key, cwd);
-	if (warning) decision.warnings = [...(decision.warnings ?? []), warning];
+	const command = event.tool_input?.command;
+	const message = consumeBaselineSnapshot(key, cwd, {
+		command: typeof command === "string" ? command : undefined,
+		dryRun: event.dry_run,
+	});
+	if (!message) return;
+	decision.warnings = [...(decision.warnings ?? []), message];
+	if (message.includes(BASELINE_RESTORE_PREFIX)) {
+		decision.decision = "block";
+		decision.reason = decision.reason ? `${decision.reason}\n\n${message}` : message;
+	}
 }

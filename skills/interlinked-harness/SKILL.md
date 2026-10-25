@@ -193,7 +193,7 @@ Host file policies require explicit bridge mapping and matching file snapshots.
 | **Package installs** | any un-allowlisted `npm/pip/cargo/go/…` install; URL/git/tarball specs — see **interlinked-supply-chain** | allowlisted + exact-pinned |
 | **Bash-routed write bypass** | a `>` / `tee` redirect, `sed -i` / `perl -pi` / `gawk -i inplace` / `ex` / `ed` in-place edit, `patch` / working-tree `git apply`, or a wrapped form (`xargs`, `find -exec`, `timeout`) writing a tracked source file (dodges the content gate) | Write/Edit, `interlinked write`, or index-only `git apply --cached <patch>` |
 | **Applier-script execution** (`builtin-patch-applier`) | running an interpreter on a pre-existing throwaway script that writes into repo source | route the edit through Write/Edit; committed codegen belongs in `scripts/` |
-| **Bash-edit obligation** (`bash-edit-obligation`) | a bash-channel edit left an INTRODUCED `pre_block`-class finding on disk; until it is fixed, write-class tool calls to OTHER files are refused (edits to the flagged file and reads stay allowed; the gate re-checks and self-releases) | fix the flagged file first |
+| **Bash-edit obligation** (`bash-edit-obligation`) | a bash-channel edit left an INTRODUCED `pre_block`-class finding on disk; the owning session's write-class calls to OTHER files are refused until it is fixed (edits to the flagged file and reads stay allowed; the gate re-checks and self-releases) | fix the flagged file first; unknown-writer findings do not acquire a guessed session owner |
 | **Hand-rolled patch applier** | a throwaway script in the scratchpad or `scratch/` that calls `writeFileSync`/`appendFileSync`/`write_text` on a path outside its sandbox (`"src/…"`, `process.cwd()`, `../`) — a re-implementation of Edit with the gates removed | probes that only READ repo source; scripts writing beside themselves; committed codegen under `scripts/` |
 | **Content pre_block** (introduced-only) | edit that *introduces* merge-conflict markers, `eval()`, and other zero-FP checks | pre-existing instances (warn, not block) |
 
@@ -655,7 +655,21 @@ Unknown `active_when` session predicates leave a distilled rule dormant with a d
 
 Existing top-level `session_predicate` fields retain their historical unconditional matching and the operator's enabled setting, with a migration diagnostic. They are not evaluated conditions. Migrate them explicitly to supported `active_when` rather than silently disabling existing guards.
 
-The baseline-effect warning records pre-call values for review. It does not guarantee that every consumer uses them: some gates still read loosened files directly. Review the exact diff and restore the prior values; the warning supplies no automatic restore command.
+The baseline-effect guard compares bounded pre-call snapshots with the files after a tool
+call and restores the WHOLE pre-call file when a protected water-line loosened. Reapply any
+legitimate tightening that shared the same file. Restore audits live in
+`.interlinked/baseline-undo/restored/`; a failed restore leaves recovery evidence and a warning.
+Mutation-manifest changes and first-time seeding of an absent complexity metric are record-only:
+review and restore inappropriate changes yourself. Intentional resets require the operator's
+`INTERLINKED_DISABLE_BASELINE_GUARD=1` in the daemon environment; putting it in tool text
+does not authorize a reset. Dry runs neither restore nor record.
+
+Snapshots do not cover unbracketed background writes, oversized files, or an absent prior
+water-line. A concurrent write inside another call's bracket may be attributed to that call.
+Unresolvable Vitest denominator/config comparisons report NOT CHECKED, not a guessed restore.
+This local guard is not an immutable security boundary. Explicit edit aliases, including
+VS Code replacement arrays, are normalized per target file; shell wrappers retain their cwd
+when checking commits and baseline writes. Read-only shell examples are not edits.
 
 A thrown sequence detector or failed Stop scan records NOT CHECKED evidence while healthy detectors continue. Stop rescans are confined to the selected repository, including resolved symlink targets. External memory/config writes retained in session history are reported out of scope; they cannot launch another project's scan or receive repository check receipts. Project-aware detectors receive absolute paths in that repository. Endpoint checks build a project graph only when a finding requires reachability annotation. An instrumentation failure is not a source violation or a clean scan. LTL remains shadow-only: its event-clock.v1 counts PreToolUse and PostToolUse separately, including a paired tool-use ID. Open finite-trace obligations remain unknown at Stop; predicate exceptions taint that property and cannot manufacture violations. No local control-file guard is an immutable security boundary.
 

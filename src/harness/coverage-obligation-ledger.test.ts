@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type CoverageObligation,
+	coverageHighWaterOf,
 	readFileCoverageBaseline,
 	readFileCoverageBaselineEntry,
 	readOpenCoverageObligations,
@@ -63,6 +64,10 @@ describe("runtime estimate", () => {
 });
 
 describe("per-file coverage baseline", () => {
+	it("rejects a stored high-water when its accompanying fraction is invalid", () => {
+		expect(coverageHighWaterOf({ f: "unmeasured", hw: 0.95, scope: "full" })).toBeNull();
+		expect(coverageHighWaterOf({ f: 0.9, hw: 0.95, scope: "full" })).toBe(0.95);
+	});
 	it("returns null for a file with no baseline", () => {
 		expect(readFileCoverageBaseline(root, "src/a.ts")).toBeNull();
 	});

@@ -166,8 +166,9 @@ export interface GateContext {
 	/** CRAP score at/above which a touched function blocks. Absent ⇒ {@link DEFAULT_CRAP_THRESHOLD}. */
 	crapThreshold?: number;
 	/** `per_edit_coverage.drop_epsilon` — tolerance for the %-drop backstop.
-	 *  Absent ⇒ the shipped COVERAGE_DROP_EPSILON (0.005). Class-2 knob,
-	 *  plan 25: an engine budget users may tune, not a quality bar. */
+	 *  Absent ⇒ the shipped COVERAGE_DROP_EPSILON (0.005). Tighten-only: a
+	 *  config value above the default is ignored with a warning
+	 *  (`dropEpsilonOverride`, red team 2026-10-21 V16). */
 	dropEpsilon?: number;
 	/**
 	 * STAGE a passing target's new coverage baseline instead of persisting it
@@ -424,6 +425,7 @@ async function selectRunAndDecide(call: GateCall, target: GateTarget): Promise<H
 		}
 	}
 
+	const epsilon = dropEpsilonOverride(cfg.drop_epsilon);
 	const ctx: GateContext = {
 		projectRoot,
 		relPath,
@@ -434,12 +436,43 @@ async function selectRunAndDecide(call: GateCall, target: GateTarget): Promise<H
 		blockOnTestFailure: cfg.block_on_test_failure === true,
 		blockOnCrap: cfg.block_on_crap === true,
 		crapThreshold: crapThresholdFor(projectRoot, cfg.crap_threshold),
-		...(typeof cfg.drop_epsilon === "number" && cfg.drop_epsilon >= 0
-			? { dropEpsilon: cfg.drop_epsilon }
-			: {}),
+		...(epsilon.dropEpsilon !== undefined ? { dropEpsilon: epsilon.dropEpsilon } : {}),
 		recordBaseline: call.recordBaseline,
 		...(target.overlayFiles ? { overlayFiles: target.overlayFiles } : {}),
 		...(route.kind === "scoped" ? { selectedTests: route.tests } : {}),
 	};
-	return runOverlayAndDecide(ctx, event, deps);
+	return withWarning(await runOverlayAndDecide(ctx, event, deps), epsilon.warning);
+}
+
+/** The built-in drop tolerance. It must equal `COVERAGE_DROP_EPSILON` in
+ *  coverage-write-decision.ts, the value the decision uses when no override is
+ *  passed; red-team-2026-10-21-round3-parser.test.ts pins the two together. */
+const BUILTIN_DROP_EPSILON = 0.005;
+
+/**
+ * `per_edit_coverage.drop_epsilon` is a tolerance WATER-LINE (red team
+ * 2026-10-21 V16): it is subtracted from the stored fraction and the full-suite
+ * high-water, so a config value of 0.5 let a 33-point drop below `hw` pass and
+ * be stored. It may only tighten: a value at or below the built-in default
+ * applies, a larger one is ignored with a warning, and a non-number or negative
+ * value is ignored silently (the existing contract). A larger value applies only
+ * under the documented operator escape for an intentional water-line reset,
+ * INTERLINKED_DISABLE_BASELINE_GUARD=1 in the DAEMON environment (never the
+ * command text), so an operator keeps the capability and an agent cannot use it.
+ */
+function dropEpsilonOverride(raw: unknown): { dropEpsilon?: number; warning?: string } {
+	if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) return {};
+	if (raw <= BUILTIN_DROP_EPSILON || process.env.INTERLINKED_DISABLE_BASELINE_GUARD === "1") return { dropEpsilon: raw };
+	return {
+		warning:
+			`[interlinked:per-edit-coverage] per_edit_coverage.drop_epsilon ${raw} is above the built-in ${BUILTIN_DROP_EPSILON} and is ignored. ` +
+			"The drop tolerance is a water-line: a config value may only tighten it (operator reset: INTERLINKED_DISABLE_BASELINE_GUARD=1 in the daemon environment).",
+	};
+}
+
+/** Attach one warning to a decision (a null decision becomes an allow). */
+function withWarning(decision: HarnessDecision | null, warning: string | undefined): HarnessDecision | null {
+	if (warning === undefined) return decision;
+	if (decision === null) return { decision: "allow", warnings: [warning] };
+	return { ...decision, warnings: [...(decision.warnings ?? []), warning] };
 }

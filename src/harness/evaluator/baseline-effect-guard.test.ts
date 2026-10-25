@@ -15,11 +15,13 @@ import { nonNull } from "../../lib/non-null.js";
 
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -403,20 +405,36 @@ describe("reversibility — only irreversible effects justify a pre-execution bl
 });
 
 describe("call pairing and snapshot consumption", () => {
+	it("surfaces an unavailable Vitest denominator comparison without claiming a restore", () => {
+		const file = join(root, "vitest.config.ts");
+		writeFileSync(file, 'export default { test: { coverage: { include: ["src/**"], exclude: [] } } };');
+		rememberBaselineSnapshot("missing-denominator", root);
+		rmSync(file);
+		const warning = consumeBaselineSnapshot("missing-denominator", root);
+		expect(warning).toContain("NOT CHECKED");
+		expect(warning).toContain("vitest.config.ts");
+		expect(warning).not.toContain("RESTORED");
+		expect(existsSync(file)).toBe(false);
+	});
+
 	it("uses the explicit tool id, or the session timestamp fallback", () => {
 		expect(baselineCallKey({ toolUseId: "", sessionId: "s", timestamp: "t" })).toBe("");
 		expect(baselineCallKey({ sessionId: "s", timestamp: "t" })).toBe("s:t");
 	});
 
-	it("consumes a remembered snapshot once and warns on a loosening", () => {
+	it("consumes a remembered snapshot once and RESTORES a loosening (red team 2026-10-21)", () => {
 		rememberBaselineSnapshot("consume-me", root);
 		writeCaps(LOOSE);
 		const warning = consumeBaselineSnapshot("consume-me", root);
 		expect(warning).toBe(
-			`[interlinked:baseline-effect] this tool call LOOSENED 1 ratchet water-line(s):\n` +
+			"[interlinked:baseline-effect] RESTORED 1 of 1 water-line(s) this tool call loosened (call consume-me):\n" +
 			`  ${CAPS_REL}: metric-caps max_cyclomatic raised 22→999. Caps may only tighten.\n` +
-			"Pre-call values were retained for review. Some consumers may still read the loosened files; gate protection is not guaranteed. Review this call's diff and restore the exact prior values in the named files. No automatic restore command is available (call consume-me).",
+			"The pre-call bytes are back on disk: ratchet water-lines may only tighten, so the gates keep deciding with the prior values. The WHOLE pre-call file was restored — re-apply any tightening in it with the Edit tool. Meet the bar instead of moving it; intentional reset: INTERLINKED_DISABLE_BASELINE_GUARD=1. Audit: .interlinked/baseline-undo/restored/consume-me.json",
 		);
+		expect(readFileSync(join(root, CAPS_REL), "utf8")).toBe(TIGHT);
+		// The pending record is consumed by a complete restore; the audit stays.
+		expect(trustedBaselineValue(root, CAPS_REL)).toBeNull();
+		expect(existsSync(join(root, ".interlinked/baseline-undo/restored/consume-me.json"))).toBe(true);
 		expect(consumeBaselineSnapshot("consume-me", root)).toBeNull();
 	});
 
@@ -430,7 +448,7 @@ describe("call pairing and snapshot consumption", () => {
 		rememberBaselineSnapshot("retained", root);
 		for (let i = 0; i < 64; i += 1) rememberBaselineSnapshot(`filler-${i}`, root);
 		writeCaps(LOOSE);
-		expect(consumeBaselineSnapshot("retained", root)).toContain("LOOSENED");
+		expect(consumeBaselineSnapshot("retained", root)).toContain("RESTORED");
 
 		rememberBaselineSnapshot("evicted", root);
 		for (let i = 0; i < 65; i += 1) rememberBaselineSnapshot(`evict-filler-${i}`, root);
@@ -468,5 +486,129 @@ describe("warning formatting — observable agent output", () => {
 			{ file: CAPS_REL, beforeText: "a", afterText: "b", details: ["raised cap", "lowered floor"] },
 		]);
 		expect(warning).toContain(`${CAPS_REL}: raised cap; lowered floor`);
+	});
+});
+
+describe("consumeBaselineSnapshot — restore branches (red team 2026-10-21, round 3)", () => {
+	const UNDO_REL = ".interlinked/baseline-undo";
+	const prior = process.env.INTERLINKED_DISABLE_BASELINE_GUARD;
+	beforeEach(() => {
+		delete process.env.INTERLINKED_DISABLE_BASELINE_GUARD;
+	});
+	afterEach(() => {
+		if (prior === undefined) delete process.env.INTERLINKED_DISABLE_BASELINE_GUARD;
+		else process.env.INTERLINKED_DISABLE_BASELINE_GUARD = prior;
+	});
+
+	it("retains recoverable bytes and reports a failed restore when the destination becomes a directory", () => {
+		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		rememberBaselineSnapshot("failed-restore", root);
+		rmSync(join(root, CAPS_REL));
+		mkdirSync(join(root, CAPS_REL));
+		const warning = consumeBaselineSnapshot("failed-restore", root);
+		expect(warning).toContain("RESTORED 0 of 1");
+		expect(warning).toContain(`${CAPS_REL} (RESTORE FAILED)`);
+		expect(warning).toContain("restore them by hand");
+		expect(warning).not.toContain("The pre-call bytes are back on disk");
+		expect(warning).not.toContain("The WHOLE pre-call file was restored");
+		expect(warning).toContain("Audit: .interlinked/baseline-undo/restored/failed-restore.json");
+		expect(trustedBaselineValue(root, CAPS_REL)).toBe(TIGHT);
+		expect(JSON.parse(readFileSync(join(root, UNDO_REL, "restored/failed-restore.json"), "utf8"))).toMatchObject({
+			entries: [{ file: CAPS_REL, beforeText: TIGHT, restored: false }],
+		});
+		expect(stderr).toHaveBeenCalledWith(expect.stringContaining("could not restore"));
+	});
+
+	it("restores the water-line even when the audit destination cannot be created", () => {
+		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		mkdirSync(join(root, UNDO_REL));
+		writeFileSync(join(root, UNDO_REL, "restored"), "occupied");
+		rememberBaselineSnapshot("audit-failure", root);
+		writeCaps(LOOSE);
+		expect(consumeBaselineSnapshot("audit-failure", root)).toContain("RESTORED 1 of 1");
+		expect(readFileSync(join(root, CAPS_REL), "utf8")).toBe(TIGHT);
+		expect(stderr).toHaveBeenCalledWith(expect.stringContaining("could not write restore audit"));
+	});
+
+	it("records a first metric section when the prior ledger has no metrics object", () => {
+		writeFileSync(join(root, LEDGER_REL), '{"version":1}');
+		rememberBaselineSnapshot("first-section", root);
+		writeFileSync(join(root, LEDGER_REL), LEDGER_TIGHT);
+		expect(consumeBaselineSnapshot("first-section", root)).toContain("LOOSENED 1 ratchet");
+		expect(readFileSync(join(root, LEDGER_REL), "utf8")).toBe(LEDGER_TIGHT);
+	});
+
+	it("records newly observed mutation survivors without undoing a mutation run", () => {
+		const manifest = ".interlinked/mutation-manifest.json";
+		const before = '{"files":{}}';
+		const after = JSON.stringify({ files: { "src/a.ts": { symbol: { mutants: { one: { status: "survived" } } } } } });
+		writeFileSync(join(root, manifest), before);
+		rememberBaselineSnapshot("mutation-run", root);
+		writeFileSync(join(root, manifest), after);
+		expect(consumeBaselineSnapshot("mutation-run", root)).toContain("LOOSENED 1 ratchet");
+		expect(readFileSync(join(root, manifest), "utf8")).toBe(after);
+		expect(trustedBaselineValue(root, manifest)).toBe(before);
+	});
+
+	it("P1: the bypass assignment in the COMMAND TEXT does not stop the restore", () => {
+		// test-contract: security — the gated agent writes the command, so a word in it is no operator decision
+		rememberBaselineSnapshot("text-bypass", root);
+		writeCaps(LOOSE);
+		const command = `INTERLINKED_DISABLE_BASELINE_GUARD=1 cp /tmp/x.json ${CAPS_REL}`;
+		const warning = consumeBaselineSnapshot("text-bypass", root, { command });
+		expect(warning?.startsWith("[interlinked:baseline-effect] RESTORED 1 of 1")).toBe(true);
+		expect(readFileSync(join(root, CAPS_REL), "utf8")).toBe(TIGHT);
+	});
+
+	it("P2: a symlink swapped onto the water-line is replaced by a regular file, not written through", () => {
+		rememberBaselineSnapshot("symlink", root);
+		const outside = join(root, "outside-loose.json");
+		writeFileSync(outside, LOOSE);
+		rmSync(join(root, CAPS_REL));
+		symlinkSync(outside, join(root, CAPS_REL));
+		expect(consumeBaselineSnapshot("symlink", root)).toContain("RESTORED 1 of 1");
+		expect(lstatSync(join(root, CAPS_REL)).isSymbolicLink()).toBe(false);
+		expect(readFileSync(join(root, CAPS_REL), "utf8")).toBe(TIGHT);
+		expect(readFileSync(outside, "utf8")).toBe(LOOSE);
+	});
+
+	it("P3: a raised entry in an EXISTING ledger section is restored", () => {
+		writeFileSync(join(root, LEDGER_REL), LEDGER_TIGHT);
+		rememberBaselineSnapshot("ledger-raise", root);
+		writeFileSync(join(root, LEDGER_REL), LEDGER_RAISED);
+		expect(consumeBaselineSnapshot("ledger-raise", root)).toContain("RESTORED 1 of 1");
+		expect(readFileSync(join(root, LEDGER_REL), "utf8")).toBe(LEDGER_TIGHT);
+	});
+
+	it("N1: INTERLINKED_DISABLE_BASELINE_GUARD=1 in the DAEMON env records but does not restore", () => {
+		process.env.INTERLINKED_DISABLE_BASELINE_GUARD = "1";
+		rememberBaselineSnapshot("env-bypass", root);
+		writeCaps(LOOSE);
+		const warning = consumeBaselineSnapshot("env-bypass", root);
+		expect(warning).toContain("Not restored: INTERLINKED_DISABLE_BASELINE_GUARD=1 in the daemon environment");
+		expect(readFileSync(join(root, CAPS_REL), "utf8")).toBe(LOOSE);
+		expect(trustedBaselineValue(root, CAPS_REL)).toBe(TIGHT);
+	});
+
+	it("N2: a dry run neither restores nor records", () => {
+		rememberBaselineSnapshot("dry", root);
+		writeCaps(LOOSE);
+		expect(consumeBaselineSnapshot("dry", root, { dryRun: true })).toBeNull();
+		expect(readFileSync(join(root, CAPS_REL), "utf8")).toBe(LOOSE);
+		expect(existsSync(join(root, UNDO_REL))).toBe(false);
+	});
+
+	it("N3: a ledger change confined to a NEW metric section is record-only (first caps ratchet of a metric)", () => {
+		writeFileSync(join(root, LEDGER_REL), LEDGER_TIGHT);
+		rememberBaselineSnapshot("ledger-seed", root);
+		const seeded =
+			'{"version":1,"metrics":{"cyclomatic":{"cap":16,"entries":[{"file":"src/a.ts","name":"big","line":3,"value":20}]},' +
+			'"cognitive":{"cap":20,"entries":[{"file":"src/b.ts","name":"deep","line":9,"value":31}]}}}';
+		writeFileSync(join(root, LEDGER_REL), seeded);
+		const warning = consumeBaselineSnapshot("ledger-seed", root);
+		expect(warning).toContain("LOOSENED 1 ratchet");
+		expect(warning).not.toContain("RESTORED");
+		expect(readFileSync(join(root, LEDGER_REL), "utf8")).toBe(seeded);
+		expect(trustedBaselineValue(root, LEDGER_REL)).toBe(LEDGER_TIGHT);
 	});
 });

@@ -4,7 +4,7 @@ import type { RunnerAdapter } from "./harness/adapters/types.js";
 import { describeHookCapability } from "./harness/adapters/hook-contract.js";
 import { recordPayloadKeys } from "./harness/payload-key-census.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
-import { findRepoRoot } from "./hook-entry-project.js";
+import { findRepoRoot } from "./lib/interlinked-root.js";
 import { recordHookRuntime } from "./lib/hook-runtime-receipt.js";
 
 interface AdapterResolutionInput {
@@ -32,12 +32,10 @@ export function buildUnifiedHookEvent(
 		mode: "unknown",
 		...(event.runner_version ? { version: event.runner_version } : {}),
 	}, { name: nativeEventName, observed: true });
-	recordPayloadKeys({
-		runner: adapter.id,
-		nativeEvent: nativeEventName,
-		raw: event.raw,
-		cwd: event.context.cwd,
-	});
+	// The census belongs to the project, not to whatever folder the session has `cd`-ed into: writing it under the
+	// session's cwd created a stray `.interlinked/` that later shadowed the real project root (2026-10-22).
+	const root = findRepoRoot(event.context.cwd);
+	if (root) recordPayloadKeys({ runner: adapter.id, nativeEvent: nativeEventName, raw: event.raw, cwd: root });
 	return event;
 }
 

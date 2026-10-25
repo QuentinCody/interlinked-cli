@@ -62,6 +62,27 @@ describe("findRepoRoot", () => {
 		rmSync(bare, { recursive: true, force: true });
 	});
 
+	// 2026-10-22: hook-written files (payload census, receipts) had created `.interlinked/` folders under `scratch/`;
+	// below them every hook call found no socket and skipped the daemon (135 of 734 calls in one session).
+	it("passes a nested .interlinked/ that holds only hook-written files when an ancestor is a configured project", () => {
+		writeFileSync(join(dir, ".interlinked", "config.json"), "{}");
+		const stray = join(dir, "scratch", "probe");
+		mkdirSync(join(stray, ".interlinked"), { recursive: true });
+		writeFileSync(join(stray, ".interlinked", "payload-keys.json"), "{}");
+		mkdirSync(join(stray, "deeper"));
+		expect(findRepoRoot(join(stray, "deeper"))).toBe(dir);
+	});
+
+	it("keeps a nested project that holds its own project marker or socket", () => {
+		writeFileSync(join(dir, ".interlinked", "config.json"), "{}");
+		for (const [name, marker] of [["rules", "guard-rules.json"], ["daemon", "harness-default.sock"]] as const) {
+			const nested = join(dir, "packages", name);
+			mkdirSync(join(nested, ".interlinked"), { recursive: true });
+			writeFileSync(join(nested, ".interlinked", marker), "");
+			expect(findRepoRoot(nested)).toBe(nested);
+		}
+	});
+
 	it("stops at the twenty-hop search boundary", () => {
 		const root = mkdtempSync(join(tmpdir(), "he-depth-"));
 		let nested = root;

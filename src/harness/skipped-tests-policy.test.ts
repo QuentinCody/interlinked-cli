@@ -55,6 +55,14 @@ describe("loadSkippedTestsBaseline", () => {
 		expect(loadSkippedTestsBaseline(dir)).toEqual({ version: 1, max_skipped: 1, files: {} });
 	});
 
+	it.each(["null", "[]", JSON.stringify({ version: 1, max_skipped: "unlimited", files: { "a.test.ts": 3 } })])(
+		"rejects malformed baseline shape or global skip ceiling: %s", raw => {
+		const dir = makeRoot(raw);
+		const baseline = loadSkippedTestsBaseline(dir);
+		expect(baseline).toBeNull();
+		expect(maxSkippedFor(baseline, "a.test.ts")).toBe(0);
+	});
+
 	it("N1: drops a malformed individual grandfather entry but keeps valid ones", () => {
 		// Pre-fix, `raw.files as Record<string, number>` trusted every
 		// per-file ceiling unchecked — a non-number ceiling would have reached

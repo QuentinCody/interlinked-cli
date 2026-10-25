@@ -270,13 +270,17 @@ function collectMarkerEvalWarnings(filePath: string, content: string): string[] 
 			`[interlinked:content-quality] ${taskMarkers} unresolved task marker${taskMarkers > 1 ? "s" : ""} in ${filePath}. Resolve before committing or create a tracking issue.`,
 		);
 	}
-	if (/catch\s*\([^)]*\)\s*\{\s*\}/.test(content)) {
+	// Task markers live in comments by definition; the empty-catch and eval checks
+	// read only code, so a comment or string that mentions the pattern (e.g. the
+	// doc comment "Operating points from the eval (see header)") is not a finding.
+	const code = stripCommentsAndStrings(content);
+	if (/catch\s*\([^)]*\)\s*\{\s*\}/.test(code)) {
 		warnings.push(
 			`[interlinked:content-quality] Empty catch block in ${filePath}. Silent error swallowing hides bugs — at minimum log the error.`,
 		);
 	}
 	// A2: eval / Function constructor
-	if (/\beval\s*\(/.test(content) || /\bnew\s+Function\s*\(/.test(content)) {
+	if (/\beval\s*\(/.test(code) || /\bnew\s+Function\s*\(/.test(code)) {
 		warnings.push(
 			`[interlinked:content-quality] eval() or new Function() in ${filePath}. These enable code injection — use safer alternatives.`,
 		);

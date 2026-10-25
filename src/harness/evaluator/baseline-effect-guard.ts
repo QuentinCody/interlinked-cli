@@ -18,11 +18,56 @@
 //   3. OPTIONAL TRUSTED READ — `trustedBaselineValue` can serve pre-tamper
 //      bytes to a consumer that uses it. Consumers reading disk directly can
 //      still act on loosened values; detection is not universal enforcement.
-//   4. PROPORTION — `effectIsReversible` names the rule for when a
-//      pre-execution block is justified at all: only when the effect cannot be
-//      undone afterwards. A recoverable file write should never default-block;
-//      `rm -rf`, a force push and a network send must, because no amount of
-//      post-hoc evidence brings the bytes back.
+//   4. PROPORTION — `effectIsReversible` classifies whether an effect can be
+//      undone from material the harness holds. It USED to decide whether the
+//      Bash arm refused at all (2026-08-10: "a recoverable file write should
+//      never default-block"). The 2026-10-21 red team retracted that for
+//      water-lines: the Bash arm now refuses every write to a water-line it
+//      can read and uses this classification only to word the refusal
+//      (baseline-bash-guard.ts).
+//
+// ENFORCEMENT — this arm is the CLASS guarantee (red team 2026-10-21, round 2).
+// The PreToolUse Bash arm is a token scanner, and a shell has unbounded
+// spellings (`bash -c`, `eval`, `xargs`, `find -exec`, `/bin/cp`, a directory
+// destination, `cd .` hops, computed paths in python/node, `patch`, `tar -C`,
+// `git apply` …), so verb lists cannot close the class; they only give the
+// spellings they recognise an earlier, cheaper refusal. Before EVERY tool call
+// this arm snapshots each water-line AND each blocking config water-line
+// (tsconfig strictness, vitest/vite coverage denominator — config-effect-guard.ts).
+// After the call, any file that got looser than its own pre-call bytes is
+// RESTORED to those bytes at once, so no consumer (metric-caps.ts reads disk)
+// ever decides with the loosened value past the end of the call. The restored
+// bytes are the WHOLE pre-call file: a call that tightened one field and
+// loosened another in the same file loses both changes (re-apply the
+// tightening with the Edit tool, which the intent gate checks). A call that
+// only tightened restores nothing. Every restore leaves an audit record under
+// `.interlinked/baseline-undo/restored/`. Bypass, shared with the intent arms:
+// INTERLINKED_DISABLE_BASELINE_GUARD=1 in the DAEMON env only (recorded, never
+// restored); dry runs neither restore nor record. The command text is never a
+// bypass: the gated agent writes it, so a word in it is not an operator's
+// decision (red team 2026-10-21, round 3 — the earlier command-text bypass let
+// the agent opt any shell call out of the restore by typing one assignment).
+//
+// RECORD-ONLY (warned and recorded, never restored), because a legitimate
+// harness or CLI write is indistinguishable from a hand edit here:
+//   - mutation-manifest.json — a mutation run (and the daemon's own PostToolUse
+//     harvest) records new survivors, which the detector reads as additions to
+//     the accepted set; 8 of the 9 undo records on file in this repo were runs.
+//   - a function-complexity ledger change whose only findings sit in a metric
+//     section absent before the call — the first `caps ratchet` seeding of a
+//     second metric (function-complexity-baseline-gate.ts header).
+//
+// RESIDUALS (documented, not closed here):
+//   - a write performed OUTSIDE any tool call's bracket (a background process
+//     started by an earlier call, a `run_in_background` shell that writes after
+//     its PostToolUse, a human terminal) is not compared against a pre-call
+//     snapshot; the commit-gate backstop covers the tracked baselines. Such a
+//     write landing INSIDE another call's bracket is attributed to that call.
+//   - water-lines over MAX_SNAPSHOT_BYTES are not held, so not restored.
+//   - creating an absent water-line is never a loosening against an absent
+//     pre-call value.
+//   - a branch switch / pull that brings a looser tracked water-line is
+//     restored like any other loosening; use the bypass for an intended reset.
 //
 // NOT a trust boundary (feedback_local_checks_not_a_trust_boundary): an agent
 // with filesystem access can rewrite the undo store too. What this buys is that
@@ -31,6 +76,7 @@
 
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -38,11 +84,18 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 import { detectBaselineGaming } from "./baseline-integrity-gate.js";
 import { resolveE2eBase } from "../e2e-store.js";
 import { WATER_LINE_PATHS } from "./water-line-files.js";
+import {
+	BASELINE_RESTORE_PREFIX,
+	captureConfigWaterLinesSafely,
+	type ConfigSnapshot,
+	detectConfigWaterLineLoosening,
+} from "./config-effect-guard.js";
 
 /** Water-line files, repo-relative — the shared guard set (water-line-files.ts). */
 const BASELINE_FILES: readonly string[] = WATER_LINE_PATHS;
@@ -63,6 +116,28 @@ interface BaselineLoosening {
 	afterText: string | null;
 	/** Human-readable deltas from the shared gaming detector. */
 	details: string[];
+	/** True when the loosening is warned and recorded but never restored
+	 *  (see RECORD-ONLY in the header). */
+	recordOnly?: boolean;
+}
+
+/** Water-lines a legitimate run rewrites in the "looser" direction. */
+const RECORD_ONLY_FILES: ReadonlySet<string> = new Set([".interlinked/mutation-manifest.json"]);
+const LEDGER_FILE = ".interlinked/function-complexity-baseline.json";
+
+/** Metric sections present in a ledger text (`metrics.<m>`). */
+function ledgerSections(text: string): Set<string> {
+	const parsed = parseOrNull(text);
+	const metrics = isJsonObject(parsed) && isJsonObject(parsed.metrics) ? parsed.metrics : {};
+	return new Set(Object.keys(metrics));
+}
+
+/** Record-only verdict for one detected loosening (header: RECORD-ONLY). */
+function isRecordOnly(rel: string, beforeText: string, rules: readonly string[]): boolean {
+	if (RECORD_ONLY_FILES.has(rel)) return true;
+	if (rel !== LEDGER_FILE || rules.length === 0) return false;
+	const existed = ledgerSections(beforeText);
+	return rules.every((rule) => !existed.has(nonNull(rule.split(":")[0])));
 }
 
 /**
@@ -138,7 +213,8 @@ export function detectBaselineLoosening(
 		const context = root ? { root, base: resolveE2eBase() } : undefined;
 		const findings = detectBaselineGaming(rel, beforeText, afterText, undefined, context);
 		if (findings.length === 0) continue;
-		out.push({ file: rel, beforeText, afterText, details: findings.map((f) => f.message) });
+		const recordOnly = isRecordOnly(rel, beforeText, findings.map((f) => f.rule));
+		out.push({ file: rel, beforeText, afterText, details: findings.map((f) => f.message), ...(recordOnly ? { recordOnly } : {}) });
 	}
 	return out;
 }
@@ -195,6 +271,10 @@ function restoreOne(root: string, entry: { file: string; beforeText: string }): 
 	const target = join(root, entry.file);
 	try {
 		mkdirSync(dirname(target), { recursive: true });
+		// A symlink swapped in by the call is replaced, not written through:
+		// writing through it would leave the water-line pointing at a file the
+		// agent controls outside the snapshot set.
+		if (lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink()) rmSync(target);
 		writeFileSync(target, entry.beforeText);
 		return true;
 	} catch (err) {
@@ -269,11 +349,12 @@ const IRREVERSIBLE_BASH = [
 /**
  * Is a tool call's effect undoable from material the harness holds?
  *
- * The rule this encodes: **a pre-execution block is justified only when the
- * effect is irreversible.** A recoverable file write should be observed and
- * reversed, not refused — refusing it costs real work and, as the intent gate
- * showed, also refuses the legitimate tightening case. An unrecoverable effect
- * has no post-hoc remedy, so it must be stopped before it runs.
+ * Classification only. It no longer gates the water-line refusal: the
+ * 2026-10-21 red team showed a "reversible" `cp` onto metric-caps.json left a
+ * loosened cap live on disk for every later edit, because nothing on the
+ * ratchet path reads the retained bytes. The Bash arm refuses both tiers and
+ * uses this to say WHY — "cannot be undone" versus "cannot be inspected
+ * before it runs" (baseline-bash-guard.ts).
  */
 export function effectIsReversible(toolName: string, command: string): boolean {
 	if (toolName !== "Bash") return true; // Write/Edit/MultiEdit: content is recoverable
@@ -283,8 +364,28 @@ export function effectIsReversible(toolName: string, command: string): boolean {
 /** Pre-call water-line snapshots, keyed by tool call. Bounded: entries are
  *  consumed at post-tool, and the map clears past a small ceiling so a runner
  *  that drops post-tool events cannot grow it without limit. */
-const snapshots = new Map<string, BaselineSnapshot>();
+const snapshots = new Map<string, { water: BaselineSnapshot; config: ConfigSnapshot }>();
 const SNAPSHOT_CEILING = 64;
+
+/**
+ * The documented intentional-reset escape hatch, shared with the PreToolUse
+ * arms (baseline-bash-guard.ts, baseline-integrity-gate.ts): the DAEMON's own
+ * env and nothing else. The command text is deliberately not consulted — the
+ * agent being gated writes it (header: ENFORCEMENT).
+ */
+function baselineGuardBypassed(): boolean {
+	return process.env.INTERLINKED_DISABLE_BASELINE_GUARD === "1";
+}
+
+/** What a PostToolUse call site knows about the call it is closing. */
+export interface BaselineEffectOptions {
+	/** The shell command text, when the tool was a shell. Accepted from the
+	 *  call sites but never read for the bypass: an assignment word in it is
+	 *  agent-authored, so it cannot opt the call out of the restore. */
+	command?: string | undefined;
+	/** A dry run neither restores nor records (CLAUDE.md: a dry run must not move the gate). */
+	dryRun?: boolean | undefined;
+}
 
 /** Identity pairing a call's two phases: the runner's id, else session+time. */
 export function baselineCallKey(opts: {
@@ -298,22 +399,89 @@ export function baselineCallKey(opts: {
 /** Snapshot the water-lines before a call runs (the "before" half). */
 export function rememberBaselineSnapshot(key: string, root: string): void {
 	if (snapshots.size > SNAPSHOT_CEILING) snapshots.clear();
-	snapshots.set(key, captureBaselines(root));
+	snapshots.set(key, { water: captureBaselines(root), config: captureConfigWaterLinesSafely(root, readOrNull) });
 }
 
 /**
- * Compare against the remembered snapshot, persist the undo material, and
- * return the agent-facing warning — or null when nothing loosened (the common
- * case, which costs one map lookup plus nine small reads).
+ * Close one call: compare every water-line and config water-line with its
+ * pre-call snapshot and RESTORE the pre-call bytes of each loosened file
+ * (header: ENFORCEMENT). Returns the agent-facing message — starting with
+ * BASELINE_RESTORE_PREFIX when anything was restored — or null when nothing
+ * loosened (the common case: one map lookup plus the small snapshot reads).
  */
-export function consumeBaselineSnapshot(key: string, root: string): string | null {
+export function consumeBaselineSnapshot(
+	key: string,
+	root: string,
+	opts: BaselineEffectOptions = {},
+): string | null {
 	const before = snapshots.get(key);
 	snapshots.delete(key);
-	if (!before) return null;
-	const loosenings = detectBaselineLoosening(before, captureBaselines(root), root);
-	if (loosenings.length === 0) return null;
+	if (!before || opts.dryRun) return null;
+	const warnings: string[] = [];
+	const loosenings: BaselineLoosening[] = [
+		...detectBaselineLoosening(before.water, captureBaselines(root), root),
+		...detectConfigWaterLineLoosening(root, before.config, readOrNull, warnings),
+	];
+	if (loosenings.length === 0) return warnings.length > 0 ? warnings.join("\n") : null;
+	if (baselineGuardBypassed()) {
+		writeUndoRecord(root, key, loosenings);
+		return `${buildLooseningWarning(key, loosenings)}\nNot restored: INTERLINKED_DISABLE_BASELINE_GUARD=1 in the daemon environment (intentional reset).`;
+	}
+	const restorable = loosenings.filter((l) => !l.recordOnly);
+	const recordOnly = loosenings.filter((l) => l.recordOnly);
+	const messages: string[] = [...warnings];
+	if (restorable.length > 0) messages.push(restoreLoosenings(root, key, restorable));
+	if (recordOnly.length > 0) {
+		writeUndoRecord(root, `${key}.record-only`, recordOnly);
+		messages.push(buildLooseningWarning(key, recordOnly));
+	}
+	return messages.join("\n");
+}
+
+/**
+ * Put back the pre-call bytes of every restorable loosening. The pending undo
+ * record is written FIRST, so a daemon that dies mid-restore leaves the prior
+ * values on record; it is reduced to the failed entries afterwards (and gone
+ * when all succeeded), and the audit record keeps the whole story.
+ */
+function restoreLoosenings(root: string, key: string, loosenings: readonly BaselineLoosening[]): string {
 	writeUndoRecord(root, key, loosenings);
-	return buildLooseningWarning(key, loosenings);
+	const failed = loosenings.filter((l) => !restoreOne(root, l));
+	if (failed.length === 0) rmSync(undoPath(root, key), { force: true });
+	else writeUndoRecord(root, key, failed);
+	const audit = join(dirname(undoPath(root, key)), "restored", `${key.replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
+	try {
+		mkdirSync(dirname(audit), { recursive: true });
+		const entries = loosenings.map((l) => ({ ...l, restored: !failed.includes(l) }));
+		writeFileSync(audit, `${JSON.stringify({ tool_use_id: key, restored_at: new Date().toISOString(), entries }, null, 2)}\n`);
+	} catch (err) {
+		process.stderr.write(`[interlinked:baseline-effect] could not write restore audit ${audit}: ${String(err)}\n`);
+	}
+	return buildRestoreMessage(key, loosenings, failed, relative(root, audit));
+}
+
+/** The loud agent-facing report of a restore: file, field, before→after, why. */
+function buildRestoreMessage(
+	key: string,
+	loosenings: readonly BaselineLoosening[],
+	failed: readonly BaselineLoosening[],
+	auditRel: string,
+): string {
+	const lines = loosenings.map((l) => `  ${l.file}${failed.includes(l) ? " (RESTORE FAILED)" : ""}: ${l.details.join("; ")}`);
+	const failure = failed.length
+		? `\n${failed.length} file(s) could NOT be restored; their prior values stay on record for review — restore them by hand.`
+		: "";
+	const restoration = failed.length === 0
+		? "The pre-call bytes are back on disk: ratchet water-lines may only tighten, so the gates keep deciding " +
+			"with the prior values. The WHOLE pre-call file was restored — re-apply any tightening in it with the Edit tool. "
+		: "The failed water-lines remain unrestored; their retained prior values require manual recovery before the gates can use them. ";
+	return (
+		`${BASELINE_RESTORE_PREFIX} ${loosenings.length - failed.length} of ${loosenings.length} water-line(s) ` +
+		`this tool call loosened (call ${key}):\n${lines.join("\n")}${failure}\n` +
+		restoration +
+		"Meet the bar instead of moving it; intentional reset: INTERLINKED_DISABLE_BASELINE_GUARD=1. " +
+		`Audit: ${auditRel}`
+	);
 }
 
 /** Agent-facing report for a detected loosening, naming the one-command undo. */

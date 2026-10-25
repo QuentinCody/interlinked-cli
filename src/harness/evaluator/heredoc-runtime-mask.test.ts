@@ -116,4 +116,23 @@ describe("isRuntimeDataHeredoc", () => {
 	])("N: %s keeps the body scannable", (_label, patch) => {
 		expect(isRuntimeDataHeredoc({ ...base, ...patch })).toBe(false);
 	});
+
+	// Nothing before the operator: the runtime is the head command of the
+	// header, segmented by the canonical scan (commit-parse-shell.ts).
+	const headerOnly = { ...base, segmentBefore: "", shellPrefix: "" };
+
+	it("P: a runtime after the delimiter (`<<'EOF' python3 -`) is data, its later commands ignored", () => {
+		expect(isRuntimeDataHeredoc({ ...headerOnly, headerRest: " python3 -" })).toBe(true);
+		expect(isRuntimeDataHeredoc({ ...headerOnly, headerRest: " python3 - && echo done" })).toBe(true);
+		expect(isRuntimeDataHeredoc({ ...headerOnly, headerRest: ' python3 - "a;b"' })).toBe(true);
+	});
+
+	it.each([
+		["a separator before the runtime (empty head command)", " ; python3 -"],
+		["an && before the runtime", " && python3 -"],
+		["a shell as the head command", " bash; python3 -"],
+		["no command at all", ""],
+	])("N: %s keeps the body scannable", (_label, headerRest) => {
+		expect(isRuntimeDataHeredoc({ ...headerOnly, headerRest })).toBe(false);
+	});
 });

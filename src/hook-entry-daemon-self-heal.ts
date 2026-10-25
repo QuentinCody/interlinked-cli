@@ -8,7 +8,7 @@ import {
 	recordSupervisorSpawn,
 	supervisorSpawnAllowed,
 } from "./harness/supervisor-backoff.js";
-import { findRepoRoot } from "./hook-entry-project.js";
+import { findRepoRoot } from "./lib/interlinked-root.js";
 import { readGuardDisable } from "./lib/guard-state.js";
 
 /** Outcome of a self-heal attempt (also the unit-test surface). */

@@ -163,6 +163,79 @@ describe("evaluateBashEditObligationGate", () => {
 	});
 });
 
+// 2026-10-21 incident pins: an obligation binds only its owning session (and
+// that session's subagents, which share its session id). An unknown-writer
+// obligation (session_id "") still binds every session.
+function sessionEvent(toolName: string, filePath: string, sessionId: string): HarnessEvent {
+	return { ...editEvent(toolName, filePath), session_id: sessionId };
+}
+
+describe("bash-edit obligation session scope — positive (must block)", () => {
+	it("P1: own-session obligation still refuses a write to another file", () => {
+		const abs = writeSrc("src/a.ts", BAD_LINE);
+		recordBashEditObligations({ cwd, sessionId: "owner", filePath: abs, dryRun: false, writerKnown: true });
+		const warnings: string[] = [];
+		const decision = evaluateBashEditObligationGate(
+			sessionEvent("Write", join(cwd, "src/other.ts"), "owner"),
+			"Write",
+			warnings,
+		);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.rule_id).toBe("bash-edit-obligation");
+		expect(decision?.reason).toContain("src/a.ts");
+		expect(warnings).toEqual([]);
+	});
+
+	it("P2: unknown-writer obligation still refuses every session", () => {
+		const abs = writeSrc("src/a.ts", BAD_LINE);
+		recordBashEditObligations({ cwd, sessionId: "observer", filePath: abs, dryRun: false, writerKnown: false });
+		for (const sessionId of ["observer", "someone-else", ""]) {
+			const decision = evaluateBashEditObligationGate(
+				sessionEvent("Edit", join(cwd, "src/other.ts"), sessionId),
+				"Edit",
+				[],
+			);
+			expect(decision?.decision).toBe("block");
+			expect(decision?.reason).toContain("src/a.ts");
+		}
+	});
+});
+
+describe("bash-edit obligation session scope — negative (must not fire)", () => {
+	it("N1: another session's obligation warns but does not refuse", () => {
+		const abs = writeSrc("src/a.ts", BAD_LINE);
+		recordBashEditObligations({ cwd, sessionId: "campaign-b", filePath: abs, dryRun: false, writerKnown: true });
+		const warnings: string[] = [];
+		const decision = evaluateBashEditObligationGate(
+			sessionEvent("Write", join(cwd, "src/other.ts"), "campaign-a"),
+			"Write",
+			warnings,
+		);
+		expect(decision).toBeNull();
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("[interlinked:bash-edit-obligation]");
+		expect(warnings[0]).toContain("src/a.ts");
+		expect(warnings[0]).toContain("campaign-b");
+		const checkIds = openBashEditObligations(cwd)[0]?.checkIds ?? [];
+		expect(checkIds.length).toBeGreaterThan(0);
+		for (const id of checkIds) expect(warnings[0]).toContain(id);
+		// The obligation stays open for its owner.
+		expect(openBashEditObligations(cwd)).toEqual([
+			expect.objectContaining({ file: "src/a.ts", session_id: "campaign-b" }),
+		]);
+	});
+
+	it("N2: edit to the obligated file itself is allowed", () => {
+		const abs = writeSrc("src/a.ts", BAD_LINE);
+		recordBashEditObligations({ cwd, sessionId: "owner", filePath: abs, dryRun: false, writerKnown: false });
+		for (const sessionId of ["owner", "someone-else"]) {
+			const warnings: string[] = [];
+			expect(evaluateBashEditObligationGate(sessionEvent("Edit", abs, sessionId), "Edit", warnings)).toBeNull();
+			expect(warnings).toEqual([]);
+		}
+	});
+});
+
 describe("store hygiene", () => {
 	it("ignores malformed rows and keeps a legacy obligation with missing metadata", () => {
 		mkdirSync(join(cwd, ".interlinked"));

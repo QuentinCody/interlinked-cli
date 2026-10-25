@@ -47,7 +47,7 @@ import {
 	type SelfHealDeps,
 	type SelfHealResult,
 } from "./hook-entry-daemon-self-heal.js";
-import { findRepoRoot } from "./hook-entry-project.js";
+import { findRepoRoot } from "./lib/interlinked-root.js";
 import { readGuardDisable } from "./lib/guard-state.js";
 
 // Deliberate compatibility surface: hook-entry, stop recovery, and the

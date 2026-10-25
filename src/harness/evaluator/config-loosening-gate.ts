@@ -6,12 +6,16 @@
 // can confirm. These config tightenings rarely come back once relaxed,
 // and asymmetric review value justifies the friction.
 
-import { readOptionalToolString, readToolString } from "./tool-input-values.js";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { isJsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
+import { canonicalPath, isTrackedExtendsMember, judgeEffectiveStrictness } from "./config-loosening-extends.js";
+import { reconstructEdit } from "./edit-reconstruction.js";
+import { parseTsconfigObject, safeJsonParse, tsconfigParseFindings } from "./tsconfig-text-parse.js";
+import { toolWriteTargets, type WriteTarget } from "./write-targets.js";
 import {
 	evaluateVitestCoverageWaterLine,
 	isVitestConfigFile,
@@ -36,19 +40,8 @@ function isConfigFile(filePath: string): boolean {
 	return CONFIG_BASENAME_RE.test(filePath.replace(/\\/g, "/")) || isVitestConfigFile(filePath);
 }
 
-export function safeJsonParse(text: string): unknown {
-	if (!text) return null;
-	try {
-		// Tolerate JSONC (// comments and trailing commas) in tsconfig / biome.
-		const cleaned = text
-			.replace(/^\s*\/\/.*$/gm, "")
-			.replace(/\/\*[\s\S]*?\*\//g, "")
-			.replace(/,(\s*[}\]])/g, "$1");
-		return JSON.parse(cleaned);
-	} catch {
-		return null;
-	}
-}
+// The JSONC parse moved to tsconfig-text-parse.ts (round 4); re-exported for its importers.
+export { safeJsonParse };
 
 function get(obj: unknown, ...path: string[]): unknown {
 	let node: unknown = obj;
@@ -256,14 +249,15 @@ export function detectConfigLoosening(
 ): ConfigLooseningFinding[] {
 	if (!isConfigFile(filePath)) return [];
 	if (!beforeText) return []; // new file — no loosening to detect
-	const before = safeJsonParse(beforeText);
-	const after = safeJsonParse(afterText);
-	if (!after) return []; // can't parse the proposed file — let tsc/biome catch it.
-
 	const norm = filePath.replace(/\\/g, "/");
 	if (/(?:^|\/)tsconfig.*\.json$/.test(norm)) {
-		return detectTsconfigLoosening(filePath, before, after);
+		const unparseable = tsconfigParseFindings(filePath, beforeText, afterText);
+		if (unparseable.length > 0) return unparseable;
+		return detectTsconfigLoosening(filePath, parseTsconfigObject(beforeText), parseTsconfigObject(afterText));
 	}
+	const before = safeJsonParse(beforeText);
+	const after = safeJsonParse(afterText);
+	if (!after) return []; // can't parse the proposed file — let biome / npm catch it.
 	if (/(?:^|\/)package\.json$/.test(norm)) {
 		return detectPackageJsonLoosening(
 			filePath,
@@ -322,86 +316,161 @@ export function readDiskContent(file: string, cwd: string | undefined): string |
 }
 
 /**
- * Public API — reconstruct the proposed file content for an Edit tool call.
- * Edit/Update carry `old_string` / `new_string`, not `content`, so the
- * config-loosening gate must apply the find-replace itself to obtain the
- * proposed-after content for diffing.
- *
- * Returns `null` when the old_string isn't present or is ambiguous (matches
- * multiple positions). Ambiguous matches require `replace_all` semantics
- * we don't reproduce here — the caller should fail open in that case so a
- * Post-edit pass can still catch the regression.
+ * Public API — the result of ONE unique `old_string` → `new_string`
+ * replacement, or `null` when the old_string is absent, ambiguous, or the
+ * replacement has more than one possible result. Kept for API compatibility;
+ * the gate itself reconstructs through `edit-reconstruction.ts`
+ * (`reconstructToolInput`), which honours `replace_all` and every runner
+ * spelling and fails CLOSED on an undecidable edit (red team 2026-10-21).
  */
 export function reconstructEditContent(
 	currentContent: string,
 	oldString: string,
 	newString: string,
 ): string | null {
-	const idx = currentContent.indexOf(oldString);
-	if (idx < 0) return null;
-	const lastIdx = currentContent.lastIndexOf(oldString);
-	if (idx !== lastIdx) return null; // ambiguous
-	return currentContent.slice(0, idx) + newString + currentContent.slice(idx + oldString.length);
+	const result = reconstructEdit(currentContent, { old_string: oldString, new_string: newString });
+	return result.kind === "decided" && result.contents.length === 1 ? nonNull(result.contents[0]) : null;
+}
+
+/** A config file the gate judges: a known config name, or any `.json` in a tracked tsconfig's extends chain. */
+function isJudgedConfig(absPath: string): boolean {
+	return isConfigFile(absPath) || isTrackedExtendsMember(absPath, parseTsconfigObject);
 }
 
 /**
- * Public API — consumed by `evaluator/pre-tool.ts` on every file-write
- * event. Returns an `ask` decision when an edit to a known config file
- * would loosen a strictness flag relative to HEAD; null otherwise.
- *
- * Handles three tool-input shapes:
- *   - `Write` → uses `tool_input.content` directly.
- *   - `Edit` / `Update` → reads disk + applies `old_string` → `new_string`
- *     replacement to reconstruct the proposed content. Falls back silently
- *     on ambiguous old_strings (so a PostToolUse pass still has a chance
- *     to catch the regression).
- *   - Anything else → null (gate not applicable).
+ * Every config water-line a tool call writes (red team 2026-10-21 round 3): a
+ * V4A patch in any tool (shell heredoc included) or a registry-classified
+ * direct writer in any runner spelling, paths resolved before classification.
  */
-/** Reconstruct proposed content for the non-`content` (Edit/Update) tool-input
- *  shape: reads disk and applies old_string → new_string. Returns null when
- *  the shape doesn't carry a usable old/new string pair, on ambiguous
- *  old_string matches, or when the file isn't present on disk. */
-function reconstructProposedFromOldNew(
-	filePath: string,
-	cwd: string | undefined,
-	toolInput: JsonObject,
-): string | null {
-	const oldString = readOptionalToolString(toolInput.old_string);
-	const newString = readOptionalToolString(toolInput.new_string);
-	if (typeof oldString !== "string" || typeof newString !== "string") return null;
-	const disk = readDiskContent(filePath, cwd);
-	if (disk === null) return null;
-	return reconstructEditContent(disk, oldString, newString);
+function configTargets(event: HarnessEvent): WriteTarget[] {
+	const read = (absPath: string) => readDiskContent(absPath, event.cwd);
+	return toolWriteTargets(event.tool_name ?? "", event.tool_input ?? {}, event.cwd, read, isJudgedConfig);
 }
 
+const TSCONFIG_NAME_RE = /(?:^|\/)tsconfig(?:\.[^/]+)?\.json$/;
+
+/** True when the target is a BLOCKING strictness water-line (tsconfig name, extends member, vitest config). */
+function isBlockingConfig(absPath: string): boolean {
+	return TSCONFIG_NAME_RE.test(absPath) || isVitestConfigFile(absPath) || !isConfigFile(absPath);
+}
+
+/**
+ * Fail-closed decision for a config edit whose result cannot be reconstructed:
+ * a block for a strictness water-line, an ask for package.json. biome.json /
+ * .eslintrc have no detector yet, so an unknown result there loosens nothing
+ * this gate could see.
+ */
+function undecidableConfigDecision(absPath: string, toolName: string, why: string): HarnessDecision | null {
+	const blocking = isBlockingConfig(absPath);
+	if (!blocking && !/(?:^|\/)package\.json$/.test(absPath)) return null;
+	if (blocking && process.env.INTERLINKED_DISABLE_BASELINE_GUARD === "1") return null;
+	return {
+		decision: blocking ? "block" : "ask",
+		reason:
+			`${blocking ? "BLOCKED: " : ""}the config-loosening gate cannot determine what this ${toolName} call would leave in ${absPath} (${why}). ` +
+			"A config water-line edit that cannot be judged is not allowed. Re-issue the change as a Write of the full file content." +
+			(blocking ? " Intentional reset: INTERLINKED_DISABLE_BASELINE_GUARD=1." : ""),
+		rule_id: "config_loosening_gate",
+		severity: "high",
+		category: "config",
+	};
+}
+
+/**
+ * Effective-strictness findings for a tsconfig edit (red team 2026-10-21,
+ * extends-chain redirection): resolves the `extends` chain on the HEAD side
+ * and the proposed side for the edited file and every tracked tsconfig that
+ * extends it, so a repointed `extends`, a new untracked base, or a loosened
+ * extends target is judged by what tsc would actually enforce. Undecidable
+ * comparisons (package specifier, missing target, cycle) only warn.
+ */
+function effectiveTsconfigFindings(
+	filePath: string,
+	proposed: string,
+	previous: string | null,
+	own: readonly ConfigLooseningFinding[],
+	warnings: string[] | undefined,
+): ConfigLooseningFinding[] {
+	const judgment = judgeEffectiveStrictness({
+		filePath,
+		proposed,
+		previous,
+		parse: parseTsconfigObject,
+		trackedFlags: [...TSCONFIG_STRICTNESS_FLAGS, ...INVERTED_STRICTNESS_FLAGS],
+		compare: (subject, before, after) =>
+			detectTsconfigLoosening(subject, { compilerOptions: before }, { compilerOptions: after }),
+	});
+	for (const detail of judgment.undecided) {
+		warnings?.push(`[interlinked:config_loosening_gate] NOT DECIDED: ${detail}; the edit is allowed.`);
+	}
+	const ownRules = new Set(own.map((f) => f.rule));
+	return judgment.findings
+		.filter((e) => !(e.isEditedFile && ownRules.has(e.finding.rule)))
+		.map((e) => ({
+			...e.finding,
+			file: e.subject,
+			message: `effective config of ${e.subject} (extends chain after the edit: ${e.chain.join(" → ")}): ${e.finding.message}`,
+		}));
+}
+
+/**
+ * Public API — consumed by `evaluator/pre-tool-guards.ts` for EVERY tool call
+ * (the registry classifier decides which calls write). Blocks an edit that
+ * loosens tsconfig strictness (a tsconfig*.json or any `.json` in a tracked
+ * tsconfig's extends chain) or a vitest coverage denominator, asks on a
+ * package.json loosening, and fails closed on a target it cannot reconstruct.
+ */
 export function evaluateConfigLooseningForEvent(
 	event: HarnessEvent,
 	warnings?: string[],
 ): HarnessDecision | null {
-	const toolInput = event.tool_input || {};
-	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
-	if (!filePath || !isConfigFile(filePath)) return null;
+	let ask: HarnessDecision | null = null;
+	for (const target of configTargets(event)) {
+		const decisions =
+			target.proposed.kind === "undecidable"
+				? [undecidableConfigDecision(target.filePath, event.tool_name ?? "this tool", target.proposed.reason)]
+				: target.proposed.contents.map((proposed) => judgeConfigProposal(target, proposed, warnings));
+		for (const decision of decisions) {
+			if (decision?.decision === "block") return decision;
+			ask ??= decision;
+		}
+	}
+	return ask;
+}
 
-	const content = readOptionalToolString(toolInput.content);
-	const proposed =
-		typeof content === "string" ? content : reconstructProposedFromOldNew(filePath, event.cwd, toolInput);
-	if (proposed === null) return null;
-
-	const head = readHeadVersion(filePath);
+/** Judge one reconstructed result of one config target. */
+function judgeConfigProposal(
+	target: WriteTarget,
+	proposed: string,
+	warnings: string[] | undefined,
+): HarnessDecision | null {
+	const filePath = target.filePath;
+	// Git reports canonical paths, so a path through a symlink still finds HEAD.
+	const head = readHeadVersion(canonicalPath(filePath));
 	// Vitest/vite arm: the coverage denominator is a ratchet water-line, not a
 	// JSON strictness flag, so it has its own AST comparison and its own
 	// (blocking) verdict. Same bypass env as the tsconfig arm below.
 	if (isVitestConfigFile(filePath)) {
 		return evaluateVitestCoverageWaterLine(filePath, head, proposed, warnings);
 	}
-	const findings = detectConfigLoosening(filePath, head, proposed);
-	if (findings.length === 0) return null;
-	const messages = findings.map((f) => `[${f.rule}] ${f.message}`).join("\n  ");
+	// An extends member of any name is a tsconfig too: it gets the parse rule (round 4).
+	const findings = isConfigFile(filePath)
+		? detectConfigLoosening(filePath, head, proposed)
+		: tsconfigParseFindings(filePath, head, proposed);
 	// tsconfig strictness is a RATCHET water-line like the `.interlinked/`
 	// baselines (2026-09-01): loosening it defeats every type-level check at
 	// once, so it BLOCKS rather than asks. package.json / biome loosening
-	// keeps the ask-mode confirmation. Same bypass as the baseline gate.
-	const isTsconfig = /(?:^|\/)tsconfig(?:\.[^/]+)?\.json$/.test(filePath.replace(/\\/g, "/"));
+	// keeps the ask-mode confirmation. Same bypass as the baseline gate. A
+	// `.json` of any name in a tracked tsconfig's extends chain is judged the
+	// same way (round 3, WF6).
+	const isTsconfig = TSCONFIG_NAME_RE.test(filePath) || !isConfigFile(filePath);
+	if (isTsconfig) {
+		findings.push(
+			...effectiveTsconfigFindings(canonicalPath(filePath), proposed, target.before, findings, warnings),
+		);
+	}
+	if (findings.length === 0) return null;
+	const messages = findings.map((f) => `[${f.rule}] ${f.message}`).join("\n  ");
 	if (isTsconfig && process.env.INTERLINKED_DISABLE_BASELINE_GUARD !== "1") {
 		return {
 			decision: "block",

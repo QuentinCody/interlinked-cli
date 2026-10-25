@@ -78,7 +78,7 @@ function parseEntry(raw: unknown): GrandfatheredFunction | null {
 	return { file, name, line, value };
 }
 
-function parseMetricLedger(raw: unknown): MetricLedger | null {
+export function parseMetricLedger(raw: unknown): MetricLedger | null {
 	if (!isJsonObject(raw) || !isFiniteNumber(raw.cap) || !Array.isArray(raw.entries)) return null;
 	const entries: GrandfatheredFunction[] = [];
 	for (const e of raw.entries) {

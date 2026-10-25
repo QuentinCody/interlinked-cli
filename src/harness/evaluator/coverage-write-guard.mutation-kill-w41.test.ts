@@ -324,10 +324,12 @@ describe("coverage-write-guard — scope re-anchor decision text + exact percent
 	// (nonzero, non-100%) fraction into the message; a `&&` mutant collapses any
 	// truthy fraction to 0 in the formatted percentage.
 	it("re-anchors with decision 'allow' and the CORRECT (nonzero, non-100%) now-fraction in the warning", async () => {
-		// Legacy scope-less 100% baseline; measured now = 50% (one covered fn, one
-		// fully uncovered) -> re-anchor branch, covOut.now = 0.5 (truthy, nonzero).
-		// A `covOut.now && 0` mutant collapses this to 0% in the message.
-		writeFileCoverageBaseline(root, "src/a.ts", 1);
+		// Scoped 40% baseline (no full-suite high-water); measured now = 50% under
+		// the full suite (one covered fn, one fully uncovered) -> upward re-anchor
+		// branch, covOut.now = 0.5 (truthy, nonzero). A `covOut.now && 0` mutant
+		// collapses this to 0% in the message. (A legacy 100% baseline no longer
+		// re-anchors DOWN — red-team 2026-10-21 round 2.)
+		writeFileCoverageBaseline(root, "src/a.ts", 0.4, "scoped:0123456789ab");
 		const result = coverageResult("src/a.ts", [
 			{ name: "stillCovered", line: 1, endLine: 2, hits: 5, statement_pct: 100 },
 			{ name: "offEditUncovered", line: 40, endLine: 42, hits: 0, statement_pct: 0 },
@@ -479,17 +481,26 @@ describe("coverage-write-guard — budget-gate equality boundary (837285ef)", ()
 
 describe("coverage-write-guard — drop_epsilon override cluster (24cdb730, f9a919c, 2d619c1b, b57ae40b, 16015c8f, 6d897785)", () => {
 	// test-contract: invariant — a valid numeric `drop_epsilon >= 0` must override the default COVERAGE_DROP_EPSILON; a mutant that skips the override always uses the tighter default.
+	// Since the 2026-10-21 red team (V16) a LOOSER-than-default tolerance applies only under the documented
+	// operator escape in the daemon environment; without it the value is ignored with a warning.
 	it("A: a valid positive drop_epsilon tolerates a real drop that the default epsilon would block", async () => {
-		writeFileCoverageBaseline(root, "src/a.ts", 1, "full");
-		const result = coverageResult("src/a.ts", [
-			{ name: "f", line: 1, endLine: 3, hits: 5, statement_pct: 90 }, // 10% drop
-		]);
-		const decision = await checkCoverageWrite(
-			writeEvent("src/a.ts", "export function f() {\n  return 1;\n}\n"),
-			rules({ drop_epsilon: 0.5 }),
-			deps(stubOverlayRunner(result)),
-		);
-		expect(decision).toBeNull();
+		const prior = process.env.INTERLINKED_DISABLE_BASELINE_GUARD;
+		process.env.INTERLINKED_DISABLE_BASELINE_GUARD = "1";
+		try {
+			writeFileCoverageBaseline(root, "src/a.ts", 1, "full");
+			const result = coverageResult("src/a.ts", [
+				{ name: "f", line: 1, endLine: 3, hits: 5, statement_pct: 90 }, // 10% drop
+			]);
+			const decision = await checkCoverageWrite(
+				writeEvent("src/a.ts", "export function f() {\n  return 1;\n}\n"),
+				rules({ drop_epsilon: 0.5 }),
+				deps(stubOverlayRunner(result)),
+			);
+			expect(decision).toBeNull();
+		} finally {
+			if (prior === undefined) delete process.env.INTERLINKED_DISABLE_BASELINE_GUARD;
+			else process.env.INTERLINKED_DISABLE_BASELINE_GUARD = prior;
+		}
 	});
 
 	// test-contract: boundary — `cfg.drop_epsilon >= 0` must reject a negative value; a forced-true mutant applies -1 as the tolerance and false-blocks a clean edit.

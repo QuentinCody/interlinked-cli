@@ -7,6 +7,8 @@
 // out of helpers.ts to keep both files under the per-file line cap. No IO, no
 // network, no Date.now.
 
+import { type GitInvocation, listGitInvocations } from "../evaluator/commit-parse.js";
+import { COMMIT_VALUE_FLAGS, isAllFlag, shortClusterTakesValue } from "../evaluator/commit-parse-tokens.js";
 import { shellSplit, splitSegments as shellSegments, stripLeadingPrefix } from "../shell-structure.js";
 import {
 	hasEgressVerb,
@@ -155,84 +157,78 @@ export function editAddsDisabledRule(oldStr: string, newStr: string): boolean {
 // Git hook triggers + commit/add
 // ===========================================
 
-/** The hook a git verb in the command would trigger, or null. */
+// Every helper below reads git invocations from THE canonical lexer
+// (`listGitInvocations`, commit-parse.ts), the same one the commit gate uses:
+// quotes, `#` comments and heredoc bodies are data; git global options (`-C`,
+// `-c`, `--git-dir`), an absolute `/usr/bin/git`, and `env` / `command` / `VAR=`
+// prefixes are seen through; `commit-tree` is a different verb from `commit`
+// (red-team 2026-10-21 round 4).
+
+/** The hook family each porcelain verb fires (a Map, so `constructor` is no verb). */
+const GIT_HOOK_BY_VERB: ReadonlyMap<string, string> = new Map([
+	["commit", "pre-commit"],
+	["push", "pre-push"],
+	["merge", "post-merge"],
+	["checkout", "post-checkout"],
+	["switch", "post-checkout"],
+	["rebase", "pre-rebase"],
+	["am", "applypatch-msg"],
+]);
+
+/** The hook the first hook-firing git verb in the command would trigger, or null. */
 export function triggersGitHook(cmd: string): string | null {
-	for (const seg of splitSegments(cmd)) {
-		if (!/\bgit\b/.test(seg)) continue;
-		if (/\bgit\s+commit\b/.test(seg)) return "pre-commit";
-		if (/\bgit\s+push\b/.test(seg)) return "pre-push";
-		if (/\bgit\s+merge\b/.test(seg)) return "post-merge";
-		if (/\bgit\s+(?:checkout|switch)\b/.test(seg)) return "post-checkout";
-		if (/\bgit\s+rebase\b/.test(seg)) return "pre-rebase";
-		if (/\bgit\s+am\b/.test(seg)) return "applypatch-msg";
+	for (const inv of listGitInvocations(cmd)) {
+		const hook = GIT_HOOK_BY_VERB.get(inv.verb);
+		if (hook) return hook;
 	}
 	return null;
 }
 
-/** True iff the command stages or commits via git. */
+function isAddOrCommit(inv: GitInvocation): boolean {
+	return inv.verb === "add" || inv.verb === "commit";
+}
+
+/** True iff the command stages or commits via git (porcelain `add` / `commit`). */
 export function isGitAddOrCommit(cmd: string): boolean {
-	return /\bgit\s+(?:add|commit)\b/.test(cmd);
+	return listGitInvocations(cmd).some(isAddOrCommit);
 }
 
-/** Whitespace-split a command segment into tokens, treating single/double-quoted
- *  runs as one token (quotes stripped) so a quoted `-m` message stays one arg. */
-function tokenizeArgs(seg: string): string[] {
-	const out: string[] = [];
-	const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-	let m = re.exec(seg);
-	while (m !== null) {
-		out.push(m[1] ?? m[2] ?? m[3] ?? "");
-		m = re.exec(seg);
-	}
-	return out;
-}
-
-/** Positional PATH args of a `git add`/`git commit` segment — the git verb,
- *  flags, and the `-m`/`-F`/`--message`/`--file` VALUE are dropped, so a filename
- *  that appears only inside a commit message is never treated as a staged path. */
-function gitPathArgs(seg: string): string[] {
-	const tokens = tokenizeArgs(seg);
-	const start = tokens.indexOf("git");
-	const out: string[] = [];
-	for (let i = start >= 0 ? start + 2 : 0; i < tokens.length; i++) {
-		const t = tokens[i];
-		if (!t || t === "--") continue;
-		if (t === "-m" || t === "--message" || t === "-F" || t === "--file") {
-			i++; // drop the flag's value too
+/** Read paths and broad staging together so option values cannot become flags
+ * or paths. The pathspec list file is not itself staged. Commit short-option
+ * semantics come from the canonical parser. */
+function stagingScope(inv: GitInvocation): { paths: string[]; broad: boolean } {
+	const paths: string[] = [];
+	let all = false;
+	for (let i = 0; i < inv.args.length; i++) {
+		const token = inv.args[i] ?? "";
+		if (token === "--") {
+			paths.push(...inv.args.slice(i + 1).filter(Boolean));
+			break;
+		}
+		if (!token.startsWith("-")) {
+			paths.push(token);
 			continue;
 		}
-		if (t.startsWith("-")) continue; // any other flag (incl. -a, -am, --amend)
-		out.push(t);
+		if (inv.verb === "commit") {
+			all ||= isAllFlag(token);
+			i += COMMIT_VALUE_FLAGS.has(token) || shortClusterTakesValue(token) ? 1 : 0;
+		} else all ||= token === "-A" || token === "--all" || token === "-u" || token === "--update";
+		if (token === "--pathspec-from-file") i++;
 	}
-	return out;
+	return { paths, broad: inv.verb === "commit" ? all : (all && paths.length === 0) || paths.includes(".") };
 }
 
-/** True iff a git add/commit SEGMENT names `filePath` as a positional path arg,
- *  matched by exact-path or basename equality (so `.env` does NOT match `.env.example`). */
-function segStagesNamedPath(seg: string, filePath: string, base: string): boolean {
-	if (!/\bgit\s+(?:add|commit)\b/.test(seg)) return false;
-	return gitPathArgs(seg).some((arg) => arg === filePath || (arg.split("/").pop() ?? arg) === base);
-}
-
-/** True iff a `git add`/`commit` segment stages the WHOLE worktree/index:
- *  `commit -a`/`-am` (a single-dash flag containing `a`) or `add .`/`-A`/`--all`.
- *  Token-based (no nested-quantifier regex; a flag inside a quoted `-m` message is
- *  one token and never counts). */
-function segStagesEverything(seg: string): boolean {
-	const isCommit = /\bgit\s+commit\b/.test(seg);
-	const isAdd = /\bgit\s+add\b/.test(seg);
-	for (const t of tokenizeArgs(seg)) {
-		if (isCommit && t.startsWith("-") && !t.startsWith("--") && t.includes("a")) return true;
-		if (isAdd && (t === "." || t === "-A" || t === "--all")) return true;
-	}
-	return false;
-}
-
-/** True iff a git add/commit would include `filePath` (named, `add .`/`-A`, or `commit -a`). */
+/** True iff a git add/commit would include `filePath` (named, `add .`/`-A`, or `commit -a`).
+ *  A named path matches by exact path or basename (so `.env` does NOT match `.env.example`). */
 export function commitReferencesPath(cmd: string, filePath: string): boolean {
 	const base = filePath.split("/").pop() ?? filePath;
-	return splitSegments(cmd).some(
-		(seg) => segStagesEverything(seg) || segStagesNamedPath(seg, filePath, base),
+	const named = (arg: string): boolean => arg === filePath || (arg.split("/").pop() ?? arg) === base;
+	return listGitInvocations(cmd).some(
+		(inv) => {
+			if (!isAddOrCommit(inv)) return false;
+			const scope = stagingScope(inv);
+			return scope.broad || scope.paths.some(named);
+		},
 	);
 }
 

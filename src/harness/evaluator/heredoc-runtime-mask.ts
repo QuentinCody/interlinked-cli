@@ -37,6 +37,7 @@
 // that adds a pipe is not visible to any text check.
 
 import { nonNull } from "../../lib/non-null.js";
+import { leadingCommand } from "./commit-parse-shell.js";
 import { scanShellPrefix } from "./shell-prefix-scan.js";
 
 const NON_SHELL_RUNTIME_RE = /^(?:python[\w.]*|pypy[\w.]*|node|nodejs|deno|bun|tsx)$/;
@@ -160,9 +161,13 @@ function headerRouted(headerRest: string): boolean {
 	return piped || FD_ROUTE_RE.test(headerRest);
 }
 
+/** The command a heredoc feeds when nothing precedes it on its line
+ *  (`<<'EOF' python3`): the head command of the header, segmented by the
+ *  canonical scan, so a quoted `;` stays data. A header that opens with a
+ *  separator (`<<'EOF'; python3`) feeds an empty command, not the runtime. */
 function runtimeTarget(segmentBefore: string, headerRest: string): string | null {
 	const before = segmentBefore.trim();
-	const text = before || (headerRest.split(/[;|&]/)[0] ?? "").trim();
+	const text = before || leadingCommand(headerRest).trim();
 	return strictRuntimeWord(text.split(/\s+/).filter(Boolean));
 }
 

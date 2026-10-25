@@ -69,6 +69,9 @@ vi.mock("./baseline-integrity-gate.js", () => ({
 }));
 vi.mock("./baseline-bash-guard.js", () => ({
 	baselineBashWriteRefusal: mocks.baselineBashWriteRefusal,
+	// Config-loosening Bash arm (red team 2026-10-21); null here so the
+	// existing "Bash never reaches evaluateConfigLooseningForEvent" pin holds.
+	configBashWriteRefusal: () => null,
 }));
 vi.mock("./manifest-edit-guard.js", () => ({ evaluateManifestEdit: mocks.evaluateManifestEdit }));
 vi.mock("./pre-tool-helpers.js", () => ({

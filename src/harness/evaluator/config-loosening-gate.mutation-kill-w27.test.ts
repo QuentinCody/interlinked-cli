@@ -6,6 +6,7 @@
 
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnessEvent } from "../types.js";
 import {
@@ -40,11 +41,46 @@ function makeWriteEvent(toolInput: Record<string, unknown>, cwd?: string): Harne
 
 beforeEach(() => {
 	vi.resetAllMocks();
+	vi.stubEnv("INTERLINKED_DISABLE_BASELINE_GUARD", "");
 	mockExists.mockReturnValue(false);
 });
 
 afterEach(() => {
 	vi.clearAllMocks();
+	vi.unstubAllEnvs();
+});
+
+describe("config input boundaries", () => {
+	it.each([undefined, "/fixture/config-project"])("resolves relative disk reads against the selected cwd (%s)", (cwd) => {
+		mockExists.mockReturnValue(true);
+		mockReadFile.mockReturnValue("known config bytes");
+		expect(readDiskContent("tsconfig.json", cwd)).toBe("known config bytes");
+		expect(mockReadFile).toHaveBeenCalledWith(resolve(cwd ?? process.cwd(), "tsconfig.json"), "utf-8");
+	});
+
+	it("ignores an event without a tool input", () => {
+		const { tool_input: _input, ...event } = makeWriteEvent({});
+		expect(evaluateConfigLooseningForEvent(event)).toBeNull();
+		expect(mockSpawn).not.toHaveBeenCalled();
+	});
+
+	it("honors the daemon bypass for an undecidable strictness write", () => {
+		vi.stubEnv("INTERLINKED_DISABLE_BASELINE_GUARD", "1");
+		expect(evaluateConfigLooseningForEvent(makeWriteEvent({ file_path: "tsconfig.json" }))).toBeNull();
+		expect(mockSpawn).not.toHaveBeenCalled();
+	});
+
+	it("fails closed on an unapplicable config patch even without a tool name", () => {
+		mockExists.mockReturnValue(true);
+		mockReadFile.mockReturnValue('{"compilerOptions":{"strict":true}}');
+		const { tool_name: _name, ...event } = makeWriteEvent({
+			_raw_patch: "*** Begin Patch\n*** Update File: /repo/tsconfig.json\n@@\n-not the current content\n+{}\n*** End Patch",
+		});
+		const decision = evaluateConfigLooseningForEvent(event);
+		expect(decision).toMatchObject({ decision: "block", rule_id: "config_loosening_gate" });
+		expect(decision?.reason).toContain("this tool");
+		expect(mockSpawn).not.toHaveBeenCalled();
+	});
 });
 
 describe("detectConfigLoosening — isConfigFile gate ordering", () => {
@@ -191,14 +227,14 @@ describe("evaluateConfigLooseningForEvent — outer applicability gate", () => {
 
 	// test-contract: public-api — a bare .eslintrc (no extension) must still be
 	// recognized as a config file worth checking (the extension group is
-	// optional), so the gate must issue the rev-parse lookup for it — the
-	// recorded arg vector (dirname resolves to ".") is the observable proof.
-	it("treats a bare .eslintrc (no extension) as a config file", () => {
+	// optional), and its relative path must resolve against the event's cwd
+	// before Git chooses the repository rather than the harness process's cwd.
+	it.each([undefined, "/fixture/config-project"])("treats a bare .eslintrc as a config file with cwd %s", cwd => {
 		mockSpawn.mockReturnValueOnce(spawnResult(1, ""));
-		evaluateConfigLooseningForEvent(makeWriteEvent({ file_path: ".eslintrc", content: "x" }));
+		evaluateConfigLooseningForEvent(makeWriteEvent({ file_path: ".eslintrc", content: "x" }, cwd));
 		expect(mockSpawn.mock.calls[0]).toEqual([
 			"git",
-			["-C", ".", "rev-parse", "--show-toplevel"],
+			["-C", cwd ?? process.cwd(), "rev-parse", "--show-toplevel"],
 			expect.objectContaining({ encoding: "utf-8" }),
 		]);
 	});
@@ -213,21 +249,26 @@ describe("evaluateConfigLooseningForEvent — outer applicability gate", () => {
 		expect(mockSpawn).not.toHaveBeenCalled();
 	});
 
-	// test-contract: boundary — a non-string old_string must not trigger the
-	// Edit-reconstruction path (disk must never even be probed).
-	it("does not read disk content when old_string is not a string", () => {
+	// test-contract: boundary — a malformed edit of a strictness water-line
+	// fails closed even if coercing old_string would find a real disk substring.
+	it("blocks a non-string old_string without coercing it or comparing a fabricated result to HEAD", () => {
+		mockExists.mockReturnValue(true);
+		mockReadFile.mockReturnValue('{ "compilerOptions": { "strict": true }, "marker": 42 }');
 		const decision = evaluateConfigLooseningForEvent(
 			makeWriteEvent({ file_path: "tsconfig.json", old_string: 42, new_string: "43" }),
 		);
-		expect(decision).toBeNull();
-		expect(mockExists).not.toHaveBeenCalled();
+		expect(decision).toMatchObject({ decision: "block", rule_id: "config_loosening_gate", category: "config" });
+		expect(decision?.reason).toContain("no edit entry has string old_string and new_string");
+		expect(mockSpawn).not.toHaveBeenCalled();
 	});
 
 	// test-contract: boundary — when no content and no reconstructable edit
-	// produced a proposed body, the gate must stop before any git HEAD lookup.
-	it("does not compute a git HEAD diff when no proposed body was produced", () => {
+	// produced a proposed body, refuse the unjudgeable write before a HEAD lookup.
+	it("blocks a config write with no proposed body before computing a git HEAD diff", () => {
 		const decision = evaluateConfigLooseningForEvent(makeWriteEvent({ file_path: "tsconfig.json" }));
-		expect(decision).toBeNull();
+		expect(decision).toMatchObject({ decision: "block", rule_id: "config_loosening_gate", category: "config" });
+		expect(decision?.reason).toContain("neither full `content` nor a str-replace edit");
+		expect(decision?.reason).toContain("Write of the full file content");
 		expect(mockSpawn).not.toHaveBeenCalled();
 	});
 });

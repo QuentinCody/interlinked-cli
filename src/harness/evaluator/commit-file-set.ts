@@ -17,7 +17,8 @@ import { realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import type { SessionTrajectory } from "../types.js";
 import { defaultGitChangedFiles, defaultResolveRepoRoot } from "./commit-gate-changes.js";
-import { shellSplit, splitSegments } from "./commit-parse-tokens.js";
+import { splitSegments } from "./commit-parse-shell.js";
+import { shellSplit } from "./commit-parse-tokens.js";
 
 export interface CommitFileSetDeps {
 	resolveRepoRoot: (dir: string) => string | null;

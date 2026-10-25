@@ -62,6 +62,15 @@ function sourceEdits(n: number, newStr = TEN_LINES): ToolEvent[] {
 }
 
 describe("Family 7 — verification discipline (positive: rules fire)", () => {
+    it("retains the edit-streak nudge when a restored event window has an empty slot", () => {
+        const state = createState("s1"), edits = sourceEdits(8);
+        state.recentEvents = [...edits.slice(0, 4), ...new Array<ToolEvent>(1), ...edits.slice(4)];
+        const last = edits[7]!;
+        expect(vdCodeEditStreakNoVerify(state, last)).toMatchObject({
+            ruleId: "vd_code_edit_streak_no_verify", action: "nudge", severity: "medium",
+            reason: expect.stringContaining("8 source edits (~88 lines)"),
+        });
+    });
 	it("vd_code_edit_streak_no_verify fires at 8 source edits + ≥60 lines with no verifier", () => {
 		const v = run(vdCodeEditStreakNoVerify, sourceEdits(8));
 		expect(v?.ruleId).toBe("vd_code_edit_streak_no_verify");

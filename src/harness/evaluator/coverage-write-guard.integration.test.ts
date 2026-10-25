@@ -286,11 +286,10 @@ describe("checkCoverageWrite — block / allow decisions", () => {
 		expect(decision?.reason).toMatch(/drop|decreas/i);
 	});
 
-	it("RE-ANCHORS (allow + warning) when the prior baseline was earned under a different scope", async () => {
-		// A legacy scope-less 100% baseline (the 59-landmines shape): a narrower
-		// scope reading 66% must NOT block — it re-anchors and warns. This is the
-		// bio staging/utils.ts fix, end-to-end through checkCoverageWrite.
-		writeFileCoverageBaseline(root, "src/a.ts", 1);
+	it("RE-ANCHORS (allow + warning) upward when the prior baseline was earned under a different scope", async () => {
+		// A scoped 40% baseline; the full suite now reads 50% — a higher
+		// measurement under a changed scope re-anchors and warns.
+		writeFileCoverageBaseline(root, "src/a.ts", 0.4, "scoped:0123456789ab");
 		const result = coverageResult("src/a.ts", [
 			{ name: "stillCovered", line: 1, endLine: 2, hits: 5, statement_pct: 100 },
 			{ name: "offEditUncovered", line: 40, endLine: 42, hits: 0, statement_pct: 0 },
@@ -302,6 +301,24 @@ describe("checkCoverageWrite — block / allow decisions", () => {
 		);
 		expect(decision?.decision).toBe("allow");
 		expect(decision?.warnings?.join(" ")).toMatch(/re-anchored/);
+	});
+
+	it("BLOCKS a legacy scope-less 100% baseline measured at 50% under the full suite (red-team 2026-10-21 round 2)", async () => {
+		// A legacy bare number is a full-suite high-water. The full suite now reads
+		// 50%: a real drop, not a scope change (this used to re-anchor DOWN).
+		writeFileCoverageBaseline(root, "src/a.ts", 1);
+		const result = coverageResult("src/a.ts", [
+			{ name: "stillCovered", line: 1, endLine: 2, hits: 5, statement_pct: 100 },
+			{ name: "offEditUncovered", line: 40, endLine: 42, hits: 0, statement_pct: 0 },
+		]);
+		const decision = await checkCoverageWrite(
+			writeEvent("src/a.ts", "export function stillCovered() { return 1; }\n"),
+			rules(),
+			deps(stubRunner(result).runner),
+		);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("from 100.0% to 50.0%, its full-suite high-water");
+		expect(readFileCoverageBaseline(root, "src/a.ts")).toBe(1);
 	});
 
 	it("refreshes the per-file baseline after an allowed edit", async () => {

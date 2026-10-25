@@ -5,6 +5,13 @@ description: "Install, operate, and troubleshoot the Interlinked CLI harness in 
 
 # interlinked-setup — install, operate & troubleshoot the harness
 
+Hook project discovery walks up from the tool call's cwd to a configured ancestor:
+`.interlinked/config.json`, `guard-rules.json`, `harness.pid`, or a socket marks a
+project. A descendant directory containing only hook receipts or prediction state
+does not shadow that ancestor. An explicitly marked nested project retains its own
+identity. If no configured ancestor exists within the bounded walk, the nearest
+`.interlinked/` remains the fallback; directory presence alone does not prove a live daemon.
+
 The local guard-prediction oracle defaults to `shadow`, independently of the
 optional Supermodel graph protocol. Shared `.interlinked/config.json` accepts
 `harness.guard_prediction.mode: "enforced" | "shadow" | "off"`. Use

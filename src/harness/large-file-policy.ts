@@ -19,7 +19,8 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
-import { isGeneratedFile, isTestSourcePath } from "./checks/shared.js";
+import { isTestSourcePath } from "./checks/shared.js";
+import { isCodegenDataModule, isHonoredGeneratedFile } from "./exemption-marker-budget.js";
 import { maxLinesOverride } from "./metric-caps.js";
 
 /**
@@ -40,9 +41,9 @@ import { maxLinesOverride } from "./metric-caps.js";
  */
 export const DEFAULT_MAX_LINES = 500;
 
-/** Repo-relative path of the baseline file. Module-private — callers go
- *  through `loadLargeFileBaseline` / `maxLinesFor`. */
-const LARGE_FILE_BASELINE_REL = ".interlinked/large-files-baseline.json";
+/** Repo-relative path of the baseline file. Runtime callers go through
+ *  `loadLargeFileBaseline` / `maxLinesFor`; the integrity gate reads it fresh. */
+export const LARGE_FILE_BASELINE_REL = ".interlinked/large-files-baseline.json";
 
 /**
  * Extensions where a high line count is not a code-legibility problem:
@@ -182,7 +183,7 @@ interface RawBaseline {
 }
 
 /** Validate + normalize a parsed baseline; returns null when unusable. */
-function normalizeBaseline(raw: unknown): LargeFileBaseline | null {
+export function normalizeBaseline(raw: unknown): LargeFileBaseline | null {
 	if (typeof raw !== "object" || raw === null) return null;
 	const obj: RawBaseline = raw;
 	if (typeof obj.max_lines !== "number" || obj.max_lines <= 0) return null;
@@ -279,24 +280,27 @@ export function isTestOrSpecPath(filePath: string): boolean {
 /**
  * Content marker that exempts a file from the per-file line cap WITHOUT marking
  * it `@generated` everywhere. For hand-maintained codegen-DATA modules whose
- * bulk is a large template string or data table emitted verbatim into generated
- * output (e.g. the `.mjs` hook-script chunks under `src/lib/hook-template-chunks/`
- * and `src/lib/hooks-template.ts`): there the line count measures the size of
- * the emitted artifact, not module complexity, so the cap is a false signal.
- * Sharding such a file scatters one artifact across modules for no legibility
- * win and adds byte-identical-output invariants — exempting it is the right call.
+ * bulk is a template string or data table emitted verbatim into generated
+ * output (the `.mjs` hook-script chunks under `src/lib/hook-template-chunks/`,
+ * `src/lib/hooks-template.ts`): the line count measures the emitted artifact,
+ * not module complexity, and sharding it scatters one artifact for no win.
+ * Unlike `@generated` (which suppresses many OTHER checks) this marker is
+ * scoped to the cap: tsc/lint/secrets still run. Bounded scan: first 20 lines
+ * only (mirrors `isGeneratedFile`), so the marker must sit in the header.
  *
- * Unlike `@generated` — which `isGeneratedFile` uses to suppress many OTHER
- * checks — this marker is scoped to the line cap alone: tsc/lint/secrets/etc.
- * still run on the file. Bounded scan: first 20 lines only (mirrors
- * `isGeneratedFile`), so the marker must sit in the file header, never buried
- * in the data body.
+ * THE MARKER ALONE EXEMPTS NOTHING, and neither does a generator header
+ * (`@generated`, "Code generated … DO NOT EDIT.", …): both are honored only
+ * when the content's EXECUTABLE code — interpolation code included — is
+ * within the data branch budget. The predicate, the lexer and the rationale
+ * live in `exemption-marker-budget.ts` (red-team 2026-10-21).
  */
-const CODEGEN_DATA_MARKER = "@codegen-data";
-
-function hasCodegenDataMarker(content: string): boolean {
-	return content.split("\n", 20).join("\n").includes(CODEGEN_DATA_MARKER);
-}
+export {
+	CODEGEN_DATA_BRANCH_BUDGET,
+	codegenDataMarkerDenial,
+	generatorMarkerDenial,
+	isCodegenDataModule,
+	isHonoredGeneratedFile,
+} from "./exemption-marker-budget.js";
 
 /** Resolve a path for containment comparison: lexical resolve + realpath.
  *  Realpath matters because tmp trees are exactly where symlinked prefixes
@@ -360,9 +364,10 @@ export function isInsideRoot(root: string, filePath: string): boolean {
  * Whether the per-file line cap applies to this file. True only for
  * hand-written code modules INSIDE the guarded repo. Exempt: files outside
  * `root` (when given), `.interlinked/` tool-state/probe files, generated
- * files (by path or content marker), codegen-DATA modules (a `@codegen-data`
- * header marker), `.d.ts` declarations, test/spec files, and non-code files
- * (docs, HTML/markup, structured data, diffs/patches, vector art).
+ * files (by path, or by a generator header on branch-free content —
+ * `isHonoredGeneratedFile`), codegen-DATA modules (a `@codegen-data` header on
+ * branch-free content — `isCodegenDataModule`), `.d.ts` declarations,
+ * test/spec files, and non-code files (docs, markup, data, diffs, vector art).
  *
  * Root confinement: the cap is the guarded repo's maintainability policy —
  * its baseline lives at `<root>/.interlinked/` — so a file outside the root
@@ -388,8 +393,8 @@ export function isHandwrittenCodeFile(
 	if (DOCUMENTATION_PATH_RE.test(norm)) return false;
 	if (CONFIG_ARTIFACT_RE.test(norm)) return false;
 	if (isNonProductArtifactPath(norm)) return false;
-	if (isGeneratedFile(file.content)) return false;
-	if (hasCodegenDataMarker(file.content)) return false;
+	if (isHonoredGeneratedFile(file.content, norm)) return false;
+	if (isCodegenDataModule(file.content, norm)) return false;
 	return true;
 }
 

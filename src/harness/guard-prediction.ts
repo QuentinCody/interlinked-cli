@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } fro
 import { isAbsolute, join, relative } from "node:path";
 import type { SharedConfig } from "../lib/config.js";
 import { withFileMutationLock } from "../lib/file-mutation-lock.js";
+import { findRepoRoot } from "../lib/interlinked-root.js";
 import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { extractApplyPatchRaw, looksLikeApplyPatch, parseApplyPatchSections } from "./apply-patch-content.js";
 import { isFileWrite } from "./evaluator/tool-classifiers.js";
@@ -29,7 +30,10 @@ const PREFIX = "[interlinked:guard-prediction]";
 const STATE = ".interlinked/predictions";
 const MAX_SOURCE_BYTES = 2_000_000;
 interface Admission { kind: ProtocolRow["kind"]; session: string; proposalId: string; nonce?: string; invocation?: string; }
-interface GuardRun { event: HarnessEvent; cwd: string; mode: GuardPredictionMode; pending: ProtocolRow[]; }
+/** `root` is the PROJECT (state, receipts and file keys), never the folder the session happens to be in: keyed to the
+ *  session's cwd, an edit to `src/` made from `scratch/probe` was skipped as outside the project and the ledger
+ *  created a stray `scratch/probe/.interlinked/` (2026-10-22). Tool-input paths still resolve from the cwd. */
+interface GuardRun { event: HarnessEvent; root: string; mode: GuardPredictionMode; pending: ProtocolRow[]; }
 
 function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 
@@ -133,9 +137,9 @@ function record(cwd: string, row: ProtocolRow, dryRun: boolean | undefined): voi
 }
 
 function reconcile(run: GuardRun, proposal: Proposal, changes: GuardChange[]): HarnessDecision | null {
-    const { event, cwd, mode, pending } = run;
-    const rows = readRows(cwd).filter(row => row.session === event.session_id && row.proposalId === proposal.id);
-    const receipt = readReceipt(cwd, event.session_id, proposal, changes);
+    const { event, root, mode, pending } = run;
+    const rows = readRows(root).filter(row => row.session === event.session_id && row.proposalId === proposal.id);
+    const receipt = readReceipt(root, event.session_id, proposal, changes);
     const revealed = rows.some(row => row.kind === "reveal");
     const accepted = rows.find(row => row.kind !== "reveal" && row.nonce === receipt?.nonce);
     const invocation = event.tool_use_id;
@@ -150,22 +154,22 @@ function reconcile(run: GuardRun, proposal: Proposal, changes: GuardChange[]): H
         pending.push({ ...row, nonce: receipt.nonce, ...(receipt.rationale ? { rationale: receipt.rationale } : {}) });
         return null;
     }
-    if (!revealed) record(cwd, row, event.dry_run);
+    if (!revealed) record(root, row, event.dry_run);
     if (mode === "shadow") return {
         decision: "allow",
         warnings: [`${PREFIX} Advisory: ${changes.length} guard-scope change(s) in ${proposal.file}. Review the intended behavior and relevant tests. This is not a proven bug; no declaration receipt is required. Details retained in ${STATE}/guard-events.jsonl.`],
     };
     return refusal(`Unpredicted or unreconciled if-guard change in ${proposal.file}. ` +
-        `This is a scope change, not a proven bug. Correct the edit or declare the exact intended changes in ${guardReceiptPath(cwd, event.session_id, proposal.id)}. ` +
+        `This is a scope change, not a proven bug. Correct the edit or declare the exact intended changes in ${guardReceiptPath(root, event.session_id, proposal.id)}. ` +
         `After this reveal include reconcile: "${proposal.id}", a rationale and a declaration nonce. ` +
         `Receipt fields: ${JSON.stringify({ version: 1, session: event.session_id, ...proposal, changes })}`, mode);
 }
 
 function inspectChange(run: GuardRun, change: ProjectedFileChange): HarnessDecision | null {
-    const { cwd } = run;
+    const { root } = run;
     if (!change.existed || change.deleted || !/\.[cm]?[jt]sx?$/i.test(change.path)) return null;
     const path = realpathSync(change.sourcePath);
-    const file = relative(cwd, path);
+    const file = relative(root, path);
     if (file === ".." || file.startsWith("../") || isAbsolute(file)) return null;
     if (Buffer.byteLength(change.before) + Buffer.byteLength(change.after) > MAX_SOURCE_BYTES) return unknown(`${file}: source exceeds the bounded guard analysis budget.`);
     // A move changes file identity as well; this first oracle does not match statements across files.
@@ -181,8 +185,8 @@ function inspectChange(run: GuardRun, change: ProjectedFileChange): HarnessDecis
 
 /** Serializes ledger admissions and consumes predictions only once the entire proposal passes. */
 function reconcileChanges(run: GuardRun, changes: ProjectedFileChange[]): HarnessDecision | null {
-    const { cwd, event, mode } = run;
-    const state = join(cwd, STATE);
+    const { root, event, mode } = run;
+    const state = join(root, STATE);
     const inspect = (): HarnessDecision | null => {
         const warnings: string[] = [];
         for (const change of changes) {
@@ -190,7 +194,7 @@ function reconcileChanges(run: GuardRun, changes: ProjectedFileChange[]): Harnes
             if (decision?.decision === "block") return decision;
             warnings.push(...(decision?.warnings ?? []));
         }
-        for (const row of run.pending) record(cwd, row, event.dry_run);
+        for (const row of run.pending) record(root, row, event.dry_run);
         return warnings.length ? { decision: "allow", warnings } : null;
     };
     try {
@@ -208,11 +212,12 @@ export function driveGuardPrediction(event: HarnessEvent, mode: GuardPredictionM
     if (!extractAllEditedFilePaths(event).some(path => /\.[cm]?[jt]sx?$/i.test(path))) return null;
     try {
         const cwd = realpathSync(event.cwd || process.cwd());
+        const root = realpathSync(findRepoRoot(cwd) ?? cwd);
         const changes = project(event, cwd);
         if (!changes) return unknown("tool input cannot be projected unambiguously; guard preservation was not established.");
         const codeChanges = changes.filter(change => change.existed && !change.deleted && /\.[cm]?[jt]sx?$/i.test(change.path));
         if (!codeChanges.length) return null;
         if (!event.session_id) return unknown("missing session identity; a prediction cannot be bound to this edit.");
-        return reconcileChanges({ event, cwd, mode, pending: [] }, codeChanges);
+        return reconcileChanges({ event, root, mode, pending: [] }, codeChanges);
     } catch (error) { return unknown(`source projection unavailable: ${String(error)}`); }
 }

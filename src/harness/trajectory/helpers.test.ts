@@ -117,6 +117,10 @@ describe("commandFamily", () => {
 });
 
 describe("commandHeads", () => {
+    it("does not invent a command when builtin has no operand", () => {
+        expect(commandHeads("builtin")).toEqual([]);
+        expect(commandHeads("builtin; printf done")).toEqual(["printf"]);
+    });
 	it("P1: skips shell prefixes (sudo, env VAR=x) to find the real head verb", () => {
 		expect(commandHeads("sudo env FOO=bar /usr/bin/curl example.com")).toEqual(["curl"]);
 	});

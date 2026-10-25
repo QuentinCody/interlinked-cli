@@ -5,6 +5,7 @@ vi.mock("../repo-profile.js", () => ({ getRepoProfile: () => ({ testLayout: "non
 vi.mock("../test-readiness.js", async original => ({ ...await original<typeof import("../test-readiness.js")>(), testReadiness: vi.fn() }));
 vi.mock("../evaluator/baseline-effect-guard.js", () => ({ baselineCallKey: () => "key", consumeBaselineSnapshot: vi.fn() }));
 import { consumeBaselineSnapshot } from "../evaluator/baseline-effect-guard.js";
+import { BASELINE_RESTORE_PREFIX } from "../evaluator/config-effect-guard.js";
 import { makeServerRules } from "./__tests__/fixtures.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 
@@ -73,4 +74,14 @@ it("leaves warnings untouched when the call produced no baseline loosening", () 
     const decision: HarnessDecision = { decision: "allow", warnings: ["earlier warning"] };
     appendBaselineEffect(event(), decision, "/project");
     expect(decision.warnings).toEqual(["earlier warning"]);
+});
+
+it.each([undefined, "an earlier block reason"])("surfaces a restored baseline as a block and retains an earlier reason: %s", reason => {
+    const message = `${BASELINE_RESTORE_PREFIX} restored the coverage floor`;
+    vi.mocked(consumeBaselineSnapshot).mockReturnValue(message);
+    const decision: HarnessDecision = { decision: "allow", reason };
+    appendBaselineEffect(event(), decision, "/project");
+    expect(decision.decision).toBe("block");
+    expect(decision.reason).toBe(reason ? `${reason}\n\n${message}` : message);
+    expect(decision.warnings).toEqual([message]);
 });

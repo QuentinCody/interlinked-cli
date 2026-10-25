@@ -5,6 +5,7 @@ import {
 	CODEX_WRITE_TOOLS,
 	DIRECT_FILE_EDIT_TOOLS,
 	isDirectFileEditTool,
+	isWriteCapableToolName,
 	WRITE_TOOLS,
 	writeToolEntry,
 } from "./write-tool-registry.js";
@@ -68,6 +69,10 @@ describe("write-tool-registry — negative (must NOT classify as a direct edit)"
 			expect(writeToolEntry(name)).toBeUndefined();
 			expect(isDirectFileEditTool(name)).toBe(false);
 		}
+	});
+
+	it.each(["", null, undefined])("does not classify a missing tool name as a content writer (%j)", (name) => {
+		expect(isWriteCapableToolName(name)).toBe(false);
 	});
 
 	it("N4: every registry name is unique", () => {

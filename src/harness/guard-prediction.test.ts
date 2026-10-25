@@ -126,3 +126,34 @@ describe("predict, reveal, reconcile guard changes", () => {
         expect(driveGuardPrediction(event(after + example))?.decision).toBe("block");
     });
 });
+
+// 2026-10-22: state, receipts and file keys followed the session's current folder. From `scratch/probe` an edit to
+// `src/a.ts` was skipped as "outside the project" (`../../src/a.ts`), and the ledger went to a new
+// `scratch/probe/.interlinked/` — a stray folder that later made every hook call below it skip the daemon.
+describe("guard prediction keys to the project root, not the session folder", () => {
+    let root: string;
+    const before = "function f(){if(ready)return result;}";
+    const after = "function f(){if(ready)log();return result;}";
+    beforeEach(() => {
+        root = mkdtempSync(join(tmpdir(), "guard-prediction-root-"));
+        mkdirSync(join(root, ".interlinked"));
+        writeFileSync(join(root, ".interlinked", "config.json"), "{}");
+        mkdirSync(join(root, "src"));
+        writeFileSync(join(root, "src", "a.ts"), before);
+        mkdirSync(join(root, "scratch", "probe"), { recursive: true });
+    });
+    afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+    it("P: an edit outside the session folder is inspected and recorded under the project root", () => {
+        const result = runGuardPrediction({ cwd: join(root, "scratch", "probe"), hook_event: "PreToolUse", session_id: "agent-1", tool_use_id: "edit-1",
+            agent_source: "claude", timestamp: "2026-10-22T00:00:00Z", tool_name: "Write", tool_input: { file_path: join(root, "src", "a.ts"), content: after } });
+        expect(result?.warnings?.join(" ")).toContain("src/a.ts");
+        expect(readFileSync(join(root, ".interlinked/predictions/guard-events.jsonl"), "utf8")).toContain('"kind":"reveal"');
+    });
+
+    it("N: no `.interlinked/` is created in the session folder", () => {
+        runGuardPrediction({ cwd: join(root, "scratch", "probe"), hook_event: "PreToolUse", session_id: "agent-1", tool_use_id: "edit-1",
+            agent_source: "claude", timestamp: "2026-10-22T00:00:00Z", tool_name: "Write", tool_input: { file_path: "../../src/a.ts", content: after } });
+        expect(existsSync(join(root, "scratch", "probe", ".interlinked"))).toBe(false);
+    });
+});

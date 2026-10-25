@@ -23,6 +23,17 @@ function fnCov(over: Partial<PerFileCoverage["functions"][number]> = {}): PerFil
 	return { name: "f", line: 1, endLine: 3, hits: 2, statement_pct: 100, ...over };
 }
 
+it("uses the provided per-line evidence when its counterpart set is absent", () => {
+	const out: { now?: number } = {};
+	const coveredOnly: PerFileCoverage = { filePath: "src/m.py", mtime: 0, functions: [], coveredLines: new Set([3]) };
+	expect(decideFromCoverage(root, "src/m.py", coveredOnly, new Set([3]), out)).toBeNull();
+	expect(out.now).toBe(1);
+	const uncoveredOnly: PerFileCoverage = { filePath: "src/m.py", mtime: 0, functions: [], uncoveredLines: new Set([3]) };
+	const decision = decideFromCoverage(root, "src/m.py", uncoveredOnly, new Set([3]), {});
+	expect(decision?.decision).toBe("block");
+	expect(decision?.reason).toContain("line 3");
+});
+
 describe("decideFromCoverage — per-function (istanbul) shape", () => {
 	it("blocks on an uncovered added function, naming file and line", () => {
 		const cov: PerFileCoverage = { filePath: "src/m.ts", mtime: 0, functions: [fnCov({ hits: 0, statement_pct: 0 })] };
@@ -76,19 +87,51 @@ describe("decideFromCoverage — per-function (istanbul) shape", () => {
 		expect(d?.decision).toBe("block");
 	});
 
-	it("RE-ANCHORS instead of blocking when the baseline was earned under a different scope (the bio staging/utils.ts fix)", () => {
-		// 100% pinned by a broad run (scope A); today's narrower scope can only
-		// reach 98.7% — the exact incident. Must NOT block; signals re-anchor.
-		writeFileCoverageBaseline(root, "src/m.ts", 1, "scoped:broadAAAAAA");
+	it("BLOCKS fail-closed when a narrower scope measures below the FULL-suite high-water (red-team 2026-10-21 round 2)", () => {
+		// 100% pinned by a full-suite run; today's narrower scope reaches 98.7%.
+		// This was the 2026-07-24 bio re-anchor exemption; the red-team churn
+		// sequence (churn to full, hold, narrow, regress) turned it into an
+		// unbounded downward re-key, so a scoped value below the full-suite
+		// high-water now needs a full-suite measurement and blocks without one.
+		writeFileCoverageBaseline(root, "src/m.ts", 1, "full");
 		const cov: PerFileCoverage = {
 			filePath: "src/m.ts",
 			mtime: 0,
 			functions: [fnCov({ statement_pct: 98.7 })],
 		};
 		const out: { now?: number; scopeChanged?: { priorFraction: number } } = {};
+		const d = decideFromCoverage(root, "src/m.ts", cov, new Set([99]), out, "scoped:narrowBBBBBB");
+		expect(d?.decision).toBe("block");
+		expect(d?.reason).toContain("full-suite high-water 100.0% to 98.7%");
+		expect(d?.reason).toContain("interlinked coverage check");
+		expect(d?.rule_id).toBe("per-edit-coverage");
+		// A block hands back nothing: no fraction to persist, no re-anchor signal.
+		expect(out).toStrictEqual({});
+	});
+
+	it("BLOCKS a drop against a scoped baseline measured under a DIFFERENT scoped test set (red-team 2026-10-21)", () => {
+		writeFileCoverageBaseline(root, "src/m.ts", 1, "scoped:broadAAAAAA");
+		const cov: PerFileCoverage = {
+			filePath: "src/m.ts",
+			mtime: 0,
+			functions: [fnCov({ statement_pct: 66.7 })],
+		};
+		const out: { now?: number; scopeChanged?: { priorFraction: number } } = {};
+		const d = decideFromCoverage(root, "src/m.ts", cov, new Set([99]), out, "scoped:narrowBBBBBB");
+		expect(d?.decision).toBe("block");
+		expect(d?.reason).toContain("scoped:broadAAAAAA → scoped:narrowBBBBBB");
+		expect(d?.rule_id).toBe("per-edit-coverage");
+		expect(out).toStrictEqual({});
+	});
+
+	it("re-anchors UPWARD across scoped test sets (a higher measurement is never a loosening)", () => {
+		writeFileCoverageBaseline(root, "src/m.ts", 0.5, "scoped:broadAAAAAA");
+		const cov: PerFileCoverage = { filePath: "src/m.ts", mtime: 0, functions: [fnCov({ statement_pct: 90 })] };
+		const out: { now?: number; scopeChanged?: { priorFraction: number } } = {};
 		expect(decideFromCoverage(root, "src/m.ts", cov, new Set([99]), out, "scoped:narrowBBBBBB")).toBeNull();
-		expect(out.scopeChanged).toEqual({ priorFraction: 1 });
-		expect(out.now).toBeCloseTo(0.987, 3);
+		// 0.5, not 1: this fixture's prior is 0.5; the old 1 → 0.987 downward re-anchor now blocks (test above).
+		expect(out.scopeChanged).toEqual({ priorFraction: 0.5 });
+		expect(out.now).toBeCloseTo(0.9, 3);
 	});
 
 	it("still blocks a real drop when the scope MATCHES the baseline's scope", () => {
@@ -98,12 +141,20 @@ describe("decideFromCoverage — per-function (istanbul) shape", () => {
 		expect(d?.decision).toBe("block");
 	});
 
-	it("re-anchors a legacy scope-less baseline once a scope id is supplied", () => {
-		writeFileCoverageBaseline(root, "src/m.ts", 1); // legacy bare number, scope null
+	it("reads a legacy scope-less baseline as a full-suite high-water once a scope id is supplied", () => {
+		writeFileCoverageBaseline(root, "src/m.ts", 1); // legacy bare number ≡ {f: 1, scope: full, hw: 1}
 		const cov: PerFileCoverage = { filePath: "src/m.ts", mtime: 0, functions: [fnCov({ statement_pct: 95 })] };
 		const out: { now?: number; scopeChanged?: { priorFraction: number } } = {};
-		expect(decideFromCoverage(root, "src/m.ts", cov, new Set([99]), out, "scoped:anyNEWSCOPE")).toBeNull();
-		expect(out.scopeChanged?.priorFraction).toBe(1);
+		const d = decideFromCoverage(root, "src/m.ts", cov, new Set([99]), out, "scoped:anyNEWSCOPE");
+		expect(d?.decision).toBe("block");
+		expect(d?.reason).toContain("full-suite high-water 100.0% to 95.0%");
+		expect(d?.rule_id).toBe("per-edit-coverage");
+		expect(out).toStrictEqual({});
+		// An equal measurement under the new scope still re-anchors (upward/equal never needs the full route).
+		const held: PerFileCoverage = { filePath: "src/m.ts", mtime: 0, functions: [fnCov({ statement_pct: 100 })] };
+		const heldOut: { now?: number; scopeChanged?: { priorFraction: number } } = {};
+		expect(decideFromCoverage(root, "src/m.ts", held, new Set([99]), heldOut, "scoped:anyNEWSCOPE")).toBeNull();
+		expect(heldOut).toStrictEqual({ now: 1, scopeChanged: { priorFraction: 1 } });
 	});
 
 	it("names uncovered lines and unrounded percentages in a same-scope drop block", () => {

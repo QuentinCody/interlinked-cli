@@ -23,6 +23,8 @@ vi.mock("../checks/cyclomatic-python.js", () => ({
 }));
 vi.mock("../checks/cyclomatic-ast.js", () => ({
 	computeCyclomaticAst: vi.fn(() => null),
+	// Water-line modules on the import path parse with it; null = TypeScript unavailable.
+	parseTsSource: vi.fn(() => null),
 }));
 
 import { computeCyclomaticPython as mockedComputeCyclomaticPython } from "../checks/cyclomatic-python.js";

@@ -37,7 +37,7 @@
 
 import { isJsonObject } from "../../lib/json-types.js";
 import type { HarnessDecision } from "../types.js";
-import { COMPLEXITY_METRICS, type ComplexityMetric } from "../function-complexity-baseline.js";
+import { COMPLEXITY_METRICS, type ComplexityMetric, type MetricLedger, parseMetricLedger } from "../function-complexity-baseline.js";
 import { safeJsonParse } from "./config-loosening-gate.js";
 import { detectDispositionLedger, isDispositionLedgerPath } from "./disposition-ledger-gate.js";
 
@@ -63,14 +63,12 @@ function isNum(v: unknown): v is number {
 }
 
 /** Values recorded per (file, name), sorted descending — same-named entries
- *  (collisions / anonymous callbacks) compare rank-by-rank. Non-numeric values
- *  are dropped, never string-compared. */
-function valuesByKey(section: unknown): Map<string, number[]> {
+ *  (collisions / anonymous callbacks) compare rank-by-rank. parseMetricLedger
+ *  has already removed malformed entries before this grouping step. */
+function valuesByKey(section: MetricLedger | null): Map<string, number[]> {
 	const out = new Map<string, number[]>();
-	const entries = isJsonObject(section) && Array.isArray(section.entries) ? section.entries : [];
+	const entries = section?.entries ?? [];
 	for (const raw of entries) {
-		if (!isJsonObject(raw) || typeof raw.file !== "string" || typeof raw.name !== "string") continue;
-		if (!isNum(raw.value)) continue;
 		const key = `${raw.file}:${raw.name}`;
 		const list = out.get(key) ?? [];
 		list.push(raw.value);
@@ -112,10 +110,8 @@ function keyFindings(
 	admitUpTo: number | null,
 ): LedgerFinding[] {
 	const out: LedgerFinding[] = [];
-	for (let i = 0; i < after.length; i++) {
-		const av = after[i];
+	for (const [i, av] of after.entries()) {
 		const bv = before[i];
-		if (av === undefined) continue;
 		if (bv === undefined) {
 			if (admitUpTo !== null && av <= admitUpTo) continue; // newly over the tightened cap
 			out.push({
@@ -138,7 +134,15 @@ function keyFindings(
 	return out;
 }
 
-function sectionFindings(file: string, metric: ComplexityMetric, b: unknown, a: unknown): LedgerFinding[] {
+/** Each side is judged as the section the runtime reads (`parseMetricLedger`,
+ *  red team 2026-10-21 round 4): a section with a missing or non-numeric cap,
+ *  or no entries array, is ABSENT at runtime — the same as removing it, which
+ *  is allowed — and an entry the runtime drops grandfathers nothing. So a
+ *  section that only becomes valid in this change is a new section, and its
+ *  entries are additions. */
+function sectionFindings(file: string, metric: ComplexityMetric, bRaw: unknown, aRaw: unknown): LedgerFinding[] {
+	const b = parseMetricLedger(bRaw);
+	const a = parseMetricLedger(aRaw);
 	const out: LedgerFinding[] = [];
 	const cap = capFinding(file, metric, b, a);
 	if (cap) out.push(cap);

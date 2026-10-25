@@ -12,22 +12,34 @@
 //
 // The "before" water-line is the current ON-DISK baseline (not git HEAD): most
 // baselines are gitignored local state, and the PreToolUse hook fires before the
-// write lands, so disk still holds the pre-edit value. Reuses the disk-read /
-// Edit-reconstruction helpers from config-loosening-gate.ts.
+// write lands, so disk still holds the pre-edit value. Reconstruction of what a
+// call leaves lives in baseline-integrity-proposal.ts / edit-reconstruction.ts;
+// a target it cannot reconstruct is refused, never allowed.
 
-import { readToolString } from "./tool-input-values.js";
 import { existsSync } from "node:fs";
 import { isJsonObject } from "../../lib/json-types.js";
 import { resolve } from "node:path";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
-import { reconstructProposedBaseline } from "./baseline-integrity-proposal.js";
-import { readDiskContent, safeJsonParse } from "./config-loosening-gate.js";
-import { detectFunctionComplexityBaseline, detectSiblingBaseline, isSiblingBaselinePath, ledgerCreationBlock } from "./function-complexity-baseline-gate.js";
+import { type BaselineProposal, baselineProposals } from "./baseline-integrity-proposal.js";
+import { readDiskContent } from "./config-loosening-gate.js";
+import { canonicalWaterLineText, parseWaterLineJson, postImageDefects } from "../water-line-json.js";
+import { detectCoverageEdit } from "./coverage-edit-baseline-integrity.js";
+import { detectFunctionComplexityBaseline, detectSiblingBaseline, ledgerCreationBlock } from "./function-complexity-baseline-gate.js";
 import { type BaselineKind, baselineKind } from "./baseline-kind.js";
 import { detectLintBaselineGaming } from "./lint-baseline-integrity.js";
 import { baselineKeyFor, COVERAGE_METRICS } from "../coverage-metric-names.js";
 import { detectE2eBaselineGaming, type E2eGuardContext } from "./e2e-baseline-integrity.js";
 import { resolveE2eBase } from "../e2e-store.js";
+import {
+	detectLargeFilesCap,
+	detectMetricCaps,
+	detectSkippedCap,
+	detectUntestedFloor,
+	effectiveLargeFilesCap,
+	effectiveSkipCap,
+	legacyLineCap,
+	waterLineRoot,
+} from "./effective-caps.js";
 
 export interface BaselineGamingFinding {
 	file: string;
@@ -107,62 +119,13 @@ function detectRisingMetricMap(
 	return out;
 }
 
-/** A coverage-edit baseline value in either shape: a legacy bare fraction, or
- *  a scoped `{f, scope}` object (mirrors coverage-obligation-ledger). */
-function decodeCovValue(value: unknown): { f: number; scope: string | null } | null {
-	if (isNum(value)) return { f: value, scope: null };
-	const obj = asObj(value);
-	const f = obj.f;
-	if (isNum(f)) return { f, scope: typeof obj.scope === "string" ? obj.scope : null };
-	return null;
-}
-
-function detectCoverageEdit(
-	file: string,
-	before: unknown,
-	after: unknown,
-	exists: (rel: string) => boolean,
-): BaselineGamingFinding[] {
-	const out: BaselineGamingFinding[] = [];
-	const b = asObj(before);
-	const a = asObj(after);
-	for (const [path, bRaw] of Object.entries(b)) {
-		const bv = decodeCovValue(bRaw);
-		if (bv === null) continue;
-		const aRaw = a[path];
-		if (aRaw === undefined) {
-			if (exists(path)) {
-				out.push(
-					fmt(file, `coverage-edit:${path}`, bv.f, undefined, `coverage-edit-baseline entry for ${path} removed while the source still exists.`),
-				);
-			}
-			continue;
-		}
-		const av = decodeCovValue(aRaw);
-		// A DIFFERENT measuring scope is a legitimate re-anchor (the reseed the
-		// runtime performs when affected-test selection changes), not gaming — only
-		// a SAME-SCOPE fraction drop is a lowered water-line. Legacy null==null
-		// (both scope-less) still enforces exactly as before.
-		if (av !== null && av.scope === bv.scope && av.f < bv.f) {
-			out.push(
-				fmt(file, `coverage-edit:${path}`, bv.f, av.f, `coverage-edit-baseline for ${path} lowered ${bv.f}→${av.f} within the same test scope. Per-edit coverage may only rise (a scope change re-anchors automatically).`),
-			);
-		}
-	}
-	return out;
-}
-
 // interlinked: defer code_clones -- These existing cap detectors retain distinct policy messages; lint adoption only adds a separate detector.
 function detectLargeFiles(file: string, before: unknown, after: unknown): BaselineGamingFinding[] {
-	const out: BaselineGamingFinding[] = [];
+	// The cap is compared by the value the runtime would use (effective-caps.ts).
+	const out: BaselineGamingFinding[] = detectLargeFilesCap(file, before, after);
 	const b = asObj(before);
 	const a = asObj(after);
-	const bMax = b.max_lines;
-	const aMax = a.max_lines;
-	if (isNum(bMax) && isNum(aMax) && aMax > bMax) {
-		out.push(fmt(file, "max_lines", bMax, aMax, `large-files max_lines raised ${bMax}→${aMax}. The line cap may only tighten.`));
-	}
-	const effMax = isNum(aMax) ? aMax : Number.POSITIVE_INFINITY;
+	const effMax = effectiveLargeFilesCap(after);
 	const bFiles = asObj(b.files);
 	const aFiles = asObj(a.files);
 	for (const [path, bcRaw] of Object.entries(bFiles)) {
@@ -185,23 +148,10 @@ function detectLargeFiles(file: string, before: unknown, after: unknown): Baseli
 // cap may only tighten, a grandfather ceiling may only shrink, and a NEW
 // grandfather entry above the cap pre-authorizes new skips — blocked.
 function detectSkippedTests(file: string, before: unknown, after: unknown): BaselineGamingFinding[] {
-	const out: BaselineGamingFinding[] = [];
+	const out: BaselineGamingFinding[] = detectSkippedCap(file, before, after);
 	const b = asObj(before);
 	const a = asObj(after);
-	const bMax = b.max_skipped;
-	const aMax = a.max_skipped;
-	if (isNum(bMax) && isNum(aMax) && aMax > bMax) {
-		out.push(
-			fmt(
-				file,
-				"max_skipped",
-				bMax,
-				aMax,
-				`skipped-tests max_skipped raised ${bMax}→${aMax}. The skip cap may only tighten — fix or delete the skipped test instead.`,
-			),
-		);
-	}
-	const effMax = isNum(aMax) ? aMax : Number.POSITIVE_INFINITY;
+	const effMax = effectiveSkipCap(after);
 	const bFiles = asObj(b.files);
 	const aFiles = asObj(a.files);
 	for (const [path, bcRaw] of Object.entries(bFiles)) {
@@ -235,14 +185,9 @@ function detectSkippedTests(file: string, before: unknown, after: unknown): Base
 }
 
 function detectUntestedFiles(file: string, before: unknown, after: unknown): BaselineGamingFinding[] {
-	const out: BaselineGamingFinding[] = [];
+	const out: BaselineGamingFinding[] = detectUntestedFloor(file, before, after);
 	const b = asObj(before);
 	const a = asObj(after);
-	const bMin = b.min_coverage_pct;
-	const aMin = a.min_coverage_pct;
-	if (isNum(bMin) && isNum(aMin) && aMin < bMin) {
-		out.push(fmt(file, "min_coverage_pct", bMin, aMin, `untested-files min_coverage_pct lowered ${bMin}→${aMin}. The coverage floor may only rise.`));
-	}
 	const bSet = new Set(Array.isArray(b.files) ? b.files : []);
 	const aFiles = Array.isArray(a.files) ? a.files : [];
 	for (const p of aFiles) {
@@ -304,39 +249,6 @@ function detectCheckEvidence(file: string, before: unknown, after: unknown): Bas
 	return out;
 }
 
-function detectMetricCaps(file: string, before: unknown, after: unknown): BaselineGamingFinding[] {
-	const out: BaselineGamingFinding[] = [];
-	const b = asObj(before);
-	const a = asObj(after);
-	// `max_predicate_drift` is a repo-wide COUNT water-line, not a per-function
-	// cap, but it obeys the same direction rule (may only fall) and lives here so
-	// the ratchet reuses the guarded file rather than minting a loosenable new one.
-	for (const k of [
-		"max_lines",
-		"max_function_tokens",
-		"max_cyclomatic",
-		"max_cognitive",
-		"crap_threshold",
-		"max_predicate_drift",
-	]) {
-		const bv = b[k];
-		const av = a[k];
-		if (isNum(bv) && isNum(av) && av > bv) {
-			out.push(fmt(file, k, bv, av, `metric-caps ${k} raised ${bv}→${av}. Caps may only tighten.`));
-		}
-	}
-	const bMin = b.min_coverage;
-	const aMin = a.min_coverage;
-	if (isNum(bMin) && isNum(aMin) && aMin < bMin) {
-		out.push(fmt(file, "min_coverage", bMin, aMin, `metric-caps min_coverage lowered ${bMin}→${aMin}. The coverage floor may only rise.`));
-	}
-	// `coverage_goal` is deliberately NOT direction-locked (2026-08-17): it is a
-	// display/nudge TARGET, not a gate input — lowering it from 100 to 80 is a
-	// legitimate team choice, and no enforcement reads it, so moving it gains an
-	// agent nothing. The gamed levers stay locked above: min_coverage (floor)
-	// and the caps.
-	return out;
-}
 
 // The mutation-manifest's accepted-survivor set (mutants with status survived /
 // equivalent) may only SHRINK across a hand-edit (spec §7 of
@@ -378,7 +290,9 @@ function detectMutationManifest(file: string, before: unknown, after: unknown): 
 /**
  * Public API — pure detector. Returns the loosening findings for a proposed
  * edit to a `.interlinked/` ratchet baseline (empty for non-baseline files,
- * new baselines, unparseable JSON, or safe-direction moves).
+ * new baselines, a pre-image that is not strict JSON, or safe-direction moves).
+ * For an existing water-line, an empty, unparseable, non-object or
+ * duplicate-key post-image is itself a finding.
  */
 export function detectBaselineGaming(
 	filePath: string,
@@ -392,11 +306,34 @@ export function detectBaselineGaming(
 	// The disposition ledger (not a water-line) rides its sibling detector.
 	if (!kind) return detectSiblingBaseline(filePath, beforeText, afterText);
 	if (!beforeText) return [];
-	const before = safeJsonParse(beforeText);
-	const after = safeJsonParse(afterText);
-	if (before === null || after === null) return [];
+	// ONE strict parser (water-line-json.ts), with the semantics every runtime
+	// consumer reads (red team 2026-10-21 round 3: a JSONC-tolerant parse here let
+	// a trailing comma, a `//` line or a `/* */`-spanning key pass as "unchanged"
+	// while the runtime read no ledger). A pre-image that does not parse holds no
+	// water-line the runtime reads, so any post-image of it is a creation.
+	const before = parseWaterLineJson(beforeText);
+	if (!before.ok) return [];
+	const after = parseWaterLineJson(afterText);
+	const defects = postImageDefects(before.value, after);
+	if (defects.length > 0 || !after.ok) {
+		return defects.map((d) => fmt(filePath, postImageRule(kind, before.value, d.rule), before.value, after.ok ? after.value : afterText, `${filePath}: ${d.message}`));
+	}
 	const exists = sourceExists ?? makeDefaultSourceExists(filePath);
-	return compareBaseline({ kind, filePath, beforeText, afterText, before, after, exists });
+	// Text-reading detectors get canonical text, which a JSONC-tolerant reader
+	// decodes to the strict value too, so no detector judges another value.
+	const texts = { beforeText: canonicalWaterLineText(before.value), afterText: canonicalWaterLineText(after.value) };
+	const root = waterLineRoot(filePath, e2eContext?.root);
+	return compareBaseline({ kind, filePath, ...texts, before: before.value, after: after.value, exists, root });
+}
+
+/** The effect arm restores a complexity-ledger loosening only when its rule
+ *  names a metric section the pre-image held (baseline-effect-guard.ts
+ *  `isRecordOnly`). A post-image defect drops EVERY section, so it is filed
+ *  under the first one. */
+function postImageRule(kind: BaselineKind, before: unknown, rule: string): string {
+	if (kind !== "function-complexity") return rule;
+	const section = Object.keys(asObj(asObj(before).metrics))[0];
+	return section ? `${section}:${rule}` : rule;
 }
 
 interface BaselineComparison {
@@ -407,10 +344,12 @@ interface BaselineComparison {
     before: unknown;
     after: unknown;
     exists: (rel: string) => boolean;
+    /** Repository root of the water-line, when it can be known. */
+    root: string | null;
 }
 
 function compareBaseline(input: BaselineComparison): BaselineGamingFinding[] {
-    const { kind, filePath, beforeText, afterText, before, after, exists } = input;
+    const { kind, filePath, beforeText, afterText, before, after, exists, root } = input;
 	switch (kind) {
 		case "coverage":
 			return detectRisingMetricMap(filePath, asObj(asObj(before).files), asObj(asObj(after).files), COVERAGE_METRICS.map(baselineKeyFor), "coverage", exists);
@@ -423,7 +362,9 @@ function compareBaseline(input: BaselineComparison): BaselineGamingFinding[] {
 		case "untested-files":
 			return detectUntestedFiles(filePath, before, after);
 		case "metric-caps":
-			return detectMetricCaps(filePath, before, after);
+			// Every cap by the value the runtime would use (effective-caps.ts);
+			// `max_lines` falls back to the large-files baseline, then the default.
+			return detectMetricCaps(filePath, before, after, legacyLineCap(root));
 		case "mutation-manifest":
 			return detectMutationManifest(filePath, before, after);
 		case "skipped-tests":
@@ -442,44 +383,67 @@ interface BaselineGateDeps {
 }
 
 /**
- * Public API — PreToolUse entry point (wired in pre-tool-guards.ts). Blocks a
- * Write/Edit/MultiEdit that loosens a committed baseline. Fails open (returns
- * null) on anything it can't conclude: non-baseline file, disable-bypass,
- * unreconstructable edit, or a not-yet-existing baseline. Disk is the source of
- * truth (most baselines are gitignored local state); the hook fires before the
- * write lands, so disk still holds the pre-edit water-line. `deps` is injectable.
+ * Public API — PreToolUse entry point (wired in pre-tool-guards.ts behind
+ * `isContentWriteCandidate`; safe for any tool — non-writers yield nothing). Blocks a
+ * write-capable call (Write/Edit/MultiEdit/apply_patch/any alias, or a shell
+ * command carrying a V4A patch) that loosens
+ * a committed baseline. Allows a non-baseline target, the disable-bypass, or a
+ * not-yet-existing baseline. FAILS CLOSED when it cannot reconstruct what the
+ * call leaves in an existing gated baseline (red team 2026-10-21: a
+ * `replace_all` Edit used to reconstruct as null and pass). Disk is the source
+ * of truth (most baselines are gitignored local state); the hook fires before
+ * the write lands, so disk still holds the pre-edit water-line. `deps` is injectable.
  */
 export function evaluateBaselineIntegrityForEvent(
 	event: HarnessEvent,
 	deps: BaselineGateDeps = {},
 ): HarnessDecision | null {
 	if (process.env.INTERLINKED_DISABLE_BASELINE_GUARD === "1") return null;
-	const toolInput = event.tool_input || {};
-	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
-	const kind = baselineKind(filePath);
-	if (!filePath || (!kind && !isSiblingBaselinePath(filePath))) return null;
-
 	const getDisk = deps.getDisk ?? readDiskContent;
-	const before = getDisk(filePath, event.cwd);
+	// The tool name is classified by the registry (`isWriteCapableToolName`) and
+	// every path is resolved against the event cwd inside `baselineProposals`, so
+	// this entry point is safe to call for ANY tool: non-writers yield nothing.
+	const proposals = baselineProposals(event.tool_name ?? "", event.tool_input ?? {}, (file) => getDisk(file, event.cwd), event.cwd);
+	for (const proposal of proposals) {
+		const decision = judgeProposal(proposal, event);
+		if (decision) return decision;
+	}
+	return null;
+}
+
+function judgeProposal({ filePath, before, proposed }: BaselineProposal, event: HarnessEvent): HarnessDecision | null {
+	const kind = baselineKind(filePath);
 	if (before === null && kind === "coverage-e2e") return {
 		decision: "block", rule_id: "baseline_integrity_gate", severity: "high", category: "config",
 		reason: "Create the e2e baseline from a measured passing run: interlinked coverage check --lane e2e --init-baseline",
 	};
 	// Absent baseline: creating it isn't loosening — except the complexity ledger (ledgerCreationBlock).
 	if (before === null) return kind === "function-complexity" ? ledgerCreationBlock(filePath) : null;
-
-	const proposed = reconstructProposedBaseline(before, toolInput);
-	if (proposed === null) return null;
-
-	const findings = detectBaselineGaming(filePath, before, proposed, undefined, { root: event.cwd ?? process.cwd(), base: resolveE2eBase() });
+	if (proposed.kind === "undecidable") return undecidableBlock(filePath, event.tool_name ?? "this tool", proposed.reason);
+	const context = { root: event.cwd ?? process.cwd(), base: resolveE2eBase() };
+	const findings = proposed.contents.flatMap((after) => detectBaselineGaming(filePath, before, after, undefined, context));
 	if (findings.length === 0) return null;
 
-	const messages = findings.map((f) => `[${f.rule}] ${f.message}`).join("\n  ");
+	const messages = [...new Set(findings.map((f) => `[${f.rule}] ${f.message}`))].join("\n  ");
 	return {
 		decision: "block",
 		reason:
 			`BLOCKED: this edit loosens a ratchet baseline in ${filePath}:\n  ${messages}\n\n` +
 			"Ratchet water-lines may only move in the tightening direction. The harness raises them itself via internal writes; an agent hand-lowering one defeats every ratchet at once. If this is an intentional reset, set INTERLINKED_DISABLE_BASELINE_GUARD=1.",
+		rule_id: "baseline_integrity_gate",
+		severity: "high",
+		category: "config",
+	};
+}
+
+/** Fail-closed refusal: the gate cannot tell what this call leaves in a gated baseline. */
+function undecidableBlock(filePath: string, toolName: string, why: string): HarnessDecision {
+	return {
+		decision: "block",
+		reason:
+			`BLOCKED: the baseline-integrity gate cannot determine what this ${toolName} call would leave in ${filePath} (${why}). ` +
+			"A ratchet water-line edit that cannot be judged is refused. Re-issue the change as a Write of the full file content — a Write is always decidable. " +
+			"If this is an intentional reset, set INTERLINKED_DISABLE_BASELINE_GUARD=1.",
 		rule_id: "baseline_integrity_gate",
 		severity: "high",
 		category: "config",

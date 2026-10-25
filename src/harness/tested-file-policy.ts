@@ -25,10 +25,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { isGeneratedFile } from "./checks/shared.js";
 import { stripCommentsAndStrings } from "./checks/shared-text-utils.js";
 import { hasCompanionTest as hasAnyCompanionTest } from "./evaluator/companion-test.js";
 import { hasTddExemptDirective, isTddExemptPath } from "./evaluator/tdd-new-file-gate.js";
+import { isCodegenDataModule, isHonoredGeneratedFile } from "./exemption-marker-budget.js";
 
 /**
  * Default minimum line-coverage percent that counts a companion-less file as
@@ -127,7 +127,7 @@ interface RawBaseline {
 }
 
 /** Validate + normalize a parsed baseline; returns null when unusable. */
-function normalizeBaseline(raw: unknown): UntestedFilesBaseline | null {
+export function normalizeBaseline(raw: unknown): UntestedFilesBaseline | null {
 	if (typeof raw !== "object" || raw === null) return null;
 	const obj: RawBaseline = raw;
 	if (typeof obj.min_coverage_pct !== "number" || obj.min_coverage_pct < 0) return null;
@@ -182,20 +182,18 @@ export function minCoverageFor(cwd: string): number {
 }
 
 /**
- * Content marker exempting a file from the every-file-tested gate without the
- * blanket `@generated` semantics. Reused verbatim from `large-file-policy.ts`
- * (same constant, same bounded header scan) so the two file-policy gates agree
- * on what "codegen DATA" means. Covers the `src/lib/hook-template-chunks/*`
- * modules whose bodies are template STRINGS spliced into the generated `.mjs`
- * hook script: there is no hand-written runtime logic to test — the file is a
- * data carrier for the emitted artifact.
+ * Header markers exempting a file from the every-file-tested gate: the
+ * `@codegen-data` marker (the `src/lib/hook-template-chunks/*` template-STRING
+ * carriers spliced into the generated `.mjs` hook script) and every generator
+ * header `isGeneratedFile` honours. Decided by the SAME predicates
+ * `large-file-policy.ts` uses (`exemption-marker-budget.ts`), so the two
+ * file-policy gates agree on what "codegen DATA" means: a header is honoured
+ * only when the content's executable code is within the data branch budget,
+ * counted from the TypeScript parser (red-team 2026-10-21). A header on
+ * branchy code exempts nothing; the file is testable like any other.
  */
-const CODEGEN_DATA_MARKER = "@codegen-data";
-
-/** Bounded header scan (first 20 lines), mirroring `isGeneratedFile` /
- *  `large-file-policy.ts` — the marker must sit in the file header. */
-function hasCodegenDataMarker(content: string): boolean {
-	return content.split("\n", 20).join("\n").includes(CODEGEN_DATA_MARKER);
+function hasHonouredExemptionMarker(filePath: string, content: string): boolean {
+	return isCodegenDataModule(content, filePath) || isHonoredGeneratedFile(content, filePath);
 }
 
 /**
@@ -252,9 +250,9 @@ function isDataOnlyModule(filePath: string, content: string): boolean {
  *   - the `// interlinked-tdd: exempt` content directive (same convention the
  *     TDD gate honors) — for genuinely-untestable surfaces the heuristics below
  *     don't cleanly catch.
- *   - the `@codegen-data` header marker (shared with `large-file-policy.ts`) —
- *     codegen DATA modules (template-string carriers).
- *   - `@generated` files (via `isGeneratedFile`) — no hand-written logic.
+ *   - the `@codegen-data` header marker and `@generated`-family headers, each
+ *     honoured only within the data branch budget (`hasHonouredExemptionMarker`,
+ *     shared with `large-file-policy.ts`).
  *   - pure DATA / type-only modules (`isDataOnlyModule`).
  *
  * Mirrors `large-file-policy.ts::isCappableFile`'s `{ filePath, content }`
@@ -266,8 +264,7 @@ export function isTestableSourceFile(file: { filePath: string; content: string }
 	if (isTddExemptPath(norm)) return false;
 	if (BENCH_PATH_RE.test(norm)) return false;
 	if (hasTddExemptDirective(file.content)) return false;
-	if (hasCodegenDataMarker(file.content)) return false;
-	if (isGeneratedFile(file.content)) return false;
+	if (hasHonouredExemptionMarker(norm, file.content)) return false;
 	if (isDataOnlyModule(norm, file.content)) return false;
 	return true;
 }

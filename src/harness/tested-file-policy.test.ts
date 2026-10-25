@@ -325,4 +325,11 @@ describe("loadUntestedFilesBaseline + minCoverageFor", () => {
 		resetUntestedFilesBaselineCache();
 		expect(loadUntestedFilesBaseline(dir)).toBeNull();
 	});
+
+	it("uses the default threshold when valid JSON contains null instead of a baseline", () => {
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		writeFileSync(join(dir, ".interlinked", "untested-files-baseline.json"), "null");
+		expect(loadUntestedFilesBaseline(dir)).toBeNull();
+		expect(minCoverageFor(dir)).toBe(DEFAULT_MIN_COVERAGE_PCT);
+	});
 });
