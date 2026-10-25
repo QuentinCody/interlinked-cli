@@ -10,6 +10,7 @@ import { wireAbsentOptional, wireLiteral, wireObject, wireString, wireUnknown } 
 
 import { join } from "node:path";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { isTurnStart } from "../../harness/transcript-record.js";
 import {
 	scanJsonlTail,
 	type TailScanBudget,
@@ -38,9 +39,17 @@ interface TimelineRow {
 	cwd?: string;
 	git_branch?: string;
 	agent_id?: string;
+	/** Source role of a user_prompt (see `isTurnStart`). Codex rows written
+	 *  before the field existed carry none, so their developer/system hook
+	 *  messages still read as turn starts here; only a re-parse of the rollout
+	 *  can tell them apart. `interlinked collect` does NOT refresh them: it
+	 *  re-parses every rollout but drops each candidate whose `${uuid}#${seq}`
+	 *  key is already in the timeline (removeExistingTimelineCandidates). */
+	input_role?: string;
 }
 
 const isTimelineRow = wireObject<TimelineRow>({
+ input_role: wireAbsentOptional(wireString),
  ts: wireString, category: wireString, provider: wireAbsentOptional(wireString),
  model: wireAbsentOptional(wireString), text: wireAbsentOptional(wireString),
  tool_name: wireAbsentOptional(wireString), tool_input: wireAbsentOptional(wireUnknown),
@@ -137,7 +146,9 @@ function buildSpineRecords(
 	for (const row of rows) {
 		const record: (ExperienceSpineRecord & { ix?: IxAnnotations }) | null = spineFromTimeline(row, truncateChars, state);
 		if (!record) continue;
-		if (row.category === "user_prompt") episode++;
+		// An episode is a human/root turn: a Codex developer/system message
+		// (hook output between a tool call and its output) does not start one.
+		if (isTurnStart(row)) episode++;
 		if (wantIx) {
 			// Every annotation includes the episode, even without collection joins.
 			record.ix = ixAnnotationsFor(row, collection, guards, Math.max(episode, 0));

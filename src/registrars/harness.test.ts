@@ -132,6 +132,7 @@ describe("registerHarnessCommands — structure", () => {
 				.sort(),
 		).toEqual(
 			[
+				"calls",
 				"capabilities",
 				"checks",
 				"clean",

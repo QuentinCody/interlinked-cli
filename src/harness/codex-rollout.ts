@@ -20,7 +20,7 @@
 
 import { isJsonObject } from "../lib/json-types.js";
 import { redactPii, scrubSecrets } from "../lib/secrets.js";
-import type { TimelineCategory, TimelineRecord } from "./transcript-record.js";
+import type { TimelineCategory, TimelineInputRole, TimelineRecord } from "./transcript-record.js";
 
 /** Secrets + PII scrub for natural-language fields. */
 function scrubText(text: string): string {
@@ -223,16 +223,31 @@ function record(
 	return { ...base, seq, category, role, ...extra };
 }
 
+/** The source role of a model-INPUT message, or undefined for a role this
+ *  parser does not know (kept unset, so it reads as "user" as before). */
+function inputRole(role: string | undefined): TimelineInputRole | undefined {
+	return role === "user" || role === "developer" || role === "system" ? role : undefined;
+}
+
 /** Records for a Codex `message` response item (the model's prompt or reply). A
  *  developer/user/system role is INPUT to the model → user_prompt; assistant is
- *  the model's OUTPUT → agent_message. */
+ *  the model's OUTPUT → agent_message. The source role is kept in `input_role`:
+ *  Codex injects hook output as `developer` messages between a tool call and
+ *  its output, and those must not start a turn (see `isTurnStart`). */
 function messageRecords(base: RecordBase, p: CodexPayload, model: string | undefined): TimelineRecord[] {
 	const text = flattenCodexContent(p.content);
 	if (!text.trim()) return [];
 	if (p.role === "assistant") {
 		return [record(base, 0, "agent_message", "assistant", { model, text: scrubText(text), scrubbed: true })];
 	}
-	return [record(base, 0, "user_prompt", "user", { text: scrubText(text), scrubbed: true })];
+	const role = inputRole(p.role);
+	return [
+		record(base, 0, "user_prompt", "user", {
+			text: scrubText(text),
+			scrubbed: true,
+			...(role === undefined ? {} : { input_role: role }),
+		}),
+	];
 }
 
 /** Record for a tool CALL (`function_call` / `custom_tool_call`). Tool input is

@@ -1,5 +1,10 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildExperience } from "../commands/experience/build.js";
 import { parseCodexRolloutText } from "./codex-rollout.js";
+import { isTurnStart } from "./transcript-record.js";
 
 // A synthetic Codex rollout covering every entry family we map.
 const rollout = [
@@ -428,5 +433,71 @@ describe("mutation-kill: survivor patches (W6)", () => {
 			const doc = toDoc([META, { timestamp: "t1", type: "event_msg", payload: { type: "agent_message", message: "   " } }]);
 			expect(parseCodexRolloutText(doc)).toEqual([]);
 		});
+	});
+});
+
+// Codex injects hook output ("[interlinked:...]") as a `developer` message
+// between a tool call and its output. Such a message is model input, so it
+// stays a user_prompt, but it must not split the turn.
+describe("parseCodexRolloutText — developer hook messages inside a turn", () => {
+	const hookTurn = [
+		{ timestamp: "2026-10-21T10:00:00.000Z", type: "session_meta", payload: { id: "sess-hook", cwd: "/repo" } },
+		{ timestamp: "2026-10-21T10:00:01.000Z", type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Fix the parser." }] } },
+		{ timestamp: "2026-10-21T10:00:02.000Z", type: "response_item", payload: { type: "function_call", name: "exec_command", arguments: '{"cmd":"rg -n role src"}', call_id: "call_h1" } },
+		{ timestamp: "2026-10-21T10:00:03.000Z", type: "response_item", payload: { type: "message", role: "developer", content: [{ type: "input_text", text: "[interlinked:checks-deferred] NOT CHECKED: tsc" }] } },
+		{ timestamp: "2026-10-21T10:00:04.000Z", type: "response_item", payload: { type: "function_call_output", call_id: "call_h1", output: "src/a.ts:1:role" } },
+		{ timestamp: "2026-10-21T10:00:05.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Done." }] } },
+	]
+		.map((e) => JSON.stringify(e))
+		.join("\n");
+	const recs = parseCodexRolloutText(hookTurn);
+	const prompts = recs.filter((r) => r.category === "user_prompt");
+
+	it("keeps the developer message a user_prompt with input_role developer", () => {
+		expect(prompts.map((r) => [r.text, r.input_role])).toEqual([
+			["Fix the parser.", "user"],
+			["[interlinked:checks-deferred] NOT CHECKED: tsc", "developer"],
+		]);
+		// Category, role and the dedup key are unchanged by the new field.
+		expect(prompts[1]).toMatchObject({ category: "user_prompt", role: "user", uuid: "codex:sess-hook:3", seq: 0 });
+	});
+
+	it("isTurnStart is true for the user message and false for the developer message", () => {
+		expect(prompts.map((r) => isTurnStart(r))).toEqual([true, false]);
+		expect(recs.filter((r) => isTurnStart(r)).map((r) => r.text)).toEqual(["Fix the parser."]);
+	});
+
+	it("isTurnStart reads an unset input_role (Claude rows, historical rows) as a turn start", () => {
+		expect(isTurnStart({ category: "user_prompt" })).toBe(true);
+		expect(isTurnStart({ category: "user_prompt", input_role: "system" })).toBe(false);
+		expect(isTurnStart({ category: "agent_message" })).toBe(false);
+	});
+
+	it("an unknown message role keeps input_role unset", () => {
+		const doc = [
+			{ timestamp: "t0", type: "session_meta", payload: { id: "s" } },
+			{ timestamp: "t1", type: "response_item", payload: { type: "message", role: "narrator", content: "hi" } },
+		]
+			.map((e) => JSON.stringify(e))
+			.join("\n");
+		const [only] = parseCodexRolloutText(doc);
+		expect(only?.category).toBe("user_prompt");
+		expect(only !== undefined && "input_role" in only).toBe(false);
+	});
+
+	it("experience build keeps the tool call and the assistant message in one episode", () => {
+		const dir = mkdtempSync(join(tmpdir(), "codex-hook-turn-"));
+		try {
+			mkdirSync(join(dir, ".interlinked"), { recursive: true });
+			writeFileSync(join(dir, ".interlinked", "timeline.jsonl"), `${recs.map((r) => JSON.stringify(r)).join("\n")}\n`);
+			const built = buildExperience({ dir, sessionId: "sess-hook", format: "ix" });
+			const meta = built.records[0];
+			expect(meta !== undefined && "ix_meta" in meta ? meta.ix_meta.episodes : undefined).toBe(1);
+			const episodes = built.records.slice(1).map((r) => ("ix" in r ? r.ix?.episode : undefined));
+			// user prompt, tool call, developer message, tool result, assistant reply
+			expect(episodes).toEqual([0, 0, 0, 0, 0]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

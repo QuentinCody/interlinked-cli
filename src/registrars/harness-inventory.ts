@@ -17,6 +17,14 @@ export function registerHarnessInventory(harness: Command): void {
         .option("--json", "Full capability catalog and coverage identities")
         .action(async (opts: OptionValues) => { const { harnessCapabilitiesCommand } = await import("../commands/harness-capabilities.js"); await harnessCapabilitiesCommand(opts); });
     registerCoverage(harness);
+    registerCalls(harness);
+}
+
+function registerCalls(harness: Command): void {
+    harness.command("calls").description("Join the transcript timeline to the daemon's collection log: which tool calls the daemon never judged")
+        .option("--since <duration>", "Window, e.g. 24h or 7d (default 7d)").option("--session <id>", "One session only")
+        .option("--strict", "Exit 1 when any call in the window went unjudged").option("--json", "Machine-readable output")
+        .action(async (opts: OptionValues) => { const { harnessCallsCommand } = await import("../commands/harness-calls.js"); await harnessCallsCommand(opts); });
 }
 
 function registerCorpus(harness: Command): void {

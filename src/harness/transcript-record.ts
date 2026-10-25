@@ -50,6 +50,12 @@ export interface TimelineRecord {
 	 *  normalized store across providers (cross-model analysis / distillation). */
 	provider?: "claude-code" | "codex" | undefined;
 	role: "user" | "assistant";
+	/** Source role of a `user_prompt` record's model-INPUT message. Codex sends
+	 *  hook output and instructions as `developer` / `system` messages, which
+	 *  are input to the model but do not start a turn. Unset means "user": the
+	 *  Claude parser never sets it, and rows written before the field existed
+	 *  carry none. Use `isTurnStart` rather than testing the category. */
+	input_role?: TimelineInputRole | undefined;
 	/** Subagent attribution: the `agentId` a sidechain transcript entry
 	 *  carries (absent for main-session turns). Sidechain entries keep the
 	 *  PARENT's sessionId, so this is the only field that distinguishes a
@@ -93,6 +99,20 @@ export interface TimelineRecord {
 	 *  the entry's FIRST record only, so summing over the timeline does not
 	 *  double-count an entry that decomposed into several blocks. */
 	usage?: TimelineUsage | undefined;
+}
+
+/** The input roles a provider can attach to a model-INPUT message. */
+export type TimelineInputRole = "user" | "developer" | "system";
+
+/** True when `record` starts a human/root turn: a `user_prompt` whose input
+ *  role is unset or "user". A Codex `developer` / `system` message (hook
+ *  output injected between a tool call and its output) is a `user_prompt`
+ *  but NOT a turn start. Structural parameter so readers with their own row
+ *  shape can use it. Historical Codex rows written before `input_role`
+ *  existed have no role and read as turn starts; only a re-parse of the
+ *  rollout can tell them apart. */
+export function isTurnStart(record: { readonly category: string; readonly input_role?: string | undefined }): boolean {
+	return record.category === "user_prompt" && (record.input_role === undefined || record.input_role === "user");
 }
 
 /** Per-turn token usage as the transcript reports it. */

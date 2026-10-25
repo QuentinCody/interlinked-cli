@@ -92,7 +92,8 @@ export interface IxAnnotations {
 	file?: string;
 	/** Shell command classified as a verifier run (test/typecheck/lint/build). */
 	is_verification?: boolean;
-	/** 0-based episode index; increments at each user record. */
+	/** 0-based episode index; increments at each turn start (`isTurnStart`:
+	 *  a user prompt, not a Codex developer/system message). */
 	episode?: number;
 	/** Subagent attribution (sidechain turns carry the parent session id). */
 	agent_id?: string;
