@@ -17,7 +17,7 @@ import { join, sep } from "node:path";
 import { localNounBindings } from "./binding.js";
 import { extractSpecFacts } from "./extract-facts.js";
 import { claimsTouchKeys } from "./ledger-claims-touch-keys.js";
-import { ignoredSpecPaths } from "./ledger-git-scope.js";
+import { ignoredSpecPaths, isLateIgnoredSpecPath } from "./ledger-git-scope.js";
 import {
 	appendCountDrift,
 	appendRangeDrift,
@@ -48,6 +48,10 @@ export class SpecLedger {
 	private files = new Map<string, SpecFacts>();
 	/** Git-ignored files and directory trees are outside the repository spec snapshot. */
 	private ignoredPaths: ReadonlySet<string> = new Set();
+	/** Only filesystem builds consult Git; explicit fixture corpora stay self-contained. */
+	private usesGitScope = false;
+	/** Git's answer for paths the build never loaded, asked once each (shared with previews). */
+	private lateIgnored = new Map<string, boolean>();
 	/** Content hash per loaded file — lets refreshFile no-op on unchanged content,
 	 *  so a redundant post-prerefresh refresh doesn't invalidate the memos (#15). */
 	private fileHashes = new Map<string, string>();
@@ -75,6 +79,7 @@ export class SpecLedger {
 		fileExists?: (absPath: string) => boolean,
 	): SpecLedger {
 		const ledger = new SpecLedger(repoRoot, fileExists);
+		ledger.usesGitScope = true;
 		ledger.ignoredPaths = ignoredSpecPaths(repoRoot);
 		ledger.walk(repoRoot, "", 0);
 		return ledger;
@@ -175,7 +180,7 @@ export class SpecLedger {
 
 	/** Re-extract one file after an edit (the in-session dirty layer). */
 	refreshFile(relPath: string, content: string): void {
-		if (!isSpecEligibleFile(relPath) || this.isIgnored(relPath)) return;
+		if (!isSpecEligibleFile(relPath) || this.isIgnored(relPath) || this.isLateIgnored(relPath)) return;
 		this.skippedPaths.delete(relPath); // content in hand → no longer skipped (sol-max #7)
 		this.setFacts(relPath, content);
 	}
@@ -186,6 +191,19 @@ export class SpecLedger {
 			if (abs === path || abs.startsWith(`${path}${sep}`)) return true;
 		}
 		return false;
+	}
+
+	/** The ignore snapshot is taken once per build. Under `scratch/*` + `!scratch/README.md` Git names each ignored
+	 *  file one by one, so a file created after the build is missing from it and would join the census (the E64
+	 *  campaign file once made CLAUDE.md's "E1–E5" drift). A path the build already loaded was in scope. */
+	private isLateIgnored(relPath: string): boolean {
+		if (!this.usesGitScope || this.files.has(relPath)) return false;
+		let ignored = this.lateIgnored.get(relPath);
+		if (ignored === undefined) {
+			ignored = isLateIgnoredSpecPath(this.repoRoot, relPath);
+			this.lateIgnored.set(relPath, ignored);
+		}
+		return ignored;
 	}
 
 	removeFile(relPath: string): void {
@@ -210,6 +228,8 @@ export class SpecLedger {
 	previewWithFile(relPath: string, content: string): SpecLedger {
 		const preview = new SpecLedger(this.repoRoot, this.fileExists);
 		preview.ignoredPaths = this.ignoredPaths;
+		preview.usesGitScope = this.usesGitScope;
+		preview.lateIgnored = this.lateIgnored;
 		preview.files = new Map(this.files);
 		preview.fileHashes = new Map(this.fileHashes);
 		preview.truncated = this.truncated;

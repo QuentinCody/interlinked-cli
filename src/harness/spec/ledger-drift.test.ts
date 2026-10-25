@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { SpecLedger } from "./ledger.js";
+import { foldLooseDefinedIds, type GlobalNamespace } from "./ledger-drift.js";
+import { extractSpecFacts } from "./extract-facts.js";
 
 const never = (): boolean => false;
+
+it("extends a legacy namespace without a per-file index when a new file defines another id", () => {
+    const namespace: GlobalNamespace = {
+        prefix: "G", style: "compact", nums: new Set([1, 2]), max: 2,
+        files: ["registry.md"], definingFiles: ["registry.md"],
+    };
+    foldLooseDefinedIds(new Map([["compact G", namespace]]), new Map([
+        ["extra.md", extractSpecFacts("- G5 fifth gate", "extra.md")],
+    ]));
+    expect([...namespace.nums]).toEqual([1, 2, 5]);
+    expect(namespace.max).toBe(5);
+    expect(namespace.files).toEqual(["registry.md", "extra.md"]);
+    expect(namespace.definingFiles).toEqual(["registry.md", "extra.md"]);
+});
 
 // Round-5 #3: a local registry that disagrees with the claim suppresses the
 // cross-file finding ONLY when the global census adds nothing beyond it.

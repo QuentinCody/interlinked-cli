@@ -7,7 +7,7 @@
 // finding (round-5 #3).
 
 import type { CountClaim, IdNamespace, SpecFacts } from "./types.js";
-import { scopedCountCensus } from "./count-census-scope.js";
+import { scopedClaimCensus } from "./count-census-scope.js";
 
 /** The cross-file drift kinds the ledger emits (source "spec" in
  *  CheckResultEntry). Authoritative list for the check-inventory spec_ledger
@@ -144,41 +144,34 @@ export function appendCountDrift(
 	let emitted = 0;
 	for (const claim of facts.countClaims) {
 		if (emitted >= MAX_DRIFT_FINDINGS) break;
-		const scoped = scopedCountCensus({ file, facts, claim, global });
+		const scoped = scopedClaimCensus({ file, facts, claim, global });
 		emitted += appendCountDriftForClaim(claim, out, file, scoped, bindings, localByKey);
 	}
 }
 
-/** Range drift for a single claim against the global census — the per-claim
- *  body of appendRangeDrift, extracted so the outer loop carries none of this
- *  nesting (cognitive-complexity split; no behavior change). Returns the
- *  number of findings emitted for this claim (0 or 1). */
+/** Range drift for a single claim against its scoped census (the same
+ *  directory / nearby-link scope as count claims) — the per-claim body of
+ *  appendRangeDrift. Returns the number of findings emitted (0 or 1). */
 function appendRangeDriftForClaim(
 	claim: SpecFacts["rangeClaims"][number],
 	out: SpecDriftFinding[],
 	file: string,
-	global: Map<string, GlobalNamespace>,
+	census: Map<string, GlobalNamespace>,
 	localByKey: Map<string, IdNamespace>,
-	minCache: Map<string, number>,
 ): number {
 	// Compare only against the namespace of the claim's OWN notation
 	// (sol-max #10): a compact "A1..A3" must not be checked against a
 	// dashed "A-01, A-02, A-04" registry sharing the prefix.
 	const style = claim.style;
 	const key = `${style} ${claim.prefix}`;
-	const g = global.get(key);
+	const g = census.get(key);
 	if (!g || g.nums.size < 2) return 0;
 	if (claim.to === g.max) return 0;
 	// A claim STARTING ABOVE the census min is an intentional sub-range (a
 	// slice, not drift). A claim starting AT or BELOW the min asserts the
 	// whole registry extent — and starting below it OVERCLAIMS ids that do
 	// not exist, which is drift, not a slice (sol-max #14).
-	let gmin = minCache.get(key);
-	if (gmin === undefined) {
-		gmin = Math.min(...g.nums);
-		minCache.set(key, gmin);
-	}
-	if (claim.from > gmin) return 0;
+	if (claim.from > Math.min(...g.nums)) return 0;
 	const local = localByKey.get(key);
 	// Purely-local range drift (this file's registry IS the whole census) is
 	// the inline check's beat — suppress the ledger's duplicate (sol-max #13).
@@ -203,12 +196,12 @@ export function appendRangeDrift(
 	global: Map<string, GlobalNamespace>,
 	localByKey: Map<string, IdNamespace>,
 ): void {
-	const minCache = new Map<string, number>();
 	// Per-file, per-kind output bound (sol-max #11) — not a shared-accumulator cap.
 	let emitted = 0;
 	for (const claim of facts.rangeClaims) {
 		if (emitted >= MAX_DRIFT_FINDINGS) break;
-		emitted += appendRangeDriftForClaim(claim, out, file, global, localByKey, minCache);
+		const scoped = scopedClaimCensus({ file, facts, claim, global });
+		emitted += appendRangeDriftForClaim(claim, out, file, scoped, localByKey);
 	}
 }
 

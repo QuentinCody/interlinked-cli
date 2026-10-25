@@ -120,7 +120,14 @@ markers inside inline code, fenced code or blockquotes are examples, not declara
 Generic count claims use a scoped identifier census. A README may describe its directory;
 other documents must mention the namespace or link to its home near the claim before sibling
 files enter the census. Nearby explicit links can select another document set. A shared noun
-such as “gates” does not join an unrelated repository-wide identifier namespace. Stop reports
+such as “gates” does not join an unrelated repository-wide identifier namespace. Range claims
+(“E1–E5”) use the same scope: a shared prefix letter does not join a registry in another
+directory unless the claim links to it nearby. When a link supplies the scope, only
+the explicitly linked documents enter the census, rather than unrelated registries
+beside them. Git inventory is confined to the selected
+repository even when inherited Git selector variables point elsewhere; an empty
+successful inventory stays empty. In-memory document sets do not consult disk ignore rules.
+Stop reports
 a repository snapshot; it does not claim
 that the current session introduced every finding. Full comparisons, related files, stable
 finding IDs and observation provenance are retained in `spec-drift.jsonl` and can be searched
