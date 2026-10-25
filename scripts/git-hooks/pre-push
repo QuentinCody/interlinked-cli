@@ -217,11 +217,11 @@ run_gate() {
         # Run tests once, with coverage, against this exact revision — through the
         # scheduler, so the run is keyed by its CHECK IDENTITY (inventory, runtime,
         # command, toolchain, normalized environment, platform, policy) and a
-        # receipt in the source checkout's store certifies an identical export:
-        # a local `interlinked tests run --all --coverage` (or the previous push
-        # of the same revision) is consumed instead of re-run, and its coverage
-        # summary + inclusion scope are copied out and verified by sha256. Never
-        # by mtime: a report from different bytes never matches this identity.
+        # artifacts are retained in the source checkout's store. This path runs
+        # fresh: static selection is opt-in, and the scope reporter's filesystem
+        # and environment reads make it opaque to reusable receipt binding.
+        # Coverage summary + inclusion scope are copied out and verified by
+        # sha256, never by mtime.
         # NOT under `bounded`: the scheduler owns host admission itself (a nested
         # host lease would wait until its deadline), and it supervises the runner
         # tree's memory, cancellation and cleanup on its own execution path.

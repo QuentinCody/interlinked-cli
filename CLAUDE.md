@@ -614,6 +614,22 @@ sit at 54% (20/37), so backfill those first. Re-derive these numbers with
 - Diff-aware filtering suppresses pre-existing findings, only reporting issues introduced by the current edit
 - `pre_block` registry checks are likewise **introduced-only** at both write gates (shared semantics in `src/harness/pre-block-gate.ts`): a finding blocks only when the edit adds it vs the on-disk baseline (multiset over normalized line text); pre-existing findings surface as warnings instead of bricking the file for unrelated edits. Inline `// interlinked-ignore: <check> — reason` directives and `.interlinked/verify-suppressions.json` entries are honored at pre-block time (same grammar as PostToolUse/verify; ratcheted, auditable)
 - Secrets detection runs on BOTH PreToolUse (in file content) and PostToolUse (re-check)
+- The hook finds its project by walking up from the TOOL CALL's cwd (`lib/interlinked-root.ts findRepoRoot`) to the
+  nearest `.interlinked/` that holds a project marker (`config.json`, `guard-rules.json`, `harness.pid`) or a
+  socket; a folder holding only hook-written files (payload census, receipts, prediction state) is passed. Before
+  2026-10-22 the nearest `.interlinked/` won, and the payload census wrote `<cwd>/.interlinked/` for any folder
+  the session had `cd`-ed into — so every later call from below that folder found no socket and was cold-allowed
+  without the daemon (one session: 135 of 734 calls, 47 of them edits; the transcript says "daemon socket not
+  found; evaluator skipped"). The census now writes only under the project root, and `guard-prediction.ts` keys
+  its state, receipts and file keys to the same root (keyed to the cwd, it also skipped every edit outside the
+  session's current folder as "outside the project"). Scale on 2026-10-22: 663 of the tree's 730 `.interlinked/`
+  folders were such strays (618 under `scratch/`, 17 under `src/` — `.gitignore` `src/**/.interlinked/` had
+  hidden them), and their own receipts show 21,283 cold hook calls since 2026-09-24 (5,917 PreToolUse).
+  `interlinked verify` run from a subfolder still writes `<cwd>/.interlinked/verify-runs.jsonl` (harmless for
+  the guard now; the CLI's data paths are cwd-relative by convention). `interlinked harness calls [--since 7d]
+  [--session id] [--strict]` (`harness/call-coverage.ts`) joins the transcript timeline to the collection log by
+  `[session, tool_use_id]` and lists observed calls without a matching daemon judgment,
+  by tool and working folder. Missing or rotated capture remains a measurement gap.
 
 ## Findings carry a determinism tag
 
@@ -1416,7 +1432,11 @@ and classifies per the §9.4 table (both-pass is NOT_DEMONSTRATED for
 old-new, an unrelated failure before the designated case is not
 demonstrated, a comparison that cannot be built or a non-passing candidate
 is INCONCLUSIVE, characterization both-pass is preserved). The receipt
-records `sensitivity[scenarioId]`, the attempt is `unavailable` unless
+records `sensitivity[scenarioId]` (with `faults: [...]` instead of `fault`,
+one comparison per recorded fault, demonstrated only when EVERY fault is,
+per-fault records + `killFraction` in the receipt, `aggregateFaultProofs`;
+dropping a base fault is `proof-dropped` — 2026-10-21, from E64c: one
+violation under-samples a requirement), the attempt is `unavailable` unless
 demonstrated/preserved, and qualification adds the `sensitivity` dimension
 with `SENSITIVITY_NOT_DEMONSTRATED` / `SENSITIVITY_INCONCLUSIVE`. The live
 worktree is only ever read (`proof-modes.test.ts` pins it byte-identical).
@@ -1683,6 +1703,69 @@ full-suite load, credited no request at all (the 2026-09-25 flake); each
 browser case's details now carry its window and the proxy log as offsets. cargo is absent on the dev Mac, so the Rust fixture's compiled route
 is asserted only where cargo exists; locally it proves the `unavailable`
 path.
+
+## fail-before-fix (plan 32 item 6, added 2026-10-21)
+
+`interlinked tests fail-before-fix [--session <id>] [--strict] [--json]`
+(`src/harness/fail-before-fix/`, command `src/commands/tests-fail-before-fix.ts`):
+each file the session touched is replayed from `git show HEAD:<file>` through
+every applied edit in the collection log since HEAD's commit (any session; raw
+`apply_patch` envelopes split per file; archives read when the live log does not
+reach back), and the replay must reproduce the current bytes — otherwise the
+file is `unavailable` (a code file blocks the run; docs/data/`scratch/` are a
+note). The session's changed test files run in the live tree and in a
+git-visible copy (`git ls-files -co --exclude-standard`, node_modules linked —
+never the gigabytes of ignored bulk) whose code holds the pre-session bytes;
+each changed test also runs its pre-session twin there, so "new" means "the old
+file did not report this name". Verdicts: `fails-before-fix` (the test's own
+check failed on the old code: an assertion, or a plain error whose FIRST stack
+frame is the test file — a wait-until or "should have thrown" helper,
+`classify.ts failedByOwnCheck`; it pins the change), `passes-before-fix`,
+`inconclusive` (a crash, an error thrown by product code or vitest's own
+timeout, or a load failure on the old code — a missing new export proves
+nothing), `not-passing-now`. Advisory: exit 0, `--strict` exits 1 only
+for a new test whose SUBJECT changed (its companion module, or a module it
+imports at runtime; a changed sibling it never imports is not its subject)
+and that passes on the old code, 2 when no evidence exists. On this repo's
+2026-10-22 session the old same-directory rule gave 16 such concerns; the
+import rule gives 2, both deliberate preservation tests (the command cannot
+tell a preservation test from a weak one). Measured motivation: E66 (56/58 review-regression tests fail
+on the real pre-fix code; partial reverts crash), and on the session that built
+it the replay reproduced every `src/` file. A call the collection log missed (a
+lost post event, or no row at all: the hook client cold-fallback-allows while
+the daemon stalls) is filled from the transcript-derived `timeline.jsonl` when
+no collection post row carries its `tool_use_id` and its tool_result reports
+success; the report counts these as `recovered`. Edits made by scripts stay
+unavailable (no log has them).
+
+## Requirement faults (plan 32 items 7–8, added 2026-10-21)
+
+`interlinked tests faults run [--corpus <path>] [--ids a,b] [--json]`
+(`src/harness/requirement-faults/`): a corpus of recorded violations
+(`.interlinked/requirement-faults.json`, strict v1: the plan 31 fault shape
+`id, path, find, replace, rationale` plus `requirement {id, text?, source?}`,
+`tests: [...]` and `origin: authored | edit-log | revision`) is applied one
+fault at a time to a git-visible copy (anchor exactly once), each fault's test
+files run with vitest's JSON reporter, and the bytes are restored. A kill is a
+test that passes live and fails by its own check under the fault (the
+fail-before-fix rule above); a crash, a product-code error or a load failure is
+inconclusive, and the report keeps each inconclusive test's first failure line
+(`inconclusiveReasons`; E47a-exec 2026-10-22 lost a `waitFor` helper's real
+detection to the old assertion-only rule); an absent anchor is invalid. Output: per fault, and
+per requirement the kill fraction killed / (killed + survived) — the plan 32
+test-value score, never a gate. The run is saved to
+`.interlinked/test-runs/faults/latest.json`, and each fault's newest outcome
+per corpus goes to `outcomes.json` beside it (`requirement-faults/store.ts`: a
+complete run drops the corpus's faults it no longer holds, `--ids` only adds),
+so running another corpus no longer erases clause evidence. `interlinked tests faults clauses
+[--detectors <dir>]` parses each detector header (`check-evidence/clauses.ts`:
+FIRES WHEN = k1, each DOES NOT FIRE item of the first sentence = k2…; a
+qualifier in parentheses may precede the colon) and joins the stored outcomes by
+requirement id `clause:<module>:k<n>`: a clause is pinned when every conclusive
+fault recorded for it was killed. It is a measured view; it is NOT yet a Check
+Evidence Contract dimension (no `EVIDENCE_DIMENSIONS` entry, no pin). Fault
+authors must be blind to the tests and to project instructions (this file names
+the test that pins each review fix).
 
 ## E2E lane
 

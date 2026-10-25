@@ -2392,6 +2392,12 @@ Commands:
   review [options] [paths...]     Review changed source, behavioral obligations
                                   and bounded simplification candidates without
                                   running tests
+  fail-before-fix [options]       Run the tests a session changed against that
+                                  session's pre-change code, rebuilt from the
+                                  harness edit log; advisory
+  faults                          Requirement faults: recorded violations of
+                                  stated requirements, run against the tests
+                                  that must notice them
   readiness [options] <language>  Inspect test prerequisites without
                                   installing; Python also reports approved
                                   provisioning argv
@@ -2757,6 +2763,9 @@ Commands:
                              installation and observation evidence
   coverage                   Inspect and review daemon-owned filesystem
                              observations
+  calls [options]            Join the transcript timeline to the daemon's
+                             collection log: which tool calls the daemon never
+                             judged
   taint                      Session sensitivity label: inspect which source
                              set it, or clear it (operator)
   test [options] [command]   Fire a synthetic PreToolUse event at the running

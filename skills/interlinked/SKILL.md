@@ -5,6 +5,10 @@ description: "Overview and router for the Interlinked CLI — a local guard, qua
 
 # interlinked — overview & skill router
 
+For the internal, default-off `claims --receipt-shadow` observer and its explicit receipt
+links, use **interlinked-observability** and `docs/internal/jev.md`. It logs comparisons only;
+it does not enable claim evaluation in public Stop hooks or alter a model decision.
+
 For experimental `metrics decisions` measurements, ThinkThen/Clef/Jev adapters,
 calibration audits, relational ledgers and `[interlinked:decision-metrics]` advice,
 load **interlinked-quality-gates**. For Qwen embedding retrieval/resource policy,
@@ -55,11 +59,20 @@ it. This skill orients you and points to the right focused skill.
 ## The three surfaces
 
 Jev semantic review is internal research only. The public Interlinked CLI has no
-`jev` command, and its harness never invokes Jev at Stop. Legacy `jev` guard
-settings do not enable it. Internal evaluation belongs to the source-checkout
-runner documented in `docs/internal/jev.md`. The separate experimental
+`jev` command, and its harness never invokes the legacy Jev reviewer at Stop.
+Default-off edit shadows and decision shadows can call Jev when explicitly enabled;
+they only log results and do not change guard decisions. See `docs/harness.md` for
+those configurations. Internal evaluation belongs to the source-checkout runner
+documented in `docs/internal/jev.md`. The separate experimental
 `metrics decisions` pipeline supports explicitly configured System One backends;
 its opt-in PostToolUse advice is not the legacy Jev Stop reviewer.
+
+For the internal GitHub repository collection → pair review → frozen Jev/Luna
+comparison workflow, load **interlinked-quality-gates**. If the optional local research
+directory is present, read `research/semantic-factory/repo-pipeline/README.md`;
+it is ignored and absent from fresh clones and packages. This research pipeline keeps
+one repository iteration active and records lessons; it does not add a public
+CLI command, embedding model, automatic code edits, or a blocking semantic gate.
 
 | Surface | Role |
 |---|---|
@@ -221,5 +234,13 @@ keeps history available through `data search`; ordinary live-tail readers have n
    an approved worktree when isolation is required. Listing and cleanup remain allowed.
 
 ## Evidence integrity and capability discovery
+
+For `harness calls --since <duration> --session <id> --strict`, load
+**interlinked-observability**. It compares observed transcript calls with daemon
+judgments; absent capture is not proof of complete enforcement.
+
+For the source-checkout tool-output efficiency lab, repeated-read measurements,
+receipt expansion, and decision/embedding selection experiments, use
+**interlinked-observability**. These are opt-in evaluation tools, not native hooks.
 
 Use **interlinked-observability** for `harness health` finding outcomes and `harness explain <topic> --client <client>`. Use **interlinked-verify** for `harness corpus status|scan`, replay compatibility, and `tests e2e attempts|replay`. Use **interlinked-quality-gates** for mutation raw-evidence provenance and corpus cohort water-lines. Permission observations are proposals only; **interlinked-harness** and **interlinked-setup** describe their limits.

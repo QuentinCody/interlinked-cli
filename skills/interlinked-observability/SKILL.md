@@ -6,6 +6,15 @@ description: "Investigate agent activity and JSONL/gzip evidence. Load for data 
 
 # interlinked-observability — inspect what agents did
 
+For internal claim-verification research, `node --import tsx scripts/internal/jev.mjs claims
+<final-message> <transcript> --receipt-shadow <links-file>` adds default-off, log-only
+deterministic comparisons to `.interlinked/claim-receipt-shadow.jsonl`. It does not run from
+public Stop hooks or change Jev's decision. Links explicitly bind a claim to receipt/source/
+selection identities; missing or duplicate links remain not assessable. Only four narrow
+receipt predicates are supported; see `docs/internal/jev.md`. A missing Jev score is unmeasured,
+including short claims omitted by the legacy splitter. Separate replay statistics from live
+usage, and inspect `receiptShadowFailures()` before treating an absent row as no claim.
+
 Ordinary hook delivery omits deep-audit style/design messages after one review
 notice, while raw check results remain intact. This applies to synchronous responses
 and the late-warning spool; their deduplication state is separate so preparing a
@@ -379,6 +388,12 @@ also declines when otherwise-matching evidence names more than one distinct chil
 `session_meta` owns a rollout file: later duplicate root metadata cannot erase child attribution,
 and when both are present the child `payload.id` takes precedence over root `payload.session_id`.
 
+**Codex input roles:** imported user-shaped input retains its `input_role`.
+Developer/system context remains available as evidence but does not start a human
+experience episode. Historical rows without the role retain the old interpretation
+until their source transcript is reparsed; do not compare episode counts without
+accounting for that migration.
+
 **Codex token accounting:** rollout metrics and the generated hook read
 `event_msg.payload.type: "token_count"` rows and add only
 `info.last_token_usage`, which is the per-call delta. Never sum
@@ -614,6 +629,36 @@ interlinked sync --dry-run               # safe: pending count, no send
 - **interlinked-coordination** — the server-backed side (tasks, messages) `watch`/`sync` reach.
 - **interlinked-simplification** — advisory opportunities whose estimated and validated impact
   must remain separate.
+
+## Comparing calls with daemon judgments
+
+Recurrence scans use the selected `--cwd` as their repository context. A throwing
+detector or missing prerequisite emits NOT MEASURED while healthy detectors continue.
+These notices are surfaced through stderr/callbacks; the retained finding receipt does
+not yet contain a complete structured inventory of unavailable detector scope. An empty
+finding list therefore does not establish that every detector ran successfully.
+
+`interlinked harness calls [--since 7d] [--session <id>] [--strict] [--json]`
+joins live `timeline.jsonl` tool calls to live collection judgments by session AND
+tool-use ID. It lists unjudged observed calls by tool, working folder and time span.
+Run from the project root. Exit 0 means reported, 1 means `--strict` found unjudged
+calls, and 2 means no calls/evidence or an error. This measures the observed live
+window; rotated or missing capture is a gap, not a clean enforcement claim.
+
+## Tool-output efficiency lab (source checkout only)
+
+Use `evals/tool-output-efficiency/README.md` for frozen native-session measurement,
+code/decision/embedding selection, and the explicit capture/expand wrapper.
+No question means the declared baseline; `--full` bypasses selection. Keep the
+receipt ID and expand missing evidence or exact edit text before acting. Offsets
+are end-exclusive UTF-16 units. Selection is advisory and does not alter hooks.
+Keep native logs local unless remote submission is explicitly authorized.
+The lab's live model controls are synthetic; `.local/` artifacts remain ignored.
+Report same-agent/same-compaction repetition separately from later compactions
+and other agents. No observed later use is not proof of waste. Character budgets,
+recorded token additions, repeated provider input, costs, and live context size
+are different measurements. Replay does not establish live expansion behavior
+or task success. See RESULTS.md before claiming savings or adopting filtering.
 
 ## Finding outcomes and explanation
 
