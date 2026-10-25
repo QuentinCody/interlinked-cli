@@ -5,14 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./resource-memory.js", () => ({ readResourceMemory: () => ({ totalBytes: 16 * 1024 ** 3, availableBytes: 8 * 1024 ** 3 }) }));
 vi.mock("node:os", async importOriginal => ({ ...await importOriginal<typeof import("node:os")>(), availableParallelism: () => 8, loadavg: () => [0, 0, 0] }));
 vi.mock("./test-runtime.js", () => ({ captureTestRuntime: vi.fn() }));
-vi.mock("./coverage-shards/discovery.js", () => ({ captureVitestEnvironment: () => ({ environment: {}, environmentHash: "env" }) }));
+vi.mock("./coverage-shards/discovery.js", () => ({ captureVitestEnvironment: vi.fn(() => ({ environment: {}, environmentHash: "env" })) }));
 vi.mock("./test-run-receipt.js", async importOriginal => ({ ...await importOriginal<typeof import("./test-run-receipt.js")>(), readTestReceipt: vi.fn(), writeTestReceipt: vi.fn() }));
 vi.mock("./check-engine/spawn-async.js", () => ({ runProcessAsync: vi.fn() }));
 vi.mock("./test-run-report.js", () => ({ testReportIssue: () => null }));
 import { executeTestPlan, testWorkerBudget } from "./test-execution.js";
 import { runProcessAsync } from "./check-engine/spawn-async.js";
 import { captureTestRuntime } from "./test-runtime.js";
-import { readTestReceipt } from "./test-run-receipt.js";
+import { readTestReceipt, writeTestReceipt } from "./test-run-receipt.js";
+import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
+import { checkIdentity, identityEnvironmentHash, policyDigest, toolchainIdentity } from "./check-identity.js";
+import { platformIdentity } from "./verification-stages.js";
 import { nonNull } from "../lib/non-null.js";
 import type { TestPlan } from "./test-plan.js";
 import type { TestRuntime } from "./test-runtime.js";
@@ -98,6 +101,34 @@ describe("validation phase is measured on every validated path", () => {
 });
 
 describe("memory headroom on the vitest stage row", () => {
+    it.each(["--max-old-space-size-percentage=50", "--max_old_space_size_percentage 50", '"--max-old-space-size=512"', "--max-old-space-size=invalid"])("defers unsupported inherited heap options: %s", async nodeOptions => {
+        const root = fixture();
+        vi.mocked(captureVitestEnvironment).mockReturnValue({ environment: { NODE_OPTIONS: nodeOptions }, environmentHash: "unsupported" });
+        const result = await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000 });
+        expect(result).toMatchObject({ status: "deferred", reason: expect.stringContaining("heap limit unavailable"), reused: false });
+        expect(runProcessAsync).not.toHaveBeenCalled();
+        expect(readTestReceipt).not.toHaveBeenCalled();
+        expect(writeTestReceipt).not.toHaveBeenCalled();
+    });
+
+    // test-contract: regression — receipts produced before worker heap enforcement must not certify this execution policy.
+    it("does not reuse a receipt whose identity lacks the effective heap limits", async () => {
+        const root = fixture(), stub = join(root, "node_modules", "vitest");
+        mkdirSync(stub, { recursive: true });
+        writeFileSync(join(stub, "package.json"), JSON.stringify({ name: "vitest", exports: { "./node": "./node.js" } }));
+        writeFileSync(join(stub, "node.js"), "");
+        const legacyKey = checkIdentity({ inputs: { snapshot: selectedPlan.snapshot, runtimeHash: "h" },
+            command: ["vitest", "selected", "a.test.ts", "--workers=2"], toolchain: toolchainIdentity(root),
+            environmentHash: identityEnvironmentHash({}), platform: platformIdentity(), policy: policyDigest(root) });
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h" });
+        vi.mocked(readTestReceipt).mockImplementation((_root, key) => key === legacyKey ? { ...priorReceipt, key, identity: key } : null);
+        vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, killed: false, timedOut: false, stdout: "", stderr: "" });
+        const result = await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000 });
+        expect(result).toMatchObject({ status: "passed", reused: false });
+        expect(runProcessAsync).toHaveBeenCalledOnce();
+        expect(vi.mocked(readTestReceipt).mock.calls[0]?.[1]).not.toBe(legacyKey);
+    });
+
     // test-contract: public-api — the executor's vitest row carries the child tree's peak RSS, the admitted budget and the child's heap limit
     it("records peak_rss_bytes, rss_budget_bytes and heap_limit_mb for a fresh run", async () => {
         const root = fixture();

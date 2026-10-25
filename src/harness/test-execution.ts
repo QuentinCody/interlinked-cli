@@ -67,8 +67,28 @@ function withArtifacts(options: TestRunOptions, execution: TestExecution, valida
 /** Per-attempt ledger facts: the receipt identity (when computed), when the attempt started, phase timings and why reuse was denied. */
 interface StageOutcome { identity: string | null; started: number; validate_ms?: number; lookup_ms?: number; exec_ms?: number; post_ms?: number; denied?: ReuseDeniedReason; }
 
-/** V8 heap limit (MiB) of the vitest child; one value for the command line and the ledger row. */
+/** V8 old-space limit (MiB) for the coordinator and built-in fork workers; threads inherit the coordinator's limit. */
 const TEST_HEAP_LIMIT_MB = 1536;
+const HEAP_UNAVAILABLE = "Test heap limit unavailable: percentage, invalid or ambiguous heap overrides cannot be bounded; use simple positive absolute MiB limits";
+
+/** Inspect only simple heap overrides; preserve NODE_OPTIONS verbatim and decline ambiguous quoting instead of parsing shell syntax. */
+function environmentHeapLimit(environment: NodeJS.ProcessEnv): number | null {
+    const options = environment.NODE_OPTIONS ?? "";
+    if (!/--max[-_]old[-_]space[-_]size/.test(options)) return TEST_HEAP_LIMIT_MB;
+    if (/["\\]/.test(options)) return null;
+    const args = options.split(/\s+/);
+    let limit = TEST_HEAP_LIMIT_MB;
+    for (let index = 0; index < args.length; index++) {
+        const arg = args[index] ?? "";
+        if (/^--max[-_]old[-_]space[-_]size[-_]percentage(?:=|$)/.test(arg)) return null;
+        const absolute = /^--max[-_]old[-_]space[-_]size(?:=(.*))?$/.exec(arg);
+        if (!absolute) continue;
+        const value = absolute[1] ?? args[++index];
+        if (!/^\d+$/.test(value ?? "") || Number(value) <= 0) return null;
+        limit = Math.min(limit, Number(value));
+    }
+    return limit;
+}
 
 type StageMemory = Pick<VerificationStageInput, "peak_rss_bytes" | "rss_budget_bytes" | "heap_limit_mb">;
 
@@ -79,8 +99,8 @@ type StageMemory = Pick<VerificationStageInput, "peak_rss_bytes" | "rss_budget_b
  */
 const launchedMemory = new Map<string, StageMemory>();
 
-function noteLaunchedMemory(runId: string, budgetBytes: number, peakBytes: number | undefined): void {
-    launchedMemory.set(runId, { rss_budget_bytes: budgetBytes, heap_limit_mb: TEST_HEAP_LIMIT_MB, ...(peakBytes === undefined ? {} : { peak_rss_bytes: peakBytes }) });
+function noteLaunchedMemory(runId: string, budgetBytes: number, peakBytes: number | undefined, heapMb: number): void {
+    launchedMemory.set(runId, { rss_budget_bytes: budgetBytes, heap_limit_mb: heapMb, ...(peakBytes === undefined ? {} : { peak_rss_bytes: peakBytes }) });
 }
 
 /** The memory facts a launch left for this run id (none for reused or never-launched attempts); each is claimed once. */
@@ -113,22 +133,47 @@ export function testWorkerBudget(requested?: number): number {
     return plan.defer ? 0 : Math.min(plan.maxJobs, requested ?? 2, Math.floor(budget.maxRssBytes / 1024 ** 3) - 1);
 }
 
-function testCommand(root: string, directory: string, plan: TestPlan, workers: number, coverage?: TestRunOptions["coverage"]): string[] {
+function testCommand(root: string, directory: string, plan: TestPlan, workers: number, heapMb: number, coverage?: TestRunOptions["coverage"]): string[] {
     const module = pathToFileURL(createRequire(join(root, "package.json")).resolve("vitest/node")).href;
     const selected = plan.mode === "full" ? [] : plan.tests.map(test => join(root, test.path));
     // Coverage lands inside the run directory so it travels with the receipt; the repository's vitest config supplies provider and include globs.
     const coverageOptions = coverage ? { enabled: true, reporter: ["json-summary"], reportsDirectory: join(directory, "coverage") } : { enabled: false };
     const options = { root, watch: false, run: true, cache: false, maxWorkers: workers, retry: 0, coverage: coverageOptions,
         reporters: ["json", ...(coverage?.reporters ?? [])], outputFile: join(directory, "report.json") };
+    // Vitest filters inherited heap flags out of fork execArgv. onInit sees resolved projects before workers start;
+    // append the bound after configured arguments. Threads already inherit V8's limit and reject this execArgv flag.
     const source = `import { startVitest } from ${JSON.stringify(module)};
-const ctx = await startVitest("test", ${JSON.stringify(selected)}, ${JSON.stringify(options)}, { cacheDir: ${JSON.stringify(join(directory, "vite"))} });
-if (ctx) await ctx.close(); else process.exitCode = 1;`;
-    return [`--max-old-space-size=${TEST_HEAP_LIMIT_MB}`, "--input-type=module", "--eval", source];
+const options = ${JSON.stringify(options)};
+let heapUnavailable = false;
+options.reporters.unshift({ onInit(ctx) {
+    for (const project of ctx.projects) {
+        if (project.config.pool !== "forks" && project.config.pool !== "vmForks") continue;
+        let limit = ${heapMb};
+        const args = [];
+        for (let index = 0; index < project.config.execArgv.length; index++) {
+            const arg = project.config.execArgv[index];
+            const absolute = /^--max[-_]old[-_]space[-_]size(?:=(.*))?$/.exec(arg);
+            if (/^--max[-_]old[-_]space[-_]size[-_]percentage(?:=|$)/.test(arg)) heapUnavailable = true;
+            if (!absolute) { args.push(arg); continue; }
+            const value = absolute[1] ?? project.config.execArgv[++index];
+            if (!/^\\d+$/.test(value ?? "") || Number(value) <= 0) heapUnavailable = true;
+            else limit = Math.min(limit, Number(value));
+        }
+        if (heapUnavailable) throw new Error(${JSON.stringify(HEAP_UNAVAILABLE)});
+        project.config.execArgv = [...args, "--max-old-space-size=" + limit];
+    }
+} });
+const ctx = await startVitest("test", ${JSON.stringify(selected)}, options, { cacheDir: ${JSON.stringify(join(directory, "vite"))} });
+if (ctx) await ctx.close(); else process.exitCode = 1;
+if (heapUnavailable) { console.error(${JSON.stringify(HEAP_UNAVAILABLE)}); process.exitCode = 75; }`;
+    return [`--max-old-space-size=${heapMb}`, "--input-type=module", "--eval", source];
 }
 
 async function launchTestPlan(base: TestExecution, options: TestRunOptions, environment: NodeJS.ProcessEnv, workers: number): Promise<TestExecution> {
     const resourceBudget = readResourceBudget();
     if (!resourceBudget) return { ...base, status: "deferred", reason: "Host memory reserve unavailable; test request retained" };
+    const heapMb = environmentHeapLimit(environment);
+    if (heapMb === null) return { ...base, status: "deferred", reason: HEAP_UNAVAILABLE };
     const directory = join(receiptStorePath(options.root, options.receiptStore), base.runId);
     mkdirSync(directory, { recursive: true });
     observeTestRun(options.root, base, "running");
@@ -137,21 +182,21 @@ async function launchTestPlan(base: TestExecution, options: TestRunOptions, envi
     // hosting it); a scope reporter (scripts/pre-push-coverage.mjs) writes the coverage-inclusion scope beside the summary.
     const childEnvironment: NodeJS.ProcessEnv = { ...environment, [LEASE_ANCESTORS_ENV]: leaseAncestorsForChildren() };
     if (options.coverage) childEnvironment.INTERLINKED_COVERAGE_SCOPE_FILE = join(directory, COVERAGE_ARTIFACTS.coverage_scope ?? "coverage/scope.json");
-    const result = await runProcessAsync(process.execPath, testCommand(options.root, directory, base.plan, workers, options.coverage), {
+    const result = await runProcessAsync(process.execPath, testCommand(options.root, directory, base.plan, workers, heapMb, options.coverage), {
         cwd: options.root, timeout: Math.max(1, options.deadline - started), exactEnv: childEnvironment, resourceBudget,
         ...(options.signal ? { signal: options.signal } : {}),
     });
-    noteLaunchedMemory(base.runId, resourceBudget.maxRssBytes, result.peakRssBytes);
+    noteLaunchedMemory(base.runId, resourceBudget.maxRssBytes, result.peakRssBytes, heapMb);
     const execution: TestExecution = { ...base, durationMs: Date.now() - started, output: `${result.stdout}\n${result.stderr}`.slice(-8000),
         status: result.code === 0 ? "passed" : "failed" };
-    if (interrupted(result)) return { ...execution, status: "deferred", reason: result.resourceReason ?? "Runner interrupted or unavailable" };
+    if (interrupted(result)) return { ...execution, status: "deferred", reason: result.stderr.includes(HEAP_UNAVAILABLE) ? HEAP_UNAVAILABLE : result.resourceReason ?? "Runner interrupted or unavailable" };
     const issue = result.code === 0 ? testReportIssue(options.root, join(directory, "report.json"), base.plan) : null;
     if (issue) return { ...execution, status: "deferred", reason: issue };
     return execution;
 }
 
 function interrupted(result: { timedOut?: boolean; killed?: boolean; code: number | null }): boolean {
-    return !!result.timedOut || !!result.killed || result.code === null || result.code >= 128;
+    return !!result.timedOut || !!result.killed || result.code === null || result.code === 75 || result.code >= 128;
 }
 
 type Outcome = Omit<StageOutcome, "started">;
@@ -167,6 +212,9 @@ async function executePlan(plan: TestPlan, options: TestRunOptions): Promise<Tes
     const workers = testWorkerBudget(options.maxWorkers);
     if (!workers) return record({ execution: { ...base, reason: "Host CPU or memory capacity unavailable for a test worker" }, outcome: { identity: null, denied: "worker-budget-unavailable" } });
     const environment = captureVitestEnvironment();
+    if (environmentHeapLimit(environment.environment) === null) {
+        return record({ execution: { ...base, reason: HEAP_UNAVAILABLE }, outcome: { identity: null, denied: `plan-not-reusable:${HEAP_UNAVAILABLE}` } });
+    }
     if (plan.runtimeIssue) {
         const execStarted = Date.now();
         const execution = withArtifacts(options, await runWithoutReusableEvidence(base, options, environment.environment, workers, plan.runtimeIssue), undefined);
@@ -183,7 +231,8 @@ async function executePlan(plan: TestPlan, options: TestRunOptions): Promise<Tes
 function executionCommand(plan: TestPlan, workers: number, coverage: TestRunOptions["coverage"] | undefined, reporters: ReporterBinding): string[] {
     const scope = plan.mode === "full" ? [] : plan.tests.map(test => test.path);
     const reporterArgs = reporters.entries.map(([path, sha256]) => `--reporter=${path}#${sha256}`);
-    return ["vitest", plan.mode, ...scope, `--workers=${workers}`, ...(coverage ? ["--coverage", ...reporterArgs] : [])];
+    return ["vitest", plan.mode, ...scope, `--workers=${workers}`, `--coordinator-heap-cap-mib=${TEST_HEAP_LIMIT_MB}`, `--fork-heap-cap-mib=${TEST_HEAP_LIMIT_MB}`,
+        ...(coverage ? ["--coverage", ...reporterArgs] : [])];
 }
 
 /**

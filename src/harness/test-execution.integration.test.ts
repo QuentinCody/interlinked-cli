@@ -21,6 +21,61 @@ function seedProject(root: string): void {
     writeFileSync(join(root, "src", "a.test.ts"), 'import {test,expect} from "vitest"; import {a} from "./a"; test("a",()=>expect(a).toBe(1));');
 }
 
+// test-contract: regression — Vitest filters the coordinator's heap flag out of fork execArgv, while threads inherit
+// its V8 limit and reject that flag in execArgv. Measure the actual worker heap without allocating it, in both pools.
+it.each([
+    { pool: "forks", heapArgs: ["--max-old-space-size=3072"], ceiling: 1664, nodeOptions: "" },
+    { pool: "threads", heapArgs: [], ceiling: 1664, nodeOptions: "" },
+    { pool: "forks", heapArgs: ["--max_old_space_size", "512"], ceiling: 640, nodeOptions: "" },
+    { pool: "forks", heapArgs: [], ceiling: 640, nodeOptions: "--no-warnings --max-old-space-size=512" },
+])("bounds the actual $pool worker heap ($ceiling MiB) and preserves configured arguments", async ({ pool, heapArgs, ceiling, nodeOptions }) => {
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "test-worker-heap-")));
+    const root = join(workspace, "project"), store = join(workspace, "store");
+    vi.stubEnv("INTERLINKED_STAGES_LEDGER", join(workspace, "stages.jsonl"));
+    vi.stubEnv("NODE_OPTIONS", nodeOptions);
+    try {
+        mkdirSync(root, { recursive: true });
+        seedProject(root);
+        const execArgv = ["--no-warnings", ...heapArgs];
+        writeFileSync(join(root, "vitest.config.ts"), `export default ${JSON.stringify({ test: { include: ["src/*.test.ts"], pool, execArgv } })};`);
+        writeFileSync(join(root, "src", "heap.test.ts"), `import { test, expect } from "vitest";
+import { getHeapStatistics } from "node:v8";
+test("worker heap is bounded", () => {
+    expect(getHeapStatistics().heap_size_limit).toBeLessThanOrEqual(${ceiling} * 1024 ** 2);
+    expect(process.execArgv).toContain("--no-warnings");
+});`);
+        const plan = await loadTestPlan(root, [], 120_000, true);
+        const result = await executeTestPlan(plan, { root, deadline: Date.now() + 120_000, maxWorkers: 1, receiptStore: store });
+        expect(result.status, result.reason + result.output).toBe("passed");
+        expect(result.plan.tests.map(test => test.path).sort()).toEqual(["src/a.test.ts", "src/heap.test.ts"]);
+    } finally {
+        vi.unstubAllEnvs();
+        rmSync(workspace, { recursive: true, force: true });
+    }
+}, 150_000);
+
+// test-contract: regression — percentage flags outrank absolute limits in Node; unsupported overrides are unavailable,
+// never a failed assertion or reusable pass, and no test body starts under a falsely claimed heap cap.
+it("defers a percentage worker heap override before tests run", async () => {
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "test-worker-percentage-")));
+    const root = join(workspace, "project"), store = join(workspace, "store"), marker = join(workspace, "test-started");
+    vi.stubEnv("INTERLINKED_STAGES_LEDGER", join(workspace, "stages.jsonl"));
+    try {
+        mkdirSync(root, { recursive: true });
+        seedProject(root);
+        writeFileSync(join(root, "vitest.config.ts"), 'export default { test: { include: ["src/*.test.ts"], execArgv: ["--max-old-space-size-percentage=50"] } };');
+        writeFileSync(join(root, "src", "a.test.ts"), `import { test } from "vitest"; import { writeFileSync } from "node:fs"; test("must not start", () => writeFileSync(${JSON.stringify(marker)}, "started"));`);
+        const plan = await loadTestPlan(root, [], 120_000, true);
+        const result = await executeTestPlan(plan, { root, deadline: Date.now() + 120_000, maxWorkers: 1, receiptStore: store });
+        expect(result).toMatchObject({ status: "deferred", reused: false, reason: expect.stringContaining("percentage") });
+        expect(existsSync(marker)).toBe(false);
+        expect(readdirSync(store).filter(name => name.endsWith(".json"))).toEqual([]);
+    } finally {
+        vi.unstubAllEnvs();
+        rmSync(workspace, { recursive: true, force: true });
+    }
+}, 150_000);
+
 // test-contract: invariant — every identity input is re-read after the run: an external reporter dependency rewritten between hashing and loading makes the run STALE at the executor (no receipt), so nothing certifies bytes that never executed
 it("marks a run stale when a bound reporter dependency changes during execution and certifies nothing", async () => {
     const workspace = realpathSync(mkdtempSync(join(tmpdir(), "reporter-revalidate-")));

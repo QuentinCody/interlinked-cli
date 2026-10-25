@@ -4,13 +4,13 @@ import { nonNull } from "../../lib/non-null.js";
 // (~1-3s warmup). Subsequent tests reuse the cached LS and run in ~50ms.
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
 	_setTscOverlayModeOverrideForTest,
 	clearTscOverlayCache,
 } from "../check-engine/tool-runners/tsc-overlay.js";
-import { sweepStaleFixtureDirs } from "./fixture-hygiene.js";
 import {
 	evaluateTscDiffOverlay,
 	isTscFindingBlocking,
@@ -18,7 +18,7 @@ import {
 } from "../diff-overlay.js";
 
 // This suite exercises LanguageService BEHAVIOR (diagnostics, warm-cache
-// reuse) against the real CLI project — pin "in-process" mode so it doesn't
+// reuse) against a real, isolated TS project — pin "in-process" mode so it doesn't
 // route through the sidecar transport (a per-call cold spawn, covered
 // separately by tsc-overlay-sidecar-*.test.ts).
 beforeEach(() => {
@@ -28,24 +28,15 @@ afterEach(() => {
 	_setTscOverlayModeOverrideForTest(null);
 });
 
-// NB: for this file CLI_ROOT resolves to `src/harness` (two levels up from
-// `src/harness/__tests__`), and that is exactly the `projectRoot` the overlay is
-// called with — tsconfig is found by walking UP from there to the repo root.
-// (It is NOT the repo root; don't "fix" it.)
-const CLI_ROOT = resolve(import.meta.dirname, "../..");
-// Fixtures live in a UNIQUE per-process `mkdtempSync` dir, so no two test files
-// (or parallel runs) ever write the same path — the parallel-safety invariant.
-// The dir is rooted under CLI_ROOT (not os.tmpdir()) so tsconfig resolves
-// up-tree; the tsc LanguageService applies strict / exactOptionalPropertyTypes
-// to the overlaid file (overlay-only files outside `rootDir: src` get correct
-// diagnostics with no TS6059 error). The `_…fixtures-` name is skipped by the
-// strip-brace corpus walk.
-sweepStaleFixtureDirs(CLI_ROOT);
-const FIXTURE_DIR = mkdtempSync(resolve(CLI_ROOT, "_tsc_overlay_fixtures-"));
+// Give the real LanguageService its own strict project. Loading the CLI's
+// entire src/ tree makes these small diagnostic tests depend on repository
+// size and can exhaust a bounded worker before afterAll removes its fixtures.
+const FIXTURE_DIR = mkdtempSync(resolve(tmpdir(), "tsc-overlay-fixtures-"));
+const CLI_ROOT = FIXTURE_DIR;
 const FIXTURE_FILE = resolve(FIXTURE_DIR, "_tsc_overlay_fixture.ts");
 
-// A trivially clean starting file — matters that it's clean under the CLI's
-// tsconfig so "introduce one new error" tests are unambiguous.
+// A trivially clean starting file — matters that it's clean under the private
+// fixture tsconfig so "introduce one new error" tests are unambiguous.
 const CLEAN_CONTENT = `// tsc-overlay test fixture
 export function identity<T>(x: T): T {
 	return x;
@@ -55,6 +46,14 @@ export function identity<T>(x: T): T {
 describe("evaluateTscDiffOverlay", () => {
 	beforeAll(() => {
 		// FIXTURE_DIR already exists (mkdtempSync created it at module load).
+		writeFileSync(resolve(FIXTURE_DIR, "tsconfig.json"), JSON.stringify({
+			compilerOptions: {
+				target: "ES2022", module: "ESNext", moduleResolution: "bundler",
+				strict: true, exactOptionalPropertyTypes: true, noUncheckedIndexedAccess: true,
+				noUnusedLocals: true, noUnusedParameters: true, skipLibCheck: true,
+			},
+			include: ["*.ts"],
+		}));
 		writeFileSync(FIXTURE_FILE, CLEAN_CONTENT);
 		// Ensure a fresh LS for the test file's mtime
 		clearTscOverlayCache(CLI_ROOT);
