@@ -125,4 +125,3 @@ hash index, with a measured 536 MB peak resident memory.
 Live task trials must measure requests to expand, fresh rereads, missed evidence,
 final correctness, total input tokens, actual cost, and peak context separately.
 No automatic filtering or repeat suppression is enabled by this lab.
-

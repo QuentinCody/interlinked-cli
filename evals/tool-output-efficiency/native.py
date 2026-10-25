@@ -107,4 +107,3 @@ def events(item):
         for event in emitted:
             yield {**event, "epoch":reader.epoch, "timestamp":row.get("timestamp", ""), "line":line_number}
     yield reader.summary(item["provider"])
-

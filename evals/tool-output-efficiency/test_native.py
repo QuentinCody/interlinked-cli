@@ -16,4 +16,3 @@ class NativeTests(unittest.TestCase):
         self.assertEqual([x["epoch"] for x in out if x["kind"]=="output"], [0,1])
         self.assertEqual(out[-1]["usage"]["input"],100)
         self.assertEqual(out[-1]["compactions"],1)
-

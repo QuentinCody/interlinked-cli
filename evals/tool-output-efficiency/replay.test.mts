@@ -8,4 +8,3 @@ test("replay leaves its source intact and records a declared baseline",async()=>
     assert.equal(result.views["head-tail"].mode,"head-tail");
     assert.equal(result.views.code.mode,"selected");
 });
-

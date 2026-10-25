@@ -38,4 +38,3 @@ test("nonzero structured exit codes remain visible and incomplete capture stays 
     assert.equal(result.capturedComplete,false);
     assert.ok(result.spans?.some(span=>span.text.includes('"exit_code":2')));
 });
-

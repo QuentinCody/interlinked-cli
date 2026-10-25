@@ -9,4 +9,3 @@ test("fixture evidence is present and full expansion recovers every required pas
         assert.equal(evaluateView(fixture,view).recall,1);
     }
 });
-

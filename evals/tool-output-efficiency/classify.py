@@ -54,4 +54,3 @@ def edited_paths(name, value):
     if "apply_patch" in name or "*** Update File:" in text or "*** Add File:" in text:
         return {p.split("interlinked-cli/",1)[-1] for p in re.findall(r"\*\*\* (?:Update|Add|Delete) File: ([^\n\\]+)", text)}
     return set()
-

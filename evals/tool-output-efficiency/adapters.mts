@@ -33,4 +33,3 @@ export function projectJson(text: string, fields: string[]): { value: Record<str
     const entries = Object.entries(value); const requested = new Set(fields);
     return { value: Object.fromEntries(entries.filter(([key]) => requested.has(key))), omittedFields: entries.filter(([key]) => !requested.has(key)).length };
 }
-

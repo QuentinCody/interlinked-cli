@@ -25,4 +25,3 @@ export async function decisionScores(blocks: Block[], question: string, ask: Ask
     }
     return scores;
 }
-

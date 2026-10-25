@@ -15,4 +15,3 @@ class MeasurementTests(unittest.TestCase):
         self.assertEqual(repeat_kind((1,5), 1, 5, False), "within_output")
     def test_fixed_selection(self):
         self.assertEqual(choose_winner({"search":{"unused_tokens":4},"file_reads":{"unused_tokens":9}}), "file_reads")
-

@@ -9,4 +9,3 @@ class ReplayTests(unittest.TestCase):
         result=summary_metrics([{"tokens":100,"used":True,"retained":False},{"tokens":50,"used":False,"retained":True}])
         self.assertEqual(result["used_token_recall"],0)
         self.assertEqual(result["omitted_used_tokens"],100)
-

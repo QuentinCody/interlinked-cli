@@ -8,4 +8,3 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(category("exec", 'await tools.exec_command({cmd: "rg foo src"}); await tools.exec_command({cmd: "npm test"});'), "mixed")
     def test_edit_targets(self):
         self.assertEqual(edited_paths("apply_patch", "*** Update File: src/a.ts\n+hello"), {"src/a.ts"})
-

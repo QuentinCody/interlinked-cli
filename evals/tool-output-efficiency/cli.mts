@@ -67,4 +67,3 @@ async function main(): Promise<void> {
     process.stdout.write(JSON.stringify(view) + "\n");
 }
 main().catch(error => { process.stderr.write(String(error instanceof Error ? error.message : error) + "\n"); process.exitCode = 1; });
-

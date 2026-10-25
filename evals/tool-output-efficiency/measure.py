@@ -136,4 +136,3 @@ if __name__=="__main__":
         (directory/"manifest.json").write_text(json.dumps(manifest,indent=2))
     else: manifest=freeze(directory,args.parent_ids)
     run(directory,manifest)
-

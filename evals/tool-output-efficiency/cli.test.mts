@@ -20,4 +20,3 @@ test("CLI retains exact bytes and supports full recovery without a model",()=>{
         assert.notEqual(bad.status,0);
     } finally { rmSync(dir,{recursive:true,force:true}); }
 });
-

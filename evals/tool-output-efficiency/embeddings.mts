@@ -69,4 +69,3 @@ async function main() {
     console.log(JSON.stringify({cases:cases.length,embeddingRequests:1,decisionCalls:client.spend().calls}));
 }
 if(process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)) await main();
-

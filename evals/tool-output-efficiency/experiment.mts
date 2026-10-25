@@ -63,4 +63,3 @@ if(process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url))
     if(!directory) throw new Error("Usage: experiment.mts NEW_OUTPUT_DIRECTORY [--jev]");
     await runExperiment(directory,process.argv.includes("--jev"));
 }
-

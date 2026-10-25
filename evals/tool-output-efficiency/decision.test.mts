@@ -15,4 +15,3 @@ test("decision scoring uses independent evidence and exception questions",async(
 test("malformed probabilities and missing answers are errors",async()=>{
     await assert.rejects(()=>decisionScores(splitBlocks("evidence"),"question",async()=>({answers:{}})));
 });
-

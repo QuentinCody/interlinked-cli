@@ -75,4 +75,3 @@ export async function selectOutput(receipt: Receipt, options: Options, scorer: S
     return { ...view, mode: "selected", spans, omittedBlocks: blocks.length - spans.length,
         omittedChars: receipt.text.length - characters, budgetExceeded: characters > options.budgetChars };
 }
-

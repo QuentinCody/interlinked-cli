@@ -35,4 +35,3 @@ export class ReceiptStore {
         return text.slice(start, end);
     }
 }
-

@@ -230,4 +230,3 @@ scoped secret/whitespace checks, and both source-skill validations pass.
 These are scoped checks, not a clean verdict for the main thread's entire worktree.
 Installed skill copies were not changed. The source
 router and observability skill document the new opt-in workflow.
-

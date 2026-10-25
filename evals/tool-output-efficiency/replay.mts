@@ -45,4 +45,3 @@ async function* jsonLines(path: string): AsyncGenerator<string> {
     if (pending) throw new Error("Incomplete trailing replay record");
 }
 if(process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)) await main();
-

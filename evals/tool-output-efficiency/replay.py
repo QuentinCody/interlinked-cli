@@ -61,4 +61,3 @@ def summarize(directory, filename="replayed.jsonl"):
 if __name__=="__main__":
     if sys.argv[1]=="prepare": prepare(Path(sys.argv[2]),Path(sys.argv[3]))
     elif sys.argv[1]=="summarize": summarize(Path(sys.argv[2]),sys.argv[3] if len(sys.argv)>3 else "replayed.jsonl")
-

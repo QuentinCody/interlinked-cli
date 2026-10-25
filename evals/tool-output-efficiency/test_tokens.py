@@ -22,4 +22,3 @@ class TokenTests(unittest.TestCase):
         self.assertEqual(normalized_line("  12→const value = 42;"), "const value = 42;")
         self.assertEqual(paths("src/foo.ts:4"), {"src/foo.ts"})
         self.assertEqual(text_of({"type":"input_image","data":"secret"}), "")
-

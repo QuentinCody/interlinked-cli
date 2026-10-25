@@ -15,4 +15,3 @@ test("JSON projection reports omissions and keeps literal types",()=>{
     assert.deepEqual(projectJson('{"count":0,"next":null,"unused":false}',["count","next"]),{value:{count:0,next:null},omittedFields:1});
     assert.throws(()=>projectJson("[1,2]",["count"]));
 });
-

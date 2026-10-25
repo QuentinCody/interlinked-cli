@@ -6,4 +6,3 @@ test("embedding envelopes require one finite vector per input",()=>{
     assert.throws(()=>parseVectors({success:true,result:{data:[[1,0]]}},2));
     assert.throws(()=>parseVectors({success:true,result:{data:[[1,NaN]]}},1));
 });
-

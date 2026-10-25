@@ -20,4 +20,3 @@ test("receipts keep exact Unicode, scope, versions, and reject invalid addresses
         assert.throws(()=>store.get(first.id),/changed/);
     } finally { rmSync(dir, { recursive: true, force: true }); }
 });
-
