@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 /** Append writers outside the transport/server families. Census test pins growth. */
 export const LEDGER_WRITERS = [
-    "src/commands/scanner.ts", "src/commands/scratch.ts", "src/commands/verify/verify-summary.ts",
+    "src/commands/jev.ts", "src/commands/scanner.ts", "src/commands/scratch.ts", "src/commands/verify/verify-summary.ts",
     "src/harness/agent-io/store.ts", "src/harness/assertion-waiver-log.ts", "src/harness/background-task-log.ts",
     "src/harness/baseline-autofold.ts", "src/harness/break-glass.ts", "src/harness/coverage-obligation-ledger.ts",
     "src/harness/crap-telemetry.ts", "src/harness/daemon-ledger.ts", "src/harness/ephemeral-write-log.ts",

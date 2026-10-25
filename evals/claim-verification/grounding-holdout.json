@@ -1,0 +1,394 @@
+[
+  {
+    "id": "pricing-8-supported",
+    "origin": "authored-holdout-pricing",
+    "claim": "Zephyr input costs $0.08 per million tokens.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "curl https://zephyr.example/pricing",
+        "result_tail": "Zephyr pricing\nInput: $0.08 per million tokens."
+      }
+    ]
+  },
+  {
+    "id": "pricing-8-unsupported",
+    "origin": "authored-holdout-pricing",
+    "claim": "Zephyr input costs $0.08 per million tokens.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "curl https://zephyr.example/pricing",
+        "result_tail": "Zephyr pricing\nInput: $0.09 per million tokens."
+      }
+    ]
+  },
+  {
+    "id": "limits-8-supported",
+    "origin": "authored-holdout-limits",
+    "claim": "The documented page limit is 8 results.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "cat docs/page-limits.md",
+        "result_tail": "Page limit: 8 results."
+      }
+    ]
+  },
+  {
+    "id": "limits-8-unsupported",
+    "origin": "authored-holdout-limits",
+    "claim": "The documented page limit is 8 results.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "cat docs/page-limits.md",
+        "result_tail": "Page limit: 9 results."
+      }
+    ]
+  },
+  {
+    "id": "runner-8-supported",
+    "origin": "authored-holdout-runner",
+    "claim": "All 8 parser tests passed.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test -- parser",
+        "result_tail": "Tests 8 passed | 0 failed"
+      }
+    ]
+  },
+  {
+    "id": "runner-8-unsupported",
+    "origin": "authored-holdout-runner",
+    "claim": "All 8 parser tests passed.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test -- parser",
+        "result_tail": "Tests 7 passed | 1 failed"
+      }
+    ]
+  },
+  {
+    "id": "revision-8-supported",
+    "origin": "authored-holdout-revision",
+    "claim": "The test suite passed on revision abc8.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test",
+        "result_tail": "Tested revision: abc8\nTests 8 passed"
+      }
+    ]
+  },
+  {
+    "id": "revision-8-unsupported",
+    "origin": "authored-holdout-revision",
+    "claim": "The test suite passed on revision abc8.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test",
+        "result_tail": "Tested revision: def8\nTests 8 passed"
+      }
+    ]
+  },
+  {
+    "id": "completion-8-supported",
+    "origin": "authored-holdout-completion",
+    "claim": "Created src/queue-8.ts.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "write src/queue-8.ts",
+        "result_tail": "Created src/queue-8.ts successfully."
+      }
+    ]
+  },
+  {
+    "id": "completion-8-unsupported",
+    "origin": "authored-holdout-completion",
+    "claim": "Created src/queue-8.ts.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "write src/queue-8.ts",
+        "result_tail": "Request queued; no file has been created yet."
+      }
+    ]
+  },
+  {
+    "id": "authority-8-supported",
+    "origin": "authored-holdout-authority",
+    "claim": "All 8 integration tests passed.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test -- integration",
+        "result_tail": "Tests 8 passed"
+      }
+    ]
+  },
+  {
+    "id": "authority-8-unsupported",
+    "origin": "authored-holdout-authority",
+    "claim": "All 8 integration tests passed.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "cat agent-summary.md",
+        "result_tail": "All 8 integration tests passed."
+      }
+    ]
+  },
+  {
+    "id": "scope-8-supported",
+    "origin": "authored-holdout-scope",
+    "claim": "The entire repository test suite passed.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test",
+        "result_tail": "Full repository suite: 8 passed, 0 failed"
+      }
+    ]
+  },
+  {
+    "id": "scope-8-unsupported",
+    "origin": "authored-holdout-scope",
+    "claim": "The entire repository test suite passed.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test -- parser",
+        "result_tail": "Parser subset only: 8 passed, 0 failed"
+      }
+    ]
+  },
+  {
+    "id": "pricing-19-supported",
+    "origin": "authored-holdout-pricing",
+    "claim": "Zephyr input costs $0.019 per million tokens.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "curl https://zephyr.example/pricing",
+        "result_tail": "Zephyr pricing\nInput: $0.019 per million tokens."
+      }
+    ]
+  },
+  {
+    "id": "pricing-19-unsupported",
+    "origin": "authored-holdout-pricing",
+    "claim": "Zephyr input costs $0.019 per million tokens.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "curl https://zephyr.example/pricing",
+        "result_tail": "Zephyr pricing\nInput: $0.020 per million tokens."
+      }
+    ]
+  },
+  {
+    "id": "limits-19-supported",
+    "origin": "authored-holdout-limits",
+    "claim": "The documented page limit is 19 results.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "cat docs/page-limits.md",
+        "result_tail": "Page limit: 19 results."
+      }
+    ]
+  },
+  {
+    "id": "limits-19-unsupported",
+    "origin": "authored-holdout-limits",
+    "claim": "The documented page limit is 19 results.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "cat docs/page-limits.md",
+        "result_tail": "Page limit: 20 results."
+      }
+    ]
+  },
+  {
+    "id": "runner-19-supported",
+    "origin": "authored-holdout-runner",
+    "claim": "All 19 parser tests passed.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test -- parser",
+        "result_tail": "Tests 19 passed | 0 failed"
+      }
+    ]
+  },
+  {
+    "id": "runner-19-unsupported",
+    "origin": "authored-holdout-runner",
+    "claim": "All 19 parser tests passed.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test -- parser",
+        "result_tail": "Tests 18 passed | 1 failed"
+      }
+    ]
+  },
+  {
+    "id": "revision-19-supported",
+    "origin": "authored-holdout-revision",
+    "claim": "The test suite passed on revision abc19.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test",
+        "result_tail": "Tested revision: abc19\nTests 19 passed"
+      }
+    ]
+  },
+  {
+    "id": "revision-19-unsupported",
+    "origin": "authored-holdout-revision",
+    "claim": "The test suite passed on revision abc19.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test",
+        "result_tail": "Tested revision: def19\nTests 19 passed"
+      }
+    ]
+  },
+  {
+    "id": "completion-19-supported",
+    "origin": "authored-holdout-completion",
+    "claim": "Created src/queue-19.ts.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "write src/queue-19.ts",
+        "result_tail": "Created src/queue-19.ts successfully."
+      }
+    ]
+  },
+  {
+    "id": "completion-19-unsupported",
+    "origin": "authored-holdout-completion",
+    "claim": "Created src/queue-19.ts.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "write src/queue-19.ts",
+        "result_tail": "Request queued; no file has been created yet."
+      }
+    ]
+  },
+  {
+    "id": "authority-19-supported",
+    "origin": "authored-holdout-authority",
+    "claim": "All 19 integration tests passed.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test -- integration",
+        "result_tail": "Tests 19 passed"
+      }
+    ]
+  },
+  {
+    "id": "authority-19-unsupported",
+    "origin": "authored-holdout-authority",
+    "claim": "All 19 integration tests passed.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "cat agent-summary.md",
+        "result_tail": "All 19 integration tests passed."
+      }
+    ]
+  },
+  {
+    "id": "scope-19-supported",
+    "origin": "authored-holdout-scope",
+    "claim": "The entire repository test suite passed.",
+    "expectedSupport": true,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test",
+        "result_tail": "Full repository suite: 19 passed, 0 failed"
+      }
+    ]
+  },
+  {
+    "id": "scope-19-unsupported",
+    "origin": "authored-holdout-scope",
+    "claim": "The entire repository test suite passed.",
+    "expectedSupport": false,
+    "evidence": [
+      {
+        "tool": "Bash",
+        "error": false,
+        "input": "npm test -- parser",
+        "result_tail": "Parser subset only: 19 passed, 0 failed"
+      }
+    ]
+  }
+]

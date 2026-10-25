@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	CLAIM_CHECKABLE_MIN,
 	CLAIM_EVIDENCED_MIN,
+	claimShadowFailures,
 	evidenceFromTranscript,
 	formatClaimEvidenceWarning,
 	scoreClaims,
@@ -102,4 +103,30 @@ describe("formatClaimEvidenceWarning", () => {
 	it("N1: no findings → null", () => {
 		expect(formatClaimEvidenceWarning([])).toBeNull();
 	});
+});
+
+describe("optional receipt observation", () => {
+    it("records a failed shadow judgment without changing the main judgment", async () => {
+        const shadowClient = clientWith(0.9, 0.9);
+        vi.spyOn(shadowClient, "ask").mockRejectedValueOnce(new Error("shadow unavailable"));
+        const before = claimShadowFailures();
+        const write = vi.fn();
+        expect(await scoreClaims(clientWith(0.9, 0.9), "Command completed.", evidenceFromTranscript(TRANSCRIPT),
+            { enabled: true, links: [], client: shadowClient, write })).toEqual([]);
+        expect(claimShadowFailures()).toBe(before + 1);
+        expect(write).not.toHaveBeenCalled();
+    });
+    it("logs short completion claims without changing the existing splitter or model decision", async () => {
+        const rows: unknown[] = [];
+        const claim = "Command completed.";
+        expect(splitClaims(claim)).toEqual([]);
+        expect(await scoreClaims(clientWith(0.9, 0.9), claim, [], { enabled: true, links: [], write: r => rows.push(r) })).toEqual([]);
+        expect(rows).toMatchObject([{ claim, status: "not_assessable", reason: "missing_link", jevSupported: null }]);
+    });
+    it("observer failures leave existing findings identical", async () => {
+        const baseline = await scoreClaims(clientWith(0.9, 0.1), FINAL, evidenceFromTranscript(TRANSCRIPT));
+        const observed = await scoreClaims(clientWith(0.9, 0.1), FINAL, evidenceFromTranscript(TRANSCRIPT),
+            { enabled: true, links: [], write: () => { throw new Error("disk full"); } });
+        expect(observed).toEqual(baseline);
+    });
 });

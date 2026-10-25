@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -64,6 +64,25 @@ describe("jevTestTitlesAction", () => {
 });
 
 describe("jevClaimsAction", () => {
+    it("writes optional receipt observations without changing findings or invoking Jev for short claims", async () => {
+        const finalFile = join(dir, "short.txt"), transcript = join(dir, "empty.jsonl"), links = join(dir, "links.json");
+        writeFileSync(finalFile, "Command completed.");
+        writeFileSync(transcript, "");
+        writeFileSync(links, "[]");
+        const client = noulClient(0.9);
+        const base = { client, json: true, cwd: dir };
+        expect(await jevClaimsAction(finalFile, transcript, base)).toBe(0);
+        const original = out.join(""); out.length = 0;
+        const log = join(dir, ".interlinked", "claim-receipt-shadow.jsonl");
+        expect(existsSync(log)).toBe(false);
+        expect(await jevClaimsAction(finalFile, transcript, { ...base, receiptShadow: links, shadowClient: null })).toBe(0);
+        const shadowed = JSON.parse(out.join("")) as { findings: string[]; summary: string }; // SAFETY: emit writes exactly this JSON shape
+        const plain = JSON.parse(original) as { findings: string[]; summary: string }; // SAFETY: as above
+        expect(shadowed.findings).toEqual(plain.findings);
+        expect(shadowed.summary).toBe(`${plain.summary}; shadow spend $0.0000 (0 call(s), 0 failure(s))`);
+        expect(client.spend().calls).toBe(0);
+        expect(JSON.parse(readFileSync(log, "utf8"))).toMatchObject({ claim: expect.stringMatching(/^sha256:[0-9a-f]{16}$/), reason: "missing_link", status: "not_assessable", jevSupported: null });
+    });
 	it("evaluates saved claims only through an explicit internal invocation", async () => {
 		const finalFile = join(dir, "final.txt");
 		const transcript = join(dir, "transcript.jsonl");

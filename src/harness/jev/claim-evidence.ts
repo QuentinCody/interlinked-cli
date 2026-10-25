@@ -16,6 +16,7 @@
 
 import type { JevClient } from "./client.js";
 import type { JevEntry, JevQuestion } from "./types.js";
+import { observeReceiptClaims, type ReceiptShadowOptions } from "./receipt-shadow.js";
 
 /** Operating points from the eval (see header). */
 export const CLAIM_CHECKABLE_MIN = 0.5;
@@ -26,6 +27,10 @@ const MAX_EVIDENCE_ENTRIES = 25;
 const RESULT_TAIL_CHARS = 400;
 const INPUT_HEAD_CHARS = 300;
 const MAX_LISTED = 5;
+/** Markdown characters `splitClaims` strips; a receipt-grammar line keeps them so its key matches a supplied link. */
+const MARKDOWN_STRIP = /[*_\x60#>]/g;
+/** The receipt grammars the shadow can verify (`receipt-verifiers.ts`); every one is shorter than `MIN_CLAIM_WORDS`. (\x60 = backtick.) */
+const RECEIPT_GRAMMAR = /^(?:Command completed\.|Typecheck completed cleanly\.|All [1-9]\d* executed tests passed\.|File \x60[^\x60\r\n]+\x60 was written\.)$/;
 
 export interface EvidenceEntry {
 	tool: string;
@@ -45,7 +50,7 @@ export function splitClaims(text: string): string[] {
 	const cleaned = text
 		.replace(/```[\s\S]*?```/g, " ")
 		.replace(/\|[^\n]*\|/g, " ")
-		.replace(/[*_`#>]/g, "")
+		.replace(MARKDOWN_STRIP, "")
 		.replace(/\s+/g, " ");
 	return cleaned
 		.split(/(?<=[.!?])\s+(?=[A-Z(])/)
@@ -107,7 +112,7 @@ function parseRecords(transcript: string): TranscriptRecord[] {
 		try {
 			out.push(asRecord(JSON.parse(line)));
 		} catch {
-			// a truncated trailing line is normal in a live transcript
+			// intentional: a truncated trailing line is normal in a live transcript, so it is skipped
 		}
 	}
 	return out;
@@ -182,25 +187,160 @@ export function claimQuestions(count: number): Record<string, JevQuestion> {
 	return questions;
 }
 
-/** One Jev call for the whole final message; returns the checkable claims the evidence does not back. */
-export async function scoreClaims(client: JevClient, finalMessage: string, evidence: readonly EvidenceEntry[]): Promise<ClaimFinding[]> {
-	const claims = splitClaims(finalMessage);
-	if (claims.length === 0 || evidence.length === 0) return [];
+interface JudgedClaims {
+	findings: ClaimFinding[];
+	/** Per claim: Jev's supported/unsupported verdict, or null when the claim is not checkable or the score is unusable. */
+	scores: Map<string, boolean | null>;
+}
+
+/** One Jev call for one claim list; empty when there is nothing to judge or Jev fails (fail-open). */
+async function judgeClaims(client: JevClient, claims: readonly string[], evidence: readonly EvidenceEntry[]): Promise<JudgedClaims> {
+	const judged: JudgedClaims = { findings: [], scores: new Map() };
+	if (claims.length === 0 || evidence.length === 0) return judged;
 	const state: JevEntry = {
 		evidence: evidence.map((e, i) => ({ n: i + 1, tool: e.tool, input: e.input, error: e.error, result_tail: e.result_tail })),
-		claims,
+		claims: [...claims],
 	};
 	const res = await client.ask(state, claimQuestions(claims.length));
-	if (!res) return [];
-	const findings: ClaimFinding[] = [];
+	if (!res) return judged;
 	claims.forEach((claim, i) => {
 		const k = res.answers[`k${i}`];
 		const e = res.answers[`e${i}`];
 		if (k?.type !== "noul" || e?.type !== "noul") return;
+		judged.scores.set(claim, Number.isFinite(k.noul) && Number.isFinite(e.noul) && k.noul >= CLAIM_CHECKABLE_MIN ? e.noul >= CLAIM_EVIDENCED_MIN : null);
 		if (k.noul < CLAIM_CHECKABLE_MIN || e.noul >= CLAIM_EVIDENCED_MIN) return;
-		findings.push({ claim, checkable: k.noul, evidenced: e.noul });
+		judged.findings.push({ claim, checkable: k.noul, evidenced: e.noul });
 	});
-	return findings;
+	return judged;
+}
+
+const FENCE_MARKER = /^(```|~~~)/;
+const LEADING_MARKER = /^(?:>\s*|(?:[-*+•]|\d+[.)])\s+)/;
+const WRAPPING_EMPHASIS = /^(\*\*|__|\*|_)(.+)\1$/;
+const SENTENCE_GAP = /^\s+(?=[A-Z])/;
+
+/** One receipt-grammar sentence: its exact text and its character span in one line of the final message. */
+interface GrammarSpan {
+	line: number;
+	start: number;
+	end: number;
+	text: string;
+}
+
+/** The span of a line left after its leading list/blockquote markers and any emphasis that wraps the whole rest. */
+function lineBody(raw: string): { start: number; end: number } {
+	let start = raw.length - raw.trimStart().length;
+	let end = raw.trimEnd().length;
+	for (let m = LEADING_MARKER.exec(raw.slice(start, end)); m; m = LEADING_MARKER.exec(raw.slice(start, end))) start += m[0].length;
+	const wrap = WRAPPING_EMPHASIS.exec(raw.slice(start, end))?.[1];
+	if (wrap) {
+		start += wrap.length;
+		end -= wrap.length;
+	}
+	return { start, end };
+}
+
+/** Sentence spans of `raw[start, end)`: cut after `.`/`!`/`?` plus whitespace plus an uppercase letter, outside backtick code. */
+function sentenceSpans(raw: string, start: number, end: number): Array<{ start: number; end: number }> {
+	const spans: Array<{ start: number; end: number }> = [];
+	let from = start;
+	let inCode = false;
+	for (let i = start; i < end; i++) {
+		const c = raw.charAt(i);
+		if (c === "\x60") inCode = !inCode;
+		if (inCode || !/[.!?]/.test(c)) continue;
+		const gap = SENTENCE_GAP.exec(raw.slice(i + 1, end))?.[0];
+		if (!gap) continue;
+		spans.push({ start: from, end: i + 1 });
+		from = i + 1 + gap.length;
+	}
+	spans.push({ start: from, end });
+	return spans;
+}
+
+/** The receipt-grammar sentences of one line that is outside any fenced code block. */
+function lineGrammarSpans(raw: string, line: number): GrammarSpan[] {
+	const body = lineBody(raw);
+	return sentenceSpans(raw, body.start, body.end)
+		.map((s) => ({ line, ...s, text: raw.slice(s.start, s.end) }))
+		.filter((s) => RECEIPT_GRAMMAR.test(s.text));
+}
+
+/** Every receipt-grammar sentence outside fenced code blocks, with its exact position. */
+function grammarSpans(lines: readonly string[]): GrammarSpan[] {
+	const spans: GrammarSpan[] = [];
+	let fence: string | null = null;
+	for (const [line, raw] of lines.entries()) {
+		const marker = FENCE_MARKER.exec(raw.trim())?.[1] ?? null;
+		if (fence === null && marker === null) spans.push(...lineGrammarSpans(raw, line));
+		else if (fence === null) fence = marker;
+		else if (marker === fence) fence = null;
+	}
+	return spans;
+}
+
+/**
+ * Receipt-grammar claims of the final message, raw (backticks intact): the exact text a supplied link keys on.
+ * A claim is a sentence that matches the grammar exactly, after a line's list/blockquote markers and whole-line
+ * emphasis are removed; lines inside fenced code blocks are never claims.
+ */
+export function receiptGrammarClaims(finalMessage: string): string[] {
+	return [...new Set(grammarSpans(finalMessage.split(/\r?\n/)).map((s) => s.text))];
+}
+
+/** The final message with every receipt-grammar sentence blanked, so no fragment of one can reach `splitClaims`. */
+function withoutGrammarClaims(finalMessage: string): string {
+	const original = finalMessage.split(/\r?\n/);
+	const lines = [...original];
+	const touched = new Set<number>();
+	for (const s of grammarSpans(original)) {
+		const raw = lines[s.line] ?? "";
+		lines[s.line] = `${raw.slice(0, s.start)}${" ".repeat(s.end - s.start)}${raw.slice(s.end)}`;
+		touched.add(s.line);
+	}
+	// A line whose whole body was grammar keeps only its list/blockquote marker and emphasis; drop the line, or the
+	// leftover markers of several such lines join into one marker-only "sentence" in splitClaims.
+	for (const i of touched) {
+		const body = lineBody(original[i] ?? "");
+		if ((lines[i] ?? "").slice(body.start, body.end).trim() === "") lines[i] = "";
+	}
+	return lines.join("\n");
+}
+
+let shadowFailures = 0;
+/** Shadow observations that threw; the judgment path never saw them. */
+export const claimShadowFailures = (): number => shadowFailures;
+
+/**
+ * Shadow only. Makes at most ONE Jev call, on `shadow.client` (the shadow's own client and ledger), to score the raw
+ * grammar claims; the judgment client is never used here, so its request, findings, spend and failures are unchanged.
+ * Without `shadow.client` it makes no Jev call and grammar rows carry `jevSupported: null` (unmeasured).
+ * One grammar sentence gives exactly one row: the other rows are `splitClaims` of the message with every grammar
+ * sentence blanked, scored only from the judgment's map (absent there: unmeasured, never re-scored).
+ * The one request scores the first MAX_CLAIMS grammar claims; every later one still gets its receipt row, unmeasured.
+ */
+async function observeShadow(finalMessage: string, judged: JudgedClaims, evidence: readonly EvidenceEntry[], shadow: ReceiptShadowOptions): Promise<void> {
+	const grammar = receiptGrammarClaims(finalMessage);
+	const scored = grammar.slice(0, MAX_CLAIMS);
+	const extra: JudgedClaims = shadow.client ? await judgeClaims(shadow.client, scored, evidence) : { findings: [], scores: new Map() };
+	observeReceiptClaims([...new Set(splitClaims(withoutGrammarClaims(finalMessage)))], judged.scores, shadow);
+	observeReceiptClaims(grammar, extra.scores, shadow);
+}
+
+/**
+ * At most one Jev call on `client` for the whole final message; returns the checkable claims the evidence does not back.
+ * An enabled shadow adds at most one more call, on its own `shadow.client` only (none when that client is absent).
+ */
+export async function scoreClaims(client: JevClient, finalMessage: string, evidence: readonly EvidenceEntry[], shadow?: ReceiptShadowOptions): Promise<ClaimFinding[]> {
+	const judged = await judgeClaims(client, splitClaims(finalMessage), evidence);
+	if (shadow?.enabled === true) {
+		try {
+			await observeShadow(finalMessage, judged, evidence, shadow);
+		} catch {
+			shadowFailures++; // fail-open: the shadow never throws into, modifies, or supplies a result to the judgment path
+		}
+	}
+	return judged.findings;
 }
 
 /** Single Stop-event warning; null when nothing is unbacked. */

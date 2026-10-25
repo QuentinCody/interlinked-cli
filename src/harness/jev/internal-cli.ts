@@ -24,7 +24,8 @@ export function createInternalJevProgram(): Command {
 		.command("claims <final-message-file> <transcript-file>")
 		.description("Compare a saved final message with its Claude Code transcript")
 		.option("--json", "Machine-readable output")
-		.action(async (finalFile: string, transcript: string, opts: { json?: boolean }) => {
+        .option("--receipt-shadow <links-file>", "Log deterministic receipt comparisons using explicit claim/scope links (off by default)")
+		.action(async (finalFile: string, transcript: string, opts: { json?: boolean; receiptShadow?: string }) => {
 			process.exitCode = await jevClaimsAction(finalFile, transcript, opts);
 		});
 	return jev;
