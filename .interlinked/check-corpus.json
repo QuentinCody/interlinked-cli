@@ -181,52 +181,59 @@
 			"adjudications": {}
 		},
 		"async_promise_executor": {
-			"files_scanned": 4638,
+			"files_scanned": 5108,
+			"result_digest": "e0bdd1232e0121b8ec1c1be2b86b9d2b7fdc607b3eb082ccd0cc3d4d91e80f20",
 			"hits": [],
 			"adjudications": {},
 			"provenance": {
 				"schema": "corpus-scan.v2",
-				"detector": "3109d2b30b6047cf3ea0e3d7c021c791871781b16a66c208724f67cb28586cd3",
+				"detector": "53e976a6ba2c9c34f82e7cb2da477bbf560a69a46dee92f3ebac2e0c6eeb7329",
 				"configuration": "13669d1265a5d1ccca725930f6f44e45dbfc29542fd1d03fcc113d6324a47d88",
-				"input": "f53b1103782a5952ce6962ea178d53066a15781a20b2ef8a4f066b116666c30b",
+				"input": "bf957f177a2b11932c00a098298ea4e64569dc06c2f3845716105273f7a1ce14",
 				"scope": "source-and-tests",
 				"search_root": "src",
-				"run": "bc637405-db9e-43bf-b34f-4cfde918aa0a",
-				"timestamp": "2026-10-04T21:36:11.977Z",
-				"discovered": 4659,
-				"eligible": 4638,
-				"read": 4638,
-				"executed": 4638,
+				"run": "d33a2eee-8935-4a4f-a0ab-0adfb28446d9",
+				"timestamp": "2026-10-22T12:56:13.093Z",
+				"discovered": 5120,
+				"eligible": 5108,
+				"read": 5108,
+				"executed": 5108,
 				"complete": true,
 				"failures": [],
 				"exclusions": [
-					"src/.interlinked/hook-runtime.json",
-					"src/.interlinked/payload-keys.json",
-					"src/commands/.interlinked/verify-runs.jsonl",
+					"src/.interlinked",
+					"src/commands/.interlinked",
+					"src/harness/.interlinked",
+					"src/harness/__fixtures__",
 					"src/harness/__tests__/fixtures",
 					"src/harness/adapters/README.md",
 					"src/harness/adapters/hook-support-catalog.json",
+					"src/harness/checks/.interlinked",
 					"src/harness/checks/__fixtures__",
 					"src/harness/checks/data/npm-popular-packages.json",
 					"src/harness/content-scanner/sidecars/calibrations/README.md",
 					"src/harness/content-scanner/sidecars/calibrations/default.json",
 					"src/harness/content-scanner/sidecars/calibrations/high_precision.json",
 					"src/harness/content-scanner/sidecars/opf-sidecar.py",
+					"src/harness/contracts/.interlinked",
 					"src/harness/coverage-index/__tests__/fixtures",
 					"src/harness/evaluator/__fixtures__",
-					"src/harness/findings/.interlinked/verify-runs.jsonl",
-					"src/harness/mutation/.interlinked/verify-runs.jsonl",
-					"src/harness/mutation/protocol-v3/.interlinked/hook-runtime.json",
-					"src/harness/mutation/protocol-v3/.interlinked/payload-keys.json",
+					"src/harness/findings/.interlinked",
+					"src/harness/fp-filter-weights.json",
+					"src/harness/mutation/.interlinked",
+					"src/harness/mutation/protocol-v3/.interlinked",
+					"src/harness/project-e2e/.interlinked",
 					"src/harness/project-e2e/__fixtures__",
+					"src/harness/quality-checks/tsc-scheduler-weights.json",
 					"src/harness/shadow/__fixtures__",
-					"src/harness/shadow/protocol/.interlinked/hook-runtime.json",
-					"src/harness/shadow/protocol/.interlinked/payload-keys.json",
+					"src/harness/shadow/protocol/.interlinked",
 					"src/harness/structure/__tests__/fixtures",
 					"src/harness/suppressions.test.ts.future-feature",
-					"src/harness/trajectory/.interlinked/verify-runs.jsonl",
-					"src/lib/.interlinked/verify-runs.jsonl",
+					"src/harness/trajectory/.interlinked",
+					"src/lib/.interlinked",
 					"src/lib/__tests__/fixtures",
+					"src/lib/data/__fixtures__",
+					"src/lib/decision-metrics/fixtures",
 					"src/lib/viz/web/index.html",
 					"src/lib/viz/web/mutation-runs.html"
 				]
@@ -343,6 +350,59 @@
 						]
 					},
 					"occurrences": {}
+				},
+				{
+					"files_scanned": 4638,
+					"hits": [],
+					"adjudications": {},
+					"provenance": {
+						"schema": "corpus-scan.v2",
+						"detector": "3109d2b30b6047cf3ea0e3d7c021c791871781b16a66c208724f67cb28586cd3",
+						"configuration": "13669d1265a5d1ccca725930f6f44e45dbfc29542fd1d03fcc113d6324a47d88",
+						"input": "f53b1103782a5952ce6962ea178d53066a15781a20b2ef8a4f066b116666c30b",
+						"scope": "source-and-tests",
+						"search_root": "src",
+						"run": "bc637405-db9e-43bf-b34f-4cfde918aa0a",
+						"timestamp": "2026-10-04T21:36:11.977Z",
+						"discovered": 4659,
+						"eligible": 4638,
+						"read": 4638,
+						"executed": 4638,
+						"complete": true,
+						"failures": [],
+						"exclusions": [
+							"src/.interlinked/hook-runtime.json",
+							"src/.interlinked/payload-keys.json",
+							"src/commands/.interlinked/verify-runs.jsonl",
+							"src/harness/__tests__/fixtures",
+							"src/harness/adapters/README.md",
+							"src/harness/adapters/hook-support-catalog.json",
+							"src/harness/checks/__fixtures__",
+							"src/harness/checks/data/npm-popular-packages.json",
+							"src/harness/content-scanner/sidecars/calibrations/README.md",
+							"src/harness/content-scanner/sidecars/calibrations/default.json",
+							"src/harness/content-scanner/sidecars/calibrations/high_precision.json",
+							"src/harness/content-scanner/sidecars/opf-sidecar.py",
+							"src/harness/coverage-index/__tests__/fixtures",
+							"src/harness/evaluator/__fixtures__",
+							"src/harness/findings/.interlinked/verify-runs.jsonl",
+							"src/harness/mutation/.interlinked/verify-runs.jsonl",
+							"src/harness/mutation/protocol-v3/.interlinked/hook-runtime.json",
+							"src/harness/mutation/protocol-v3/.interlinked/payload-keys.json",
+							"src/harness/project-e2e/__fixtures__",
+							"src/harness/shadow/__fixtures__",
+							"src/harness/shadow/protocol/.interlinked/hook-runtime.json",
+							"src/harness/shadow/protocol/.interlinked/payload-keys.json",
+							"src/harness/structure/__tests__/fixtures",
+							"src/harness/suppressions.test.ts.future-feature",
+							"src/harness/trajectory/.interlinked/verify-runs.jsonl",
+							"src/lib/.interlinked/verify-runs.jsonl",
+							"src/lib/__tests__/fixtures",
+							"src/lib/viz/web/index.html",
+							"src/lib/viz/web/mutation-runs.html"
+						]
+					},
+					"occurrences": {}
 				}
 			]
 		},
@@ -362,57 +422,63 @@
 			"adjudications": {}
 		},
 		"nan_comparison": {
-			"files_scanned": 4638,
+			"files_scanned": 5108,
 			"hits": [],
 			"adjudications": {},
+			"occurrences": {},
 			"provenance": {
 				"schema": "corpus-scan.v2",
-				"detector": "3109d2b30b6047cf3ea0e3d7c021c791871781b16a66c208724f67cb28586cd3",
+				"detector": "53e976a6ba2c9c34f82e7cb2da477bbf560a69a46dee92f3ebac2e0c6eeb7329",
 				"configuration": "13669d1265a5d1ccca725930f6f44e45dbfc29542fd1d03fcc113d6324a47d88",
-				"input": "f53b1103782a5952ce6962ea178d53066a15781a20b2ef8a4f066b116666c30b",
+				"input": "bf957f177a2b11932c00a098298ea4e64569dc06c2f3845716105273f7a1ce14",
 				"scope": "source-and-tests",
 				"search_root": "src",
-				"run": "343cb0a5-2fa2-4c31-9e2b-410f56180bd0",
-				"timestamp": "2026-10-04T21:36:18.891Z",
-				"discovered": 4659,
-				"eligible": 4638,
-				"read": 4638,
-				"executed": 4638,
+				"run": "e2bbbb38-4ec3-4123-a98a-146653802a7e",
+				"timestamp": "2026-10-22T12:56:50.468Z",
+				"discovered": 5120,
+				"eligible": 5108,
+				"read": 5108,
+				"executed": 5108,
 				"complete": true,
 				"failures": [],
 				"exclusions": [
-					"src/.interlinked/hook-runtime.json",
-					"src/.interlinked/payload-keys.json",
-					"src/commands/.interlinked/verify-runs.jsonl",
+					"src/.interlinked",
+					"src/commands/.interlinked",
+					"src/harness/.interlinked",
+					"src/harness/__fixtures__",
 					"src/harness/__tests__/fixtures",
 					"src/harness/adapters/README.md",
 					"src/harness/adapters/hook-support-catalog.json",
+					"src/harness/checks/.interlinked",
 					"src/harness/checks/__fixtures__",
 					"src/harness/checks/data/npm-popular-packages.json",
 					"src/harness/content-scanner/sidecars/calibrations/README.md",
 					"src/harness/content-scanner/sidecars/calibrations/default.json",
 					"src/harness/content-scanner/sidecars/calibrations/high_precision.json",
 					"src/harness/content-scanner/sidecars/opf-sidecar.py",
+					"src/harness/contracts/.interlinked",
 					"src/harness/coverage-index/__tests__/fixtures",
 					"src/harness/evaluator/__fixtures__",
-					"src/harness/findings/.interlinked/verify-runs.jsonl",
-					"src/harness/mutation/.interlinked/verify-runs.jsonl",
-					"src/harness/mutation/protocol-v3/.interlinked/hook-runtime.json",
-					"src/harness/mutation/protocol-v3/.interlinked/payload-keys.json",
+					"src/harness/findings/.interlinked",
+					"src/harness/fp-filter-weights.json",
+					"src/harness/mutation/.interlinked",
+					"src/harness/mutation/protocol-v3/.interlinked",
+					"src/harness/project-e2e/.interlinked",
 					"src/harness/project-e2e/__fixtures__",
+					"src/harness/quality-checks/tsc-scheduler-weights.json",
 					"src/harness/shadow/__fixtures__",
-					"src/harness/shadow/protocol/.interlinked/hook-runtime.json",
-					"src/harness/shadow/protocol/.interlinked/payload-keys.json",
+					"src/harness/shadow/protocol/.interlinked",
 					"src/harness/structure/__tests__/fixtures",
 					"src/harness/suppressions.test.ts.future-feature",
-					"src/harness/trajectory/.interlinked/verify-runs.jsonl",
-					"src/lib/.interlinked/verify-runs.jsonl",
+					"src/harness/trajectory/.interlinked",
+					"src/lib/.interlinked",
 					"src/lib/__tests__/fixtures",
+					"src/lib/data/__fixtures__",
+					"src/lib/decision-metrics/fixtures",
 					"src/lib/viz/web/index.html",
 					"src/lib/viz/web/mutation-runs.html"
 				]
 			},
-			"occurrences": {},
 			"history": [
 				{
 					"files_scanned": 1089,
@@ -524,8 +590,62 @@
 						]
 					},
 					"occurrences": {}
+				},
+				{
+					"files_scanned": 4638,
+					"hits": [],
+					"adjudications": {},
+					"provenance": {
+						"schema": "corpus-scan.v2",
+						"detector": "3109d2b30b6047cf3ea0e3d7c021c791871781b16a66c208724f67cb28586cd3",
+						"configuration": "13669d1265a5d1ccca725930f6f44e45dbfc29542fd1d03fcc113d6324a47d88",
+						"input": "f53b1103782a5952ce6962ea178d53066a15781a20b2ef8a4f066b116666c30b",
+						"scope": "source-and-tests",
+						"search_root": "src",
+						"run": "343cb0a5-2fa2-4c31-9e2b-410f56180bd0",
+						"timestamp": "2026-10-04T21:36:18.891Z",
+						"discovered": 4659,
+						"eligible": 4638,
+						"read": 4638,
+						"executed": 4638,
+						"complete": true,
+						"failures": [],
+						"exclusions": [
+							"src/.interlinked/hook-runtime.json",
+							"src/.interlinked/payload-keys.json",
+							"src/commands/.interlinked/verify-runs.jsonl",
+							"src/harness/__tests__/fixtures",
+							"src/harness/adapters/README.md",
+							"src/harness/adapters/hook-support-catalog.json",
+							"src/harness/checks/__fixtures__",
+							"src/harness/checks/data/npm-popular-packages.json",
+							"src/harness/content-scanner/sidecars/calibrations/README.md",
+							"src/harness/content-scanner/sidecars/calibrations/default.json",
+							"src/harness/content-scanner/sidecars/calibrations/high_precision.json",
+							"src/harness/content-scanner/sidecars/opf-sidecar.py",
+							"src/harness/coverage-index/__tests__/fixtures",
+							"src/harness/evaluator/__fixtures__",
+							"src/harness/findings/.interlinked/verify-runs.jsonl",
+							"src/harness/mutation/.interlinked/verify-runs.jsonl",
+							"src/harness/mutation/protocol-v3/.interlinked/hook-runtime.json",
+							"src/harness/mutation/protocol-v3/.interlinked/payload-keys.json",
+							"src/harness/project-e2e/__fixtures__",
+							"src/harness/shadow/__fixtures__",
+							"src/harness/shadow/protocol/.interlinked/hook-runtime.json",
+							"src/harness/shadow/protocol/.interlinked/payload-keys.json",
+							"src/harness/structure/__tests__/fixtures",
+							"src/harness/suppressions.test.ts.future-feature",
+							"src/harness/trajectory/.interlinked/verify-runs.jsonl",
+							"src/lib/.interlinked/verify-runs.jsonl",
+							"src/lib/__tests__/fixtures",
+							"src/lib/viz/web/index.html",
+							"src/lib/viz/web/mutation-runs.html"
+						]
+					},
+					"occurrences": {}
 				}
-			]
+			],
+			"result_digest": "f2f7cb7dca0b08c99074ff32aa749b3fe809eff46262ea7fb7a4693bdde37c89"
 		},
 		"throw_literal": {
 			"files_scanned": 1089,
@@ -792,323 +912,6 @@
 					"note": "Code review by Codex, 2026-10-04: Number.isInteger/Number.isSafeInteger rejects NaN before the relational comparison via short-circuit OR. Retained paired negative/positive controls: src/harness/check-evidence/corpus-controls.ts NAN_COERCION_CALIBRATION. Review binds this exact occurrence; no independent human adjudication claimed."
 				}
 			},
-			"occurrences": {
-				"2f13fc52453cef259252f3eb93aaeb84c89277d5583df107a1d6b3c42af5358b": {
-					"file": "src/commands/caps-ratchet.ts",
-					"line": 109,
-					"text": "nan_coercion_guard: \"n\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isInteger(n) || n < 1) return `--to must be a positive integer (got \"${raw}\")`;"
-				},
-				"5f64563b07cafe3fa904ee1f971abf423982337a75946831a1a8c02d86fcc0b4": {
-					"file": "src/commands/coverage.ts",
-					"line": 131,
-					"text": "nan_coercion_guard: \"workers\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(workers) || workers < 1 || workers > 64) throw new Error(\"--workers must be 1–64\");"
-				},
-				"084aa29bb147cfeb36564e87b46dedab48bbc98b451bf18012f6bb499b77843e": {
-					"file": "src/commands/coverage.ts",
-					"line": 137,
-					"text": "nan_coercion_guard: \"timeout\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 3_600_000) throw new Error(\"--timeout must be 1–3600000 ms\");"
-				},
-				"ebd7f7706227e7722ccc87b3c5cf8781d48989d990c88536985311f770161164": {
-					"file": "src/commands/cowork.ts",
-					"line": 41,
-					"text": "nan_coercion_guard: \"port\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(\"Invalid bridge port\");"
-				},
-				"f45341a38c6340b744a364cd65417be1ab5685777639251331b1a6818c48f311": {
-					"file": "src/commands/data-lab.ts",
-					"line": 22,
-					"text": "nan_coercion_guard: \"value\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`${name} must be ${min}..${max}`);"
-				},
-				"38543d67933f8bce7204e7dec633fccf4ab825e1105ef24ada891c2e35f2f5d5": {
-					"file": "src/commands/metrics-evidence.ts",
-					"line": 19,
-					"text": "nan_coercion_guard: \"result\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(result) || result < 1 || result > 3_600_000) throw new Error(\"Timeout must be 1–3600000 milliseconds\");"
-				},
-				"f16a3c2033d7058f7f426dc6f6959faee3209f2e76e83dca8ef55d26663a6a1b": {
-					"file": "src/commands/metrics-evidence.ts",
-					"line": 69,
-					"text": "nan_coercion_guard: \"result\" from coercion used in relational comparison without Number.isFinite / isNaN guard — output(getOutputMode(options), result, { normal: () => `${result.verdict}; review remains required\\n${result.issues.join(\"\\n\")}`, short: () => result."
-				},
-				"474a2017a562f71d264c69d972c8489aa1970b6cc898ce675e6b54f190743f04": {
-					"file": "src/commands/simplify.ts",
-					"line": 207,
-					"text": "nan_coercion_guard: \"requested\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (requested > 1) {"
-				},
-				"e5e15337e794a5750f83beb6a298c3348d6d2e6a59b2bcbe313a896ab0c5c614": {
-					"file": "src/commands/tests-e2e.ts",
-					"line": 25,
-					"text": "nan_coercion_guard: \"timeoutMs\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) throw new Error(`Timeout must be an integer from 1 to ${MAX_TIMEO"
-				},
-				"386b87e275641c9d227949647b29a49b4ebc5e31a45f5de245e2e9de9fb56549": {
-					"file": "src/commands/tests.ts",
-					"line": 95,
-					"text": "nan_coercion_guard: \"number\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(number) || number < 1 || number > maximum) throw new Error(`Expected an integer from 1 to ${maximum}`);"
-				},
-				"ca8f9630cec336d18c1f7e81bf2ffe9f04ee5087086d814161d0ffbb1cea4820": {
-					"file": "src/harness/__tests__/async-finding-queue.test.ts",
-					"line": 224,
-					"text": "nan_coercion_guard: \"elevenMinutesLater\" from coercion used in relational comparison without Number.isFinite / isNaN guard — now: () => elevenMinutesLater,"
-				},
-				"b50c7e6c1c3770964da9eda604aa29917c1db950d6fc633389a1d438031ae6d0": {
-					"file": "src/harness/__tests__/async-finding-queue.test.ts",
-					"line": 237,
-					"text": "nan_coercion_guard: \"nineMinutesLater\" from coercion used in relational comparison without Number.isFinite / isNaN guard — now: () => nineMinutesLater,"
-				},
-				"8337902c5812dad7ad8508e839564062f95869969911fb8fbec71fff54250658": {
-					"file": "src/harness/__tests__/async-finding-queue.test.ts",
-					"line": 274,
-					"text": "nan_coercion_guard: \"wayLater\" from coercion used in relational comparison without Number.isFinite / isNaN guard — const q = new AsyncFindingQueue({ ttlMs: 600_000, now: () => wayLater });"
-				},
-				"26f11e8d11ad00d63d4b92078e33fa5ae862e20873964f67bfe29d348df58450": {
-					"file": "src/harness/check-evidence/corpus-provenance.ts",
-					"line": 63,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (![\"discovered\", \"eligible\", \"read\", \"executed\"].every(key => Number.isSafeInteger(raw[key]) && Number(raw[key]) >= 0)) return undefined;"
-				},
-				"d61903677956200052aa504625b64c5e4e5ab3c7710f3ee7e0a3530a747d3f20": {
-					"file": "src/harness/checks/agent-safety-js-correctness.ts",
-					"line": 458,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (Number.parseInt(num, 10) > MAX_SAFE) {"
-				},
-				"5525d4f966c39207758c0efa7bfcc44d418eaf84616ca9dcc7b3fa36bcda159e": {
-					"file": "src/harness/checks/design-slop.ts",
-					"line": 164,
-					"text": "nan_coercion_guard: \"n\" from coercion used in relational comparison without Number.isFinite / isNaN guard — return hasRounded(line) ? n >= 2 : n >= 4;"
-				},
-				"1e24e95d6e54b07c7ed3beb98e68fd880b38549779a680d97d2f922b80d90c13": {
-					"file": "src/harness/checks/design-slop.ts",
-					"line": 174,
-					"text": "nan_coercion_guard: \"n\" from coercion used in relational comparison without Number.isFinite / isNaN guard — return hasBorderRadius(line) ? n >= 2 : n >= 3;"
-				},
-				"41151f5cb7fca72471a3f8585b42f3ca8a5790bb72b63fbd6354b4cb62e0f6e4": {
-					"file": "src/harness/checks/spec-structure.ts",
-					"line": 363,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (fwd && Number(fwd[3]) > Number(fwd[2])) {"
-				},
-				"8ecf8d60bb87596a76fe32ab8d547672d070b0b89b2d29af9dcadf199572411f": {
-					"file": "src/harness/checks/spec-structure.ts",
-					"line": 373,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (back && Number(back[3]) < Number(back[2])) {"
-				},
-				"9bfce6589bfedded4b3dbebf6162cc9d7b28372ff7e4ce8449141bfe76245347": {
-					"file": "src/harness/evaluator/lockfile-install-check.ts",
-					"line": 158,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — .sort((a, b) => Number(b.text.includes(\"[NATIVE\")) - Number(a.text.includes(\"[NATIVE\")));"
-				},
-				"00df160020d8c64b0401c96fb8bccbde1f104088976ba0b2c8e235789c46baad": {
-					"file": "src/harness/evaluator/network-hosts.ts",
-					"line": 19,
-					"text": "nan_coercion_guard: \"a\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (a > 255 || b > 255) return false;"
-				},
-				"cf79f3638efd0d3e75e051a5ab6761d48a1497dc89b166bda7ba8fedcf355972": {
-					"file": "src/harness/evaluator/network-hosts.ts",
-					"line": 23,
-					"text": "nan_coercion_guard: \"b\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (a === 172 && b >= 16 && b <= 31) return true; // private 172.16.0.0/12"
-				},
-				"5f2f58758c099ec4a1396d1ebf126333848bfadd94fa34716c7f049b3ea5fe76": {
-					"file": "src/harness/evaluator/network-hosts.ts",
-					"line": 24,
-					"text": "nan_coercion_guard: \"b\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT / tailnet 100.64.0.0/10"
-				},
-				"403802ce03508266deab14b3737048c0ad35e41fe744681d2b4fb71c7faca91c": {
-					"file": "src/harness/mutation/mutation-cloud-v3-config.ts",
-					"line": 69,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — return Number.isSafeInteger(value) && Number(value) > 0"
-				},
-				"8469d3e2f91bdfd2ca8947f526ee1317889f8ff56980cc0f1a0967c474a97e5d": {
-					"file": "src/harness/mutation/mutation-cloud-v3-config.ts",
-					"line": 112,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(value) || Number(value) <= 0) {"
-				},
-				"096c8ca3b312268ecfeb213760419686435d85e556d4303f65403fa75d5cab62": {
-					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
-					"line": 18,
-					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — const queue = new AsyncFindingQueue({ now: () => NOW_MS });"
-				},
-				"ad2b4034b80d9206ffea98c9c2c0d896c5091eb634df10be23dfff9f5f89b822": {
-					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
-					"line": 22,
-					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — clock: () => NOW_MS,"
-				},
-				"10ed02bf4f9bf7038f909c28fc64d82408ed49cc5e05085d357363cc1ef9d7e9": {
-					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
-					"line": 30,
-					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — const queue = new AsyncFindingQueue({ now: () => NOW_MS });"
-				},
-				"20ad0d63928d41c8141be669a8c945e5882728a40ac50f294c285303509511b3": {
-					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
-					"line": 34,
-					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — clock: () => NOW_MS,"
-				},
-				"ab74dffe069f7a6e0dc18215ccc3073975ab79ca98e6b8357acd1494cc649b1d": {
-					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
-					"line": 49,
-					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — const queue = new AsyncFindingQueue({ now: () => NOW_MS });"
-				},
-				"ce24d7d4311a337428c4a36f39ea96597c71a028b8a7efc893d88795b16c5711": {
-					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
-					"line": 53,
-					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — clock: () => NOW_MS,"
-				},
-				"78d1d35d99233229ee10340c707880091001b81f13a7cc14e3150ef535fd338c": {
-					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
-					"line": 228,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),"
-				},
-				"c027366305ac0dc4cbf68fab601343c36ce2cdc6d8a1eaaae00bfd0f747a332c": {
-					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
-					"line": 390,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — }, () => Date.parse(TEST_NOW));"
-				},
-				"5974225cf20f6ebe63a95defa547d594107148d235e9751dde29e834ecfa59b2": {
-					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
-					"line": 412,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),"
-				},
-				"66b298c50280ee7a7106ef055bd595ad3818790dc6292bf82ee6e22ff017345f": {
-					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
-					"line": 435,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),"
-				},
-				"e21e0bc528d2e673de4bc14647d4539d082e6ac6db4326b757bf52055f010a53": {
-					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
-					"line": 460,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),"
-				},
-				"e768685c565b8d9bca9880730887079db7e4095fc0f6b855429e6a8db3256539": {
-					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
-					"line": 483,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),"
-				},
-				"86be3c8eddfdb99f0a017fa7e1ff71eaa3bbcc2413ece77270dbadd67c0ee5f9": {
-					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
-					"line": 506,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),"
-				},
-				"bbe0638afd17218bdb27190d75ee19cfbc45d7baeedc88afabccbebbc3e37e1b": {
-					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
-					"line": 555,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — const submitter = new MutationCloudV3Submitter(config(), undefined, () => Date.parse(TEST_NOW));"
-				},
-				"bd62fe9fe627355573283a05be7a25a344b13bedfdb60351ba7931f6c7b42000": {
-					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
-					"line": 583,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — const submitter = new MutationCloudV3Submitter(config(), undefined, () => Date.parse(TEST_NOW));"
-				},
-				"0c23088ee9b520274e3c5526c72dc44d73273ff26d6502e687be04b046ae4cbb": {
-					"file": "src/harness/project-e2e/policy-stability.ts",
-					"line": 18,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isInteger(runs) || Number(runs) < 1 || Number(runs) > MAX_QUALIFICATION_RUNS) fail(`${where}.qualificationRuns must be an integer from 1 t"
-				},
-				"ad0bb51aa0879c25ec4b966a0f8270707407f8e0c88f88c678f05ede5d098ec8": {
-					"file": "src/harness/resource-cli.ts",
-					"line": 10,
-					"text": "nan_coercion_guard: \"parent\" from coercion used in relational comparison without Number.isFinite / isNaN guard — return Number.isSafeInteger(parent) && parent > 0 && parent === process.ppid;"
-				},
-				"ea38589609b9fccbeef91619e55900c4460caec63c7b9371184d25a34a0875ba": {
-					"file": "src/harness/spec/extract-ids.ts",
-					"line": 433,
-					"text": "nan_coercion_guard: \"from\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!(to > from)) return null;"
-				},
-				"dd019a634bd8c5ffa73702bf6ed248f5e9ec4c0ef08bd4652b96f2365a1c6a8d": {
-					"file": "src/harness/stop-digest-state.ts",
-					"line": 201,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — const stamp = (id: string): number => Date.parse(sessions[id]?.last_stop ?? \"\") || 0;"
-				},
-				"f380b30d1103aae1a1978fbf7429983eb558d6c018573bcae18758a11bac41df": {
-					"file": "src/harness/structural-checks/export-surface.ts",
-					"line": 245,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — return candidates.sort((a, b) => Number(dirname(b) === dir) - Number(dirname(a) === dir));"
-				},
-				"214700b86886f11324b7fd01556026caeec569ba97799e54a9474af1bbb2e4de": {
-					"file": "src/harness/trajectory/helpers.ts",
-					"line": 183,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — return m.slice(1, 5).every((o) => Number(o) <= 255);"
-				},
-				"c6fb3307bc544fd1c00a4b0b8f55b03266bb9c3778d510f78c2ca60fee3d7823": {
-					"file": "src/harness/trajectory/helpers.ts",
-					"line": 199,
-					"text": "nan_coercion_guard: \"b\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (a === 172 && b >= 16 && b <= 31) return true;"
-				},
-				"84a8870f0f3401fcd0ec227a0eafdb4bcf1daf399a1e00085eac1898f00c9abf": {
-					"file": "src/harness/trajectory.mutation-kill.test.ts",
-					"line": 379,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — .map((f) => Number(/\\((\\d+) identical calls/.exec(f.message)?.[1] ?? \"0\"));"
-				},
-				"9e1598a4f9e1e88418933764ca62a3b4abb3491c23777cf33ae7ef0184d55575": {
-					"file": "src/lib/data/indexer.ts",
-					"line": 97,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — files.sort((a, b) => Number(a.archived) - Number(b.archived) || a.bytes - b.bytes);"
-				},
-				"51ecf89f662fb214db1edd7e4523f16a6b9e4d136874fcbf5322e953aefbf54d": {
-					"file": "src/lib/data-search/segments.ts",
-					"line": 142,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (Number(segment.expandedBytes) > MAX_SEGMENT_BYTES || Number(segment.bytes) > MAX_SEGMENT_BYTES) throw new Error(\"segment size limit exceeded\");"
-				},
-				"6f4ed1b1c5c4bb330b2dd7cf0a029b60c3a3032124ec58e0ba1f6db0438ef35f": {
-					"file": "src/lib/hook-template-chunks/file-dump-cold-guard.ts",
-					"line": 53,
-					"text": "nan_coercion_guard: \"lines\" from coercion used in relational comparison without Number.isFinite / isNaN guard — return Number.isSafeInteger(lines) && lines <= 200 ? lines : null;"
-				},
-				"9cb5bd2dd36920247c993df6ae6e50b0c7a2ede5af83972e299bde9589ec4e66": {
-					"file": "src/lib/hook-template-chunks/file-dump-cold-guard.ts",
-					"line": 58,
-					"text": "nan_coercion_guard: \"lines\" from coercion used in relational comparison without Number.isFinite / isNaN guard — for (let line = 0; line < lines; line++) {"
-				},
-				"8330ae48b694719ac53cce01fbff76b3bb810530fdd064cffb42919d65cab460": {
-					"file": "src/lib/hook-template-chunks/file-dump-cold-guard.ts",
-					"line": 68,
-					"text": "nan_coercion_guard: \"lines\" from coercion used in relational comparison without Number.isFinite / isNaN guard — for (let line = 0; line < lines; line++) {"
-				},
-				"0095a3ca8c3bfd2af30b6f626e18cf20744d3fb5527b39d9406659108071b354": {
-					"file": "src/lib/metrics/analysis-syntax.ts",
-					"line": 81,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (children.length === 0) return Number(node.kind <= parsed.ts.SyntaxKind.LastToken && node.getWidth(parsed.sf) > 0);"
-				},
-				"928d5e044c98abc1e6b86a831ef1a036b93bb54327aced37e5261d343c2359e4": {
-					"file": "src/lib/metrics/composite-report.ts",
-					"line": 27,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — matching.sort((a, b) => Date.parse(b.receipt.finishedAt) - Date.parse(a.receipt.finishedAt));"
-				},
-				"b6819b8a801eb2a9bb781483a777b348cb32a100edfe4883649f3660c5ec389b": {
-					"file": "src/lib/metrics/evidence-receipt.ts",
-					"line": 38,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (Date.parse(finishedAt) < Date.parse(startedAt)) throw new Error(\"Execution finished before it started\");"
-				},
-				"6d51d77ac75b578b5945e9129df85e8c5ec2fc0e8f9f247deff86f8ac6ee757e": {
-					"file": "src/lib/metrics/evidence-run.ts",
-					"line": 29,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — .sort((a, b) => Date.parse(b.receipt.finishedAt) - Date.parse(a.receipt.finishedAt))[0];"
-				},
-				"8689302134b18d3b67759d68001885404d59615a9e4d3be57696ebf5dd72b45a": {
-					"file": "src/lib/metrics/evidence-workspace-inputs-sync.ts",
-					"line": 15,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — for (let position = 0; position < Number(before.size);) {"
-				},
-				"87d8e524d257205f67fa81b19e6aa83a70acccb10c88b5fe6568339eab1d1ef9": {
-					"file": "src/lib/metrics/evidence-workspace-inputs.ts",
-					"line": 17,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — for (let position = 0; position < Number(before.size);) {"
-				},
-				"4c60538e70fa2af648714a31d0d96ba09f289c7101aaeeae0fddf9c3ce4871f1": {
-					"file": "src/lib/simplification-agent-ci-experiment.ts",
-					"line": 208,
-					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (Date.parse(value.completed_at) < Date.parse(value.started_at)) return null;"
-				},
-				"83b4935c63723b422560f2ccdba2ba07a70cd46c7611de195c0df7d927bc33fa": {
-					"file": "src/lib/viz/status-file.ts",
-					"line": 42,
-					"text": "nan_coercion_guard: \"pid\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!url || !Number.isInteger(pid) || pid <= 0) return null;"
-				},
-				"d8f9920199e85b1cf7a85409ba1eaa76f28dc1f9a38b180090b3baef4586dc93": {
-					"file": "src/registrars/harness-inventory.ts",
-					"line": 64,
-					"text": "nan_coercion_guard: \"parsed\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(\"generation must be a nonnegative integer\");"
-				},
-				"5153550cd6617a8c8a95319874cd678542db23e359fcee289277bb30806667b9": {
-					"file": "src/registrars/tests-replay.ts",
-					"line": 18,
-					"text": "nan_coercion_guard: \"timeoutMs\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600000) throw new Error(\"timeout must be 1–600000 ms\");"
-				}
-			},
 			"provenance": {
 				"schema": "corpus-scan.v2",
 				"detector": "3109d2b30b6047cf3ea0e3d7c021c791871781b16a66c208724f67cb28586cd3",
@@ -1155,6 +958,323 @@
 					"src/lib/viz/web/index.html",
 					"src/lib/viz/web/mutation-runs.html"
 				]
+			},
+			"occurrences": {
+				"2f13fc52453cef259252f3eb93aaeb84c89277d5583df107a1d6b3c42af5358b": {
+					"file": "src/commands/caps-ratchet.ts",
+					"text": "nan_coercion_guard: \"n\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isInteger(n) || n < 1) return `--to must be a positive integer (got \"${raw}\")`;",
+					"line": 109
+				},
+				"5f64563b07cafe3fa904ee1f971abf423982337a75946831a1a8c02d86fcc0b4": {
+					"file": "src/commands/coverage.ts",
+					"text": "nan_coercion_guard: \"workers\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(workers) || workers < 1 || workers > 64) throw new Error(\"--workers must be 1–64\");",
+					"line": 131
+				},
+				"084aa29bb147cfeb36564e87b46dedab48bbc98b451bf18012f6bb499b77843e": {
+					"file": "src/commands/coverage.ts",
+					"text": "nan_coercion_guard: \"timeout\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 3_600_000) throw new Error(\"--timeout must be 1–3600000 ms\");",
+					"line": 137
+				},
+				"ebd7f7706227e7722ccc87b3c5cf8781d48989d990c88536985311f770161164": {
+					"file": "src/commands/cowork.ts",
+					"text": "nan_coercion_guard: \"port\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(\"Invalid bridge port\");",
+					"line": 41
+				},
+				"f45341a38c6340b744a364cd65417be1ab5685777639251331b1a6818c48f311": {
+					"file": "src/commands/data-lab.ts",
+					"text": "nan_coercion_guard: \"value\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`${name} must be ${min}..${max}`);",
+					"line": 22
+				},
+				"38543d67933f8bce7204e7dec633fccf4ab825e1105ef24ada891c2e35f2f5d5": {
+					"file": "src/commands/metrics-evidence.ts",
+					"text": "nan_coercion_guard: \"result\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(result) || result < 1 || result > 3_600_000) throw new Error(\"Timeout must be 1–3600000 milliseconds\");",
+					"line": 19
+				},
+				"f16a3c2033d7058f7f426dc6f6959faee3209f2e76e83dca8ef55d26663a6a1b": {
+					"file": "src/commands/metrics-evidence.ts",
+					"text": "nan_coercion_guard: \"result\" from coercion used in relational comparison without Number.isFinite / isNaN guard — output(getOutputMode(options), result, { normal: () => `${result.verdict}; review remains required\\n${result.issues.join(\"\\n\")}`, short: () => result.",
+					"line": 69
+				},
+				"474a2017a562f71d264c69d972c8489aa1970b6cc898ce675e6b54f190743f04": {
+					"file": "src/commands/simplify.ts",
+					"text": "nan_coercion_guard: \"requested\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (requested > 1) {",
+					"line": 207
+				},
+				"e5e15337e794a5750f83beb6a298c3348d6d2e6a59b2bcbe313a896ab0c5c614": {
+					"file": "src/commands/tests-e2e.ts",
+					"text": "nan_coercion_guard: \"timeoutMs\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) throw new Error(`Timeout must be an integer from 1 to ${MAX_TIMEO",
+					"line": 25
+				},
+				"386b87e275641c9d227949647b29a49b4ebc5e31a45f5de245e2e9de9fb56549": {
+					"file": "src/commands/tests.ts",
+					"text": "nan_coercion_guard: \"number\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(number) || number < 1 || number > maximum) throw new Error(`Expected an integer from 1 to ${maximum}`);",
+					"line": 95
+				},
+				"ca8f9630cec336d18c1f7e81bf2ffe9f04ee5087086d814161d0ffbb1cea4820": {
+					"file": "src/harness/__tests__/async-finding-queue.test.ts",
+					"text": "nan_coercion_guard: \"elevenMinutesLater\" from coercion used in relational comparison without Number.isFinite / isNaN guard — now: () => elevenMinutesLater,",
+					"line": 224
+				},
+				"b50c7e6c1c3770964da9eda604aa29917c1db950d6fc633389a1d438031ae6d0": {
+					"file": "src/harness/__tests__/async-finding-queue.test.ts",
+					"text": "nan_coercion_guard: \"nineMinutesLater\" from coercion used in relational comparison without Number.isFinite / isNaN guard — now: () => nineMinutesLater,",
+					"line": 237
+				},
+				"8337902c5812dad7ad8508e839564062f95869969911fb8fbec71fff54250658": {
+					"file": "src/harness/__tests__/async-finding-queue.test.ts",
+					"text": "nan_coercion_guard: \"wayLater\" from coercion used in relational comparison without Number.isFinite / isNaN guard — const q = new AsyncFindingQueue({ ttlMs: 600_000, now: () => wayLater });",
+					"line": 274
+				},
+				"26f11e8d11ad00d63d4b92078e33fa5ae862e20873964f67bfe29d348df58450": {
+					"file": "src/harness/check-evidence/corpus-provenance.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (![\"discovered\", \"eligible\", \"read\", \"executed\"].every(key => Number.isSafeInteger(raw[key]) && Number(raw[key]) >= 0)) return undefined;",
+					"line": 63
+				},
+				"d61903677956200052aa504625b64c5e4e5ab3c7710f3ee7e0a3530a747d3f20": {
+					"file": "src/harness/checks/agent-safety-js-correctness.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (Number.parseInt(num, 10) > MAX_SAFE) {",
+					"line": 458
+				},
+				"5525d4f966c39207758c0efa7bfcc44d418eaf84616ca9dcc7b3fa36bcda159e": {
+					"file": "src/harness/checks/design-slop.ts",
+					"text": "nan_coercion_guard: \"n\" from coercion used in relational comparison without Number.isFinite / isNaN guard — return hasRounded(line) ? n >= 2 : n >= 4;",
+					"line": 164
+				},
+				"1e24e95d6e54b07c7ed3beb98e68fd880b38549779a680d97d2f922b80d90c13": {
+					"file": "src/harness/checks/design-slop.ts",
+					"text": "nan_coercion_guard: \"n\" from coercion used in relational comparison without Number.isFinite / isNaN guard — return hasBorderRadius(line) ? n >= 2 : n >= 3;",
+					"line": 174
+				},
+				"41151f5cb7fca72471a3f8585b42f3ca8a5790bb72b63fbd6354b4cb62e0f6e4": {
+					"file": "src/harness/checks/spec-structure.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (fwd && Number(fwd[3]) > Number(fwd[2])) {",
+					"line": 363
+				},
+				"8ecf8d60bb87596a76fe32ab8d547672d070b0b89b2d29af9dcadf199572411f": {
+					"file": "src/harness/checks/spec-structure.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (back && Number(back[3]) < Number(back[2])) {",
+					"line": 373
+				},
+				"9bfce6589bfedded4b3dbebf6162cc9d7b28372ff7e4ce8449141bfe76245347": {
+					"file": "src/harness/evaluator/lockfile-install-check.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — .sort((a, b) => Number(b.text.includes(\"[NATIVE\")) - Number(a.text.includes(\"[NATIVE\")));",
+					"line": 158
+				},
+				"00df160020d8c64b0401c96fb8bccbde1f104088976ba0b2c8e235789c46baad": {
+					"file": "src/harness/evaluator/network-hosts.ts",
+					"text": "nan_coercion_guard: \"a\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (a > 255 || b > 255) return false;",
+					"line": 19
+				},
+				"cf79f3638efd0d3e75e051a5ab6761d48a1497dc89b166bda7ba8fedcf355972": {
+					"file": "src/harness/evaluator/network-hosts.ts",
+					"text": "nan_coercion_guard: \"b\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (a === 172 && b >= 16 && b <= 31) return true; // private 172.16.0.0/12",
+					"line": 23
+				},
+				"5f2f58758c099ec4a1396d1ebf126333848bfadd94fa34716c7f049b3ea5fe76": {
+					"file": "src/harness/evaluator/network-hosts.ts",
+					"text": "nan_coercion_guard: \"b\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT / tailnet 100.64.0.0/10",
+					"line": 24
+				},
+				"403802ce03508266deab14b3737048c0ad35e41fe744681d2b4fb71c7faca91c": {
+					"file": "src/harness/mutation/mutation-cloud-v3-config.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — return Number.isSafeInteger(value) && Number(value) > 0",
+					"line": 69
+				},
+				"8469d3e2f91bdfd2ca8947f526ee1317889f8ff56980cc0f1a0967c474a97e5d": {
+					"file": "src/harness/mutation/mutation-cloud-v3-config.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(value) || Number(value) <= 0) {",
+					"line": 112
+				},
+				"096c8ca3b312268ecfeb213760419686435d85e556d4303f65403fa75d5cab62": {
+					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
+					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — const queue = new AsyncFindingQueue({ now: () => NOW_MS });",
+					"line": 18
+				},
+				"ad2b4034b80d9206ffea98c9c2c0d896c5091eb634df10be23dfff9f5f89b822": {
+					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
+					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — clock: () => NOW_MS,",
+					"line": 22
+				},
+				"10ed02bf4f9bf7038f909c28fc64d82408ed49cc5e05085d357363cc1ef9d7e9": {
+					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
+					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — const queue = new AsyncFindingQueue({ now: () => NOW_MS });",
+					"line": 30
+				},
+				"20ad0d63928d41c8141be669a8c945e5882728a40ac50f294c285303509511b3": {
+					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
+					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — clock: () => NOW_MS,",
+					"line": 34
+				},
+				"ab74dffe069f7a6e0dc18215ccc3073975ab79ca98e6b8357acd1494cc649b1d": {
+					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
+					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — const queue = new AsyncFindingQueue({ now: () => NOW_MS });",
+					"line": 49
+				},
+				"ce24d7d4311a337428c4a36f39ea96597c71a028b8a7efc893d88795b16c5711": {
+					"file": "src/harness/mutation/mutation-cloud-v3-session-delivery.test.ts",
+					"text": "nan_coercion_guard: \"NOW_MS\" from coercion used in relational comparison without Number.isFinite / isNaN guard — clock: () => NOW_MS,",
+					"line": 53
+				},
+				"78d1d35d99233229ee10340c707880091001b81f13a7cc14e3150ef535fd338c": {
+					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),",
+					"line": 228
+				},
+				"c027366305ac0dc4cbf68fab601343c36ce2cdc6d8a1eaaae00bfd0f747a332c": {
+					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — }, () => Date.parse(TEST_NOW));",
+					"line": 390
+				},
+				"5974225cf20f6ebe63a95defa547d594107148d235e9751dde29e834ecfa59b2": {
+					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),",
+					"line": 412
+				},
+				"66b298c50280ee7a7106ef055bd595ad3818790dc6292bf82ee6e22ff017345f": {
+					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),",
+					"line": 435
+				},
+				"e21e0bc528d2e673de4bc14647d4539d082e6ac6db4326b757bf52055f010a53": {
+					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),",
+					"line": 460
+				},
+				"e768685c565b8d9bca9880730887079db7e4095fc0f6b855429e6a8db3256539": {
+					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),",
+					"line": 483
+				},
+				"86be3c8eddfdb99f0a017fa7e1ff71eaa3bbcc2413ece77270dbadd67c0ee5f9": {
+					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — () => Date.parse(TEST_NOW),",
+					"line": 506
+				},
+				"bbe0638afd17218bdb27190d75ee19cfbc45d7baeedc88afabccbebbc3e37e1b": {
+					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — const submitter = new MutationCloudV3Submitter(config(), undefined, () => Date.parse(TEST_NOW));",
+					"line": 555
+				},
+				"bd62fe9fe627355573283a05be7a25a344b13bedfdb60351ba7931f6c7b42000": {
+					"file": "src/harness/mutation/mutation-cloud-v3-submission.test.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — const submitter = new MutationCloudV3Submitter(config(), undefined, () => Date.parse(TEST_NOW));",
+					"line": 583
+				},
+				"0c23088ee9b520274e3c5526c72dc44d73273ff26d6502e687be04b046ae4cbb": {
+					"file": "src/harness/project-e2e/policy-stability.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isInteger(runs) || Number(runs) < 1 || Number(runs) > MAX_QUALIFICATION_RUNS) fail(`${where}.qualificationRuns must be an integer from 1 t",
+					"line": 18
+				},
+				"ad0bb51aa0879c25ec4b966a0f8270707407f8e0c88f88c678f05ede5d098ec8": {
+					"file": "src/harness/resource-cli.ts",
+					"text": "nan_coercion_guard: \"parent\" from coercion used in relational comparison without Number.isFinite / isNaN guard — return Number.isSafeInteger(parent) && parent > 0 && parent === process.ppid;",
+					"line": 10
+				},
+				"ea38589609b9fccbeef91619e55900c4460caec63c7b9371184d25a34a0875ba": {
+					"file": "src/harness/spec/extract-ids.ts",
+					"text": "nan_coercion_guard: \"from\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!(to > from)) return null;",
+					"line": 433
+				},
+				"dd019a634bd8c5ffa73702bf6ed248f5e9ec4c0ef08bd4652b96f2365a1c6a8d": {
+					"file": "src/harness/stop-digest-state.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — const stamp = (id: string): number => Date.parse(sessions[id]?.last_stop ?? \"\") || 0;",
+					"line": 201
+				},
+				"f380b30d1103aae1a1978fbf7429983eb558d6c018573bcae18758a11bac41df": {
+					"file": "src/harness/structural-checks/export-surface.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — return candidates.sort((a, b) => Number(dirname(b) === dir) - Number(dirname(a) === dir));",
+					"line": 245
+				},
+				"214700b86886f11324b7fd01556026caeec569ba97799e54a9474af1bbb2e4de": {
+					"file": "src/harness/trajectory/helpers.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — return m.slice(1, 5).every((o) => Number(o) <= 255);",
+					"line": 183
+				},
+				"c6fb3307bc544fd1c00a4b0b8f55b03266bb9c3778d510f78c2ca60fee3d7823": {
+					"file": "src/harness/trajectory/helpers.ts",
+					"text": "nan_coercion_guard: \"b\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (a === 172 && b >= 16 && b <= 31) return true;",
+					"line": 199
+				},
+				"84a8870f0f3401fcd0ec227a0eafdb4bcf1daf399a1e00085eac1898f00c9abf": {
+					"file": "src/harness/trajectory.mutation-kill.test.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — .map((f) => Number(/\\((\\d+) identical calls/.exec(f.message)?.[1] ?? \"0\"));",
+					"line": 379
+				},
+				"9e1598a4f9e1e88418933764ca62a3b4abb3491c23777cf33ae7ef0184d55575": {
+					"file": "src/lib/data/indexer.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — files.sort((a, b) => Number(a.archived) - Number(b.archived) || a.bytes - b.bytes);",
+					"line": 97
+				},
+				"51ecf89f662fb214db1edd7e4523f16a6b9e4d136874fcbf5322e953aefbf54d": {
+					"file": "src/lib/data-search/segments.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (Number(segment.expandedBytes) > MAX_SEGMENT_BYTES || Number(segment.bytes) > MAX_SEGMENT_BYTES) throw new Error(\"segment size limit exceeded\");",
+					"line": 142
+				},
+				"6f4ed1b1c5c4bb330b2dd7cf0a029b60c3a3032124ec58e0ba1f6db0438ef35f": {
+					"file": "src/lib/hook-template-chunks/file-dump-cold-guard.ts",
+					"text": "nan_coercion_guard: \"lines\" from coercion used in relational comparison without Number.isFinite / isNaN guard — return Number.isSafeInteger(lines) && lines <= 200 ? lines : null;",
+					"line": 53
+				},
+				"9cb5bd2dd36920247c993df6ae6e50b0c7a2ede5af83972e299bde9589ec4e66": {
+					"file": "src/lib/hook-template-chunks/file-dump-cold-guard.ts",
+					"text": "nan_coercion_guard: \"lines\" from coercion used in relational comparison without Number.isFinite / isNaN guard — for (let line = 0; line < lines; line++) {",
+					"line": 58
+				},
+				"8330ae48b694719ac53cce01fbff76b3bb810530fdd064cffb42919d65cab460": {
+					"file": "src/lib/hook-template-chunks/file-dump-cold-guard.ts",
+					"text": "nan_coercion_guard: \"lines\" from coercion used in relational comparison without Number.isFinite / isNaN guard — for (let line = 0; line < lines; line++) {",
+					"line": 68
+				},
+				"0095a3ca8c3bfd2af30b6f626e18cf20744d3fb5527b39d9406659108071b354": {
+					"file": "src/lib/metrics/analysis-syntax.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (children.length === 0) return Number(node.kind <= parsed.ts.SyntaxKind.LastToken && node.getWidth(parsed.sf) > 0);",
+					"line": 81
+				},
+				"928d5e044c98abc1e6b86a831ef1a036b93bb54327aced37e5261d343c2359e4": {
+					"file": "src/lib/metrics/composite-report.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — matching.sort((a, b) => Date.parse(b.receipt.finishedAt) - Date.parse(a.receipt.finishedAt));",
+					"line": 27
+				},
+				"b6819b8a801eb2a9bb781483a777b348cb32a100edfe4883649f3660c5ec389b": {
+					"file": "src/lib/metrics/evidence-receipt.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (Date.parse(finishedAt) < Date.parse(startedAt)) throw new Error(\"Execution finished before it started\");",
+					"line": 38
+				},
+				"6d51d77ac75b578b5945e9129df85e8c5ec2fc0e8f9f247deff86f8ac6ee757e": {
+					"file": "src/lib/metrics/evidence-run.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — .sort((a, b) => Date.parse(b.receipt.finishedAt) - Date.parse(a.receipt.finishedAt))[0];",
+					"line": 29
+				},
+				"8689302134b18d3b67759d68001885404d59615a9e4d3be57696ebf5dd72b45a": {
+					"file": "src/lib/metrics/evidence-workspace-inputs-sync.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — for (let position = 0; position < Number(before.size);) {",
+					"line": 15
+				},
+				"87d8e524d257205f67fa81b19e6aa83a70acccb10c88b5fe6568339eab1d1ef9": {
+					"file": "src/lib/metrics/evidence-workspace-inputs.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — for (let position = 0; position < Number(before.size);) {",
+					"line": 17
+				},
+				"4c60538e70fa2af648714a31d0d96ba09f289c7101aaeeae0fddf9c3ce4871f1": {
+					"file": "src/lib/simplification-agent-ci-experiment.ts",
+					"text": "nan_coercion_guard: coercion result used in relational comparison without Number.isFinite / isNaN guard — if (Date.parse(value.completed_at) < Date.parse(value.started_at)) return null;",
+					"line": 208
+				},
+				"83b4935c63723b422560f2ccdba2ba07a70cd46c7611de195c0df7d927bc33fa": {
+					"file": "src/lib/viz/status-file.ts",
+					"text": "nan_coercion_guard: \"pid\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!url || !Number.isInteger(pid) || pid <= 0) return null;",
+					"line": 42
+				},
+				"d8f9920199e85b1cf7a85409ba1eaa76f28dc1f9a38b180090b3baef4586dc93": {
+					"file": "src/registrars/harness-inventory.ts",
+					"text": "nan_coercion_guard: \"parsed\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(\"generation must be a nonnegative integer\");",
+					"line": 64
+				},
+				"5153550cd6617a8c8a95319874cd678542db23e359fcee289277bb30806667b9": {
+					"file": "src/registrars/tests-replay.ts",
+					"text": "nan_coercion_guard: \"timeoutMs\" from coercion used in relational comparison without Number.isFinite / isNaN guard — if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600000) throw new Error(\"timeout must be 1–600000 ms\");",
+					"line": 18
+				}
 			},
 			"history": [
 				{

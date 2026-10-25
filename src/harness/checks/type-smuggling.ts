@@ -12,19 +12,20 @@
 //     crashing every CLI entry that transitively loads the check registry
 //     (`interlinked install-hooks`, etc.).
 //   - We use a type-only import for compile-time signatures and
-//     `node:module`'s `createRequire` to load TS at runtime from the user's
-//     project `node_modules`. esbuild leaves both alone.
-//   - When TS isn't installed in the project (rare for a TS-shaped repo,
-//     but possible for a JS-only repo where this check wouldn't fire
-//     anyway), `loadTs()` returns null and `checkTypeSmuggling` no-ops.
+//     check-typescript.ts's `createRequire` loader at runtime: the
+//     harness's own installation first, the scanned project's copy
+//     (`checkRoot()`) second. esbuild leaves both alone.
+//   - When neither resolves, `checkTypeSmuggling` returns [] and reports
+//     the standard `[interlinked:type_smuggling] NOT MEASURED` line. A
+//     failed resolution is never cached, so a later install is found.
 //
 // Phase: post / Severity: warning / Gate: advisory (shipped advisory first
 // per CLAUDE.md; structural-overlap detection in TS's type system is
 // inherently heuristic on union/intersection/generic boundaries).
 
-import { createRequire } from "node:module";
 import type * as TS from "typescript";
 import { nonNull } from "../../lib/non-null.js";
+import { loadCheckTypescript, resetCheckTypescriptCache } from "./check-typescript.js";
 import { getExtension, type InlineMatch, isTestFile } from "./shared.js";
 
 // Only .ts/.tsx/.mts/.cts are typechecked — plain .js/.jsx have no `as`
@@ -49,16 +50,11 @@ const MAX_LINES_PER_FILE = 1000;
 
 type TsModule = typeof TS;
 
-// Cache states:
-//   undefined  — not yet attempted to resolve
-//   null       — attempted, not available in this environment
-//   TsModule   — loaded successfully (subsequent calls return cached value)
-let _ts: TsModule | null | undefined;
-
 /**
- * Resolve the TypeScript compiler API at runtime from the user's project
- * `node_modules`. Returns null when TS is not installed (this check then
- * silently no-ops).
+ * Resolve the TypeScript compiler API at runtime: the harness's own
+ * installation first, then the scanned project's copy (`checkRoot()`).
+ * Returns null after a NOT MEASURED report when neither resolves. The
+ * loader caches successes only (check-typescript.ts).
  *
  * Why this dance: `import ts from "typescript"` causes esbuild to bundle
  * the entire ~10MB TS module into our dist/. The bundled output trips on
@@ -68,24 +64,11 @@ let _ts: TsModule | null | undefined;
  * `verify`, etc.) crashes at module init.
  *
  * `createRequire` is a Node-native escape hatch: esbuild leaves it alone,
- * and Node's CJS resolver loads `typescript` from the user's
- * `node_modules` where its internal `require("fs")` works as TS expects.
- * Side benefit: the check uses the user's actual TS version, so its
- * verdict matches what their own tsc would say.
+ * and Node's CJS resolver loads `typescript` from a real `node_modules`
+ * where its internal `require("fs")` works as TS expects.
  */
 function loadTs(): TsModule | null {
-	if (_ts !== undefined) return _ts;
-	try {
-		// The `/_` suffix is a non-existent sentinel path so createRequire
-		// uses CWD as the resolution base. Node only needs a parent path;
-		// the file doesn't have to exist.
-		const req = createRequire(`${process.cwd()}/_`);
-		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
-		_ts = req("typescript") as TsModule;
-	} catch {
-		_ts = null;
-	}
-	return _ts;
+	return loadCheckTypescript("type_smuggling", "a cast between structurally unrelated types");
 }
 
 /**
@@ -94,7 +77,7 @@ function loadTs(): TsModule | null {
  * conditions. Not part of the public check API.
  */
 export function __resetTsCacheForTests(): void {
-	_ts = undefined;
+	resetCheckTypescriptCache();
 }
 
 /**
@@ -128,26 +111,6 @@ function hasAsExpressionLikely(content: string): boolean {
  * on context. When both `isTypeAssignableTo` directions fail we have high
  * confidence; that's the gate.
  */
-/**
- * `TS.TypeChecker.getTypeAtLocation` / `getTypeFromTypeNode` are declared to
- * always return `TS.Type` — but `ts` here is loaded dynamically
- * (`req("typescript")`, see `TsModule`), and the checker instance a caller
- * hands in can be a wrapper/mock around the real one (exercised by the
- * "keeps an earlier match when a LATER cast's source type resolves to
- * undefined" test, which mocks `getTypeAtLocation` to return `undefined` for
- * one node). Route both reads through a call whose return type honestly
- * includes `undefined` so the downstream guard stays necessary — a direct
- * `let sourceType: TS.Type | undefined; sourceType = checker.getTypeAtLocation(...)`
- * would get narrowed back to `TS.Type` by control-flow analysis at the
- * assignment, defeating the point.
- */
-function typeAtLocationOf(checker: TS.TypeChecker, node: TS.Node): TS.Type | undefined {
-	return checker.getTypeAtLocation(node);
-}
-function typeFromTypeNodeOf(checker: TS.TypeChecker, node: TS.TypeNode): TS.Type | undefined {
-	return checker.getTypeFromTypeNode(node);
-}
-
 /**
  * Detect the classic `as unknown as T` double-cast escape: the CHILD of an
  * outer AsExpression is itself an AsExpression whose target is `unknown`.
@@ -309,17 +272,15 @@ function evaluateAsNode(
 		};
 	}
 
-	let sourceType: TS.Type | undefined;
-	let targetType: TS.Type | undefined;
+	let sourceType: TS.Type;
+	let targetType: TS.Type;
 	try {
-		sourceType = typeAtLocationOf(checker, node.expression);
-		targetType = typeFromTypeNodeOf(checker, typeNode);
+		sourceType = checker.getTypeAtLocation(node.expression);
+		targetType = checker.getTypeFromTypeNode(typeNode);
 	} catch {
 		// Checker threw — skip silently rather than false-fire.
 		return null;
 	}
-
-	if (!sourceType || !targetType) return null;
 
 	if (!isSmugglingCast(ts, checker, sourceType, targetType)) return null;
 
@@ -406,17 +367,6 @@ function createSingleFileProgram(
 			if (name === filePath) return sourceFile;
 			return realHost.getSourceFile(name, languageVersion, onError, shouldCreate);
 		},
-		writeFile: () => {
-			/* no-op — we never emit */
-		},
-		fileExists: (name: string) => {
-			if (name === filePath) return true;
-			return realHost.fileExists(name);
-		},
-		readFile: (name: string) => {
-			if (name === filePath) return content;
-			return realHost.readFile(name);
-		},
 		getCanonicalFileName: (name: string) => name,
 		useCaseSensitiveFileNames: () => true,
 		// No `getNewLine` override: the `...realHost` spread already supplies
@@ -449,9 +399,9 @@ function createSingleFileProgram(
  * the type-checker can't be built — all "skip silently" paths are merged
  * into the empty-result return.
  *
- * Also returns `[]` when the TypeScript compiler API is not available in
- * the user's project node_modules (no-op for non-TS projects, where the
- * check wouldn't fire anyway).
+ * Also returns `[]` when the TypeScript compiler API resolves neither from
+ * the harness installation nor from the check root; that path reports the
+ * `[interlinked:type_smuggling] NOT MEASURED` line, so it is not silent.
  */
 export function checkTypeSmuggling(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
@@ -466,9 +416,7 @@ export function checkTypeSmuggling(content: string, filePath: string): InlineMat
 	if (!hasAsExpressionLikely(content)) return [];
 
 	const ts = loadTs();
-	// Graceful no-op when TypeScript isn't available in the user's project.
-	// For TS projects this branch is never taken; for JS-only projects the
-	// check wouldn't fire anyway (no .ts files to scan).
+	// No `typescript` from either base: loadTs already reported NOT MEASURED.
 	if (!ts) return [];
 
 	let result: InlineMatch[] | null = null;

@@ -9,12 +9,22 @@ export function scanBrokenOptionalGrouping(content: string, filePath: string): I
 	if (!parsed) return []; // No syntax evidence: never use the ambiguous regex as a block.
 	const { ts, sf } = parsed;
 	const lines = new Set<number>();
+	// A JSDoc `@type` / `@satisfies` on a group is plain JS's only cast syntax; the
+	// checker honors it only in JS files, where it ends the chain like `as` / `!`.
+	const isJsDocCast = (group: TS.ParenthesizedExpression): boolean =>
+		(group.flags & ts.NodeFlags.JavaScriptFile) !== 0 &&
+		(ts.getJSDocTypeTag(group) !== undefined || ts.getJSDocSatisfiesTag(group) !== undefined);
 	const visit = (node: TS.Node): void => {
 		if (lines.size >= 10) return;
 		if (ts.isPropertyAccessExpression(node) && !node.questionDotToken && ts.isParenthesizedExpression(node.expression)) {
-			let inner = node.expression.expression;
-			while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
-			if (ts.isPropertyAccessChain(inner) || ts.isElementAccessChain(inner) || ts.isCallChain(inner)) {
+			let group: TS.ParenthesizedExpression = node.expression;
+			let cast = isJsDocCast(group);
+			while (ts.isParenthesizedExpression(group.expression)) {
+				group = group.expression;
+				cast ||= isJsDocCast(group);
+			}
+			const inner = group.expression;
+			if (!cast && (ts.isPropertyAccessChain(inner) || ts.isElementAccessChain(inner) || ts.isCallChain(inner))) {
 				lines.add(sf.getLineAndCharacterOfPosition(node.expression.getStart(sf)).line);
 			}
 		}

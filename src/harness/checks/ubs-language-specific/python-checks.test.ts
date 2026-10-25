@@ -1514,13 +1514,14 @@ describe("checkXmlExternalEntity — adversarial-audit finding: direct `import l
 // layer removed: `BANDIT_TO_CHECK_ID` (src/harness/checks/shared.ts) already
 // maps S301 (pickle), S314/S320 (xml), S602/603 (subprocess), S307 (eval),
 // S310 (urlopen), and S324 (hash) to their matching checkIds here, but has NO
-// entry for S302 ("suspicious-marshal-usage") or S506 ("unsafe-yaml-load") —
-// the two Ruff/Bandit codes that correspond exactly to these two detectors.
-// Both call sites already pass the CORRECT checkId string; the gap is
-// entirely in shared.ts's map, which is out of scope for this file/companion
-// pair. `it.fails` documents it as a known defect, matching the convention
-// above — it will start reporting an unexpected pass once shared.ts grows
-// the S302/S506 entries.
+// entry for S302 ("suspicious-marshal-usage") — the Ruff/Bandit code that
+// corresponds exactly to the marshal detector. (S506, "unsafe-yaml-load", was
+// added to the map by the 2026-10-21 adversarial review; its pins below are
+// now plain `it`.) The marshal call site already passes the CORRECT checkId
+// string; the gap is entirely in shared.ts's map, which is out of scope for
+// this file/companion pair. `it.fails` documents it as a known defect,
+// matching the convention above — it will start reporting an unexpected pass
+// once shared.ts grows the S302 entry.
 // ===========================================================================
 
 describe("checkMarshalLoad — finding: noqa: S302 (Ruff/Bandit's marshal-usage code) is not recognized", () => {
@@ -1533,12 +1534,12 @@ describe("checkMarshalLoad — finding: noqa: S302 (Ruff/Bandit's marshal-usage 
 	});
 });
 
-describe("checkYamlUnsafeLoad — finding: noqa: S506 (Ruff/Bandit's unsafe-yaml-load code) is not recognized", () => {
-	it.fails("SHOULD respect `# noqa: S506` on the yaml.unsafe_load form", () => {
+describe("checkYamlUnsafeLoad — noqa: S506 (Ruff/Bandit's unsafe-yaml-load code) is recognized (map entry added 2026-10-21)", () => {
+	it("respects `# noqa: S506` on the yaml.unsafe_load form", () => {
 		expect(checkYamlUnsafeLoad("cfg = yaml.unsafe_load(f)  # noqa: S506", "a.py")).toEqual([]);
 	});
 
-	it.fails("SHOULD respect `# noqa: S506` on the bare yaml.load form", () => {
+	it("respects `# noqa: S506` on the bare yaml.load form", () => {
 		expect(checkYamlUnsafeLoad("cfg = yaml.load(f)  # noqa: S506", "a.py")).toEqual([]);
 	});
 

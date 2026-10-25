@@ -5,7 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isJsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import { scanSelfImports } from "./self-import-scan.js";
 import {
@@ -89,30 +89,64 @@ function _depFieldNames(value: unknown): string[] {
 	return isJsonObject(value) ? Object.keys(value) : [];
 }
 
+/** The parsed object of a package.json, or undefined when the file cannot be
+ *  read, is not JSON, or parses to something other than a JSON object. */
+function _readPackageJson(pkgPath: string): JsonObject | undefined {
+	try {
+		const pkg: unknown = JSON.parse(readFileSync(pkgPath, "utf-8"));
+		return isJsonObject(pkg) ? pkg : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Every name a manifest declares across deps, devDeps, peerDeps, optionalDeps. */
+function _declaredDepNames(pkg: JsonObject): string[] {
+	return [
+		..._depFieldNames(pkg.dependencies),
+		..._depFieldNames(pkg.devDependencies),
+		..._depFieldNames(pkg.peerDependencies),
+		..._depFieldNames(pkg.optionalDependencies),
+	];
+}
+
 /**
  * Parse a package.json into its full declared-dependency-name set — deps,
  * devDeps, peerDeps, optionalDeps — plus Node.js built-ins (bare and
  * `node:`-prefixed). Returns undefined if the file can't be read/parsed, or
  * parses to something other than a JSON object.
+ *
+ * Two resolution facts of real repositories are folded in (cross-repo
+ * falsification 2026-10-21, 7/7 reads were false positives):
+ * - **Package self-reference.** Node resolves the enclosing package's own
+ *   `name` through its `exports` map, so `packages/zod/src/**` importing
+ *   `"zod/v3"` is declared by the package it sits in. Only the NEAREST
+ *   manifest's name counts, and only when it carries `exports` — without
+ *   `exports` Node refuses the self-reference, so that stays a finding.
+ * - **Workspace hoisting.** A workspace root's manifest (a parent with
+ *   `workspaces`, or a `pnpm-workspace.yaml` directory) installs its own
+ *   dependencies into the root `node_modules`, where Node's walk-up finds
+ *   them from every member. zod's benchmarks import `benchmark`, declared
+ *   only at the root. The root's dependency fields are unioned in; the
+ *   root's own name is not (it is not the member's package scope).
  */
 function _loadPackageDeps(pkgPath: string): Set<string> | undefined {
-	try {
-		const pkg: unknown = JSON.parse(readFileSync(pkgPath, "utf-8"));
-		if (!isJsonObject(pkg)) return undefined;
-		const deps = new Set<string>([
-			..._depFieldNames(pkg.dependencies),
-			..._depFieldNames(pkg.devDependencies),
-			..._depFieldNames(pkg.peerDependencies),
-			..._depFieldNames(pkg.optionalDependencies),
-		]);
-		for (const mod of NODE_BUILTIN_MODULES) {
-			deps.add(mod);
-			deps.add(`node:${mod}`);
-		}
-		return deps;
-	} catch {
-		return undefined;
+	const pkg = _readPackageJson(pkgPath);
+	if (!pkg) return undefined;
+	const deps = new Set<string>(_declaredDepNames(pkg));
+	if (typeof pkg.name === "string" && pkg.exports !== undefined) deps.add(pkg.name);
+
+	const workspaceRoot = findWorkspaceRootFor(pkgPath);
+	if (workspaceRoot !== dirname(pkgPath)) {
+		const rootPkg = _readPackageJson(join(workspaceRoot, "package.json"));
+		for (const name of rootPkg ? _declaredDepNames(rootPkg) : []) deps.add(name);
 	}
+
+	for (const mod of NODE_BUILTIN_MODULES) {
+		deps.add(mod);
+		deps.add(`node:${mod}`);
+	}
+	return deps;
 }
 
 /**
@@ -143,12 +177,49 @@ function _resolvePackageDeps(startDir: string): Set<string> | undefined {
 }
 
 /**
+ * The DefinitelyTyped package that types a runtime package name:
+ * `mdast` → `@types/mdast`, `@scope/pkg` → `@types/scope__pkg`.
+ */
+export function typesPackageFor(pkgName: string): string {
+	return pkgName.startsWith("@")
+		? `@types/${pkgName.slice(1).replace("/", "__")}`
+		: `@types/${pkgName}`;
+}
+
+/**
+ * Whether a (comment- and string-stripped, trimmed) import line is erased by
+ * the type checker: `import type X from`, `import type { A } from`, or a
+ * named list whose every binding is `type`-prefixed. A default binding that
+ * happens to be NAMED `type` (`import type from "x"`) is a value import.
+ */
+export function isTypeOnlyImportLine(line: string): boolean {
+	if (/^import\s+type\s+(?!from\s)/.test(line)) return true;
+	const named = line.match(/^import\s*\{([^}]*)\}\s*from\b/);
+	if (!named) return false;
+	const bindings = nonNull(named[1])
+		.split(",")
+		.map((b) => b.trim())
+		.filter((b) => b.length > 0);
+	return bindings.length > 0 && bindings.every((b) => /^type\s/.test(b));
+}
+
+/**
  * Decide whether a bare import specifier names a package missing from the
  * resolved dependency set. Relative imports, path aliases (`@/`), fragment
  * imports (`#`), and runtime built-in protocols (node:/cloudflare:/bun:/deno:)
  * are never "extraneous" and are excluded up front.
+ *
+ * A TYPE-ONLY import never resolves at runtime — TypeScript serves it from a
+ * declared `@types/<pkg>` alone (date-fns `import type { Root } from "mdast"`
+ * against `@types/mdast`), so that declaration satisfies it. A value import
+ * of the same name with only `@types/<pkg>` declared is still extraneous:
+ * the runtime package is what is missing.
  */
-function _isExtraneousBareImport(specifier: string, pkgDeps: Set<string>): boolean {
+function _isExtraneousBareImport(
+	specifier: string,
+	pkgDeps: Set<string>,
+	typeOnly: boolean,
+): boolean {
 	if (specifier.startsWith(".") || specifier.startsWith("@/") || specifier.startsWith("#"))
 		return false;
 	// node:, cloudflare:, bun:, deno: are runtime built-in protocols — never in package.json
@@ -158,7 +229,8 @@ function _isExtraneousBareImport(specifier: string, pkgDeps: Set<string>): boole
 	const pkgName = specifier.startsWith("@")
 		? specifier.split("/").slice(0, 2).join("/")
 		: nonNull(specifier.split("/")[0]);
-	return !pkgDeps.has(pkgName);
+	if (pkgDeps.has(pkgName)) return false;
+	return !(typeOnly && pkgDeps.has(typesPackageFor(pkgName)));
 }
 
 export function checkExtraneousDependencies(content: string, filePath: string): InlineMatch[] {
@@ -187,7 +259,7 @@ export function checkExtraneousDependencies(content: string, filePath: string): 
 		if (!fromMatch) continue;
 		const specifier = nonNull(fromMatch[1]);
 
-		if (!_isExtraneousBareImport(specifier, pkgDeps)) continue;
+		if (!_isExtraneousBareImport(specifier, pkgDeps, isTypeOnlyImportLine(trimmed))) continue;
 		matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 	}
 	return matches;

@@ -30,6 +30,10 @@ function fires(src: string, filePath: string = TEST_PATH): boolean {
 // ─── Positive cases ───────────────────────────────────────────────────────────
 
 describe("detectUnawaitedAsyncAssertions — positive (must fire)", () => {
+	it.each(["catch(() => {})", "then(() => {}, () => {})"])("does not treat %s as reporting an assertion to the test runner", (continuation) => {
+		const source = `it("rejects", () => {\n  expect(Promise.resolve(1)).rejects.toThrow().${continuation};\n});`;
+		expect(detectUnawaitedAsyncAssertions(source, TEST_PATH).map((match) => match.line)).toEqual([2]);
+	});
 	it("P1: statement-position expect(p).rejects.toThrow() with no await", () => {
 		const src = `
 it("rejects on bad input", async () => {

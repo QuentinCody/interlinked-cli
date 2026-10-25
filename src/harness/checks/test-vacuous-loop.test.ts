@@ -93,6 +93,15 @@ describe("checkVacuousLoopAssertion — negative (must not fire)", () => {
 		expect(found).toHaveLength(0);
 	});
 
+	it("N6b (d): an it.each row whose loop collection is computed is still exempt", () => {
+		// N6 loops over the literal [n], so the literal-collection rule alone keeps it quiet; this case leaves
+		// only the each-rows rule to do so (E64 blind mutants k3).
+		const found = run(
+			`it.each([1, 2, 3])("checks %i", (n) => { for (const x of rowsFor(n)) { expect(x).toBeGreaterThan(0); } });`,
+		);
+		expect(found).toHaveLength(0);
+	});
+
 	it("N7 (e): the loop body itself throws on an unexpected shape", () => {
 		const found = run(
 			`it("checks rows", () => { for (const r of getRows()) { if (!r) throw new Error("bad row"); expect(r.ok).toBe(true); } });`,
@@ -142,6 +151,12 @@ describe("checkVacuousLoopAssertion — negative (must not fire)", () => {
 
 	it("N14: a non-test file never fires even with the same shape", () => {
 		const found = run(`it("checks rows", () => { for (const r of getRows()) { expect(r.ok).toBe(true); } });`, "widget.ts");
+		expect(found).toHaveLength(0);
+	});
+
+	it("N15 (a): an assertion AFTER the loop ends is outside it, so not every expect is in a loop", () => {
+		// No length pin and no literal collection: only the loop's end boundary keeps this quiet (clause k2).
+		const found = run(`it("checks rows", () => { for (const r of getRows()) { expect(r.ok).toBe(true); } expect(done).toBe(true); });`);
 		expect(found).toHaveLength(0);
 	});
 });

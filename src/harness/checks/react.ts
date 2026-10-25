@@ -2,6 +2,7 @@
 // Extracted from generic-checks.ts.
 
 import { nonNull } from "../../lib/non-null.js";
+import { DSIH_USAGE_RE, DSIH_WINDOW_LINES, isStaticDsihValue } from "./react-dsih-value.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -9,6 +10,7 @@ import {
 	scanLinesStripped,
 	stripCommentsAndStrings,
 } from "./shared.js";
+import { buildLineStarts } from "./shared-text-utils.js";
 
 // ===========================================
 // React/Frontend Checks
@@ -61,10 +63,15 @@ export function checkExcessiveUseState(content: string, filePath: string): Inlin
  * for a `const <id> = "..."` / `const <id> = `...`` declaration. If the
  * literal is template/string with no `${var}` interpolation, treat as
  * static — don't fire.
+ *
+ * 2026-10-21 adversarial review: the token is a USAGE only as a JSX
+ * attribute or a props-object member (`DSIH_USAGE_RE`) — an interface
+ * member, a destructuring alias and JSX text never fire — and the value
+ * may sit on the lines below the attribute (prettier wrapping). A direct
+ * literal, a same-file static `const` (type annotation allowed) and a
+ * recognized sanitizer call (`DOMPurify.sanitize`, `sanitizeHtml`, …) are
+ * static; the classifier lives in `react-dsih-value.ts`.
  */
-const DSIH_INLINE_RE = /\bdangerouslySetInnerHTML\s*=\s*\{\s*\{\s*__html\s*:\s*([A-Za-z_$][\w$]*)\s*\}\s*\}/;
-const DSIH_NAKED_RE = /\bdangerouslySetInnerHTML\b/;
-
 export function checkDangerouslySetInnerHTML(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
 	const ext = getExtension(filePath);
@@ -73,22 +80,22 @@ export function checkDangerouslySetInnerHTML(content: string, filePath: string):
 	const stripped = stripCommentsAndStrings(content);
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
+	const lineStarts = buildLineStarts(content);
 
 	const matches: InlineMatch[] = [];
 	for (let i = 0; i < originalLines.length; i++) {
 		if (matches.length >= 10) break;
-		// Use the original line for identifier extraction (we need to see
-		// the variable name post-strip), but we still look at the
-		// original for context. Both forms are inspected via
-		// strippedLines for content-stable matching.
-		if (!DSIH_NAKED_RE.test(nonNull(strippedLines[i]))) continue;
+		if (!nonNull(strippedLines[i]).includes("dangerouslySetInnerHTML")) continue;
+		// Usage is decided on the stripped text; the object form may wrap
+		// its `__html` onto the lines below, so test the window, anchored
+		// to this line.
+		if (!DSIH_USAGE_RE.test(strippedLines.slice(i, i + DSIH_WINDOW_LINES).join("\n"))) continue;
 
-		// Try to extract the identifier from the `__html: <id>` shape.
-		// If we find a same-file static-string declaration, suppress.
-		const inline = DSIH_INLINE_RE.exec(nonNull(originalLines[i]));
-		if (inline?.[1] && isStaticStringConstant(content, inline[1])) {
-			continue;
-		}
+		// Classify the `__html` value on the ORIGINAL text (the identifier
+		// or literal must be visible), over the same window.
+		const windowStart = nonNull(lineStarts[i]);
+		const windowEnd = lineStarts[i + DSIH_WINDOW_LINES] ?? content.length;
+		if (isStaticDsihValue(content, windowStart, windowEnd)) continue;
 
 		matches.push({
 			line: i + 1,
@@ -96,66 +103,6 @@ export function checkDangerouslySetInnerHTML(content: string, filePath: string):
 		});
 	}
 	return matches;
-}
-
-/**
- * Return true when `name` is declared in `content` as a `const` bound
- * to a string or template literal that contains NO `${...}` (i.e. no
- * runtime interpolation). Conservative — any unclear case returns
- * false (the check fires). Only `const` is considered (not `let` /
- * `var`) because those can be reassigned.
- *
- * 139-repo audit: Expo Router boilerplate — `const responsiveBackground
- * = `body { background-color: #fff; ... }`;` is the canonical static
- * CSS template-literal pattern.
- */
-/**
- * Walk a template literal whose body starts at `start` (the position just
- * after the opening backtick) and report whether it closes with NO `${...}`
- * interpolation in its body. Returns false when the literal never closes.
- */
-function hasUninterpolatedTemplateBody(content: string, start: number): boolean {
-	let i = start;
-	let depth = 0; // ${...} brace depth
-	while (i < content.length) {
-		const c = content[i];
-		if (c === "\\") {
-			i += 2;
-			continue;
-		}
-		if (depth === 0 && c === "`") {
-			// Closing backtick; success only if no `${` was seen.
-			return !content.slice(start, i).includes("${");
-		}
-		if (c === "$" && content[i + 1] === "{") {
-			depth++;
-			i += 2;
-			continue;
-		}
-		if (depth > 0 && c === "{") depth++;
-		if (depth > 0 && c === "}") depth--;
-		i++;
-	}
-	return false;
-}
-
-function isStaticStringConstant(content: string, name: string): boolean {
-	// Match `const <name> = ` followed by either a quoted string or a
-	// template literal. The template literal must contain NO `${`.
-	// Both forms are matched; whichever wins, decide.
-	const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	// `const NAME = "...";` / `const NAME = '...';`
-	const stringRe = new RegExp(`\\bconst\\s+${escaped}\\s*=\\s*(['"])((?:\\\\.|(?!\\1).)*)\\1`);
-	if (stringRe.test(content)) return true;
-	// `const NAME = \`...\`;` — template literal with no interpolation.
-	// Find the opening backtick after the name, then walk to the closing
-	// one and verify no `${` appears in between.
-	const tplOpen = new RegExp(`\\bconst\\s+${escaped}\\s*=\\s*\``);
-	const m = tplOpen.exec(content);
-	if (!m) return false;
-	// Find the matching backtick. Naive: walk forward from after the
-	// opening backtick, ignoring escaped backticks.
-	return hasUninterpolatedTemplateBody(content, m.index + m[0].length);
 }
 
 const DOM_ACCESS_RE =
@@ -232,9 +179,8 @@ export function checkDirectDomAccess(content: string, filePath: string): InlineM
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
-		const strippedLine = strippedLines[i];
-		const originalLine = originalLines[i];
-		if (strippedLine === undefined || originalLine === undefined) continue;
+		const strippedLine = nonNull(strippedLines[i]);
+		const originalLine = nonNull(originalLines[i]);
 
 		const inEffect = effectDepth > 0;
 		// Update depth for THIS line before deciding the next iteration's state.

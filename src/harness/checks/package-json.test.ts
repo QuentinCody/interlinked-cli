@@ -128,6 +128,12 @@ describe("checkPackageJsonPublishInvariants", () => {
 	});
 
 	// Case 7
+	it.each(["echo npm test", "npm test || true", "echo 'npm test'"])("does not count %s as preserving the removed publish gate", (prepack) => {
+		writeFileSync(pkgPath, JSON.stringify(FULL_PKG));
+		const postEdit = { ...FULL_PKG, scripts: { build: "tsc", prepack } };
+		expect(checkPackageJsonPublishInvariants(JSON.stringify(postEdit), pkgPath).some((finding) => finding.text.includes("scripts.prepublishOnly"))).toBe(true);
+	});
+
 	it("does NOT flag when `exports` changes shape (object → string) but stays present", () => {
 		writeFileSync(pkgPath, JSON.stringify(FULL_PKG));
 

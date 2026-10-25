@@ -3,6 +3,7 @@
 // detectors (Mythos blog adaptation). Extracted from entries-warnings.ts —
 // re-exported there as part of WARNING_ENTRIES.
 
+import { checkRoot } from "../../checks/check-root.js";
 import { detectCjsInEsm } from "../../checks/esm-cjs.js";
 import { detectWriteWithoutMkdir } from "../../checks/fs-write-safety.js";
 import { detectHandRolledLexer } from "../../checks/hand-rolled-lexer.js";
@@ -34,15 +35,18 @@ import { RUNTIME_SAFETY_ENTRIES } from "./agent-clarity-runtime-safety.js";
 // Named wrappers (not inline arrows) so Check Evidence Contract resolution
 // (fn.name) can attribute evidence — an inline `fn: (a, b) => ...` arrow
 // resolves its name to the property key "fn", not the real detector. `cwd`
-// defaults to process.cwd() for the registry but stays overridable so tests
-// can pass a temp dir, per the pattern in agent-safety-advanced.coverage.
+// defaults to `checkRoot()` (checks/check-root.ts): the root of an active
+// `withCheckRoot` scan, else process.cwd(). A scan of another tree
+// (`recurrence scan --cwd`) therefore reads that tree's git listing and
+// tests, not the caller's checkout. It stays overridable so tests can pass a
+// temp dir, per the pattern in agent-safety-advanced.coverage.
 // integration.test.ts / property-testing.integration.test.ts.
 
 /** Registry-facing wrapper: binds `circular_imports` detection to a cwd. */
 export function checkCircularImportsAtCwd(
 	content: string,
 	filePath: string,
-	cwd: string = process.cwd(),
+	cwd: string = checkRoot(),
 ): InlineMatch[] {
 	return checkCircularImports(content, filePath, cwd);
 }
@@ -51,7 +55,7 @@ export function checkCircularImportsAtCwd(
 export function checkDeadExportsAtCwd(
 	content: string,
 	filePath: string,
-	cwd: string = process.cwd(),
+	cwd: string = checkRoot(),
 ): InlineMatch[] {
 	return checkDeadExports(content, filePath, cwd);
 }
@@ -60,7 +64,7 @@ export function checkDeadExportsAtCwd(
 export function checkUntestedInversePairAtCwd(
 	content: string,
 	filePath: string,
-	cwd: string = process.cwd(),
+	cwd: string = checkRoot(),
 ): InlineMatch[] {
 	return checkUntestedInversePair(content, filePath, cwd);
 }
@@ -69,7 +73,7 @@ export function checkUntestedInversePairAtCwd(
 export function checkUntestedIdempotentAtCwd(
 	content: string,
 	filePath: string,
-	cwd: string = process.cwd(),
+	cwd: string = checkRoot(),
 ): InlineMatch[] {
 	return checkUntestedIdempotent(content, filePath, cwd);
 }

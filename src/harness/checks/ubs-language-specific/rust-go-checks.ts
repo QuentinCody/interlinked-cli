@@ -15,6 +15,56 @@ import { MATCH_LIMIT } from "./_shared.js";
 // Row 22 — `ubs_mutex_lock_unwrap` (Rust)
 // ===========================================
 
+const RUST_TESTS_DIR_RE = /(?:^|\/)tests\//;
+/** `#[cfg(test)]`, `#[test]`, `#[tokio::test]`, `#[rstest]`-style `…::test(…)` attributes. */
+const RUST_TEST_ATTR_RE = /^\s*#\[\s*(?:cfg\s*\(\s*test\s*\)|(?:[\w]+::)*test\b[^\]]*)\]/;
+
+/**
+ * 0-based inclusive line ranges of items under a test attribute (an inline
+ * `#[cfg(test)] mod tests { … }` or a `#[test] fn`), brace-matched on the
+ * stripped lines. An item that ends in `;` before any `{` (`mod tests;`) has
+ * no body here and exempts nothing.
+ */
+function rustTestItemRanges(original: string[], stripped: string[]): Array<[number, number]> {
+	const ranges: Array<[number, number]> = [];
+	for (let i = 0; i < original.length; i++) {
+		const attr = RUST_TEST_ATTR_RE.exec(nonNull(original[i]));
+		if (attr === null) continue;
+		const end = testItemEnd(stripped, i, nonNull(original[i]).slice(attr[0].length));
+		if (end < 0) continue;
+		ranges.push([i, end]);
+		i = end;
+	}
+	return ranges;
+}
+
+/** Last line of the braced item that follows a test attribute on `attrLine`, or -1. */
+function testItemEnd(stripped: string[], attrLine: number, attrTail: string): number {
+	let depth = 0;
+	for (let j = attrLine; j < stripped.length; j++) {
+		const text = j === attrLine ? attrTail : nonNull(stripped[j]);
+		for (const ch of text) {
+			if (ch === ";" && depth === 0) return -1;
+			if (ch === "{") depth++;
+			else if (ch === "}" && --depth === 0) return j;
+		}
+	}
+	return depth > 0 ? stripped.length - 1 : -1;
+}
+
+/**
+ * True when the receiver of `.lock()` at `lockIdx` is a plain identifier whose
+ * every type annotation in the file names no `Mutex` (e.g. `lockfile: File` —
+ * `File::lock` returns `io::Result`, nothing is poisoned). A receiver with no
+ * annotation, or a file with a `type … = …Mutex…` alias, stays in scope.
+ */
+function receiverDeclaredNonMutex(stripped: string, lockIdx: number): boolean {
+	const ident = /(\w+)\s*$/.exec(stripped.slice(Math.max(0, lockIdx - 120), lockIdx))?.[1];
+	if (ident === undefined || /\btype\s+\w+[^;]*=[^;]*\bMutex\b/.test(stripped)) return false;
+	const annotations = [...stripped.matchAll(new RegExp(`\\b${ident}\\s*:(?!:)\\s*([^,;={)\\n]+)`, "g"))];
+	return annotations.length > 0 && annotations.every((a) => !/\bMutex\b/.test(nonNull(a[1])));
+}
+
 /**
  * Detect `Mutex<T>...lock().unwrap()` — panics on poisoned mutex.
  *
@@ -25,9 +75,12 @@ import { MATCH_LIMIT } from "./_shared.js";
  */
 export function checkMutexLockUnwrap(content: string, filePath: string): InlineMatch[] {
 	if (getExtension(filePath) !== ".rs") return [];
+	// Test code: a panic on a poisoned mutex there is a test failure, the idiom.
+	if (isTestFile(filePath) || RUST_TESTS_DIR_RE.test(filePath.replace(/\\/g, "/"))) return [];
 
 	const stripped = stripCommentsAndStrings(content);
 	const originalLines = content.split("\n");
+	const testRanges = rustTestItemRanges(originalLines, stripped.split("\n"));
 	const matches: InlineMatch[] = [];
 
 	const re = /\bMutex\s*<[^<>]*(?:<[^<>]*>[^<>]*)?>[\s\S]{0,200}?\.lock\s*\(\s*\)\s*\.unwrap\s*\(\s*\)/g;
@@ -38,6 +91,8 @@ export function checkMutexLockUnwrap(content: string, filePath: string): InlineM
 		// jump to from the warning.
 		const idx = m.index + m[0].lastIndexOf(".unwrap");
 		const lineNum = stripped.slice(0, idx).split("\n").length;
+		if (testRanges.some(([a, b]) => lineNum - 1 >= a && lineNum - 1 <= b)) continue;
+		if (receiverDeclaredNonMutex(stripped, m.index + m[0].lastIndexOf(".lock"))) continue;
 		matches.push({
 			line: lineNum,
 			text: nonNull(originalLines[lineNum - 1]).trim().slice(0, 150),

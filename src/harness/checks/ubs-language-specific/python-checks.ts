@@ -11,60 +11,23 @@ import {
 	lineHasNoqaSuppression,
 	stripCommentsAndStrings,
 } from "../shared.js";
-import { isNoqaSuppressedInRange, isPyFile, MATCH_LIMIT } from "./_shared.js";
+import {
+	blankPythonTripleQuotedStrings,
+	isOrmColumnOperand,
+	isPyFile,
+	lineHasPythonSuppression,
+	MATCH_LIMIT,
+} from "./_shared.js";
+import {
+	blankPythonTripleQuoted,
+	callBodyAt,
+	yamlIsSafeRuamelInstance,
+	yamlLoadBodyIsSafe,
+	yamlReceiverAt,
+} from "./python-yaml-load.js";
 
-// ===========================================
-// Row 23 — `ubs_subprocess_shell_true` (Python)
-// ===========================================
-
-/**
- * Detect `subprocess.<fn>(... shell=True ...)` — command-injection vector.
- *
- * Plan 04 §4.1 regex: `\bsubprocess\.[a-z_]+\s*\([\s\S]{0,500}?\bshell\s*=\s*True\b`.
- * Widened to `[A-Za-z_]+` so `subprocess.Popen(...)` (uppercase entry point)
- * participates — the spec's lowercase form misses Popen, which is the most
- * common subprocess constructor in production code.
- *
- * The 500-char window covers calls split across many keyword-arg lines.
- */
-export function checkSubprocessShellTrue(content: string, filePath: string): InlineMatch[] {
-	const ext = getExtension(filePath);
-	if (ext !== ".py" && ext !== ".pyi") return [];
-	if (isVendoredOrFixturePath(filePath)) return [];
-
-	const stripped = stripCommentsAndStrings(content);
-	const originalLines = content.split("\n");
-	const matches: InlineMatch[] = [];
-
-	const re = /\bsubprocess\.[A-Za-z_]+\s*\([\s\S]{0,500}?\bshell\s*=\s*True\b/g;
-
-	for (const m of stripped.matchAll(re)) {
-		if (matches.length >= 10) break;
-		// Anchor at `shell` so the warning points at the dangerous keyword.
-		const shellIdx = m.index + m[0].lastIndexOf("shell");
-		const lineNum = stripped.slice(0, shellIdx).split("\n").length;
-		// 139-repo audit: respect Bandit `# noqa: S602 / S603` on any
-		// line within the matched call (the suppression typically sits
-		// on the opening line of a multi-line subprocess.run(...)).
-		// Scan original lines from the call start to the match end.
-		const callStartLine = stripped.slice(0, m.index).split("\n").length;
-		if (
-			isNoqaSuppressedInRange(
-				originalLines,
-				callStartLine,
-				lineNum,
-				"ubs_subprocess_shell_true",
-			)
-		) {
-			continue;
-		}
-		matches.push({
-			line: lineNum,
-			text: nonNull(originalLines[lineNum - 1]).trim().slice(0, 150),
-		});
-	}
-	return matches;
-}
+// Row 23 — `ubs_subprocess_shell_true` lives in its own module (line cap).
+export { checkSubprocessShellTrue } from "./python-subprocess-shell.js";
 
 // ===========================================
 // Row 25 — `ubs_py_none_equality` (Python)
@@ -78,31 +41,33 @@ export function checkSubprocessShellTrue(content: string, filePath: string): Inl
  * return surprising results for proxy/mock objects.
  *
  * Plan 04 §4.1 regex: `\b\w+\s*[!=]=\s*None\b` (matches `x == None` / `x != None`).
- * Yoda style (`None == x` / `None != x`) is also flagged.
+ * Yoda style (`None == x` / `None != x`) is also flagged. ORM column expressions
+ * (`isOrmColumnOperand`), lines carrying pycodestyle's own `# noqa: E711` and
+ * multi-line docstring prose are exempt (2026-10-21 adversarial review).
  */
 export function checkPyNoneEquality(content: string, filePath: string): InlineMatch[] {
 	const ext = getExtension(filePath);
 	if (ext !== ".py" && ext !== ".pyi") return [];
 
-	const stripped = stripCommentsAndStrings(content);
+	// Docstrings blanked AFTER stripping, when every remaining `"""` is a real delimiter.
+	const stripped = blankPythonTripleQuoted(stripCommentsAndStrings(content));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
 
-	// `\b\w+\s*(==|!=)\s*None\b` — identifier ==/!= None. Also covers Yoda.
+	// `<dotted>\s*(==|!=)\s*None\b` — identifier ==/!= None. Also covers Yoda.
 	// Written as a non-capturing alternation rather than `[!=]=` so the
 	// `ubs_js_loose_equality` detector (which lacks regex-literal stripping)
-	// doesn't FP on this regex source line.
-	const re = /\b\w+\s*(?:==|!=)\s*None\b|\bNone\s*(?:==|!=)\s*\w+/;
+	// doesn't FP on this regex source line. The operand captures the WHOLE
+	// dotted chain so the ORM-column exemption can see its root.
+	const re = /((?:\w+\.)*\w+)\s*(?:==|!=)\s*None\b|\bNone\s*(?:==|!=)\s*((?:\w+\.)*\w+)/g;
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
-		if (re.test(nonNull(strippedLines[i]))) {
-			matches.push({
-				line: i + 1,
-				text: nonNull(originalLines[i]).trim().slice(0, 150),
-			});
-		}
+		const operands = [...nonNull(strippedLines[i]).matchAll(re)].map((m) => nonNull(m[1] ?? m[2]));
+		if (operands.length === 0 || operands.every(isOrmColumnOperand)) continue;
+		if (lineHasNoqaSuppression(nonNull(originalLines[i]), "ubs_py_none_equality")) continue;
+		matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 	}
 	return matches;
 }
@@ -319,11 +284,11 @@ export function checkMarshalLoad(content: string, filePath: string): InlineMatch
 	if (isTestFile(filePath)) return [];
 	if (isVendoredOrFixturePath(filePath)) return [];
 
-	const stripped = stripCommentsAndStrings(content);
+	const stripped = stripCommentsAndStrings(blankPythonTripleQuoted(content));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
-	const re = /\bmarshal\.loads?\s*\(/;
+	const re = /(?<![\w.])marshal\.loads?\s*\(/; // `self.marshal.loads(` is an attribute, not the module
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= MATCH_LIMIT) break;
@@ -338,6 +303,8 @@ export function checkMarshalLoad(content: string, filePath: string): InlineMatch
  * `ubs_shelve_open` — Python `shelve.open(...)`. `shelve` is a pickle-backed
  * persistent dict; opening one from an untrusted path exposes the same
  * arbitrary-code-execution surface as `pickle.load`. pre_block / error.
+ * Multi-line docstrings, an attribute receiver (`self.shelve.open`) and
+ * Bandit's `# nosec` / `# noqa: S301` are exempt (2026-10-21 adversarial review).
  */
 export function checkShelveOpen(content: string, filePath: string): InlineMatch[] {
 	const ext = getExtension(filePath);
@@ -345,16 +312,16 @@ export function checkShelveOpen(content: string, filePath: string): InlineMatch[
 	if (isTestFile(filePath)) return [];
 	if (isVendoredOrFixturePath(filePath)) return [];
 
-	const stripped = stripCommentsAndStrings(content);
+	const stripped = stripCommentsAndStrings(blankPythonTripleQuotedStrings(content));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
-	const re = /\bshelve\.open\s*\(/;
+	const re = /(?<![\w.])shelve\.open\s*\(/;
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= MATCH_LIMIT) break;
 		if (!re.test(nonNull(strippedLines[i]))) continue;
-		if (lineHasNoqaSuppression(nonNull(originalLines[i]), "ubs_shelve_open")) continue;
+		if (lineHasPythonSuppression(nonNull(originalLines[i]), "ubs_shelve_open")) continue;
 		matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 	}
 	return matches;
@@ -365,14 +332,11 @@ export function checkShelveOpen(content: string, filePath: string): InlineMatch[
  * Loader, plus the explicit `yaml.unsafe_load(...)` alias. Both construct
  * arbitrary Python objects via `!!python/object` tags.
  *
- * The 200-char window after the open paren is long enough for typical
- * keyword-arg call shapes; multi-line YAML loads beyond that fall through
- * (false negative, acceptable since the unsafe shape is also detectable by
- * the missing `safe_load`). pre_block / error for `yaml.unsafe_load`;
- * pre_warn / error for the bare `yaml.load` form without a Safe loader.
- *
- * Returns matches in two buckets keyed by the kind via the source text;
- * the registry entries differentiate severity by ruleName.
+ * The Loader is judged over the BALANCED call body (multi-line kwargs, nested
+ * parens) and a bare-identifier Loader is resolved through the file's own
+ * `import … as` / assignment bindings; a `yaml` bound to a safe ruamel.yaml
+ * `YAML()` instance and an attribute receiver (`self.yaml.load`) are not the
+ * module (helpers in python-yaml-load.ts, 2026-10-21 adversarial review).
  */
 export function checkYamlUnsafeLoad(content: string, filePath: string): InlineMatch[] {
 	const ext = getExtension(filePath);
@@ -380,9 +344,13 @@ export function checkYamlUnsafeLoad(content: string, filePath: string): InlineMa
 	if (isTestFile(filePath)) return [];
 	if (isVendoredOrFixturePath(filePath)) return [];
 
-	const stripped = stripCommentsAndStrings(content);
+	// Multi-line docstrings are blanked first: the shared stripper handles
+	// single-line `"""…"""` only, and a docstring that MENTIONS yaml.load(
+	// is prose, not a call.
+	const stripped = stripCommentsAndStrings(blankPythonTripleQuoted(content));
 	const originalLines = content.split("\n");
 	const matches: InlineMatch[] = [];
+	const ruamelInstance = yamlIsSafeRuamelInstance(content, stripped);
 
 	// `yaml.unsafe_load(` — always unsafe by name.
 	const unsafeRe = /\byaml\.unsafe_load\s*\(/g;
@@ -394,19 +362,16 @@ export function checkYamlUnsafeLoad(content: string, filePath: string): InlineMa
 		matches.push({ line: lineNum, text: nonNull(originalLines[lineNum - 1]).trim().slice(0, 150) });
 	}
 
-	// `yaml.load(arg)` without a `Safe`-class Loader argument within the call.
-	// Negative-lookahead window of 200 chars after the open paren: if `Safe`
-	// appears anywhere (matches `SafeLoader`, `CSafeLoader`, `safe_load`-as-
-	// string, `Loader=yaml.SafeLoader`), the call is the safe form. No word
-	// boundary on `Safe` so `CSafeLoader` (where the C is a word-char prefix)
-	// is recognized.
 	// `yaml.load(` AND `yaml.load_all(` (the multi-document form) without a
 	// Safe-class Loader (DW P0.5 class-breadth: load_all parity, 2026-07-17).
 	// `yaml.safe_load_all` is exempt — "yaml." must sit immediately before "load".
-	const loadRe = /\byaml\.load(?:_all)?\s*\((?![^)\n]{0,200}Safe)/g;
+	const loadRe = /\byaml\.load(?:_all)?\s*\(/g;
 	for (const m of stripped.matchAll(loadRe)) {
 		if (matches.length >= MATCH_LIMIT) break;
 		const idx = m.index;
+		const receiver = yamlReceiverAt(stripped, idx);
+		if (receiver === "attribute" || (receiver === "module" && ruamelInstance)) continue;
+		if (yamlLoadBodyIsSafe(stripped, callBodyAt(stripped, idx + m[0].length - 1))) continue;
 		const lineNum = stripped.slice(0, idx).split("\n").length;
 		if (matches.some((mx) => mx.line === lineNum)) continue;
 		if (lineHasNoqaSuppression(nonNull(originalLines[lineNum - 1]), "ubs_yaml_unsafe_load")) continue;

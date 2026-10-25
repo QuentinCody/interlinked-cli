@@ -60,7 +60,7 @@ export function isGeneratedFile(content: string): boolean {
  */
 const BANDIT_TO_CHECK_ID: Record<string, readonly string[]> = {
 	S102: ["ubs_eval_input_tainted"], // exec
-	S301: ["ubs_pickle_untrusted_load"], // pickle
+	S301: ["ubs_pickle_untrusted_load", "ubs_shelve_open"], // pickle; Bandit B301 also lists shelve.open
 	S307: ["ubs_eval_input_tainted"], // eval
 	S310: ["ubs_unchecked_redirect"], // urllib.request urlopen
 	S311: [], // random for security — no equivalent in registry
@@ -68,15 +68,35 @@ const BANDIT_TO_CHECK_ID: Record<string, readonly string[]> = {
 	S320: ["ubs_xml_external_entity"], // lxml.etree
 	S324: ["weak_hash"], // weak MD5/SHA1
 	S501: ["tls_verify_disabled"], // verify=False
+	S506: ["ubs_yaml_unsafe_load"], // yaml.load without a Safe loader (2026-10-21 adversarial review)
 	S602: ["ubs_subprocess_shell_true"], // subprocess shell=True
 	S603: ["ubs_subprocess_shell_true"],
 	S605: ["child_process_exec_user_input"],
 	S608: ["ubs_sql_string_concat"], // SQL injection
+	// pycodestyle namespace (same `# noqa:` grammar as Bandit's S-codes).
+	E711: ["ubs_py_none_equality"], // comparison to None should be `is None`
 };
 
 const NOQA_RE = /#\s*noqa(?::\s*([A-Z]\d+(?:\s*,\s*[A-Z]\d+)*))?/;
 
+/**
+ * Bandit's own grammar: `# nosec` (every Bandit finding on the line) or
+ * `# nosec B506[, B602]`. Bandit's B-codes are ruff's S-codes with the same
+ * number, so they resolve through BANDIT_TO_CHECK_ID; a bare `# nosec`
+ * suppresses only the Bandit-mapped ids, never unrelated checks
+ * (2026-10-21 adversarial review of `ubs_yaml_unsafe_load`).
+ */
+const NOSEC_RE = /#\s*nosec\b(?:[ \t]*:?[ \t]*(B\d+(?:[ \t]*,[ \t]*B\d+)*))?/;
+
+function lineHasNosecSuppression(line: string, checkId: string): boolean {
+	const m = NOSEC_RE.exec(line);
+	if (!m) return false;
+	const codes = m[1] ? m[1].split(/[ \t]*,[ \t]*/).map((b) => `S${b.slice(1)}`) : Object.keys(BANDIT_TO_CHECK_ID).filter((code) => code.startsWith("S"));
+	return codes.some((code) => BANDIT_TO_CHECK_ID[code]?.includes(checkId));
+}
+
 export function lineHasNoqaSuppression(line: string, checkId: string): boolean {
+	if (lineHasNosecSuppression(line, checkId)) return true;
 	const m = NOQA_RE.exec(line);
 	if (!m) return false;
 	// Bare `# noqa` suppresses everything (Python/flake8 convention).

@@ -20,11 +20,20 @@ import {
 // Iterator Invalidation
 // ===========================================
 
+// The iterated collection is the WHOLE receiver chain (`files`, `this.items`, `state?.queue`), and a mutation
+// matches only that chain: `g.files.push` does not mutate a loop over `files` (2026-10-22: 5 of 11 repo-wide
+// findings were this shape).
 const ITERATOR_HEADER_RE =
-	/\bfor\s*\(\s*(?:const|let|var)?\s+[\w[\]{},\s]+\s+(?:of|in)\s+([A-Za-z_$][\w$]*)\s*\)/g;
+	/\bfor\s*\(\s*(?:const|let|var)?\s+[\w[\]{},\s]+\s+(?:of|in)\s+((?:[A-Za-z_$][\w$]*\??\.)*[A-Za-z_$][\w$]*)\s*\)/g;
 
 const FOREACH_HEADER_RE =
-	/\b([A-Za-z_$][\w$]*)\s*\.\s*(?:forEach|map|filter|reduce|reduceRight|find|findIndex|findLast|findLastIndex|some|every|flatMap)\s*\(/g;
+	/(?<![\w$.?])((?:[A-Za-z_$][\w$]*\??\.)*[A-Za-z_$][\w$]*)\s*\.\s*(?:forEach|map|filter|reduce|reduceRight|find|findIndex|findLast|findLastIndex|some|every|flatMap)\s*\(/g;
+
+/** A receiver chain as a pattern: each `.` may be `?.`, and no identifier character or `.` may precede it. */
+function receiverPattern(collection: string): string {
+	const parts = collection.replace(/\?/g, "").split(".").map((part) => part.replace(/[$]/g, "\\$"));
+	return `(?<![\\w$.])${parts.join("\\s*\\??\\.\\s*")}`;
+}
 
 const MUTATING_METHODS = [
 	// Array
@@ -133,14 +142,14 @@ function findMutationOffsets(
 	bodyClose: number,
 ): number[] {
 	const body = stripped.slice(bodyOpen + 1, bodyClose);
-	const escaped = collection.replace(/[$]/g, "\\$");
+	const receiver = receiverPattern(collection);
 	const methodAlt = MUTATING_METHODS.join("|");
-	const methodRe = new RegExp(`\\b${escaped}\\s*\\.\\s*(?:${methodAlt})\\s*\\(`, "g");
+	const methodRe = new RegExp(`${receiver}\\s*\\.\\s*(?:${methodAlt})\\s*\\(`, "g");
 	// `<name>[expr] = <not-equality>`. Negative lookahead `=(?!=)` rules
 	// out `===`/`==`; we also exclude `>=`/`<=`/`!=` by anchoring the
 	// preceding bracket pair with no operator on the LHS.
-	const indexAssignRe = new RegExp(`\\b${escaped}\\s*\\[[^\\]\\n]*\\]\\s*=(?!=)`, "g");
-	const deleteRe = new RegExp(`\\bdelete\\s+${escaped}\\s*\\[`, "g");
+	const indexAssignRe = new RegExp(`${receiver}\\s*\\[[^\\]\\n]*\\]\\s*=(?!=)`, "g");
+	const deleteRe = new RegExp(`\\bdelete\\s+${receiver}\\s*\\[`, "g");
 
 	let hit: RegExpExecArray | null;
 	const found: number[] = [];

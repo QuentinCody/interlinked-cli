@@ -159,6 +159,19 @@ describe("checkCatchWithoutAssertionGuard — negative (must not fire)", () => {
 		expect(found).toHaveLength(0);
 	});
 
+	it("does not fire when a recognized toThrow assertion guards a catch-only try/catch in the same block", () => {
+		// The case above has no try/catch, so it passes with or without the guard (E64 blind mutants k4).
+		const found = run(`it("guarded by toThrow", () => {
+			expect(() => sut()).toThrow("bad");
+			try {
+				sut();
+			} catch (e) {
+				expect(e.message).toBe("bad");
+			}
+		});`);
+		expect(found).toHaveLength(0);
+	});
+
 	it("does not fire on await expect(p).rejects.toThrow() (no try/catch at all)", () => {
 		const found = run(`it("rejects", async () => {
 			await expect(sut()).rejects.toThrow();

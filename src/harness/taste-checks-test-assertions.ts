@@ -8,7 +8,9 @@
 // existing importers keep importing from "../taste-checks.js" unchanged.
 
 import { nonNull } from "../lib/non-null.js";
+import { blankJsxText } from "./checks/nan-comparison-scan.js";
 import { stripComments } from "./strip-helpers.js";
+import { keepsRealModule, sameDirSiblingBase } from "./taste-checks-mock-real-module.js";
 import { parameterizedTestBodies, type TestBody } from "./test-parameterized-bodies.js";
 import {
 	findBlockEnd,
@@ -28,31 +30,138 @@ import {
 const ASSERT_PATTERN =
 	/\b(expect|should)\s*\(|\bassert\b\s*(?:\.\s*[A-Za-z]+)?\s*\(|\.\s*(?:toBe|toEqual|toStrictEqual|toMatch|toMatchObject|toThrow|toThrowError|toHaveBeenCalled|toHaveBeenCalledWith|toHaveBeenCalledTimes|toContain|toContainEqual|toHaveLength|toHaveProperty|toBeDefined|toBeUndefined|toBeNull|toBeTruthy|toBeFalsy|toBeInstanceOf|toBeGreaterThan|toBeLessThan|toBeCloseTo|toMatchSnapshot|toMatchInlineSnapshot|resolves|rejects)\b|\bchai\.|\bsinon\.assert/;
 
-/** A call to a function named `assertX(...)` (`fixture.assertServed(run)`,
- *  `assertCompleted(report)`) — the conventional name of an assertion helper
- *  whose body this file cannot see because it is imported. */
-const ASSERT_HELPER_CALL = /\bassert[A-Z][\w$]*\s*\(/;
+/** A call to a function named `assertX(...)` / `expectX(...)`
+ *  (`fixture.assertServed(run)`, `expectServed(run)`, vitest's
+ *  `expectTypeOf(x)` / `assertType<T>(x)`, jasmine's `expectAsync(p)`) — the
+ *  conventional name of an assertion helper whose body this file cannot see
+ *  because it is imported. A type-argument list may sit before the paren. */
+const ASSERT_HELPER_CALL = /\b(?:assert|expect)[A-Z][\w$]*\s*(?:<[^()]*>)?\s*\(/;
+
+/** chai's should style: `result.should.equal(5)`, `should.exist(x)`,
+ *  `should.not.exist(x)`, `should.Throw(fn)`. */
+const CHAI_SHOULD_PATTERN = /\.should\s*\.|(?<![\w$.])should\s*\.\s*(?:exist|not|equal|Throw|throw|fail)\b/;
+
+/** AVA / node-tap / tape assertions on the test-context object `t`: the
+ *  method list is the distinctive assertion surface, not `t(` itself (which
+ *  is also an i18n call) and not `t.end()` / `t.plan()` / `t.pass()`. */
+const T_CONTEXT_ASSERT_PATTERN =
+	/(?<![\w$.])t\s*\.\s*(?:is|not|deepEqual|notDeepEqual|like|true|false|truthy|falsy|throws|notThrows|throwsAsync|notThrowsAsync|regex|notRegex|snapshot|equal|notEqual|same|notSame|strictSame|ok|notOk|match|doesNotMatch|fail)\s*\(/;
+
+/** The static call forms that fail the test when reached: vitest's
+ *  `expect.unreachable()` and chai's `expect.fail()` — a negative-path
+ *  assertion inside a listener or catch block (tinybench task-remove.test.ts). */
+const EXPECT_STATIC_FAIL_PATTERN = /(?<![\w$.])expect\s*\.\s*(?:unreachable|fail)\s*\(/;
+
+const ASSERT_PATTERNS: readonly RegExp[] = [
+	ASSERT_PATTERN,
+	ASSERT_HELPER_CALL,
+	CHAI_SHOULD_PATTERN,
+	T_CONTEXT_ASSERT_PATTERN,
+	EXPECT_STATIC_FAIL_PATTERN,
+];
+
+/** A ts-expect-error directive (line or block comment form) that opens
+ *  its line. tsc fails when the next line has no type error, so the directive
+ *  is a compile-time assertion (zod's `.flatten() type assertion` tests). The
+ *  comment-free copy must have LOST the token, which rejects a fixture string
+ *  or template line that only spells the directive. A ts-ignore never fails
+ *  and is not an assertion. */
+const EXPECT_ERROR_DIRECTIVE_RE = /^\s*(?:\/\/|\/\*+)\s*@ts-expect-error\b/;
+
+function expectErrorDirectiveLines(lines: readonly string[], commentFree: string): Set<number> {
+	const freeLines = commentFree.split("\n");
+	const found = new Set<number>();
+	lines.forEach((line, i) => {
+		if (EXPECT_ERROR_DIRECTIVE_RE.test(line) && !freeLines[i]?.includes("@ts-expect-error")) found.add(i);
+	});
+	return found;
+}
+
+function hasDirectiveBetween(directives: ReadonlySet<number>, start: number, end: number): boolean {
+	for (const line of directives) if (line > start && line <= end) return true;
+	return false;
+}
+
+function hasAssertion(body: string): boolean {
+	return ASSERT_PATTERNS.some(re => re.test(body));
+}
+
+/** Module specifiers whose EVERY export is an assertion — `node:assert`,
+ *  `assert/strict`, `uvu/assert`, `@std/assert`, `power-assert` — so a named
+ *  import from one (`import { deepStrictEqual } from "node:assert/strict"`,
+ *  `const { strictEqual } = require("assert")`, `import { strict } from
+ *  "node:assert"` then `strict.equal(…)`) is an assertion call under its
+ *  local name. Scanned on the comment-stripped ORIGINAL: the string-stripped
+ *  copy has blanked the specifier. */
+const ASSERTION_MODULE_RE = /^(?:(?:node|jsr):)?(?:@std\/|uvu\/|power-)?assert(?:\/strict)?$/;
+const IMPORT_CLAUSE_RE = /\bimport\s+(?!type\b)([^;]*?)\s+from\s*(["'])([^"']+)\2/g;
+const REQUIRE_CLAUSE_RE =
+	/\b(?:const|let|var)\s+(\{[^}]*\}|[A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*(["'])([^"']+)\2\s*\)/g;
+
+/** Local binding names declared by one import / require clause:
+ *  `{ a, b as c, d: e }` → a, c, e; `* as ns` → ns; `def` → def. */
+function clauseBindings(clause: string): string[] {
+	const names: string[] = [];
+	const add = (piece: string): void => {
+		const local = nonNull(piece.trim().split(/\s+as\s+|\s*:\s*/).pop()).trim();
+		if (/^[A-Za-z_$][\w$]*$/.test(local)) names.push(local);
+	};
+	for (const m of clause.matchAll(/\{([^}]*)\}/g)) nonNull(m[1]).split(",").forEach(add);
+	clause.replace(/\{[^}]*\}/g, "").split(",").forEach(add);
+	return names;
+}
+
+/** Local names bound to an assertion-only module by import or require. */
+function boundAssertionNames(commentFree: string): Set<string> {
+	const names = new Set<string>();
+	for (const re of [IMPORT_CLAUSE_RE, REQUIRE_CLAUSE_RE]) {
+		for (const m of commentFree.matchAll(re)) {
+			if (ASSERTION_MODULE_RE.test(nonNull(m[3]))) clauseBindings(nonNull(m[1])).forEach(n => names.add(n));
+		}
+	}
+	return names;
+}
 
 /** A same-file helper declaration whose body opens on the header line. The
  *  `{` requirement keeps an expression-bodied arrow from borrowing the next
  *  block; a header these patterns miss leaves the helper unrecognized, which
- *  keeps the test flagged (the pre-change behavior). */
+ *  keeps the test flagged (the pre-change behavior). The const form admits a
+ *  type annotation that itself contains `=>` and a generic arrow `<T,>(…)`. */
 const HELPER_HEADERS = [
 	/^\s*(?:export\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*[<(][^{]*\{/,
-	/^\s*(?:export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]*)?=\s*(?:async\s+)?(?:function\b[^{]*|\([^)]*\)[^=]*=>|[A-Za-z_$][\w$]*\s*=>)\s*\{/,
+	/^\s*(?:export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?::(?:[^=]|=>)*)?=\s*(?:async\s+)?(?:function\b[^{]*|(?:<[^>]*>\s*)?\([^)]*\)[^=]*=>|[A-Za-z_$][\w$]*\s*=>)\s*\{/,
 ];
+
+function escapeName(name: string): string {
+	return name.replace(/\$/g, "\\$");
+}
 
 function callsAny(body: string, names: ReadonlySet<string>): boolean {
 	for (const name of names) {
-		if (new RegExp(String.raw`(?<![\w$.])${name.replace(/\$/g, "\\$")}\s*\(`).test(body)) return true;
+		if (new RegExp(String.raw`(?<![\w$.])${escapeName(name)}\s*\(`).test(body)) return true;
 	}
 	return false;
+}
+
+/** A direct or one-level member call on an import-bound assertion name:
+ *  `deepStrictEqual(a, b)`, `strict.equal(a, b)`. */
+function callsBinding(body: string, names: ReadonlySet<string>): boolean {
+	for (const name of names) {
+		const re = new RegExp(String.raw`(?<![\w$.])${escapeName(name)}\s*(?:\.\s*[A-Za-z_$][\w$]*)?\s*\(`);
+		if (re.test(body)) return true;
+	}
+	return false;
+}
+
+interface AssertionSources {
+	helpers: ReadonlySet<string>;
+	bound: ReadonlySet<string>;
 }
 
 /** Names of same-file helpers that assert, directly or through another
  *  asserting helper: a test that delegates to `driver()` / `fixture()` whose
  *  body calls `assert.equal` is not assertion-free. */
-function assertingHelpers(sLines: string[]): Set<string> {
+function assertingHelpers(sLines: string[], bound: ReadonlySet<string>): Set<string> {
 	const helpers = new Map<string, string>();
 	sLines.forEach((line, i) => {
 		const name = HELPER_HEADERS.map(re => line.match(re)?.[1]).find(Boolean);
@@ -63,7 +172,8 @@ function assertingHelpers(sLines: string[]): Set<string> {
 	while (grew) {
 		grew = false;
 		for (const [name, body] of helpers) {
-			if (asserting.has(name) || !(ASSERT_PATTERN.test(body) || callsAny(body, asserting))) continue;
+			if (asserting.has(name)) continue;
+			if (!(hasAssertion(body) || callsBinding(body, bound) || callsAny(body, asserting))) continue;
 			asserting.add(name);
 			grew = true;
 		}
@@ -71,9 +181,9 @@ function assertingHelpers(sLines: string[]): Set<string> {
 	return asserting;
 }
 
-function isAssertionFreeBody(body: string, helpers: ReadonlySet<string>): boolean {
+function isAssertionFreeBody(body: string, sources: AssertionSources): boolean {
 	if (!body.includes("{")) return false;
-	return !ASSERT_PATTERN.test(body) && !ASSERT_HELPER_CALL.test(body) && !callsAny(body, helpers);
+	return !hasAssertion(body) && !callsBinding(body, sources.bound) && !callsAny(body, sources.helpers);
 }
 
 // A case EXPLICITLY named for a smoke / not-throwing check legitimately asserts
@@ -132,7 +242,10 @@ export function checkAssertionFreeTest(content: string, filePath: string): Inlin
 	const stripped = stripCommentsAndStrings(content);
 	const lines = content.split("\n");
 	const sLines = stripped.split("\n");
-	const helpers = assertingHelpers(sLines);
+	const commentFree = stripComments(content);
+	const bound = boundAssertionNames(commentFree);
+	const sources: AssertionSources = { helpers: assertingHelpers(sLines, bound), bound };
+	const directives = expectErrorDirectiveLines(lines, commentFree);
 	const matches: InlineMatch[] = [];
 	let i = 0;
 	while (i < sLines.length && matches.length < 10) {
@@ -147,9 +260,8 @@ export function checkAssertionFreeTest(content: string, filePath: string): Inlin
 		}
 		// The name is read from the ORIGINAL header lines (stripped collapses it);
 		// line indices align because stripCommentsAndStrings is line-preserving.
-		if (isAssertionFreeBody(test.body, helpers) && !SMOKE_TEST_NAME_RE.test(test.name)) {
-			push(matches, i, lines, 10);
-		}
+		const exempt = SMOKE_TEST_NAME_RE.test(test.name) || hasDirectiveBetween(directives, i, test.end);
+		if (!exempt && isAssertionFreeBody(test.body, sources)) push(matches, i, lines, 10);
 		i = test.end + 1;
 	}
 	return matches;
@@ -172,7 +284,7 @@ const TRIVIAL_TRUTHINESS =
 	/expect\s*\(\s*true\s*\)\s*\.\s*toBeTruthy\s*\(\s*\)|expect\s*\(\s*false\s*\)\s*\.\s*toBeFalsy\s*\(\s*\)|\bassert(?:\.ok)?\s*\(\s*true\s*\)/g;
 
 function startsInCode(codeMask: string, index: number): boolean {
-	return (codeMask[index] ?? " ").trim() !== "";
+	return nonNull(codeMask[index]).trim() !== "";
 }
 
 function hasEqualLiteralTautology(line: string, codeMask: string): boolean {
@@ -200,9 +312,16 @@ function hasTautology(line: string): boolean {
 }
 
 export function checkTautologicalAssertion(content: string, filePath: string): InlineMatch[] {
-	if (!isTestFile(filePath)) return [];
-	const stripped = stripCommentsAndStrings(content);
-	const commentFree = stripComments(content);
+	// JS grammar only: `isTestFile` also says yes to `test_*.py`, `*Test.java` and
+	// fixtures under tests/, whose strings the strippers cannot see — JS text in a
+	// Python triple-quoted string blocked a write (2026-10-21 adversarial review).
+	if (!isTestFile(filePath) || !isJsTs(filePath)) return [];
+	// JSX text is rendered prose that the string strippers keep by contract:
+	// `<Tip>Never write expect(a).toBe(a)</Tip>` blocked a docs-component test
+	// (2026-10-21 adversarial review, third pass). Output lines stay original.
+	const scanned = blankJsxText(content, filePath);
+	const stripped = stripCommentsAndStrings(scanned);
+	const commentFree = stripComments(scanned);
 	const lines = content.split("\n");
 	const sLines = stripped.split("\n");
 	const cLines = commentFree.split("\n");
@@ -226,18 +345,14 @@ export function checkTautologicalAssertion(content: string, filePath: string): I
 
 const MOCK_CALL_STATIC = /\b(?:vi|jest)\s*\.\s*(?:mock|doMock|setMock)\s*\(\s*["']([^"']+)["']/;
 
+/** The same call after STRING stripping (path text blanked, quotes kept) — what
+ *  a real call looks like. A mock call that is fixture text inside a string or
+ *  template literal is blanked with its enclosing literal instead (2026-10-21
+ *  adversarial review: a generator test asserting `'vi.mock("./gen-mock")'`). */
+const MOCK_CALL_AS_CODE = /\b(?:vi|jest)\s*\.\s*(?:mock|doMock|setMock)\s*\(\s*(["'])\s*\1/;
+
 function mockedPathEqualsSut(mockedPath: string, sut: string): boolean {
 	return sameDirSiblingBase(mockedPath) === sut;
-}
-
-/** Basename (no ext) of a SAME-DIRECTORY relative import, or "" when the path is
- *  `../`-prefixed or in a sub-directory — those are different modules even if the
- *  basename matches the SUT (basename-only matching false-flagged them, e.g.
- *  `../commands/foo.js` vs the SUT `./foo.ts`; fixed 2026-06-12). The caller
- *  guards `sut !== ""`, so a "" result never matches. */
-function sameDirSiblingBase(mockedPath: string): string {
-	const rel = mockedPath.replace(/^\.\//, "");
-	return rel.includes("/") ? "" : rel.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
 }
 
 export function checkMockingTheSUT(content: string, filePath: string): InlineMatch[] {
@@ -248,10 +363,15 @@ export function checkMockingTheSUT(content: string, filePath: string): InlineMat
 	const stripped = stripComments(content);
 	const lines = content.split("\n");
 	const sLines = stripped.split("\n");
+	const codeLines = stripCommentsAndStrings(content).split("\n");
 	const matches: InlineMatch[] = [];
 	for (let i = 0; i < sLines.length && matches.length < 5; i++) {
 		const m = MOCK_CALL_STATIC.exec(nonNull(sLines[i]));
-		if (m && mockedPathEqualsSut(nonNull(m[1]), sut)) push(matches, i, lines, 5);
+		if (!m || !mockedPathEqualsSut(nonNull(m[1]), sut)) continue;
+		if (!MOCK_CALL_AS_CODE.test(nonNull(codeLines[i]))) continue;
+		// `{ spy: true }` or a factory returning the actual module: the SUT still runs.
+		if (keepsRealModule(sLines, i, m.index + m[0].length, sut)) continue;
+		push(matches, i, lines, 5);
 	}
 	return matches;
 }
@@ -260,99 +380,6 @@ export function checkMockingTheSUT(content: string, filePath: string): InlineMat
 // 4. Private-Member Access from Tests
 // Uncle Bob, "Test Contra-variance" (2017)
 // ===========================================
-
-// `(x as any).privateThing` in a test reaches past the public API — EXCEPT when
-// the accessed surface is itself public API of a different contract: vitest/jest
-// mock introspection (`(fetchMock as any).mock.calls[0][0]` — the mock's own
-// documented API, not the SUT's internals) or host-global stubbing
-// (`(globalThis as any).fetch = vi.fn()` — environment setup, not privacy
-// violation). Both were repo-wide FP idioms (2026-07 recon).
-const MOCK_API_AFTER =
-	/^\s*\.\s*(?:mock|calls|mockClear|mockReset|mockRestore|mockName|getMockName|mockImplementation(?:Once)?|mockReturnValue(?:Once)?|mockResolvedValue(?:Once)?|mockRejectedValue(?:Once)?|mockReturnThis)\b/;
-
-const HOST_GLOBALS = new Set([
-	"globalThis",
-	"window",
-	"global",
-	"self",
-	"process",
-	"console",
-	"document",
-	"navigator",
-]);
-
-// Dunders that are runtime/module-system conventions, not privacy markers.
-const RUNTIME_DUNDERS = new Set(["__proto__", "__esModule", "__dirname", "__filename"]);
-
-const CAST_ANY_ACCESS = /\(\s*([A-Za-z_$][\w$]*)\s+as\s+any\s*\)\s*(?=\.)/g;
-// The `as unknown as <Type>` form: the type text is unbounded (it may contain
-// parens, e.g. `{ flush(): void }`), so the accessor is located separately —
-// a `)` followed by `.` or `[` somewhere after the cast keywords.
-const CAST_UNKNOWN_START = /\(\s*([A-Za-z_$][\w$]*)\s+as\s+unknown\s+as\s+/g;
-const CAST_UNKNOWN_ACCESSOR = /\)(?=\s*[.[])/;
-const DUNDER_MEMBER = /\.\s*(_{2,}[A-Za-z_$][\w$]*)\s*[(=.]/g;
-// Runs against the ORIGINAL (comment-stripped only) line: the main scan strips
-// string CONTENTS, which turned `svc["__private"]` into `svc[""]` and made
-// this alternative dead code (2026-07 recon). Strings must stay intact here.
-const BRACKET_PRIVATE = /[A-Za-z_$][\w$]*\s*\[\s*["']_{2,}[^"']*["']\s*\]/;
-
-/** True when a cast-then-access is mock-API introspection or host-global
- *  stubbing rather than a reach into the SUT's private members.
- *  `tail` starts at the character after the cast's closing paren. */
-function isExemptCastAccess(ident: string, tail: string): boolean {
-	return HOST_GLOBALS.has(ident) || MOCK_API_AFTER.test(tail);
-}
-
-/** Any non-exempt `(x as any).member` on this (string-stripped) line? */
-function hasCastAnyViolation(line: string): boolean {
-	for (const m of line.matchAll(CAST_ANY_ACCESS)) {
-		const tail = line.slice(m.index + m[0].length);
-		if (!isExemptCastAccess(nonNull(m[1]), tail)) return true;
-	}
-	return false;
-}
-
-/** Any non-exempt `(x as unknown as T).member` on this line? Casts like
- *  `undefined as unknown as string` are plain type coercions — the result
- *  isn't used to REACH INTO private members, so an accessor after the
- *  closing paren is required. */
-function hasCastUnknownViolation(line: string): boolean {
-	for (const m of line.matchAll(CAST_UNKNOWN_START)) {
-		const after = line.slice(m.index + m[0].length);
-		const close = CAST_UNKNOWN_ACCESSOR.exec(after);
-		if (!close) continue;
-		const tail = after.slice(close.index + 1);
-		if (!isExemptCastAccess(nonNull(m[1]), tail)) return true;
-	}
-	return false;
-}
-
-/** Any `.__member(`/`=`/`.` access that isn't a runtime-conventional dunder? */
-function hasDunderViolation(line: string): boolean {
-	for (const m of line.matchAll(DUNDER_MEMBER)) {
-		if (!RUNTIME_DUNDERS.has(nonNull(m[1]))) return true;
-	}
-	return false;
-}
-
-export function checkPrivateMemberTestAccess(content: string, filePath: string): InlineMatch[] {
-	if (!isTestFile(filePath) || !isJsTs(filePath)) return [];
-	const stripped = stripCommentsAndStrings(content);
-	// Comment-stripped copy with strings INTACT for the bracket-literal branch
-	// (both strippers are line-preserving, so indices align).
-	const commentFree = stripComments(content);
-	const lines = content.split("\n");
-	const sLines = stripped.split("\n");
-	const cLines = commentFree.split("\n");
-	const matches: InlineMatch[] = [];
-	for (let i = 0; i < sLines.length && matches.length < 10; i++) {
-		const sLine = nonNull(sLines[i]);
-		const fires =
-			hasCastAnyViolation(sLine) ||
-			hasCastUnknownViolation(sLine) ||
-			hasDunderViolation(sLine) ||
-			BRACKET_PRIVATE.test(nonNull(cLines[i]));
-		if (fires) push(matches, i, lines, 10);
-	}
-	return matches;
-}
+// Lives in ./taste-checks-private-member.ts (moved 2026-10-21 to fit the
+// per-file line cap); re-exported so existing importers are unchanged.
+export { checkPrivateMemberTestAccess } from "./taste-checks-private-member.js";

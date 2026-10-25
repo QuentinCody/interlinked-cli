@@ -6,6 +6,7 @@ import {
 	getExtension,
 	type InlineMatch,
 	isTestFile,
+	isVendoredOrFixturePath,
 	JS_TS_ALL_EXTS,
 	stripCommentsAndStrings,
 } from "./shared.js";
@@ -37,6 +38,9 @@ const TEST_INTRO_RE = /^(?:it|test|describe)\s*\(/;
  */
 export function checkPlaceholderTests(content: string, filePath: string): InlineMatch[] {
 	if (!isTestFile(filePath)) return [];
+	// A test file under a fixture tree (`__fixtures__/`, `testdata/`, …) is a
+	// payload for some other tool's test, often a deliberately empty one.
+	if (isVendoredOrFixturePath(filePath)) return [];
 	const ext = getExtension(filePath);
 	if (!JS_TS_ALL_EXTS.includes(ext)) return [];
 
@@ -152,10 +156,136 @@ function scanLineForMatchingClose(
 	return { depth, closeCol: null };
 }
 
+/** A (line, column) position inside the stripped-line array. */
+interface Pos {
+	line: number;
+	col: number;
+}
+
 /**
- * From a test-intro line, find the opening `{` and walk brace depth to its
- * matching close. Returns the stripped-content text strictly between the
- * opening and closing braces, plus the closing line index.
+ * First non-whitespace character at or after `from`, crossing line breaks.
+ * Returns null when the file ends first.
+ */
+function nextNonSpace(lines: string[], from: Pos): { pos: Pos; ch: string } | null {
+	return nextNonSpaceSkipping(lines, from, /\s/);
+}
+
+/**
+ * From the `(` that opens the parameter list of a `function` expression,
+ * return the position just past its matching `)`. Destructured parameters
+ * (`function ({ expect }) {`) nest braces, so brace-skipping is not enough —
+ * paren depth is what closes the list.
+ */
+function skipParameterList(lines: string[], open: Pos): Pos | null {
+	let depth = 0;
+	for (let line = open.line; line < lines.length; line++) {
+		const text = nonNull(lines[line]);
+		for (let col = line === open.line ? open.col : 0; col < text.length; col++) {
+			const ch = text[col];
+			if (ch === "(") depth++;
+			else if (ch === ")") {
+				depth--;
+				if (depth === 0) return { line, col: col + 1 };
+			}
+		}
+	}
+	return null;
+}
+
+/**
+ * Locate the `{` that opens the test CALLBACK's body — not the first `{` in
+ * the file after the intro line. Walks the `it(...)` call tracking paren
+ * depth and stops at the first `=>` or `function` keyword inside it:
+ *   - `=> {`        → the brace is the body (possibly on a later line)
+ *   - `=> expr`     → expression-bodied arrow; it has no block to be empty
+ *   - `function (…) {` → the brace after the parameter list is the body
+ *   - call closes with no callback literal (`it("x", sharedCases)`) → none
+ * Returning null for the last two cases is what keeps an expression-bodied
+ * test or a by-reference callback from being charged with the NEXT `{` in
+ * the file (an unrelated `{}` argument or object literal).
+ *
+ * `depth` counts every bracket kind, and only an arrow / `function` at
+ * depth 1 (a direct argument of the test call) is the callback. A noop
+ * arrow nested anywhere else — a default parameter (`(done = () => {}) =>`),
+ * an options value (`{ onRetry: () => {} }`), or a wrapper's argument
+ * (`withConsole(() => {}, (spy) => {…})`) — is not the test body.
+ */
+function findCallbackBodyOpen(lines: string[], startLine: number): Pos | null {
+	let depth = 0;
+	for (let line = startLine; line < lines.length; line++) {
+		const text = nonNull(lines[line]);
+		for (let col = 0; col < text.length; col++) {
+			const ch = nonNull(text[col]);
+			if (OPEN_BRACKETS.has(ch)) depth++;
+			else if (CLOSE_BRACKETS.has(ch)) {
+				depth--;
+				if (depth === 0) return null;
+			} else if (depth !== 1) continue;
+			else if (ch === "=" && text[col + 1] === ">") {
+				return braceAt(lines, { line, col: col + 2 });
+			} else if (isFunctionKeywordAt(text, col)) {
+				return bodyAfterFunctionKeyword(lines, { line, col: col + "function".length });
+			}
+		}
+	}
+	return null;
+}
+
+const OPEN_BRACKETS = new Set(["(", "[", "{"]);
+const CLOSE_BRACKETS = new Set([")", "]", "}"]);
+
+/** True when `function` starts at `col` as a whole word. */
+function isFunctionKeywordAt(text: string, col: number): boolean {
+	return text.startsWith("function", col) && !/\w/.test(text[col - 1] ?? "");
+}
+
+/** Position of a `{` that is the next non-space character, else null. */
+function braceAt(lines: string[], from: Pos): Pos | null {
+	const next = nextNonSpace(lines, from);
+	return next?.ch === "{" ? next.pos : null;
+}
+
+/**
+ * From just past a `function` keyword, step over the optional name /
+ * generator star and the parameter list; the body brace must follow.
+ */
+function bodyAfterFunctionKeyword(lines: string[], from: Pos): Pos | null {
+	const paren = nextNonSpaceSkipping(lines, from, /[\w*\s]/);
+	if (!paren || paren.ch !== "(") return null;
+	const afterParams = skipParameterList(lines, paren.pos);
+	if (!afterParams) return null;
+	return braceAt(lines, afterParams);
+}
+
+/**
+ * Like {@link nextNonSpace} but skips every character matching `skip` —
+ * used to step over a function expression's optional name / generator star.
+ */
+function nextNonSpaceSkipping(
+	lines: string[],
+	from: Pos,
+	skip: RegExp,
+): { pos: Pos; ch: string } | null {
+	let { line, col } = from;
+	while (line < lines.length) {
+		const text = nonNull(lines[line]);
+		while (col < text.length) {
+			const ch = nonNull(text[col]);
+			if (!skip.test(ch)) return { pos: { line, col }, ch };
+			col++;
+		}
+		line++;
+		col = 0;
+	}
+	return null;
+}
+
+/**
+ * From a test-intro line, find the callback body's opening `{` and walk
+ * brace depth to its matching close. Returns the stripped-content text
+ * strictly between the opening and closing braces, plus the closing line
+ * index. Null when the test has no block body (expression-bodied arrow or a
+ * callback passed by reference).
  *
  * Only stripped positions are used for slicing because stripStrings() does
  * not preserve column positions. Callers that need original content should
@@ -165,17 +295,10 @@ function extractTestBody(
 	strippedLines: string[],
 	startLine: number,
 ): { strippedText: string; endLine: number } | null {
-	let openLine = -1;
-	let openCol = -1;
-	for (let i = startLine; i < strippedLines.length; i++) {
-		const col = nonNull(strippedLines[i]).indexOf("{");
-		if (col !== -1) {
-			openLine = i;
-			openCol = col;
-			break;
-		}
-	}
-	if (openLine === -1) return null;
+	const open = findCallbackBodyOpen(strippedLines, startLine);
+	if (!open) return null;
+	const openLine = open.line;
+	const openCol = open.col;
 
 	let depth = 1;
 	let endLine = -1;

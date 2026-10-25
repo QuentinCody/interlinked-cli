@@ -15,6 +15,7 @@
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { buildAgentSafetyChecks } from "./check-registry/index.js";
+import { reportNotMeasured, withCheckRoot } from "./checks/check-root.js";
 import type { DetectorFinding } from "./checks/endpoint-security.js";
 import { extractCICommands, isCIFile } from "./ci-command-extractor.js";
 import { matchesRule } from "./evaluator/rule-matching.js";
@@ -71,6 +72,10 @@ interface ScanCodebaseOptions {
 	 *  true — workflow/Dockerfile/Makefile commands never pass a PreToolUse
 	 *  hook, so this is the only surface that audits them. */
 	includeCI?: boolean;
+	/** Receives each distinct NOT MEASURED line a detector reported during the
+	 *  scan (e.g. no `typescript` to parse with). Defaults to one stderr line
+	 *  each, so `--json` stdout stays a findings array. */
+	onNotMeasured?: (line: string) => void;
 }
 
 /** Walk the working tree and return every inline-detector hit found in
@@ -83,11 +88,15 @@ export function scanCodebaseForRecurrences(
 	const cwd = resolve(options.cwd ?? process.cwd());
 	const roots = options.roots ?? DEFAULT_SCAN_ROOTS;
 	const extensions = options.extensions ?? DEFAULT_SCAN_EXTENSIONS;
-	const findings: ScanCodebaseFinding[] = [];
-
-	for (const rootRel of roots) {
-		findings.push(...scanRootForFindings(resolve(cwd, rootRel), cwd, extensions));
-	}
+	// Detectors that read a project graph, companion tests, package files or
+	// an installed `typescript` take the scan root from `checkRoot()`. The run
+	// binds it to `cwd`, so `--cwd <dir>` from any process cwd reads <dir>.
+	const scanned = withCheckRoot(cwd, () =>
+		roots.flatMap((rootRel) => scanRootForFindings(resolve(cwd, rootRel), cwd, extensions)),
+	);
+	const findings: ScanCodebaseFinding[] = scanned.result;
+	const onNotMeasured = options.onNotMeasured ?? writeNotMeasuredLine;
+	for (const line of scanned.notMeasured) onNotMeasured(line);
 
 	appendCIFindings(findings, options, cwd);
 
@@ -118,15 +127,20 @@ function scanRootForFindings(
 			continue;
 		}
 		// Inline detectors registered in CHECK_REGISTRY for the agent_safety
-		// pipeline. We pass relPath so detectors that gate on the file path
-		// (e.g. test-file detection) see the right shape.
-		const checks = buildAgentSafetyChecks(content, relPath);
+		// pipeline. Detectors get the ABSOLUTE path, the same shape the
+		// PostToolUse and Stop-rescan callers pass: a detector that reads the
+		// filesystem near the file (extraneous_deps walks up to package.json)
+		// must resolve under the scan root, not the process cwd. Findings keep
+		// relPath for display.
+		const checks = buildAgentSafetyChecks(content, fileAbs);
 		for (const check of checks) {
 			let matches: Array<{ line: number; text: string }>;
 			try {
 				matches = check.fn();
-			} catch (_err) {
-				/* a single buggy detector must not break the whole scan */
+			} catch (error) {
+				// Continue other checks, but never present the failed measurement as clean.
+				const reason = error instanceof Error ? error.message : String(error);
+				reportNotMeasured(check.name, `${relPath}: detector failed: ${reason}`);
 				continue;
 			}
 			for (const m of matches) {
@@ -140,6 +154,11 @@ function scanRootForFindings(
 		}
 	}
 	return findings;
+}
+
+/** Default NOT MEASURED sink: one stderr line, so stdout stays machine-readable. */
+function writeNotMeasuredLine(line: string): void {
+	process.stderr.write(`${line}\n`);
 }
 
 /** Append CI/build-file destructive-command findings unless `includeCI` is

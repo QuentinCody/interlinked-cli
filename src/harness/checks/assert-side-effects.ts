@@ -389,11 +389,41 @@ export function checkPythonAssertSideEffects(
  *  `assert cond, "msg"`). `[^()]+` on both sides keeps it to FLAT asserts, so
  *  `assert isinstance(x, int)` / `assert func(a, b)` (calls) and
  *  `assert (a, b) == c` (tuple comparison) are NOT matched — zero-FP. Matched on
- *  the strings-blanked view so a mention in a docstring/string never fires. */
-const PY_ASSERT_TAUTOLOGY_RE = /^\s*assert\s*\(\s*[^()]+,\s*[^()]+\)\s*$/;
+ *  the strings-blanked view so a mention in a docstring/string never fires.
+ *  Group 1 is the paren body; `isParenthesizedTuple` decides whether its comma
+ *  actually builds a tuple. */
+const PY_ASSERT_TAUTOLOGY_RE = /^\s*assert\s*\(\s*([^()]+,\s*[^()]+)\)\s*$/;
 
 const PY_TAUTOLOGY_MESSAGE =
 	'ubs_python_assert_tautology: `assert (cond, "msg")` asserts a non-empty TUPLE — always truthy, so this assertion can never fail. Drop the parentheses: `assert cond, "msg"`.';
+
+/** Is the flat paren body a TUPLE? Only a comma at `[`/`{` depth 0 builds one:
+ *  `assert (r == [1, 2])`, `assert (s in {A, B})` and `assert (grid[i, j] == 0)`
+ *  are single conditions (2026-10-21 adversarial review). A top-level `for`
+ *  makes it a generator expression — always truthy too, but not the tuple this
+ *  check names, and dropping the parens would not parse. */
+function isParenthesizedTuple(body: string): boolean {
+	let depth = 0;
+	let topLevel = "";
+	for (const ch of body) {
+		if (PY_GROUP_OPENERS.includes(ch)) depth++;
+		else if (PY_GROUP_CLOSERS.includes(ch)) depth--;
+		topLevel += depth <= 0 ? ch : " ";
+	}
+	return topLevel.includes(",") && !/\bfor\b/.test(topLevel);
+}
+
+// flake8/ruff `# noqa` in any case, bare or naming pyflakes F631 ("assertion is
+// always true, perhaps remove parentheses?") — the author's explicit
+// acknowledgment of this exact finding. Bandit's `# nosec` is NOT honoured:
+// on an assert line it silences B101 (assert_used), not the tuple.
+const PY_TAUTOLOGY_NOQA_RE = /#\s*noqa(?![\w])(?::\s*([A-Za-z]\d+(?:\s*,\s*[A-Za-z]\d+)*))?/i;
+
+function hasTautologyNoqa(rawLine: string): boolean {
+	const m = PY_TAUTOLOGY_NOQA_RE.exec(rawLine);
+	if (!m) return false;
+	return m[1] === undefined || m[1].split(/\s*,\s*/).some((code) => code.toUpperCase() === "F631");
+}
 
 /** Detect the always-true parenthesized-tuple `assert (cond, msg)`. Test files
  *  are IN scope — this pytest footgun lives in test code. */
@@ -408,7 +438,8 @@ export function checkPythonAssertTautology(content: string, filePath: string): I
 	const rawLines = content.split("\n");
 	const matches: InlineMatch[] = [];
 	for (let i = 0; i < strippedLines.length && matches.length < MAX_MATCHES_PER_FILE; i++) {
-		if (PY_ASSERT_TAUTOLOGY_RE.test(strippedLines[i] ?? "")) {
+		const body = PY_ASSERT_TAUTOLOGY_RE.exec(strippedLines[i] ?? "")?.[1];
+		if (body !== undefined && isParenthesizedTuple(body) && !hasTautologyNoqa(rawLines[i] ?? "")) {
 			recordMatch(matches, rawLines, i + 1, PY_TAUTOLOGY_MESSAGE);
 		}
 	}

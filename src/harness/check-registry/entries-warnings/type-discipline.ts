@@ -10,26 +10,30 @@ import { detectConditionalEmptyObjectSpread } from "../../checks/type-discipline
 import { detectUnknownTypeAlias } from "../../checks/type-discipline-unknown-alias.js";
 import { checkDuplicateTypeDeclaration } from "../../checks/type-redundancy.js";
 import { detectTagReflectionTypeCheck } from "../../checks/tag-reflection.js";
+import { checkRoot } from "../../checks/check-root.js";
 import type { CheckRegistration, InlineMatch } from "../types.js";
 
 // Named wrappers (not inline arrows) so Check Evidence Contract resolution
 // (fn.name) attributes evidence to the real detector; cwd stays overridable
-// for tests (same pattern as agent-clarity.ts).
+// for tests (same pattern as agent-clarity.ts). The default is
+// `checkRoot()` (checks/check-root.ts): the root of an active
+// `withCheckRoot` scan, else process.cwd(). A `recurrence scan --cwd` of
+// another tree then reads THAT tree's files, not the caller's checkout.
 
-/** Registry-facing wrapper: binds `dead_type_exports` detection to a cwd. */
+/** Registry-facing wrapper: binds `dead_type_exports` detection to the check root. */
 export function checkDeadTypeExportsAtCwd(
 	content: string,
 	filePath: string,
-	cwd: string = process.cwd(),
+	cwd: string = checkRoot(),
 ): InlineMatch[] {
 	return checkDeadTypeExports(content, filePath, cwd);
 }
 
-/** Registry-facing wrapper: binds `duplicate_type_declaration` to a cwd. */
+/** Registry-facing wrapper: binds `duplicate_type_declaration` to the check root. */
 export function checkDuplicateTypeDeclarationAtCwd(
 	content: string,
 	filePath: string,
-	cwd: string = process.cwd(),
+	cwd: string = checkRoot(),
 ): InlineMatch[] {
 	return checkDuplicateTypeDeclaration(content, filePath, cwd);
 }

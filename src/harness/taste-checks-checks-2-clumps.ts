@@ -183,14 +183,101 @@ export function checkDataClump(content: string, filePath: string): InlineMatch[]
 
 // ===========================================
 // 21. Duplicate Describe
-// Same `describe("x", ...)` string appears 2+ times in one file.
+// The same FULL suite path (`outer > inner`) is declared 2+ times in one file.
+// Vitest/Jest report a failure by its parent-chain path, so two `describe("x")`
+// under DIFFERENT parents are unambiguous (the standard BDD "same behavior under
+// another context" layout — zustand/tests/devtools.test.tsx); only a repeated
+// path is. Cross-repo FP calibration 2026-10-21 (zod, zustand): 10/10 hits
+// were false positives of the two kinds this version closes.
 // ===========================================
 
 // One simple (ReDoS-free) alternative per quote style; the title is whichever of
 // groups 1-3 matched. Each negated class lets the title contain the OTHER quote —
 // e.g. `describe("mirror: 'skip' entries…")` — so two distinct titles aren't
 // truncated at an inner `'` into a false duplicate.
-const DESCRIBE_NAME = /\bdescribe\s*\(\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`)/g;
+// The lookbehind refuses a MEMBER call: `schema.describe("d")` / `z.string()
+// .describe("a")` is zod's metadata setter, not a suite (`\b` alone matched
+// after the `.`). Two suite declaration shapes count: a bare `describe(` and
+// Playwright's `test.describe(` whose receiver is the bare identifier `test`
+// (the same lookbehind refuses `schema.test.describe(` / `mytest.describe(`).
+// The match then starts at `test`, which the oracle check below also covers.
+const DESCRIBE_NAME =
+	/(?<![\w$.])(?:test\s*\.\s*)?describe\s*\(\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`)/g;
+
+interface SuiteDecl {
+	idx: number;
+	name: string;
+}
+
+/** A suite whose callback body `{` has been entered; popped when that brace closes. */
+interface SuiteFrame {
+	name: string;
+	bodyDepth: number;
+}
+
+/** A `describe(` whose argument list is open but whose body `{` is not yet seen. */
+interface PendingSuite {
+	name: string;
+	parenDepth: number;
+}
+
+function collectSuiteDecls(content: string, oracle: string): SuiteDecl[] {
+	const decls: SuiteDecl[] = [];
+	for (const m of content.matchAll(DESCRIBE_NAME)) {
+		const idx = m.index;
+		// The `d` of `describe` survives in `oracle` only when it is real code;
+		// inside a blanked literal/comment it becomes a space, so skip it.
+		if (oracle[idx] !== content[idx]) continue;
+		decls.push({ idx, name: nonNull(m[1] ?? m[2] ?? m[3]) });
+	}
+	return decls;
+}
+
+/** Tracks the describe call's own parens; `null` once the call closed without a body. */
+function trackParen(pending: PendingSuite | null, ch: string): PendingSuite | null {
+	if (pending === null) return null;
+	if (ch === "(") pending.parenDepth++;
+	else pending.parenDepth--;
+	return pending.parenDepth <= 0 ? null : pending;
+}
+
+/**
+ * Resolves every real `describe(` to its full parent-chain path by walking the
+ * blanked oracle once, balancing braces. A suite's scope opens at the first `{`
+ * inside its argument list (the callback body) and closes with that brace; a
+ * one-liner `describe("x", () => it(...))` opens no scope.
+ */
+function resolveSuitePaths(content: string, oracle: string): Array<{ idx: number; path: string }> {
+	const decls = collectSuiteDecls(content, oracle);
+	const out: Array<{ idx: number; path: string }> = [];
+	const stack: SuiteFrame[] = [];
+	let pending: PendingSuite | null = null;
+	let braceDepth = 0;
+	let di = 0;
+	for (let i = 0; i < oracle.length; i++) {
+		const decl = decls[di];
+		if (decl !== undefined && decl.idx === i) {
+			di++;
+			out.push({ idx: i, path: [...stack.map((f) => f.name), decl.name].join(" > ") });
+			pending = { name: decl.name, parenDepth: 0 };
+			continue;
+		}
+		const ch = nonNull(oracle[i]);
+		if (ch === "(" || ch === ")") {
+			pending = trackParen(pending, ch);
+		} else if (ch === "{") {
+			braceDepth++;
+			if (pending !== null && pending.parenDepth > 0) {
+				stack.push({ name: pending.name, bodyDepth: braceDepth });
+				pending = null;
+			}
+		} else if (ch === "}") {
+			braceDepth--;
+			while (stack.length > 0 && nonNull(stack[stack.length - 1]).bodyDepth > braceDepth) stack.pop();
+		}
+	}
+	return out;
+}
 
 export function checkDuplicateDescribe(content: string, filePath: string): InlineMatch[] {
 	if (!isTestFile(filePath)) return [];
@@ -203,17 +290,12 @@ export function checkDuplicateDescribe(content: string, filePath: string): Inlin
 	const lines = content.split("\n");
 	const matches: InlineMatch[] = [];
 	const seen = new Set<string>();
-	for (const m of content.matchAll(DESCRIBE_NAME)) {
+	for (const { idx, path } of resolveSuitePaths(content, oracle)) {
 		if (matches.length >= 5) break;
-		const idx = m.index;
-		// The `d` of `describe` survives in `oracle` only when it is real code;
-		// inside a blanked literal/comment it becomes a space, so skip it.
-		if (oracle[idx] !== content[idx]) continue;
-		const name = nonNull(m[1] ?? m[2] ?? m[3]);
-		if (seen.has(name)) {
+		if (seen.has(path)) {
 			push(matches, lineIdxForOffset(content, idx), lines, 5);
 		} else {
-			seen.add(name);
+			seen.add(path);
 		}
 	}
 	return matches;

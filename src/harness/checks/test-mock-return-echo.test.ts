@@ -166,4 +166,27 @@ describe("checkMockReturnEcho — negative (must not fire)", () => {
 		);
 		expect(found).toHaveLength(0);
 	});
+
+	// N6 cannot tell a missing transformation rule from a present one: its expected "HI" is not the mocked "hi",
+	// so N1's rule already keeps it quiet. N11 and N12 isolate one clause each (E64 blind mutants k3, k4).
+	it("N11: a transformed subject keeps a MOCK-SUPPLIED expected literal quiet", () => {
+		const found = run(
+			`it("trims the result", () => { dep.mockReturnValue("hi"); const result = sut(dep); expect(result.trim()).toBe("hi"); });`,
+		);
+		expect(found).toHaveLength(0);
+	});
+
+	it("N13: an expected value computed from a mock-supplied literal is not an echo", () => {
+		const found = run(
+			`it("offsets the value", () => { dep.mockReturnValue(12345); const result = sut(dep); expect(result).toBe(base - 12345); });`,
+		);
+		expect(found).toHaveLength(0);
+	});
+
+	it("N12: a negated assertion against a mock-supplied literal is not an echo", () => {
+		const found = run(
+			`it("changes the value", () => { dep.mockReturnValue("echo"); const result = sut(dep); expect(result).not.toBe("echo"); });`,
+		);
+		expect(found).toHaveLength(0);
+	});
 });

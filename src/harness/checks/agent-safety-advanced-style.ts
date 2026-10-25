@@ -4,12 +4,14 @@
 // Each function depends only on ./shared.js helpers (no project-graph / fs / path).
 
 import { nonNull } from "../../lib/non-null.js";
+import { blankJsxText } from "./nan-comparison-scan.js";
 import {
 	getExtension,
 	type InlineMatch,
 	isTestFile,
+	isTestSourcePath,
+	isVendoredOrFixturePath,
 	JS_TS_EXTS,
-	stripComments,
 	stripCommentsAndStrings,
 } from "./shared.js";
 
@@ -18,11 +20,22 @@ import {
 /**
  * Detect throw of non-Error values: `throw "message"`, `throw 0`, `throw undefined`.
  * Throwing non-Error objects loses stack traces and breaks instanceof Error checks.
+ *
+ * Vendored and fixture trees are upstream data, not authored code (same rule
+ * as `checkPromiseRejectNonError`). JSX text is blanked before the scan: a
+ * docs component whose `<pre>` shows `throw "boom"` renders prose, it does
+ * not throw (2026-10-21 adversarial review).
+ *
+ * Test sources are skipped through BOTH classifiers: `isTestSourcePath` adds
+ * a top-level `test/` directory of plain `*.ts` files (the ava convention),
+ * where a non-Error throw is the deliberate input of a pass-through test
+ * (2026-10-21 cross-repo falsification, sindresorhus/ky).
  */
 export function checkThrowLiteral(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
-	if (isTestFile(filePath)) return [];
-	const stripped = stripCommentsAndStrings(content);
+	if (isTestFile(filePath) || isTestSourcePath(filePath)) return [];
+	if (isVendoredOrFixturePath(filePath)) return [];
+	const stripped = stripCommentsAndStrings(blankJsxText(content, filePath));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
@@ -154,20 +167,31 @@ export function checkUnvalidatedJsonBoundary(content: string, filePath: string):
  * Conservative regex: only `Promise.reject(<literal>)` on one line. Does NOT
  * flag `reject("...")` inside a `new Promise((resolve, reject) => ...)`
  * executor body because plain `reject` is a parameter name and the detection
- * would FP on any executor rebound to a same-named variable.
+ * would FP on any executor rebound to a same-named variable. For the same
+ * reason `Promise` must be a whole token: `cancelPromise.reject("why")` is a
+ * `.reject` method on an arbitrary object, outside this contract.
+ *
+ * Scans with strings blanked (delimiters kept), so a lint message or docs
+ * snippet that merely MENTIONS `Promise.reject("x")` inside a string does not
+ * fire, while a real `Promise.reject("x")` still does — its opening quote
+ * survives the blanking. Vendored and fixture trees are exempt: that code is
+ * upstream data, not something the agent authored. JSX text is blanked first:
+ * a docs component whose `<p>` or `<code>` shows `Promise.reject("x")`
+ * renders prose, it does not reject (same rule as `checkThrowLiteral`).
  */
 export function checkPromiseRejectNonError(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
+	if (isVendoredOrFixturePath(filePath)) return [];
 
-	const stripped = stripComments(content);
+	const stripped = stripCommentsAndStrings(blankJsxText(content, filePath));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
 
 	// `Promise.reject(` followed by a literal we recognize as non-Error.
 	// Literals: string (', ", or `), number, true/false/null/undefined.
-	const NON_ERROR_ARG = /Promise\.reject\s*\(\s*(?:["'`]|-?\d|true\b|false\b|null\b|undefined\b)/;
+	const NON_ERROR_ARG = /(?<![\w$])Promise\.reject\s*\(\s*(?:["'`]|-?\d|true\b|false\b|null\b|undefined\b)/;
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;

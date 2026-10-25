@@ -16,19 +16,20 @@
 //
 // Parse-only AST walk — no ts.Program, no ts.TypeChecker; same shape as the
 // upstream Oxlint rule (walks its own ESTree + scope manager, never
-// `ts.TypeChecker`). Runtime TypeScript loading follows the same
-// createRequire dance as type-smuggling.ts / type-discipline.ts (see either
-// file's header for the full esbuild-bundling rationale). Returns []
-// silently when TypeScript isn't installed — same AST-availability degrade
-// contract every parse-based check in this tree follows.
+// `ts.TypeChecker`). Runtime TypeScript loading goes through
+// check-typescript.ts (see its header for the esbuild-bundling rationale):
+// the harness's own installation first, the scanned project's copy
+// (`checkRoot()`) second, successes cached and failures never cached. When
+// neither resolves, the detector returns [] AND reports the standard
+// `[interlinked:unknown_type_alias] NOT MEASURED` line.
 //
 // Phase: post / Severity: warning / Gate: advisory — a new detector with no
 // dogfood FP history yet; corpus scan (scratch/type-discipline-corpus-scan.mts)
 // found 0 fires in this repo's own tree (no `type X = unknown;` anywhere),
 // so there was nothing to tighten. See DEFAULT_ADVISORY_SKIPS for rationale.
 
-import { createRequire } from "node:module";
 import type * as TS from "typescript";
+import { loadCheckTypescript } from "./check-typescript.js";
 import { parseTsSourceWith } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isTestFile } from "./shared.js";
 
@@ -49,20 +50,8 @@ const TYPE_KEYWORD_RE = /\btype\s/;
 // Runtime TypeScript loading (see file header for the esbuild rationale)
 // ─────────────────────────────────────────────────────────────────────────
 
-let _ts: TsModule | null | undefined;
-
 function loadTs(): TsModule | null {
-	if (_ts !== undefined) return _ts;
-	try {
-		// The `/_` suffix is a non-existent sentinel path so createRequire uses
-		// CWD as the resolution base — same trick as type-smuggling.ts.
-		const req = createRequire(`${process.cwd()}/_`);
-		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
-		_ts = req("typescript") as TsModule;
-	} catch {
-		_ts = null;
-	}
-	return _ts;
+	return loadCheckTypescript("unknown_type_alias", "an alias of `unknown`");
 }
 
 function parseSourceFile(ts: TsModule, content: string, filePath: string): TS.SourceFile | null {

@@ -25,6 +25,9 @@ describe("spy restoration — positive (must fire)", () => {
     it.each(["clearAllMocks", "resetAllMocks"])("%s is insufficient", (method) => {
         expect(check(`${leaking}\nafterEach(() => vi.${method}());`, "api.test.ts")).toHaveLength(1);
     });
+    it("reports a spy created in a setup hook with no restore: setup is not an exemption", () => {
+        expect(check('beforeEach(() => { vi.spyOn(api, "send"); }); it("calls", () => { api.send(3); expect(api.send).toHaveBeenCalledWith(3); });', "api.test.ts")).toHaveLength(1);
+    });
     it("does not borrow restoration from another test or sibling suite", () => {
         const source = `describe("leaks", () => { ${leaking} }); describe("cleans", () => { afterEach(() => vi.restoreAllMocks()); });`;
         expect(check(source, "api.test.ts")).toHaveLength(1);

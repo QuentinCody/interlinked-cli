@@ -33,17 +33,24 @@
 // loading follows the same createRequire dance as type-smuggling.ts and
 // correctness-misc.ts (see either file's header for the full esbuild-
 // bundling rationale) — a type-only import for compile-time signatures,
-// `node:module`'s `createRequire` to load the real `typescript` from the
-// user's project `node_modules` at runtime. Returns [] silently when
-// TypeScript isn't installed — same AST-availability degrade contract
-// every parse-based check in this tree follows.
+// `node:module`'s `createRequire` to load the real `typescript` at runtime.
+// Resolution order: the harness's OWN installation first (`import.meta.url`,
+// where `typescript` is an optionalDependency), then the scanned project's
+// copy (`checkRoot()`, see check-root.ts). Resolving only from
+// `process.cwd()` made a `recurrence scan --cwd` of a tree without its own
+// `node_modules/typescript` return nothing. When neither resolves, the
+// detector returns [] AND reports the standard
+// `[interlinked:conditional_empty_object_spread] NOT MEASURED` line, never a
+// silent empty result.
 //
 // Phase: post / Severity: warning / Gate: advisory — a new detector with
 // no dogfood FP history yet beyond this file's own corpus scan; see
 // DEFAULT_ADVISORY_SKIPS for rationale.
 
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import type * as TS from "typescript";
+import { checkRoot, reportNotMeasured } from "./check-root.js";
 import { parseTsSourceWith } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isTestFile, JS_TS_ALL_EXTS } from "./shared.js";
 
@@ -57,20 +64,34 @@ const REPORT_LINE_TRUNC = 150;
 // Runtime TypeScript loading (see file header for the esbuild rationale)
 // ─────────────────────────────────────────────────────────────────────────
 
-let _ts: TsModule | null | undefined;
+const CHECK_ID = "conditional_empty_object_spread";
 
-function loadTs(): TsModule | null {
-	if (_ts !== undefined) return _ts;
+let harnessTs: TsModule | null | undefined;
+const projectTs = new Map<string, TsModule | null>();
+
+/** `typescript` resolved from `base` (a file URL or path), or null. */
+function requireTypescriptFrom(base: string): TsModule | null {
 	try {
-		// The `/_` suffix is a non-existent sentinel path so createRequire uses
-		// CWD as the resolution base — same trick as type-smuggling.ts.
-		const req = createRequire(`${process.cwd()}/_`);
 		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
-		_ts = req("typescript") as TsModule;
+		return createRequire(base)("typescript") as TsModule;
 	} catch {
-		_ts = null;
+		return null;
 	}
-	return _ts;
+}
+
+/** The harness's own `typescript`, else the scanned project's copy, else null. */
+function loadTs(): TsModule | null {
+	if (harnessTs === undefined) harnessTs = requireTypescriptFrom(import.meta.url);
+	if (harnessTs !== null) return harnessTs;
+	const root = checkRoot();
+	let fromProject = projectTs.get(root);
+	if (fromProject === undefined) {
+		// The `_` entry is a non-existent sentinel file so createRequire uses
+		// the root directory as the resolution base.
+		fromProject = requireTypescriptFrom(join(root, "_"));
+		projectTs.set(root, fromProject);
+	}
+	return fromProject;
 }
 
 function parseSourceFile(ts: TsModule, content: string, filePath: string): TS.SourceFile | null {
@@ -401,7 +422,15 @@ export function detectConditionalEmptyObjectSpread(
 	if (!content.includes("...")) return [];
 
 	const ts = loadTs();
-	if (!ts) return [];
+	if (!ts) {
+		reportNotMeasured(
+			CHECK_ID,
+			`\`typescript\` is not resolvable from the harness installation or from ${checkRoot()}, ` +
+				"so the AST pass ran no scan; a conditional empty-object spread was neither found nor " +
+				"cleared. Reinstall without `--omit=optional` to restore it.",
+		);
+		return [];
+	}
 
 	const sourceFile = parseSourceFile(ts, content, filePath);
 	if (!sourceFile) return [];

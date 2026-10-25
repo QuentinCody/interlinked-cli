@@ -17,6 +17,7 @@ import {
 	JS_TS_EXTS,
 	stripCommentsAndStrings,
 } from "./shared.js";
+import { classifyLiteralDelays, type DelayContext } from "./test-delay-context.js";
 import {
 	findCallSpan,
 	IT_TEST_OPEN_RE,
@@ -268,9 +269,48 @@ export function checkTestNondeterminism(content: string, filePath: string): Inli
 // Tests waiting on a literal millisecond delay are a tell that the agent
 // gave up debugging the timing condition. Allowlists `setTimeout(_, 0)`
 // (microtask flush is legitimate).
+//
+// Only a delay in the TEST'S OWN control flow is a wait. A delay inside a
+// callback handed to another call within the test — a `bench.add(...)`
+// workload a timing SUT measures, a `z.codec(..., { decode })` fixture hook
+// simulating async work — is the SUT's input, not a sleep the test blocks on
+// (2026-10-21 cross-repo falsification: tinybench + zod, 10/10 FP). The
+// structural classification lives in `test-delay-context.ts`. A delay that
+// resolves the test's own `done` callback always counts. The interval of a
+// `while`/`do` predicate poll is the recommended fix, not a fixed wait.
 
 const HARDCODED_TIMEOUT_RE =
-	/\b(?:setTimeout|setImmediate)\s*\(\s*[^,)]+,\s*([1-9]\d*)\s*\)/;
+	/\b(?:setTimeout|setImmediate)\s*\(\s*([^,)]+),\s*([1-9]\d*)\s*\)/;
+/** Promise-returning sleeps with a literal ms argument (`await sleep(500)`, `page.waitForTimeout(2000)`). */
+const LITERAL_SLEEP_RE = /\b(?:sleep|delay|waitForTimeout)\s*\(\s*([1-9]\d*)\s*\)/;
+
+interface LiteralDelay {
+	index: number;
+	ms: string;
+	resolvesDone: boolean;
+	/** `sleep`/`delay`/`waitForTimeout` (added 2026-10-21): flagged only under a test/suite/hook frame. */
+	sleepFamily: boolean;
+}
+
+/** Earliest literal delay on one (stripped) line, or null. */
+function findLiteralDelay(line: string): LiteralDelay | null {
+	const timer = HARDCODED_TIMEOUT_RE.exec(line);
+	const sleep = LITERAL_SLEEP_RE.exec(line);
+	if (timer && (!sleep || timer.index <= sleep.index)) {
+		const resolvesDone = nonNull(timer[1]).trim() === "done";
+		return { index: timer.index, ms: nonNull(timer[2]), resolvesDone, sleepFamily: false };
+	}
+	if (sleep) return { index: sleep.index, ms: nonNull(sleep[1]), resolvesDone: false, sleepFamily: true };
+	return null;
+}
+
+/** Whether a literal delay in `context` is a hardcoded wait the test blocks on. */
+function isTestWait(delay: LiteralDelay, context: DelayContext | undefined): boolean {
+	if (context === "poll-loop") return false;
+	if (context === "sut-callback") return delay.resolvesDone;
+	if (context === "helper") return !delay.sleepFamily;
+	return true;
+}
 
 /** Public API — flags hardcoded ms timeouts in test bodies. */
 export function checkHardcodedTimeoutInTests(
@@ -280,20 +320,28 @@ export function checkHardcodedTimeoutInTests(
 	if (!isStrictTestFile(filePath)) return [];
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 
-	const stripped = stripCommentsAndStrings(content);
+	const stripped = stripPreservingOffsets(content);
 	const original = content.split("\n");
-	const strippedLines = stripped.split("\n");
+	const hits: { line: number; offset: number; delay: LiteralDelay }[] = [];
+	let lineStart = 0;
+	for (const [i, strippedLine] of stripped.split("\n").entries()) {
+		const delay = findLiteralDelay(strippedLine);
+		if (delay) hits.push({ line: i + 1, offset: lineStart + delay.index, delay });
+		lineStart += strippedLine.length + 1;
+	}
+	const contexts = classifyLiteralDelays(
+		stripped,
+		hits.map((h) => h.offset),
+	);
+
 	const matches: InlineMatch[] = [];
 	const MAX_MATCHES = 5;
-
-	for (const [i, strippedLine] of strippedLines.entries()) {
+	for (const [k, hit] of hits.entries()) {
 		if (matches.length >= MAX_MATCHES) break;
-		const m = HARDCODED_TIMEOUT_RE.exec(strippedLine);
-		if (!m) continue;
-		const ms = nonNull(m[1]);
+		if (!isTestWait(hit.delay, contexts[k])) continue;
 		matches.push({
-			line: i + 1,
-			text: `hardcoded ${ms}ms wait in test — fix the timing condition (vi.waitFor / poll a deterministic predicate) instead of adding sleep. ${nonNull(original[i]).trim().slice(0, 80)} ${SANDBOX_FRAGILITY_NOTE}`,
+			line: hit.line,
+			text: `hardcoded ${hit.delay.ms}ms wait in test — fix the timing condition (vi.waitFor / poll a deterministic predicate) instead of adding sleep. ${nonNull(original[hit.line - 1]).trim().slice(0, 80)} ${SANDBOX_FRAGILITY_NOTE}`,
 		});
 	}
 	return matches;

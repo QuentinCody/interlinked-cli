@@ -33,6 +33,16 @@ afterEach(() => {
 });
 
 describe("checkPackageJsonPublishInvariantsWithPublint — publint installed", () => {
+	it.each([null, {}, { messages: "invalid" }])("retains base findings when publint returns malformed output %j", async (result) => {
+		vi.doMock("publint", () => ({ publint: async () => result }));
+		const { checkPackageJsonPublishInvariantsWithPublint: fn } = await import("./package-json.js");
+		const { license: _license, ...post } = FULL_PKG;
+		void _license;
+		const findings = await fn(JSON.stringify(post), pkgPath);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.text).toContain("`license`");
+	});
+
 	it("retains real publint errors beside malformed optional-dependency output", async () => {
 		vi.doMock("publint", () => ({
 			publint: vi.fn(async () => ({ messages: [null, { type: "error", code: 42 }, { type: "error", code: "VALID_ERROR" }] })),
@@ -77,8 +87,8 @@ describe("checkPackageJsonPublishInvariantsWithPublint — publint installed", (
 	});
 });
 
-// NOTE: the "mod is not an object" and "candidate is not a function" guards
-// inside `runPublint` are covered in their own dedicated single-mock files
+// NOTE: malformed module namespaces and non-function publint exports
+// are covered in their own dedicated single-mock files
 // (`package-json-publint-not-object.test.ts`, `package-json-publint-no-fn.test.ts`)
 // — a per-test `vi.doMock` against the same bare "publint" specifier inside
 // one file was empirically unreliable for a plain dynamic `import(variable)`

@@ -8,6 +8,7 @@
 // exemption added after the corpus scan — see type-discipline.ts's header).
 // unknown_type_alias same tier; ships with 4 positive / 5 negative.
 
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import { detectUnknownTypeAlias } from "./type-discipline-unknown-alias.js";
@@ -322,11 +323,12 @@ describe("type-discipline — optional 'typescript' dep unavailable", () => {
 		expect(aliasMod.detectUnknownTypeAlias(aliasContent, TS_FILE)).toEqual([]);
 	});
 
-	// test-contract: invariant — loadTs's module-level `_ts` cache memoizes a
-	// FAILED require too (not just a successful one): once `_ts` is set to
-	// `null`, a repeat call must short-circuit on `_ts !== undefined` rather
-	// than re-invoking createRequire.
-	it("memoizes a failed typescript require — createRequire runs once across repeated detector calls", async () => {
+	// test-contract: invariant — loadTs memoizes a FAILED require too (not just
+	// a successful one), per resolution base: the harness's own installation
+	// (`import.meta.url`) first, then the check root's copy (2026-10-21: the
+	// process-cwd-only base made `recurrence scan --cwd` of a tree without
+	// node_modules return nothing). A repeat call must not re-invoke either.
+	it("memoizes a failed typescript require — createRequire runs once per base across repeated detector calls", async () => {
 		vi.resetModules();
 		const requireMock = vi.fn(() => {
 			throw new Error("cannot find module 'typescript'");
@@ -339,9 +341,11 @@ describe("type-discipline — optional 'typescript' dep unavailable", () => {
 		const second = spreadMod.detectConditionalEmptyObjectSpread(content, TS_FILE);
 		expect(first).toEqual([]);
 		expect(second).toEqual([]);
-		expect(createRequireMock).toHaveBeenCalledTimes(1);
-		expect(createRequireMock).toHaveBeenCalledWith(`${process.cwd()}/_`);
-		expect(requireMock.mock.calls).toEqual([["typescript"]]);
+		expect(createRequireMock.mock.calls).toEqual([
+			[expect.stringMatching(/^file:.*\/type-discipline\.ts$/)],
+			[join(process.cwd(), "_")],
+		]);
+		expect(requireMock.mock.calls).toEqual([["typescript"], ["typescript"]]);
 	});
 });
 

@@ -159,13 +159,12 @@ describe("checkTypeSmuggling — checker edge cases (mocked typescript loader)",
 });
 
 describe("checkTypeSmuggling — __resetTsCacheForTests actually clears the cache", () => {
-	// test-contract: public-api — __resetTsCacheForTests must reset the
-	// module-level TS-module cache to `undefined` so the NEXT call
-	// re-attempts resolution, rather than replaying a stale cached failure.
-	// A cached-failure-then-recovery scenario is the only way to observe
-	// this: a no-op reset would keep serving the earlier cached `null`
-	// forever, even once resolution would now succeed.
-	it("lets a later successful resolution replace a cached earlier failure", async () => {
+	// test-contract: public-api — a failed resolution is never cached
+	// (check-typescript.ts, 2026-10-22): the NEXT call re-attempts resolution
+	// without a reset. A success IS cached, and __resetTsCacheForTests must
+	// clear that cache so the call after it resolves again. Two bases are
+	// tried per miss: the harness installation, then the check root.
+	it("lets a later successful resolution replace an earlier failure, and the reset clears the cached success", async () => {
 		let attempts = 0;
 		vi.resetModules();
 		vi.doMock("node:module", async (importOriginal) => {
@@ -177,7 +176,7 @@ describe("checkTypeSmuggling — __resetTsCacheForTests actually clears the cach
 					return (id: string) => {
 						if (id === "typescript") {
 							attempts++;
-							if (attempts === 1) {
+							if (attempts <= 2) {
 								throw new Error("simulated: typescript not resolvable yet");
 							}
 							return req(id);
@@ -189,18 +188,23 @@ describe("checkTypeSmuggling — __resetTsCacheForTests actually clears the cach
 		});
 		const { checkTypeSmuggling, __resetTsCacheForTests } = await import("../type-smuggling.js");
 
-		// First call: the mocked createRequire throws -> loadTs caches _ts = null.
+		// First call: both bases throw (attempts #1 and #2) -> no findings.
 		expect(checkTypeSmuggling(SMUGGLING_CODE, TS)).toEqual([]);
-		expect(attempts).toBe(1);
-
-		// A reset must clear the cached failure so the next call re-attempts
-		// resolution instead of reusing the cached `null`.
-		__resetTsCacheForTests();
-
-		// Second call: the mock now succeeds (attempt #2) -- this only
-		// happens if the reset actually cleared the cache.
-		const second = checkTypeSmuggling(SMUGGLING_CODE, TS);
 		expect(attempts).toBe(2);
+
+		// Second call, NO reset: the failure was not cached, so the harness
+		// base is tried again (attempt #3) and now succeeds.
+		const second = checkTypeSmuggling(SMUGGLING_CODE, TS);
+		expect(attempts).toBe(3);
 		expect(second.length).toBeGreaterThanOrEqual(1);
+
+		// Third call: the success is cached -> no new attempt.
+		expect(checkTypeSmuggling(SMUGGLING_CODE, TS)).toEqual(second);
+		expect(attempts).toBe(3);
+
+		// A reset must clear the cached success so the next call resolves again.
+		__resetTsCacheForTests();
+		expect(checkTypeSmuggling(SMUGGLING_CODE, TS)).toEqual(second);
+		expect(attempts).toBe(4);
 	});
 });

@@ -18,7 +18,7 @@
 // so there is never a reason to prefer the raw form: the fix is mechanical and
 // lossless, which is what qualifies this for `pre_block`.
 
-import { getExtension, type InlineMatch, isVendoredOrFixturePath, JS_TS_EXTS } from "./shared.js";
+import { getExtension, type InlineMatch, isTestSourcePath, isVendoredOrFixturePath, JS_TS_EXTS } from "./shared.js";
 
 /**
  * Control characters that must be written as escapes. Tab (09), LF (0A) and CR
@@ -72,6 +72,42 @@ const TEXT_SOURCE_EXTS: ReadonlySet<string> = new Set([
 	".html",
 ]);
 
+/**
+ * A line holding nothing but form feed(s) and horizontal whitespace: the `^L`
+ * page-break convention (PEP 8 "Python accepts the control-L form feed
+ * character as whitespace"; the GNU / Emacs page-delimiter idiom in C). It is
+ * exempt only where the LEXER treats FF as whitespace — program source — so a
+ * stray FF in JSON / YAML / TOML / markup still blocks. Neither silent failure
+ * applies: ripgrep and grep classify a file as binary on NUL alone (verified
+ * 2026-10-21, rg 15 / BSD grep), and there is nothing to escape — the FF IS
+ * the intent, so no `\x0C` form expresses it.
+ */
+const PAGE_BREAK_LINE_RE = /^[ \t\r]*\u000C[ \t\r\u000C]*$/;
+const PAGE_BREAK_EXTS: ReadonlySet<string> = new Set([
+	...JS_TS_EXTS,
+	".py",
+	".pyi",
+	".c",
+	".h",
+	".cc",
+	".cpp",
+	".cxx",
+	".hpp",
+	".java",
+	".cs",
+]);
+
+/**
+ * Program-source extensions. Every other `TEXT_SOURCE_EXTS` member is a DATA
+ * format (JSON, YAML, TOML, markdown, SQL, CSS, HTML). Under a test tree a data
+ * file is a test INPUT, and there the raw byte is the point: a JSON parser's
+ * negative case needs the RFC 8259-invalid raw character (the escaped form is
+ * valid JSON, so it tests nothing), and a golden file of captured CLI output
+ * must hold the raw ESC it is compared against. A program source file under a
+ * test tree still fires, because its escape is lossless (2026-10-21 review).
+ */
+const PROGRAM_SOURCE_EXTS = PAGE_BREAK_EXTS;
+
 /** `\xNN` for a control character, uppercase and zero-padded. */
 function asEscape(ch: string): string {
 	return `\\x${ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`;
@@ -84,15 +120,19 @@ function asEscape(ch: string): string {
  * are exempt: binary payloads live there deliberately.
  */
 export function checkRawControlBytes(content: string, filePath: string): InlineMatch[] {
-	if (!TEXT_SOURCE_EXTS.has(getExtension(filePath))) return [];
+	const ext = getExtension(filePath);
+	if (!TEXT_SOURCE_EXTS.has(ext)) return [];
 	if (isVendoredOrFixturePath(filePath)) return [];
+	if (!PROGRAM_SOURCE_EXTS.has(ext) && isTestSourcePath(filePath)) return [];
 	if (!RAW_CONTROL_RE.test(content)) return [];
 
+	const pageBreaksAllowed = PAGE_BREAK_EXTS.has(ext);
 	const matches: InlineMatch[] = [];
 	const lines = content.split("\n");
 	for (let i = 0; i < lines.length && matches.length < MAX_MATCHES; i += 1) {
 		const line = lines[i];
 		if (line === undefined || !RAW_CONTROL_RE.test(line)) continue;
+		if (pageBreaksAllowed && PAGE_BREAK_LINE_RE.test(line)) continue;
 		// Render the offending bytes as escapes so the warning itself stays
 		// plain text — emitting the raw byte would make the log unsearchable
 		// for the same reason the source is.

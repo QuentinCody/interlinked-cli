@@ -8,6 +8,7 @@
 // ===========================================
 
 import { nonNull } from "../lib/non-null.js";
+import { emptyCatchExcuse, tryBlockBefore } from "./empty-catch-excuses.js";
 import { stripAllLiterals, stripComments } from "./strip-helpers.js";
 import {
 	findBlockEnd,
@@ -272,15 +273,17 @@ export function checkNonDeterministicTest(content: string, filePath: string): In
 // the check doesn't fire on catch-shaped text inside a string (e.g. the
 // hook-script template in hooks.ts) or inside a regex literal (e.g. this
 // check's own source).
-const EMPTY_CATCH_CANDIDATE = /catch\s*(?:\([^)]*\))?\s*\{([^{}]*)\}/g;
-// Rationale markers that excuse an empty catch. Kept deliberately narrow —
-// generic keywords like "skip", "ignore", "fallback", "expected" are too
-// common to force the author to explain *why* the error is safe to drop.
-// Only accept phrases that assert deliberation or harmlessness: "intentional",
-// "best-effort", "cleanup is/only", "non-critical", "non-fatal".
-const INTENTIONAL_MARKER =
-	/\b(?:intentional|best[-\s]?effort|cleanup\s+(?:is|only)|non[-\s]?(?:critical|fatal))\b/i;
+// The lookbehind keeps the match on the `catch` CLAUSE keyword: a promise
+// handler `p.catch(function () {})` (tsc's ES5 spelling of the already-quiet
+// `.catch(() => {})`) and an identifier that merely ends in `catch`
+// (`safecatch(e) {}`) are not catch clauses (2026-10-21 adversarial review).
+const EMPTY_CATCH_CANDIDATE = /(?<![\w$.])catch\s*(?:\([^)]*\))?\s*\{([^{}]*)\}/g;
 
+// A match counts only as a CLAUSE that follows a try block (tryBlockBefore),
+// and only when no handling around it excuses it (emptyCatchExcuse: a
+// fallback guard or default return after the try, a rejection silencer, a
+// rationale comment, an assertion after the try in test code, or a benchmark
+// case that times the throw). Rules and calibration: empty-catch-excuses.ts.
 export function checkEmptyCatch(content: string, filePath: string): InlineMatch[] {
 	if (!isJsTs(filePath)) return [];
 	const lines = content.split("\n");
@@ -298,12 +301,14 @@ export function checkEmptyCatch(content: string, filePath: string): InlineMatch[
 		// regex all stripped above). Real statements leave non-whitespace
 		// tokens in the scan content.
 		if (nonNull(m[1]).trim().length > 0) continue;
-		// Then check the ORIGINAL body text for an intentional-marker comment
-		// and skip if the developer explicitly documented the empty catch.
 		const offset = m.index;
-		const origSlice = content.slice(offset, offset + m[0].length);
-		const origBody = origSlice.match(/\{([\s\S]*)\}/)?.[1] ?? "";
-		if (INTENTIONAL_MARKER.test(origBody)) continue;
+		const block = tryBlockBefore(scan, offset);
+		if (!block) continue;
+		const catchEnd = offset + m[0].length;
+		// The body has no nested braces, so the last `{` of the match opens it.
+		const body = content.slice(offset + m[0].lastIndexOf("{") + 1, catchEnd - 1);
+		const site = { content, scan, filePath, tryOpen: block.open, tryClose: block.close, catchEnd, body };
+		if (emptyCatchExcuse(site)) continue;
 		const lineIdx = (content.slice(0, offset).match(/\n/g) || []).length;
 		push(matches, lineIdx, lines, 10);
 	}

@@ -3,6 +3,7 @@
 // Extracted from agent-safety.ts to stay under the per-file line ceiling.
 
 import { nonNull } from "../../lib/non-null.js";
+import { isWeakHashSignatureAt, stringOpensMessageCall, stripWeakHashNonCalls } from "./crypto-scan-exemptions.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -13,8 +14,97 @@ import {
 } from "./shared.js";
 
 // ===========================================
+// Shared helpers for the crypto / TLS content scans
+// ===========================================
+
+/** Prose-only extensions: a doc that NAMES an anti-pattern is not code that uses it. */
+const PROSE_DOC_EXTS = new Set([".md", ".mdx", ".rst", ".txt", ".adoc"]);
+
+/**
+ * Blank the interior of Python triple-quoted strings (multi-line docstrings),
+ * keeping line count. The shared lexer fallback only blanks SINGLE-line
+ * docstrings, so a docstring that mentions `verify=False` or `hashlib.md5(`
+ * across lines reached the regexes as code. Applied to `.py` only.
+ */
+function blankPythonTripleQuoted(content: string, filePath: string): string {
+	if (getExtension(filePath) !== ".py") return content;
+	return content.replace(/("""|''')[\s\S]*?\1/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/**
+ * True when `re` matches somewhere inside the brace-delimited literal that
+ * encloses position `at` on line `i` (the Go struct / JS object literal the
+ * flagged property belongs to). Walks outward from the match, counting braces
+ * on the strings-blanked lines, and stops at the literal's own `{` / `}` so a
+ * SIBLING literal never vouches for this one. Bounded to 60 lines each way.
+ */
+function enclosingLiteralHas(lines: string[], i: number, at: number, re: RegExp): boolean {
+	const start = Math.max(0, i - 60);
+	const text = lines.slice(start, i + 61).join("\n");
+	const offset = lines.slice(start, i).reduce((length, line) => length + line.length + 1, 0) + at;
+	let depth = 0;
+	let open = -1;
+	for (let j = offset - 1; j >= 0; j--) {
+		if (text[j] === "}") depth++;
+		else if (text[j] === "{") {
+			if (depth === 0) { open = j; break; }
+			depth--;
+		}
+	}
+	if (open < 0) return false;
+	let ownMembers = "";
+	for (let j = open + 1; j < text.length; j++) {
+		const ch = text[j] ?? "";
+		if (ch === "{") depth++;
+		else if (ch === "}") {
+			if (depth === 0) return re.test(ownMembers);
+			depth--;
+		}
+		ownMembers += depth === 0 && ch !== "}" ? ch : " ";
+	}
+	return false;
+}
+
+// ===========================================
 // Row 24 — `ubs_tls_verify_disabled` (cross-language)
 // ===========================================
+
+const TLS_ENV_VAR = "NODE_TLS_REJECT_UNAUTHORIZED";
+/** A plain `=` — not the `=` inside `==` / `===` / `!=` / `<=` / `>=`. */
+const ASSIGN_EQ = "(?<![=!<>])=(?!=)";
+/** The env-var name as a code identifier (strings-blanked view). */
+const TLS_ENV_NAME_RE = new RegExp(`\\b${TLS_ENV_VAR}\\b`);
+/** Code-level assignment to 0: `process.env.X = "0"`, shell `X=0`, Dockerfile `ENV X=0`, `.env`. */
+const TLS_ENV_ASSIGN_RE = new RegExp(`\\b${TLS_ENV_VAR}\\b[\\s\\S]{0,20}?${ASSIGN_EQ}\\s*["']?0\\b`);
+/** Subscript assignment with the name as a string key: `process.env["X"] = "0"`, `os.environ["X"] = "0"`. */
+const TLS_ENV_BRACKET_RE = new RegExp(`["']${TLS_ENV_VAR}["']\\s*\\]\\s*${ASSIGN_EQ}\\s*["']?0\\b`);
+/** A shell command carried in a string, where the assignment LEADS the string: a package.json
+ *  script, `execSync("X=0 node …")`, `cross-env X=0 …`. Prose that merely names `X=0`
+ *  mid-sentence (a guard's error message) does not have this shape. */
+const TLS_ENV_SHELL_STRING_RE = new RegExp(
+	`["'\`]\\s*(?:(?:export|env|cross-env|set)\\s+)?(?:[A-Za-z_]\\w*=\\S*\\s+)*${TLS_ENV_VAR}=["']?0\\b`,
+);
+/** The shell-string shape, minus a string that opens a logger / error call:
+ *  `console.warn("X=0 detected …")` is a guard's message, not a command. */
+function tlsEnvShellStringFires(line: string): boolean {
+	const m = TLS_ENV_SHELL_STRING_RE.exec(line);
+	return m !== null && !stringOpensMessageCall(line, m.index);
+}
+/** Python / Go shapes that have no legitimate same-literal companion. The
+ *  `_create_unverified_context` arm skips `is` / `is not` / `==` / `!=`
+ *  comparisons: a guard that DETECTS the monkeypatch names the symbol too. */
+const TLS_CODE_RE =
+	/\bverify\s*=\s*False\b|\bcheck_hostname\s*=\s*False\b|(?<!\bis\s+(?:not\s+)?|[=!]=\s*)\bssl\._create_unverified_context\b/;
+/** Go `InsecureSkipVerify: true` — exempt when the SAME `tls.Config` literal installs its own
+ *  verifier (`VerifyPeerCertificate` / `VerifyConnection`): the documented pinning idiom. */
+const TLS_INSECURE_SKIP_RE = /\bInsecureSkipVerify\s*:\s*true\b/;
+const TLS_GO_CUSTOM_VERIFIER_RE = /\bVerify(?:PeerCertificate|Connection)\s*:/;
+/** Node `rejectUnauthorized: false` — exempt when the SAME options literal carries
+ *  `requestCert: true` (a SERVER asking for an optional client cert; the server still
+ *  presents its own cert, so no MitM vector). The `(?!\s*;)` skips a TS type literal
+ *  member (`{ rejectUnauthorized: false; reason: string }`), which has no runtime value. */
+const TLS_REJECT_UNAUTH_RE = /\brejectUnauthorized\s*:\s*false\b(?!\s*;)/;
+const TLS_REQUEST_CERT_RE = /\brequestCert\s*:\s*true\b/;
 
 /**
  * Detect TLS verification disabled across languages.
@@ -32,36 +122,43 @@ import {
  *   - `NODE_TLS_REJECT_UNAUTHORIZED=0`        (Node env var)
  *   - `ssl._create_unverified_context()`      (Python stdlib bypass)
  *   - `check_hostname=False`                  (Python stdlib / httpx)
+ *
+ * Exempt (2026-10-21 adversarial review): test files (a test against its own
+ * self-signed fixture server, or asserting `verify=False` was forwarded),
+ * prose docs, Python docstrings, env-var COMPARISONS (`=== "0"`) and prose
+ * strings that name `X=0` (a guard's warning), Go pinning (`InsecureSkipVerify`
+ * beside `VerifyPeerCertificate` / `VerifyConnection` in the same literal),
+ * a Node server's optional-client-cert options (`requestCert: true` in the
+ * same literal), and identity/equality comparisons against
+ * `ssl._create_unverified_context`.
  */
 export function checkTlsVerifyDisabled(content: string, filePath: string): InlineMatch[] {
-	void filePath; // cross-language; no extension gate.
-	const stripped = stripCommentsAndStrings(content);
-	const commentStripped = stripComments(content);
+	if (isTestFile(filePath)) return [];
+	if (PROSE_DOC_EXTS.has(getExtension(filePath))) return [];
+	const source = blankPythonTripleQuoted(content, filePath);
 	const originalLines = content.split("\n");
-	const strippedLines = stripped.split("\n");
-	const commentStrippedLines = commentStripped.split("\n");
-
-	// Code-level shapes — must NOT fire inside string literals (`const msg =
-	// "verify=False is unsafe"` is documentation, not a TLS bypass), so scan
-	// the strings-blanked view.
-	const codeRe =
-		/\bverify\s*=\s*False\b|\bInsecureSkipVerify\s*:\s*true\b|\brejectUnauthorized\s*:\s*false\b|\bssl\._create_unverified_context\b|\bcheck_hostname\s*=\s*False\b/;
-	// Node env-var assignment — the value lives in a string literal (`= "0"`),
-	// so this shape must scan the comment-only-stripped view (strings preserved)
-	// to find the assignment. The env-var name itself is so specific that
-	// matching it inside a string is still a real finding (an env var named
-	// that with value 0 anywhere in source is a TLS-bypass).
-	const envRe = /\bNODE_TLS_REJECT_UNAUTHORIZED\b[\s\S]{0,20}?=\s*["']?0\b/;
+	// Code-level shapes must NOT fire inside string literals (`const msg =
+	// "verify=False is unsafe"` is documentation), so they scan the
+	// strings-blanked view. The env-var value lives in a string (`= "0"`), so
+	// those shapes scan the comment-only-stripped view (strings preserved).
+	const strippedLines = stripCommentsAndStrings(source).split("\n");
+	const commentStrippedLines = stripComments(source).split("\n");
 
 	const matches: InlineMatch[] = [];
-	const flagged = new Set<number>();
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
+		const code = strippedLines[i] ?? "";
+		const withStrings = commentStrippedLines[i] ?? "";
+		const skipAt = code.search(TLS_INSECURE_SKIP_RE);
+		const rejectAt = code.search(TLS_REJECT_UNAUTH_RE);
 		const fired =
-			codeRe.test(strippedLines[i] ?? "") ||
-			envRe.test(commentStrippedLines[i] ?? "");
-		if (fired && !flagged.has(i)) {
-			flagged.add(i);
+			TLS_CODE_RE.test(code) ||
+			(skipAt >= 0 && !enclosingLiteralHas(strippedLines, i, skipAt, TLS_GO_CUSTOM_VERIFIER_RE)) ||
+			(rejectAt >= 0 && !enclosingLiteralHas(strippedLines, i, rejectAt, TLS_REQUEST_CERT_RE)) ||
+			(TLS_ENV_NAME_RE.test(code) && TLS_ENV_ASSIGN_RE.test(withStrings)) ||
+			TLS_ENV_BRACKET_RE.test(withStrings) ||
+			tlsEnvShellStringFires(withStrings);
+		if (fired) {
 			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 		}
 	}
@@ -115,6 +212,25 @@ export function checkAesEcbMode(content: string, filePath: string): InlineMatch[
 	return matches;
 }
 
+// Form 1: `\b(?:md5|sha1)\s*\(` case-insensitive — catches `md5(buf)`,
+// `MD5(buf)`, `hashlib.md5(...)` where the algorithm name is a code
+// identifier. (The Go `md5.New()` form has a `.` before the paren and is NOT
+// matched — a known gap, recorded rather than widened here.)
+const WEAK_HASH_DIRECT_RE = /\b(?:md5|sha1)\s*\(/i;
+// Form 2: Node `crypto.createHash("md5")` / `createHash('sha1')` /
+// `createHash(\`md5\`)`. The algorithm lives inside a string literal, so this
+// form scans the comment-stripped (but string-preserving) view.
+const WEAK_HASH_CREATE_RE = /\bcreateHash\s*\(\s*["'`](?:md5|sha1)["'`]/i;
+/** A DECLARATION named md5/sha1 is not a call: `function md5(`, `def sha1(`,
+ *  Go `func md5(`, Rust `fn md5(`. The use sites still fire. */
+const WEAK_HASH_DECL_KEYWORD_RE = /\b(?:function|def|func|fn)\s+(?:md5|sha1)\s*\(/i;
+/** Python's own non-security marker (3.9+, PEP 644 / FIPS): `hashlib.md5(x, usedforsecurity=False)`.
+ *  bandit B324 honours it too. Looked for on the call's line and the 5 lines after it
+ *  (a multi-line call carries the keyword later). */
+const USED_FOR_SECURITY_FALSE_RE = /\busedforsecurity\s*=\s*False\b/;
+/** Gravatar REQUIRES an MD5 of the e-mail; there is no stronger alternative. */
+const GRAVATAR_RE = /gravatar/i;
+
 /**
  * Detect weak cryptographic hash usage (MD5, SHA-1) across languages.
  *
@@ -125,41 +241,39 @@ export function checkAesEcbMode(content: string, filePath: string): InlineMatch[
  * literal call appears so the agent considers the choice. Test files are
  * exempt because checksum fixtures and golden hashes routinely embed MD5
  * outputs.
+ *
+ * Exempt (2026-10-21 adversarial review): prose docs and Python docstrings,
+ * declarations named md5/sha1 (keyword-led and member signatures), calls that
+ * carry Python's `usedforsecurity=False`, and a call on a line (or under a
+ * line) naming Gravatar. Protocol-mandated uses with no lexical marker (git
+ * object ids, S3 `Content-MD5`) still fire; use the inline directive there.
  */
 export function checkWeakHash(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
+	if (PROSE_DOC_EXTS.has(getExtension(filePath))) return [];
 
-	const stripped = stripCommentsAndStrings(content);
+	const source = blankPythonTripleQuoted(content, filePath);
 	const originalLines = content.split("\n");
-	const strippedLines = stripped.split("\n");
+	const strippedLines = stripCommentsAndStrings(source).split("\n");
 	// Comment-only strip preserves string contents so we can match Node's
 	// `crypto.createHash("md5")` form, where the algorithm name lives inside
 	// a string literal that `stripCommentsAndStrings` would have blanked.
 	// Comments still get blanked so `// createHash("md5") example` doesn't
 	// fire a false positive.
-	const commentStrippedLines = stripComments(content).split("\n");
-
-	// Form 1: `\b(?:md5|sha1)\s*\(` case-insensitive — catches `md5(buf)`,
-	// `MD5(buf)`, `hashlib.md5(...)`, and the Go `md5.New()` / `sha1.New()`
-	// forms where the algorithm name is a code identifier.
-	const directRe = /\b(?:md5|sha1)\s*\(/i;
-	// Form 2: Node `crypto.createHash("md5")` / `createHash('sha1')` /
-	// `createHash(\`md5\`)`. The algorithm lives inside a string literal,
-	// so this form has to scan a comment-stripped (but string-preserving)
-	// view rather than `strippedLines` (which blanks the string contents).
-	const createHashRe = /\bcreateHash\s*\(\s*["'`](?:md5|sha1)["'`]/i;
+	const commentStrippedLines = stripComments(source).split("\n");
 
 	const matches: InlineMatch[] = [];
-	const flagged = new Set<number>();
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
-		const fired =
-			directRe.test(strippedLines[i] ?? "") ||
-			createHashRe.test(commentStrippedLines[i] ?? "");
-		if (fired && !flagged.has(i)) {
-			flagged.add(i);
-			matches.push({ line: i + 1, text: (originalLines[i] ?? "").trim().slice(0, 150) });
-		}
+		const code = stripWeakHashNonCalls(strippedLines[i] ?? "", filePath);
+		const directCall =
+			WEAK_HASH_DIRECT_RE.test(code) &&
+			!WEAK_HASH_DECL_KEYWORD_RE.test(code) &&
+			!isWeakHashSignatureAt(strippedLines, i);
+		if (!directCall && !WEAK_HASH_CREATE_RE.test(commentStrippedLines[i] ?? "")) continue;
+		if (USED_FOR_SECURITY_FALSE_RE.test(strippedLines.slice(i, i + 6).join("\n"))) continue;
+		if (GRAVATAR_RE.test(`${originalLines[i - 1] ?? ""}\n${originalLines[i] ?? ""}`)) continue;
+		matches.push({ line: i + 1, text: (originalLines[i] ?? "").trim().slice(0, 150) });
 	}
 	return matches;
 }

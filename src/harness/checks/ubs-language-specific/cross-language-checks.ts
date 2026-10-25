@@ -7,6 +7,7 @@ import { stripRegexLiterals } from "../../strip-helpers.js";
 import { getExtension, type InlineMatch, isTestFile } from "../shared.js";
 import { MATCH_LIMIT, stripCommentsPreservingStrings } from "./_shared.js";
 import { isIntentionalLoopbackLine } from "./localhost-exemptions.js";
+import { localhostRegionExemptLines } from "./localhost-regions.js";
 
 /**
  * `ubs_sql_string_concat` — SQL keyword in a quoted string immediately
@@ -205,7 +206,9 @@ function isLocalhostScannableFile(filePath: string): boolean {
 	) {
 		return false;
 	}
-	return true;
+	// Test conventions the shared predicate does not cover: RSpec (`spec/`,
+	// `*_spec.rb`) and pytest's `conftest.py` fixture module.
+	return !/(?:(?:^|\/)spec\/.*\.rb$|_spec\.rb$|(?:^|\/)conftest\.py$)/.test(normalized);
 }
 
 // A real hardcoded-localhost bug is an ENDPOINT: a URL (`//localhost`), a
@@ -230,15 +233,16 @@ function isExemptStrippedLocalhostLine(strippedLine: string): boolean {
 	// drops the self-FP rate to ~0 without weakening detection on real
 	// network-config bugs (`url = "http://localhost:3000"`-style).
 	const metadataAssignment =
-		/\b(?:label|noun|description|passLabel|fix_instruction|name|comment|summary|fix|msg|message|example|placeholder)\s*[:=]\s*["'`]/;
+		/\b(?:label|noun|description|passLabel|fix_instruction|name|comment|summary|fix|msg|message|example|placeholder|default|defaultValue)\s*[:=]\s*["'`]/;
 	// `new RegExp(...)` and `RegExp(...)` invocations are by construction
 	// pattern-matchers, not endpoint configs.
 	const regExpConstructor = /\bRegExp\s*\(/;
 	// A localhost literal that is a *configurable default* or a *detection
 	// test* is not a baked endpoint — it is exactly the shape this check's own
 	// fix_instruction endorses ("a clear default for local dev").
-	//   1. fallback default after `||` / `??`  — `flag || "http://localhost:8787"`
-	const localhostAsDefault = /(?:\|\||\?\?)\s*["'`][^"'`]*(?:localhost|127\.0\.0\.1)/;
+	//   1. fallback default after `||` / `??` / Python `or` / Kotlin & PHP `?:`
+	//      — `flag || "http://localhost:8787"`, `cfg.get("u") or "http://localhost"`
+	const localhostAsDefault = /(?:\|\||\?\?|\?:|\bor)\s*["'`][^"'`]*(?:localhost|127\.0\.0\.1)/;
 	//   2. membership / equality test  — `url.includes("localhost")`, `h === "localhost"`
 	const localhostAsTest =
 		/(?:\.(?:includes|indexOf|startsWith|endsWith|search|match)\s*\(|[=!]==?)\s*["'`][^"'`]*(?:localhost|127\.0\.0\.1)/;
@@ -288,10 +292,13 @@ function isPrevLineRegExpOpen(strippedLines: string[], i: number): boolean {
 
 // A dev-shaped identifier or environment gate: `devPort` / `devMode` /
 // `dev_mode` / `DEV_URL` / `isDev` / `config.dev` / `NODE_ENV` /
-// `import.meta.env.DEV`. `dev` must end at a word or case boundary, so
-// `deviceUrl` / `developer` do NOT match.
+// `import.meta.env.DEV`, plus the debug-build gates `__DEV__` (React
+// Native), `DEBUG` / `BuildConfig.DEBUG` (Android, Python settings) and
+// `isDebug`, and Electron's `app.isPackaged` (2026-10-21 adversarial review).
+// `dev` must end at a word or case boundary, so `deviceUrl` / `developer` do
+// NOT match.
 const DEV_TOKEN_RE =
-	/\b(?:is_?[Dd]ev\w*|dev(?:[_A-Z][A-Za-z0-9_]*)?\b|DEV(?:_[A-Z0-9_]+)?\b|\w+\.dev\b|NODE_ENV|import\.meta\.env\.DEV)/;
+	/\b(?:is_?[Dd]ev\w*|is_?[Dd]ebug\w*|dev(?:[_A-Z][A-Za-z0-9_]*)?\b|DEV(?:_[A-Z0-9_]+)?\b|DEBUG(?:_[A-Z0-9_]+)?\b|\w+\.dev\b|NODE_ENV|import\.meta\.env\.DEV|app\.isPackaged\b)|__DEV__/;
 
 /** Branch shape — the guard half of a dev-gated conditional. */
 const BRANCH_SHAPE_RE = /\bif\b|\bswitch\b|\bcase\b|\?|&&|\|\|/;
@@ -329,6 +336,37 @@ function isDevGuardedLocalhostLine(strippedLines: string[], i: number): boolean 
  * only, requires explicit port). This UBS variant is cross-language and
  * matches plain `localhost` / `127.0.0.1` outside known config/test paths.
  */
+/** Everything the scan needs about one file, computed once per call. */
+interface LocalhostScan {
+	originalLines: string[];
+	strippedLines: string[];
+	strippedText: string;
+	regionExempt: Set<number>;
+}
+
+/**
+ * True when the endpoint-shaped line `i` is a legitimate pattern rather than a
+ * baked endpoint. In order: a language region (Rust `#[cfg(test)]` tail,
+ * Python docstring, `#if DEBUG` branch); metadata strings, RegExp
+ * constructors, configurable defaults and detection tests; a multi-line
+ * `RegExp(` argument continuation; a template literal carrying a
+ * pattern-building signal; a dev-gated line or guarding conditional; and the
+ * deliberate-loopback shapes (bind address, env fallback, loopback detection,
+ * a local process this file launches/binds, declared defaults, display-only
+ * lines).
+ */
+function isExemptLocalhostMatch(scan: LocalhostScan, i: number): boolean {
+	const stripped = nonNull(scan.strippedLines[i]);
+	return (
+		scan.regionExempt.has(i) ||
+		isExemptStrippedLocalhostLine(stripped) ||
+		isPrevLineRegExpOpen(scan.strippedLines, i) ||
+		isRegexPatternLocalhostLine(nonNull(scan.originalLines[i])) ||
+		isDevGuardedLocalhostLine(scan.strippedLines, i) ||
+		isIntentionalLoopbackLine(scan.strippedLines, i, scan.strippedText)
+	);
+}
+
 export function checkUbsHardcodedLocalhost(content: string, filePath: string): InlineMatch[] {
 	if (!isLocalhostScannableFile(filePath)) return [];
 
@@ -337,28 +375,18 @@ export function checkUbsHardcodedLocalhost(content: string, filePath: string): I
 	// the match pass — without this, the check FPs on its own implementation
 	// (this file + checks/supply-chain.ts both contain `/…localhost…/`).
 	const strippedText = stripCommentsPreservingStrings(stripRegexLiterals(content));
-	const strippedLines = strippedText.split("\n");
+	const scan: LocalhostScan = {
+		originalLines,
+		strippedLines: strippedText.split("\n"),
+		strippedText,
+		regionExempt: localhostRegionExemptLines(originalLines, filePath),
+	};
 	const matches: InlineMatch[] = [];
 
-	for (let i = 0; i < strippedLines.length; i++) {
+	for (let i = 0; i < scan.strippedLines.length; i++) {
 		if (matches.length >= MATCH_LIMIT) break;
-		if (!LOCALHOST_ENDPOINT_RE.test(nonNull(strippedLines[i]))) continue;
-		// Metadata strings, RegExp constructors, configurable defaults, and
-		// detection tests are not baked endpoints (see helper).
-		if (isExemptStrippedLocalhostLine(nonNull(strippedLines[i]))) continue;
-		// Multi-line RegExp: the constructor is on one line and the literal
-		// argument is on the next. Skip when the previous non-empty line
-		// ends with `RegExp(` (its argument continuation).
-		if (isPrevLineRegExpOpen(strippedLines, i)) continue;
-		// Narrowed template-literal exemption: only skip when there's a
-		// pattern-building signal alongside the interpolated localhost.
-		if (isRegexPatternLocalhostLine(nonNull(originalLines[i]))) continue;
-		// Dev-gated line or guarding conditional: a declared dev-mode value,
-		// not a leaked default (see helper).
-		if (isDevGuardedLocalhostLine(strippedLines, i)) continue;
-		// Deliberate loopback: bind address, env fallback, loopback detection,
-		// or the address of a local process this file launches/binds.
-		if (isIntentionalLoopbackLine(strippedLines, i, strippedText)) continue;
+		if (!LOCALHOST_ENDPOINT_RE.test(nonNull(scan.strippedLines[i]))) continue;
+		if (isExemptLocalhostMatch(scan, i)) continue;
 		matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 	}
 	return matches;

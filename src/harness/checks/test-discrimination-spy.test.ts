@@ -108,4 +108,10 @@ describe("checkSpyCallUnpinnedArgs — negative (must not fire)", () => {
 		const found = run(`it("does not call save", () => { skip(); expect(spy).not.toHaveBeenCalled(); });`);
 		expect(found).toHaveLength(0);
 	});
+
+	it("N10: reading spy.mock.calls inspects the arguments even when the value matcher is zero-information", () => {
+		// Same shape as P4 (count + a zero-information fallback): only the mock.calls inspection keeps it quiet (clause k2).
+		const found = run(`it("calls", () => { sut(); expect(spy).toHaveBeenCalledTimes(1); expect(spy.mock.calls[0]?.[1]).toBeUndefined(); });`);
+		expect(found).toHaveLength(0);
+	});
 });

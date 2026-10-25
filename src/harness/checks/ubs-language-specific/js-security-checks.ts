@@ -3,6 +3,7 @@
 // Each function returns InlineMatch[]. Ext-gated to JS/TS variants.
 
 import { nonNull } from "../../../lib/non-null.js";
+import { blankJsxText } from "../nan-comparison-scan.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -12,10 +13,20 @@ import {
 	stripCommentsAndStrings,
 } from "../shared.js";
 import { stripCommentsPreservingStrings } from "./_shared.js";
+import { firstArgumentText, isNonFormatLoggerArgument } from "./js-security-checks-logger-arg.js";
+import {
+	cookieOptionsVerdict,
+	cookiesBoundToCollection,
+	setHeaderValueVerdict,
+	type SourceView,
+	sourceView,
+} from "./js-security-checks-trust.js";
 
-// DOM/XSS & crypto security detectors live in the sibling leaf module.
+// DOM/XSS & crypto security detectors live in the sibling leaf module, and
+// `child_process_exec_user_input` in its own (2026-10-21 split, line cap).
 // Re-exported here so the public barrel (ubs-language-specific.ts) and the
 // test file keep importing them from this entry unchanged.
+export { checkChildProcessExecUserInput } from "./js-security-checks-child-process.js";
 export {
 	checkDocumentWrite,
 	checkInsertAdjacentHtml,
@@ -101,70 +112,6 @@ export function checkEvalInputTainted(content: string, filePath: string): Inline
 }
 
 /**
- * `child_process_exec_user_input` — Node's `child_process.exec(userInput)`
- * family with a non-literal first argument. Command-injection vector.
- * pre_block / error.
- *
- * Complements `ubs_subprocess_shell_true` (Python-only) and
- * `ubs_eval_input_tainted` (which catches bare `exec(x)` after destructuring
- * but skips namespaced forms because of the negative-lookbehind on `.`).
- *
- * Detects the namespaced shapes:
- *   child_process.exec(userInput)
- *   cp.execSync(req.body)
- *   childProcess.spawn(input, args, { shell: true })   (when first arg is a var)
- *
- * The `(?!["'\`])` excludes string literals — a hardcoded command string is
- * not the user-input form. Skips test files because fixtures stress this.
- */
-export function checkChildProcessExecUserInput(content: string, filePath: string): InlineMatch[] {
-	const ext = getExtension(filePath);
-	const isJs = ext === ".js" || ext === ".jsx" || ext === ".mjs" || ext === ".cjs";
-	const isTs = ext === ".ts" || ext === ".tsx";
-	if (!isJs && !isTs) return [];
-	if (isTestFile(filePath)) return [];
-
-	const stripped = stripCommentsAndStrings(content);
-	const commentStripped = stripCommentsPreservingStrings(content);
-	const originalLines = content.split("\n");
-	const strippedLines = stripped.split("\n");
-	const matches: InlineMatch[] = [];
-	const matchedLines = new Set<number>();
-
-	// `(child_process|cp|childProcess).<fn>(<identifier>` — must be namespaced
-	// AND first arg must be an identifier (not a string literal). The
-	// `(?!["'\`])` after the open-paren excludes literal-only invocations.
-	const re =
-		/\b(?:child_process|childProcess|cp)\.(?:exec|execSync|execFile|execFileSync|spawn|spawnSync)\s*\(\s*(?!["'`])([A-Za-z_$]\w*)/g;
-
-	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 10) break;
-		re.lastIndex = 0;
-		if (!re.test(nonNull(strippedLines[i]))) continue;
-		matchedLines.add(i + 1);
-		matches.push({
-			line: i + 1,
-			text: nonNull(originalLines[i]).trim().slice(0, 150),
-		});
-	}
-
-	const templateRe =
-		/\b(?:child_process|childProcess|cp)\.(?:exec|execSync|execFile|execFileSync|spawn|spawnSync)\s*\(\s*`(?:\\[\s\S]|[^`\\])*?\$\{(?:\\[\s\S]|[^`\\])*?`/g;
-	for (const m of commentStripped.matchAll(templateRe)) {
-		if (matches.length >= 10) break;
-		const idx = m.index;
-		const lineNum = commentStripped.slice(0, idx).split("\n").length;
-		if (matchedLines.has(lineNum)) continue;
-		matchedLines.add(lineNum);
-		matches.push({
-			line: lineNum,
-			text: nonNull(originalLines[lineNum - 1]).trim().slice(0, 150),
-		});
-	}
-	return matches;
-}
-
-/**
  * `mixed_sync_async_file_api` — function body contains both `fs.*Sync` calls
  * and `await fs.*` / `await fsp.*` calls. Almost always a partial-conversion
  * bug where someone migrated some calls to async but missed others.
@@ -184,7 +131,8 @@ export function checkMixedSyncAsyncFileApi(content: string, filePath: string): I
 	if (isTestFile(filePath)) return [];
 	if (!/\bfs\b|\bfsp\b|node:fs|"fs"|'fs'/.test(content)) return [];
 
-	const stripped = stripCommentsAndStrings(content);
+	// JSX text is prose (a docs page quoting both APIs), not a call.
+	const stripped = stripCommentsAndStrings(blankJsxText(content, filePath));
 	const originalLines = content.split("\n");
 	const matches: InlineMatch[] = [];
 
@@ -205,7 +153,7 @@ export function checkMixedSyncAsyncFileApi(content: string, filePath: string): I
 	const seenLines = new Set<number>();
 	for (const body of bodies) {
 		if (matches.length >= 10) break;
-		const localBody = maskNestedBodies(stripped, body, bodies);
+		const localBody = maskConciseArrowBodies(maskNestedBodies(stripped, body, bodies));
 		if (!syncRe.test(localBody)) continue;
 		syncRe.lastIndex = 0;
 		const awaitMatch = awaitRe.exec(localBody);
@@ -277,6 +225,51 @@ function maskNestedBodies(src: string, body: FunctionBody, all: FunctionBody[]):
 	return slice.join("");
 }
 
+// A depth-0 line break ends a concise arrow body unless the next line
+// continues the expression (`.member`, `?.`/ternary, `:`, a binary operator).
+const CONCISE_BODY_CONTINUATION_RE = /^\s*[.?:|&+*/]/;
+
+/**
+ * Offset where the concise arrow body starting at `start` ends: the first
+ * depth-0 `,` / `;`, the close bracket of the enclosing group, or a depth-0
+ * line break the next line does not continue.
+ */
+function conciseBodyEnd(src: string, start: number): number {
+	let depth = 0;
+	for (let j = start; j < src.length; j++) {
+		const c = nonNull(src[j]);
+		if ("([{".includes(c)) depth++;
+		else if (")]}".includes(c)) {
+			if (depth === 0) return j;
+			depth--;
+		} else if (depth === 0 && (c === "," || c === ";")) return j;
+		else if (depth === 0 && c === "\n" && !CONCISE_BODY_CONTINUATION_RE.test(src.slice(j + 1, j + 80))) {
+			return j;
+		}
+	}
+	return src.length;
+}
+
+/**
+ * Blank every concise arrow body in `body` (newlines preserved). The arrow is
+ * its own function, so a call in `() => fs.rmSync(dir)`, `(f) =>
+ * JSON.parse(fs.readFileSync(f))` or `async () => (await fs.readFile(p))` —
+ * an `exit` cleanup handler, a `.map` callback, a lazy async loader — belongs
+ * to it, not to the enclosing body (the braced form is already isolated by
+ * `maskNestedBodies`).
+ */
+function maskConciseArrowBodies(body: string): string {
+	const out = body.split("");
+	for (const m of body.matchAll(/=>/g)) {
+		let start = m.index + 2;
+		while (start < body.length && /\s/.test(nonNull(body[start]))) start++;
+		if (body[start] === "{") continue;
+		const end = conciseBodyEnd(body, start);
+		for (let i = start; i < end; i++) if (out[i] !== "\n") out[i] = " ";
+	}
+	return out.join("");
+}
+
 // Upper bound on how far `sliceBalancedParens` will scan from the opening
 // paren when searching for its match. Most call expressions close within a
 // few hundred characters; the bound exists to keep the scan O(maxLen) on
@@ -293,7 +286,6 @@ function sliceBalancedParens(
 	openIdx: number,
 	maxLen = BALANCED_PARENS_MAX_SCAN,
 ): string | null {
-	if (src[openIdx] !== "(") return null;
 	let depth = 1;
 	let j = openIdx + 1;
 	const end = Math.min(src.length, openIdx + maxLen);
@@ -308,55 +300,42 @@ function sliceBalancedParens(
 }
 
 /**
- * Given a function-call argument list, extract the body of the first
- * top-level `{...}` object literal so security flags can be inspected even
- * when nested calls or arrays appear before/after it.
- */
-function extractTopLevelObject(args: string): string {
-	const openIdx = args.indexOf("{");
-	if (openIdx < 0) return "";
-	let depth = 1;
-	let j = openIdx + 1;
-	while (j < args.length && depth > 0) {
-		const c = args[j];
-		if (c === "{") depth++;
-		else if (c === "}") depth--;
-		j++;
-	}
-	if (depth !== 0) return args.slice(openIdx + 1);
-	return args.slice(openIdx + 1, j - 1);
-}
-
-/**
  * Cohesive sub-block of `checkCookieMissingSecurityFlags`: scans
  * `res.cookie(...)` / `cookies.set(...)` call sites and appends a match for
- * each one whose options object doesn't declare both `httpOnly: true` AND
- * `secure: true`. Mutates `matches` in place (shared 10-match budget with the
- * `setHeader` sibling collector, so the cap must read the live array length).
+ * each one whose options resolve to text that doesn't declare both `httpOnly`
+ * AND `secure` with a non-`false` value. Mutates `matches` in place (shared
+ * 10-match budget with the `setHeader` sibling collector, so the cap must
+ * read the live array length).
  *
- * Balances parens forward from the opening `(` rather than a non-greedy
- * `.*?\)` regex, because the latter stops at the first `)` — common secure
- * cookies whose options object contains nested calls (e.g.
- * `expires: new Date(...)`) would get truncated before the security flags
- * can be inspected, producing a pre_block false positive.
+ * Balances parens forward from the opening `(` on the string-blanked twin
+ * rather than a non-greedy `.*?\)` regex, because the latter stops at the
+ * first `)` — common secure cookies whose options object contains nested
+ * calls (e.g. `expires: new Date(...)`) would get truncated before the
+ * security flags can be inspected, producing a pre_block false positive.
+ *
+ * 2026-10-21 adversarial review: `secure: isProd` (the NODE_ENV idiom) is a
+ * declaration, not an omission; an options identifier or `...spread` is
+ * resolved through same-file `const`s and UNDECIDABLE when it cannot be;
+ * a `cookies` bound to a Map/Set is a parsed jar, not a response; and a
+ * call that only appears inside a string literal is prose.
  */
 function collectCookieCallViolations(
-	stripped: string,
+	view: SourceView,
 	originalLines: string[],
 	matches: InlineMatch[],
 ): void {
 	const cookieCallRe = /\b(?:res\.cookie|cookies\.set)\s*\(/g;
-	for (const m of stripped.matchAll(cookieCallRe)) {
+	const jarIsCollection = cookiesBoundToCollection(view);
+	for (const m of view.code.matchAll(cookieCallRe)) {
 		if (matches.length >= 10) break;
+		if (view.blanked[m.index] !== view.code[m.index]) continue; // inside a string literal
+		if (jarIsCollection && m[0].startsWith("cookies")) continue;
 		const openIdx = m.index + m[0].length - 1;
-		const args = sliceBalancedParens(stripped, openIdx);
-		if (args === null) continue;
-		const opts = extractTopLevelObject(args);
-		const hasHttpOnly = /\bhttpOnly\s*:\s*true\b/i.test(opts);
-		const hasSecure = /\bsecure\s*:\s*true\b/i.test(opts);
-		if (hasHttpOnly && hasSecure) continue;
-		const idx = m.index;
-		const lineNum = stripped.slice(0, idx).split("\n").length;
+		const blankedArgs = sliceBalancedParens(view.blanked, openIdx);
+		if (blankedArgs === null) continue;
+		const args = view.code.slice(openIdx + 1, openIdx + 1 + blankedArgs.length);
+		if (cookieOptionsVerdict(args, blankedArgs, view) !== "missing") continue;
+		const lineNum = view.code.slice(0, m.index).split("\n").length;
 		matches.push({
 			line: lineNum,
 			text: nonNull(originalLines[lineNum - 1]).trim().slice(0, 150),
@@ -367,26 +346,25 @@ function collectCookieCallViolations(
 /**
  * Cohesive sub-block of `checkCookieMissingSecurityFlags`: scans
  * `res.setHeader('Set-Cookie', ...)` call sites and appends a match for each
- * one whose header-value text doesn't mention both `HttpOnly` AND `Secure`.
+ * one whose header value is judged `missing` — literal text lacking both
+ * `HttpOnly` AND `Secure`, or a same-file `const` (or array of them) whose
+ * initializer lacks them; an unresolvable value is undecidable and allowed.
  * Mutates `matches` in place — reads the shared 10-match budget AND dedupes
  * against lines the `res.cookie`/`cookies.set` collector already flagged (a
  * single call site can be caught by both regexes).
  */
 function collectSetHeaderCookieViolations(
-	stripped: string,
+	view: SourceView,
 	originalLines: string[],
 	matches: InlineMatch[],
 ): void {
 	const setHeaderRe =
 		/\b(?:[A-Za-z_$]\w*\.)?setHeader\s*\(\s*(['"`])Set-Cookie\1\s*,\s*([\s\S]{0,400}?)\)/g;
-	for (const m of stripped.matchAll(setHeaderRe)) {
+	for (const m of view.code.matchAll(setHeaderRe)) {
 		if (matches.length >= 10) break;
-		const headerValue = m[2] || "";
-		const hasHttpOnly = /\bHttpOnly\b/i.test(headerValue);
-		const hasSecure = /\bSecure\b/i.test(headerValue);
-		if (hasHttpOnly && hasSecure) continue;
-		const idx = m.index;
-		const lineNum = stripped.slice(0, idx).split("\n").length;
+		if (view.blanked[m.index] !== view.code[m.index]) continue; // inside a string literal
+		if (setHeaderValueVerdict(nonNull(m[2]), view) !== "missing") continue;
+		const lineNum = view.code.slice(0, m.index).split("\n").length;
 		if (matches.some((match) => match.line === lineNum)) continue;
 		matches.push({
 			line: lineNum,
@@ -413,12 +391,12 @@ export function checkCookieMissingSecurityFlags(content: string, filePath: strin
 	if (isTestFile(filePath)) return [];
 	if (!/cookie/i.test(content)) return [];
 
-	const stripped = stripCommentsPreservingStrings(content);
+	const view = sourceView(stripCommentsPreservingStrings(content));
 	const matches: InlineMatch[] = [];
 	const originalLines = content.split("\n");
 
-	collectCookieCallViolations(stripped, originalLines, matches);
-	collectSetHeaderCookieViolations(stripped, originalLines, matches);
+	collectCookieCallViolations(view, originalLines, matches);
+	collectSetHeaderCookieViolations(view, originalLines, matches);
 	return matches;
 }
 
@@ -437,23 +415,33 @@ export function checkLoggerFormatUserInput(content: string, filePath: string): I
 	const isJs = ext === ".js" || ext === ".jsx" || ext === ".mjs" || ext === ".cjs";
 	const isTs = ext === ".ts" || ext === ".tsx";
 	if (!isJs && !isTs) return [];
-	if (isTestFile(filePath)) return [];
+	// Fixtures, mocks, vendored trees and build output hold the pattern as data
+	// (adversarial review 2026-10-21, N3–N5).
+	if (isTestFile(filePath) || isVendoredOrFixturePath(filePath)) return [];
 	if (!/\b(?:logger|log|console)\.(?:info|warn|error|debug|trace|fatal)\b/.test(content)) return [];
 
-	const stripped = stripCommentsAndStrings(content);
+	// JSX text is prose, not a call: a docs page quoting the bad shape between
+	// tags must not block (the shared stripper keeps JsxText as written).
+	const stripped = stripCommentsAndStrings(blankJsxText(content, filePath));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
 
 	// `logger.<level>(<sourceIdent>...` where <sourceIdent> starts with one
 	// of the request-bound prefixes. Excludes string-literal first arg via
-	// the negative lookahead.
+	// the negative lookahead. A first argument that cannot evaluate to the
+	// source value (literal-branch ternary, bare comparison) is not a format
+	// string (adversarial review 2026-10-21, round 2).
 	const re =
-		/\b(?:logger|log|console)\.(?:info|warn|error|debug|trace|fatal)\s*\(\s*(?!["'`])(req|ctx|input|user|params|body|query|userInput|userMsg)\b/;
+		/\b(?:logger|log|console)\.(?:info|warn|error|debug|trace|fatal)\s*\(\s*(?!["'`])(req|ctx|input|user|params|body|query|userInput|userMsg)\b/g;
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
-		if (!re.test(nonNull(strippedLines[i]))) continue;
+		const line = nonNull(strippedLines[i]);
+		const risky = [...line.matchAll(re)].some(
+			(m) => !isNonFormatLoggerArgument(firstArgumentText(line, m.index + m[0].length - nonNull(m[1]).length)),
+		);
+		if (!risky) continue;
 		matches.push({
 			line: i + 1,
 			text: nonNull(originalLines[i]).trim().slice(0, 150),

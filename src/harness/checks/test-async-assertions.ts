@@ -18,6 +18,13 @@
 //   - `const a = expect(p).rejects.toThrow()`  (assigned, awaited later)
 //   - array elements inside `Promise.all([...])` (prev line ends `[` or `,`)
 //   - multi-line `await expect(\n  p,\n).rejects…` (prev line ends `(` / `,`)
+//   - a chain CONSUMED by a continuation linked to the test's done callback — the Jest
+//     done-callback idiom `expect(p).rejects.toThrow().then(done, done)` or
+//     `….catch(done)` (2026-10-21 adversarial review). Catching a failed
+//     matcher without reporting completion to the runner still fires, as do
+//     `.finally(cb)` and `.then(cb)` unless that continuation reaches the
+//     enclosing test's own `done` callback
+//     (a failed matcher then times the test out — never a silent pass).
 //
 // Only fires on JS/TS test files.
 
@@ -85,6 +92,66 @@ function chainIsAsyncMatcher(stripped: string, afterCloseOffset: number): boolea
 	return ASYNC_MATCHER_HEAD_RE.test(stripped.slice(afterCloseOffset, afterCloseOffset + 40));
 }
 
+/** `.name` member step, sticky so the walk never skips over non-chain text. */
+const MEMBER_STEP_RE = /\s*\.\s*([A-Za-z_$][\w$]*)/y;
+/** Upper bound on chain members walked after the matcher (defensive). */
+const MAX_CHAIN_STEPS = 24;
+
+/**
+ * A test or hook header line whose callback takes exactly one parameter —
+ * the Jest `done` callback (`(done) =>`, `done =>`, `function (cb)`).
+ */
+const DONE_HEADER_RE =
+	/\b(?:it|test|specify|beforeEach|afterEach|beforeAll|afterAll)\b(?:\.[\w$]+)*\s*\(.*?(?:\(\s*([A-Za-z_$][\w$]*)\s*\)\s*=>|\bfunction\b\s*[\w$]*\s*\(\s*([A-Za-z_$][\w$]*)\s*\)|(?<![\w$)])([A-Za-z_$][\w$]*)\s*=>)/;
+/** Any test or hook header, whatever its callback shape. */
+const ANY_HEADER_RE = /\b(?:it|test|specify|beforeEach|afterEach|beforeAll|afterAll)\b(?:\.[\w$]+)*\s*\(/;
+
+/**
+ * The done-callback name of the NEAREST enclosing test/hook header above
+ * `offset`, or null when that header's callback takes no single parameter
+ * (an async test, a `test.each` row callback with several args).
+ */
+function enclosingDoneParam(stripped: string, offset: number): string | null {
+	const lines = stripped.slice(0, offset).split("\n");
+	for (let j = lines.length - 1; j >= 0; j--) {
+		const line = lines[j] ?? "";
+		if (!ANY_HEADER_RE.test(line)) continue;
+		const m = DONE_HEADER_RE.exec(line);
+		return m ? (m[1] ?? m[2] ?? m[3] ?? null) : null;
+	}
+	return null;
+}
+
+/**
+ * Walk the member chain after the matcher head and report whether a
+ * continuation reaches the enclosing test's `done` callback. Merely catching
+ * a matcher rejection can swallow its failure and let a synchronous test pass;
+ * that is not equivalent to reporting the assertion to the runner. A
+ * one-argument `.then` that reaches the enclosing test's `done` callback
+ * (`.then(done)`, `.then(() => done())`): a failed matcher leaves `done`
+ * uncalled, so the runner fails the test on timeout instead of passing it.
+ */
+function chainIsHandled(stripped: string, afterCloseOffset: number): boolean {
+	const done = enclosingDoneParam(stripped, afterCloseOffset);
+	const reachesDone = (args: string): boolean => done !== null && new RegExp(`(?<![\\w$.])${done.replace(/\$/g, "\\$")}(?![\\w$])`).test(args);
+	let pos = afterCloseOffset;
+	for (let step = 0; step < MAX_CHAIN_STEPS; step++) {
+		MEMBER_STEP_RE.lastIndex = pos;
+		const member = MEMBER_STEP_RE.exec(stripped);
+		if (!member) return false;
+		pos = MEMBER_STEP_RE.lastIndex;
+		const callOpen = /^\s*\(/.exec(stripped.slice(pos, pos + 8));
+		if (!callOpen) continue;
+		const open = pos + callOpen[0].length - 1;
+		const close = skipBalancedParens(stripped, open);
+		if (close === -1) return false;
+		const args = stripped.slice(open + 1, close - 1);
+		if ((member[1] === "catch" || member[1] === "then") && reachesDone(args)) return true;
+		pos = close;
+	}
+	return false;
+}
+
 /**
  * Statement-position gate: line-initial `expect(` whose previous significant
  * line does not end mid-expression.
@@ -113,6 +180,7 @@ function matchUnawaitedAsyncAssertion(
 	const openOffset = lineStartOffset + line.indexOf("(", startMatch[1]?.length ?? 0);
 	const afterClose = skipBalancedParens(stripped, openOffset);
 	if (afterClose === -1 || !chainIsAsyncMatcher(stripped, afterClose)) return null;
+	if (chainIsHandled(stripped, afterClose)) return null;
 
 	const rawText = (rawLines[i] ?? "").trim().slice(0, REPORT_LINE_TRUNC);
 	return {

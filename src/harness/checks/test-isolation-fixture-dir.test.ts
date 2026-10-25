@@ -257,4 +257,18 @@ const tmpCwd = mkdtempSync();
 `;
 		expect(checkInTreeTempFixture(code, TEST_FILE)).toEqual([]);
 	});
+
+	it("N16: a tmpdir root reached through three same-file binding hops does not fire (up to eight hops resolve)", () => {
+		const code = `
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+const base = tmpdir();
+const first = base;
+const second = first;
+const third = second;
+const dir = mkdtempSync(join(third, "x-"));
+`;
+		expect(checkInTreeTempFixture(code, TEST_FILE)).toEqual([]);
+	});
 });

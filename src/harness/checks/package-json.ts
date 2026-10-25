@@ -11,17 +11,28 @@
 // exports, missing targets) get caught the same way.
 //
 // Does NOT fire on:
-//   - Packages with `"private": true` — those never ship.
+//   - Packages with `"private": true` — those never ship. Pre-edit OR
+//     post-edit: an edit that TURNS a package private (monorepo root,
+//     internal tool) is allowed to drop the metadata it no longer needs.
 //   - First-time file creation — there's no "before" to diff.
 //   - `package.json` files that are not at a tree root (no sibling
 //     node_modules / package-lock.json / pnpm-lock.yaml / yarn.lock).
 //     These are almost always fixtures or test data.
+//   - `package.json` files under a fixture / vendored directory segment
+//     (`__fixtures__/`, `fixtures/`, `testdata/`, `dist/`, …) even when a
+//     lockfile sits beside them — a lockfile-parsing fixture carries one.
+//   - `main` dropped while `exports` is present, and `types` dropped while
+//     `exports` declares a `types` condition — the `exports` migration.
+//   - Removal of a field whose value was empty (`{}`) or the documented
+//     default (`"type": "commonjs"`, `"sideEffects": true`).
+//   - `scripts.prepublishOnly` whose command moved into `prepack` / `prepare`.
+//   - A leading UTF-8 BOM, which npm and Node strip.
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
-import type { InlineMatch } from "./shared.js";
+import { type InlineMatch, isVendoredOrFixturePath } from "./shared.js";
 
 /** Fields whose removal would meaningfully break a published package. */
 const TOP_LEVEL_FIELDS = [
@@ -59,6 +70,24 @@ const TREE_ROOT_MARKERS = [
  *  instead of magic strings. */
 const PACKAGE_JSON_BASENAME = "package.json";
 const PUBLINT_ERROR_SEVERITY = "error";
+const UTF8_BOM = "﻿";
+
+/**
+ * Fields whose value, when it equals the documented default, means the same
+ * thing as an absent field: `"type": "commonjs"` (Node's default module
+ * type) and `"sideEffects": true` (every bundler's default). Removing such a
+ * value changes nothing the published package does.
+ */
+const DEFAULT_FIELD_VALUES: Readonly<Record<string, unknown>> = {
+	type: "commonjs",
+	sideEffects: true,
+};
+
+/**
+ * Lifecycle scripts that `npm publish` also runs, so a `prepublishOnly`
+ * command relocated into one of them still gates publishing.
+ */
+const PUBLISH_LIFECYCLE_SCRIPTS = ["prepack", "prepare"] as const;
 
 /**
  * Return parsed JSON only when the parse succeeds and the result is a plain
@@ -69,7 +98,9 @@ const PUBLINT_ERROR_SEVERITY = "error";
 function safeParse(raw: string): JsonObject | null {
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(raw);
+		// npm and Node both strip a leading UTF-8 BOM from package.json, so a
+		// BOM written by a Windows editor is valid there and must be here too.
+		parsed = JSON.parse(raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw);
 	} catch {
 		return null;
 	}
@@ -106,6 +137,8 @@ function isPresent(value: unknown): boolean {
 	if (value === null || value === undefined) return false;
 	if (value === "") return false;
 	if (Array.isArray(value) && value.length === 0) return false;
+	// An empty object (`"engines": {}`, `"publishConfig": {}`) carries no data.
+	if (isJsonObject(value) && Object.keys(value).length === 0) return false;
 	return true;
 }
 
@@ -143,9 +176,8 @@ async function runPublint(
 		// Using a variable specifier so tsc doesn't try to resolve the bare
 		// `"publint"` module path when the package isn't installed.
 		const specifier = "publint";
-		const mod: unknown = await import(specifier);
-		if (!isJsonObject(mod)) return null;
-		const candidate = mod.publint;
+		const mod: object = await import(specifier);
+		const candidate: unknown = Reflect.get(mod, "publint");
 		if (typeof candidate !== "function") return null;
 		return publintErrors(await candidate({ pkgDir }));
 	} catch {
@@ -175,6 +207,9 @@ export function checkPackageJsonPublishInvariants(
 	// Skip `node_modules/.../package.json` — those are third-party, never our
 	// publish target.
 	if (filePath.includes("/node_modules/") || filePath.includes("\\node_modules\\")) return [];
+	// Fixture / vendored / build-output segments are never a publish target,
+	// lockfile sibling or not.
+	if (isVendoredOrFixturePath(filePath)) return [];
 
 	// Tree-root gate: only enforce on real publish targets.
 	if (!isTreeRoot(filePath)) return [];
@@ -197,8 +232,9 @@ export function checkPackageJsonPublishInvariants(
 	if (!pre) return [];
 
 	// Skip private packages entirely — they never ship, so losing publish
-	// metadata is harmless.
-	if (pre.private === true) return [];
+	// metadata is harmless. The post-edit side counts too: turning a package
+	// private is exactly the edit that legitimately sheds publish metadata.
+	if (pre.private === true || post.private === true) return [];
 
 	const postLines = content.split("\n");
 
@@ -221,12 +257,35 @@ function collectRemovedTopLevelFieldFindings(
 	for (const field of TOP_LEVEL_FIELDS) {
 		if (!isPresent(pre[field])) continue; // wasn't present pre-edit, nothing to lose
 		if (isPresent(post[field])) continue; // still present post-edit, fine
+		if (pre[field] === DEFAULT_FIELD_VALUES[field]) continue; // removal of a default is a no-op
+		if (isSupersededByExports(field, post)) continue; // the `exports` migration
 		findings.push({
 			line: findLineOfField(postLines, field) || 1,
 			text: `[package_json_publish_invariants] Pre-edit package.json had \`${field}\` but it was removed by this edit. Restore the field or publish will ship a broken tarball.`,
 		});
 	}
 	return findings;
+}
+
+/**
+ * `main` and `types` are the two legacy entry fields that `exports`
+ * replaces. Dropping `main` is fine once `exports` is present (every
+ * exports-aware resolver prefers it); dropping `types` is fine once some
+ * `exports` condition declares a `types` target. Any other field is never
+ * excused this way.
+ */
+function isSupersededByExports(field: string, post: JsonObject): boolean {
+	if (field !== "main" && field !== "types") return false;
+	if (!isPresent(post.exports)) return false;
+	if (field === "main") return true;
+	return declaresTypesCondition(post.exports);
+}
+
+/** True when a `types` key appears anywhere inside an `exports` map. */
+function declaresTypesCondition(value: unknown): boolean {
+	if (!isJsonObject(value)) return false;
+	if (isPresent(value.types)) return true;
+	return Object.values(value).some((nested) => declaresTypesCondition(nested));
 }
 
 /**
@@ -244,12 +303,26 @@ function collectRemovedPublishScriptFindings(
 		const postScript = getScript(post, scriptKey);
 		if (!isPresent(preScript)) continue;
 		if (isPresent(postScript)) continue;
+		if (isRelocatedToPublishLifecycle(preScript, post)) continue;
 		findings.push({
 			line: findLineOfField(postLines, scriptKey) || 1,
 			text: `[package_json_publish_invariants] Pre-edit package.json had \`scripts.${scriptKey}\` but it was removed by this edit. Restore the script or pre-publish safety gates will no longer run.`,
 		});
 	}
 	return findings;
+}
+
+/**
+ * True when the removed script's exact command text now runs from another
+ * lifecycle script that `npm publish` executes (`prepack`, `prepare`).
+ */
+function isRelocatedToPublishLifecycle(preScript: unknown, post: JsonObject): boolean {
+	if (typeof preScript !== "string") return false;
+	const command = preScript.trim();
+	return PUBLISH_LIFECYCLE_SCRIPTS.some((key) => {
+		const target = getScript(post, key);
+		return typeof target === "string" && target.trim() === command;
+	});
 }
 
 /**
@@ -356,7 +429,6 @@ function collectMissingScriptRefFindings(
 	scriptVal: string,
 	dir: string,
 	lines: string[],
-	seen: Set<string>,
 ): InlineMatch[] {
 	const findings: InlineMatch[] = [];
 	for (const ref of extractScriptFileRefs(scriptVal)) {
@@ -364,9 +436,6 @@ function collectMissingScriptRefFindings(
 		if (existsSync(refPath)) continue;
 		// One finding per (script, ref) pair — same script invoking the same
 		// missing file twice is one bug, not two.
-		const key = `${scriptName}::${ref}`;
-		if (seen.has(key)) continue;
-		seen.add(key);
 		const lineIdx = lines.findIndex((l) => l.includes(`"${scriptName}"`));
 		findings.push({
 			line: lineIdx >= 0 ? lineIdx + 1 : 1,
@@ -392,11 +461,10 @@ export function checkPackageJsonScriptPaths(
 	const dir = dirname(filePath);
 	const findings: InlineMatch[] = [];
 	const lines = content.split("\n");
-	const seen = new Set<string>();
 
 	for (const [scriptName, scriptVal] of Object.entries(scripts)) {
 		if (typeof scriptVal !== "string") continue;
-		findings.push(...collectMissingScriptRefFindings(scriptName, scriptVal, dir, lines, seen));
+		findings.push(...collectMissingScriptRefFindings(scriptName, scriptVal, dir, lines));
 	}
 	return findings;
 }

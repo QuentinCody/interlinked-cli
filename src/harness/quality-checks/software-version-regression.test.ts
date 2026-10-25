@@ -33,6 +33,14 @@ const SOFTWARE_VERSION_CHECKS: Record<string, QualityCheckConfig> = {
 };
 
 describe("software version regression detector", () => {
+	it("ignores non-string dependency entries without dropping valid version references", () => {
+		const refs = collectSoftwareVersionReferences(JSON.stringify({ dependencies: {
+			invalid: 42, valid: "2.3.4",
+		} }), "package.json");
+		expect(refs.map(ref => ({ label: ref.label, version: ref.version }))).toEqual([
+			{ label: "dependencies valid", version: "2.3.4" },
+		]);
+	});
 	it("detects package dependency downgrades in package.json", () => {
 		const before = collectSoftwareVersionReferences(
 			JSON.stringify({ dependencies: { react: "^19.0.0" } }, null, 2),
@@ -343,6 +351,19 @@ describe("software version regression detector", () => {
 		expect(nonNull(concerns[0]).reason).toContain("verify against provider docs");
 		expect(nonNull(concerns[0]).verifyHint.source).toContain("official model provider documentation");
 		expect(nonNull(concerns[0]).reason).not.toContain("deprecated");
+	});
+
+	it("reads requirement-style pins only from requirements-style files, never from a code assignment", () => {
+		// Before the gate, `count = state.count(old)` in a .py file became "Python package count" at version
+		// "state.count(old)", and the word `old` raised a legacy-wording freshness concern (two FPs, 2026-10-21).
+		const code = "count = state.count(old)\nstate = state.replace(old, new)\n";
+		const before = collectSoftwareVersionReferences("", "scratch/e66/timeline.py");
+		const after = collectSoftwareVersionReferences(code, "scratch/e66/timeline.py");
+		expect(after).toEqual([]);
+		expect(detectSoftwareVersionFreshnessConcerns(before, after)).toEqual([]);
+		for (const manifest of ["requirements.txt", "requirements-dev.txt", "requirements/base.in", "constraints.txt", "Pipfile"]) {
+			expect(collectSoftwareVersionReferences("requests==2.31.0\n", manifest).map((r) => r.anchor)).toEqual(["package:requests"]);
+		}
 	});
 });
 

@@ -355,10 +355,12 @@ export function stripStringLiterals(line: string): string {
  * escaped, `/\*…/`), and without that restriction a `/* block comment *​/` at
  * an expression position was blanked as if it were a regex. Matches are
  * replaced with equal-length spaces so subsequent offsets stay valid.
+ * `>` is in the preceding-token set for the arrow body `(l) => /re/.test(l)`
+ * (a `>` can precede a `/` only as `=>` or a comparison, never a division).
  */
 export function stripRegexLiterals(content: string): string {
 	const pattern =
-		/((?:^|[=(,![:?;{}&|+\-*^~]|\b(?:return|typeof|in|of|instanceof|new|throw|delete|void)\b)\s*)(\/(?![*/])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\n])+\/[gimsuyd]*)/g;
+		/((?:^|[=(,![:?;{}&|+\-*^~>]|\b(?:return|typeof|in|of|instanceof|new|throw|delete|void)\b)\s*)(\/(?![*/])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\n])+\/[gimsuyd]*)/g;
 	return content.replace(
 		pattern,
 		(_m, pre: string, regex: string) => pre + " ".repeat(regex.length),

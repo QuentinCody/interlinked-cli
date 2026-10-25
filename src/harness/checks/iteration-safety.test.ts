@@ -298,6 +298,33 @@ describe("checkFreshCollectionKeyLookup — negative cases (must NOT fire)", () 
 });
 
 // ===========================================
+// checkIteratorInvalidation — receiver identity is the whole member chain (2026-10-22)
+// ===========================================
+// Dogfood: `for (const [file, facts] of files) { g.files.push(file) }` in spec/ledger-drift.ts fired because
+// `\bfiles` also matches inside `g.files`. Repo-wide the same shape made 5 of 11 findings.
+
+describe("checkIteratorInvalidation — member chains (positive)", () => {
+	it("P: flags a mutation through the same member chain the loop iterates (forEach and for-of)", () => {
+		const viaForEach = ["class Q {", "  drain() {", "    this.items.forEach((item) => {", "      this.items.push(item);", "    });", "  }", "}"].join("\n");
+		expect(checkIteratorInvalidation(viaForEach, TS).map((m) => m.line)).toEqual([4]);
+		const viaForOf = ["function grow(state: { queue: number[] }) {", "  for (const n of state.queue) {", "    state.queue.push(n + 1);", "  }", "}"].join("\n");
+		expect(checkIteratorInvalidation(viaForOf, TS).map((m) => m.line)).toEqual([3]);
+	});
+});
+
+describe("checkIteratorInvalidation — member chains (negative)", () => {
+	it("N: ignores a same-named property of another object while iterating a local collection", () => {
+		const code = ["function fold(files: Map<string, number>, g: { files: string[] }) {", "  for (const [file, n] of files) {", "    if (!g.files.includes(file)) g.files.push(file);", "  }", "}"].join("\n");
+		expect(checkIteratorInvalidation(code, TS)).toEqual([]);
+	});
+
+	it("N: ignores a local collection that shares its name with the iterated member", () => {
+		const code = ["function copy(upstream: Response) {", "  const headers: Record<string, string> = {};", "  upstream.headers.forEach((value, name) => {", "    headers[name] = value;", "  });", "}"].join("\n");
+		expect(checkIteratorInvalidation(code, TS)).toEqual([]);
+	});
+});
+
+// ===========================================
 // checkIteratorInvalidation — extension gate
 // ===========================================
 

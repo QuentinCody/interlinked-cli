@@ -88,4 +88,18 @@ describe("checkFixedPortInTest — negative (must not fire)", () => {
 	it("does not flag a variable named port used as the listen argument", () => {
 		expect(run(`it("boots", () => { const port = 0; server.listen(port); });`)).toEqual([]);
 	});
+
+	it("does not flag a direct listen on a port below 1024", () => {
+		expect(run(`it("boots", () => { server.listen(80); });`)).toEqual([]);
+	});
+
+	// Unrecognized contexts (E64 blind mutants k4): only loopback URLs and the listed calls are network contexts.
+	it("does not flag an explicit port in a non-loopback URL", () => {
+		expect(run(`it("calls the api", async () => { await fetch("https://api.example.com:8443/v1"); });`)).toEqual([]);
+	});
+
+	it("does not flag a port option passed to an unrecognized call inside a network call's window", () => {
+		// The fetch line opens the scan window; only the call-name list keeps makePool's port out of it.
+		expect(run(`it("configures", async () => {\n\tawait fetch(url);\n\tconst pool = makePool({ port: 5432 });\n\tuse(pool);\n});`)).toEqual([]);
+	});
 });

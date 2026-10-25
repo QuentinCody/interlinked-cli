@@ -58,6 +58,14 @@ describe("checkDuplicateTestBody — positive (must fire)", () => {
 		const found = run(content);
 		expect(found).toHaveLength(2);
 	});
+
+	it("P5: an async and a sync callback with the same body are duplicates (async is ignored by normalization)", () => {
+		const found = run(
+			`it("loads one", async () => { expect(await load(1)).toBe(2); expect(await load(3)).toBe(4); });
+			it("loads again", () => { expect(await load(1)).toBe(2); expect(await load(3)).toBe(4); });`,
+		);
+		expect(found).toHaveLength(1);
+	});
 });
 
 describe("checkDuplicateTestBody — negative (must not fire)", () => {

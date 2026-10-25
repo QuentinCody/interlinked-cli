@@ -272,8 +272,28 @@ export function selfImportResolverFor(
 	const view = importerView({ ts, filePath, options: effective, exists });
 	return (specifier, usage) => {
 		if (!specifier.startsWith(".") || !couldNameImporter(filePath, specifier)) return false;
-		return resolvedFileKey(view, specifier, usage) === view.importerKey;
+		if (resolvedFileKey(view, specifier, usage) !== view.importerKey) return false;
+		return !namesExistingAsset(filePath, specifier, exists);
 	};
+}
+
+/** Specifier extensions TypeScript maps onto the importer's own SOURCE
+ *  (`"./widget.js"` → widget.ts). tsc emit and every TS-aware runtime share that
+ *  mapping, so a resolution to the importer through one of these is a
+ *  self-import even when a same-named file sits on disk. */
+const SCRIPT_SPECIFIER_EXTS = new Set(["", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"]);
+
+/** A NON-script specifier (`"./Toast.svelte"`, `"./theme.css"`, `"./data.yaml"`)
+ *  that names an existing file loads THAT file at runtime: Node, Vite, webpack,
+ *  esbuild and Deno all try the exact path before appending an extension.
+ *  TypeScript's append pass lands on `Toast.svelte.ts` instead, which is the
+ *  importer when a Svelte runes module mounts its own-named component, so the
+ *  compiler's "self" is not the module graph's (2026-10-21 adversarial review).
+ *  With no such file on disk, the append pass is also what bundlers do, and the
+ *  self-import stands. */
+function namesExistingAsset(filePath: string, specifier: string, exists: ExistsProbe): boolean {
+	if (SCRIPT_SPECIFIER_EXTS.has(extname(specifier).toLowerCase())) return false;
+	return probe(toAbsolutePath(dirname(filePath), specifier), exists);
 }
 
 /** The shared parser's SourceFile is immutable. Project format belongs to this

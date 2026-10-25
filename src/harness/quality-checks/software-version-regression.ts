@@ -16,6 +16,7 @@ import {
 	referenceIdentity,
 } from "./software-version-regression-freshness.js";
 import { computeObjectPathByLine as computeScopedObjectPathByLine } from "./software-version-regression-object-path.js";
+import { collectRequirementRef, isRequirementsFile } from "./software-version-requirements.js";
 import {
 	classifyGenericKind,
 	isVersionRegression,
@@ -72,9 +73,6 @@ const GITHUB_ACTION_RE = /\buses:\s*(?<action>[\w.-]+\/[\w.-]+)@(?<version>[^\s#
 
 const DOCKER_FROM_RE = /^\s*FROM\s+(?:--platform=\S+\s+)?(?<image>[^\s:@]+(?:\/[^\s:@]+)*)(?::(?<version>[^\s@]+))?/i;
 
-const REQUIREMENT_RE =
-	/^\s*(?<name>[A-Za-z0-9_.-]+)\s*(?:==|~=|>=|<=|=)\s*(?<version>[^\s;#]+)/;
-
 // The inner class EXCLUDES `/`. With `[^\s]+` it swallowed the very delimiter
 // the outer group repeats on, so a slash-heavy line with no following space
 // partitioned exponentially: a 66-BYTE input took 51 SECONDS (measured
@@ -102,12 +100,13 @@ export function collectSoftwareVersionReferences(
 	const lines = content.split("\n");
 	const pathByLine = computeScopedObjectPathByLine(content, lines.length);
 	const testFile = isTestFile(filePath);
+	const requirementsFile = isRequirementsFile(filePath, base);
 	for (const [i, line] of lines.entries()) {
 		const lineNo = i + 1;
 
 		collectLineRef(refs, seen, collectDockerFromRef(line, lineNo));
 		collectLineRef(refs, seen, collectGithubActionRef(line, lineNo));
-		collectLineRef(refs, seen, collectRequirementRef(line, lineNo));
+		if (requirementsFile) collectLineRef(refs, seen, collectRequirementRef(line, lineNo));
 		collectLineRef(refs, seen, collectGoRequireRef(line, lineNo));
 		if (base === "cargo.toml" || filePath.endsWith(".toml")) {
 			collectLineRef(refs, seen, collectCargoDependencyRef(line, lineNo));
@@ -355,24 +354,6 @@ function collectGithubActionRef(
 		anchor: `github-action:${action.toLowerCase()}`,
 		label: `GitHub Action ${action}`,
 		kind: "github_action",
-		version,
-		line: lineNo,
-		text: line.trim(),
-	};
-}
-
-function collectRequirementRef(
-	line: string,
-	lineNo: number,
-): SoftwareVersionReference | undefined {
-	const match = REQUIREMENT_RE.exec(line);
-	const name = match?.groups?.name;
-	const version = match?.groups?.version;
-	if (!name || !version) return undefined;
-	return {
-		anchor: `package:${name.toLowerCase()}`,
-		label: `Python package ${name}`,
-		kind: "package",
 		version,
 		line: lineNo,
 		text: line.trim(),

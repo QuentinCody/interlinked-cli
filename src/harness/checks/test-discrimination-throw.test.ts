@@ -180,4 +180,16 @@ export function f(n: number) {
 		const found = run(SAME_FUNCTION_TWO_SITES, `import { a } from "./sut";\nit("throws", () => { expect(() => JSON.parse("x")).toThrow("invalid input"); });\n`);
 		expect(found).toHaveLength(0);
 	});
+
+	it("N10: a concrete message asserted against dynamic template throw sites is unresolvable, not a duplicate", () => {
+		// The literal is LONGER than the sites' static prefix: only the dynamic-message rule keeps this quiet (clause k4).
+		const sut = `
+export function d(id: string | null) {
+	if (id === null) throw new Error(\`missing id: \${id}\`);
+	if (id.length === 0) throw new Error(\`missing id: \${id}\`);
+}
+`;
+		const found = run(sut, `import { d } from "./sut";\nit("throws", () => { expect(() => d(null)).toThrow("missing id: null"); });\n`);
+		expect(found).toHaveLength(0);
+	});
 });

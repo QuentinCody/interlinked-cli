@@ -4,12 +4,15 @@
 
 import { nonNull } from "../../lib/non-null.js";
 import { stripTemplateLiterals } from "../strip-helpers.js";
+import { isExemptBareObject } from "./broad-object-types-exemptions.js";
+import { blankJsxText, blankRegexLiterals, NAN_COMPARISON } from "./nan-comparison-scan.js";
 import { scanBrokenOptionalGrouping } from "./optional-chain-boundaries.js";
 import {
 	getExtension,
 	type InlineMatch,
 	isGeneratedFile,
 	isTestFile,
+	isVendoredOrFixturePath,
 	JS_TS_EXTS,
 	scanLinesStripped,
 	stripComments,
@@ -247,7 +250,12 @@ export function checkBroadObjectTypes(content: string, filePath: string): Inline
 	// `: Function` or `as Function` — bare Function type.
 	const BARE_FUNCTION = /(?::|\bas)\s+Function\b/;
 	// `: object` or `as object` — bare object type. Excludes `Object` (the wrapper).
+	// Four classes where no shape existed to hide (export rename specifier,
+	// type-guard domain, cast from `unknown`, reflection/identity operand) are
+	// exempt — see broad-object-types-exemptions.ts (2026-10-21 cross-repo run).
 	const BARE_OBJECT = /(?::|\bas)\s+object\b/;
+	const bareObjectHit = (line: string, i: number): boolean =>
+		BARE_OBJECT.test(line) && !isExemptBareObject(strippedLines, i);
 
 	for (const [i, line] of strippedLines.entries()) {
 		if (matches.length >= 10) break;
@@ -255,7 +263,7 @@ export function checkBroadObjectTypes(content: string, filePath: string): Inline
 			RECORD_ANY.test(line) ||
 			INDEX_ANY.test(line) ||
 			BARE_FUNCTION.test(line) ||
-			BARE_OBJECT.test(line)
+			bareObjectHit(line, i)
 		) {
 			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 		}
@@ -265,65 +273,14 @@ export function checkBroadObjectTypes(content: string, filePath: string): Inline
 
 // --- 4. Security ---
 
-/**
- * Detect eval/implied-eval in JavaScript/TypeScript.
- * Catches: eval(), Function(), setTimeout/setInterval with string arg.
- */
-export function checkEvalUsage(content: string, filePath: string): InlineMatch[] {
-	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
-	if (isTestFile(filePath)) return [];
-	const stripped = stripCommentsAndStrings(content);
-	const originalLines = content.split("\n");
-	const strippedLines = stripped.split("\n");
-	const matches: InlineMatch[] = [];
-	for (const [i, line] of strippedLines.entries()) {
-		if (matches.length >= 10) break;
-		const trimmed = line.trim();
-		// Direct eval — negative lookbehind `(?<![.\w])` so a member method
-		// named `eval` (`mathParser.eval(...)`, `vm.eval(...)`) or an
-		// identifier-suffixed call is not read as the global eval. Mirrors the
-		// sibling checkEvalInputTainted (js-security-checks.ts).
-		if (/(?<![.\w])eval\s*\(/.test(trimmed)) {
-			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-			continue;
-		}
-		// new Function() — implied eval
-		if (/\bnew\s+Function\s*\(/.test(trimmed)) {
-			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-			continue;
-		}
-		// setTimeout/setInterval with string argument (implied eval)
-		if (/\b(setTimeout|setInterval)\s*\(\s*['"`]/.test(trimmed)) {
-			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-		}
-	}
-	return matches;
-}
+// The eval / implied-eval check lives in its own module (extracted 2026-10-21
+// to stay under the per-file line cap); re-exported for the same reason.
+export { checkEvalUsage } from "./eval-usage.js";
 
-/**
- * Detect dangerouslySetInnerHTML (React) and direct innerHTML assignment.
- * Skips matches inside regex literals and test patterns (e.g., lint check implementations).
- */
-export function checkInnerHtmlUsage(content: string, filePath: string): InlineMatch[] {
-	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
-	if (isTestFile(filePath)) return [];
-	const stripped = stripCommentsAndStrings(content);
-	const originalLines = content.split("\n");
-	const strippedLines = stripped.split("\n");
-	const matches: InlineMatch[] = [];
-	for (const [i, line] of strippedLines.entries()) {
-		if (matches.length >= 10) break;
-		const trimmed = line.trim();
-		// Skip lines that are regex patterns (detecting innerHTML vs using it)
-		if (/\/.*innerHTML.*\//.test(trimmed) || /\/.*dangerouslySet.*\//.test(trimmed)) continue;
-		// Skip lines that are .test() or .match() calls on the pattern
-		if (/\.test\(/.test(trimmed) || /\.match\(/.test(trimmed)) continue;
-		if (/dangerouslySetInnerHTML/.test(trimmed) || /\.innerHTML\s*=/.test(trimmed)) {
-			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-		}
-	}
-	return matches;
-}
+// The innerHTML / dangerouslySetInnerHTML sink check lives in its own module
+// (extracted 2026-10-21 to stay under the per-file line cap); re-exported so
+// the family barrel and the registry keep importing it from here.
+export { checkInnerHtmlUsage } from "./inner-html.js";
 
 // --- 5. Correctness ---
 
@@ -333,10 +290,13 @@ export function checkInnerHtmlUsage(content: string, filePath: string): InlineMa
  */
 export function checkNanComparison(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
-	const stripped = stripCommentsAndStrings(content);
+	// JSX prose and regex literals survive the shared stripper by contract and
+	// carry `=== NaN` in legitimate code (docs components, lint patterns); see
+	// nan-comparison-scan.ts for the exemptions and the member-access rule.
+	const stripped = blankRegexLiterals(stripCommentsAndStrings(blankJsxText(content, filePath)));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
-	return scanLinesStripped(originalLines, strippedLines, /[!=]==?\s*NaN\b|\bNaN\s*[!=]==?/, 10);
+	return scanLinesStripped(originalLines, strippedLines, NAN_COMPARISON, 10);
 }
 
 /**
@@ -432,12 +392,30 @@ export function checkConstantCondition(content: string, filePath: string): Inlin
  * Detect unsafe optional chaining: (obj?.foo).bar which throws if obj is nullish.
  * The parenthesized optional chain defeats the purpose of ?. safety.
  * Safe patterns excluded: (x?.foo || fallback).bar, (x?.foo ?? fallback).bar
+ * Vendored and fixture paths are exempt (2026-10-21 adversarial review): a lint
+ * rule's invalid-case fixture holds the broken grouping on purpose, and the
+ * sibling pre_block `raw_control_bytes` already draws the same path boundary.
  */
 export function checkUnsafeOptionalChaining(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
+	if (isVendoredOrFixturePath(filePath)) return [];
 	return scanBrokenOptionalGrouping(content, filePath);
 }
+
+/**
+ * A run of 16+ digits that is an INTEGER part of a numeric literal: not the
+ * fraction digits after a decimal point (`1.9925434951809327`, `.123…`) and
+ * not the digits of a float's exponent (`1e+12345678901234567`). A spread
+ * (`...123…`) is not a decimal point. The integer part of a float
+ * (`12345678901234567.5`) still matches: it loses precision too.
+ * The exponent exemption needs a DECIMAL mantissa (`15`, `1.5`, `1.`, `.5`,
+ * with `_` separators) that starts at a token boundary, so unspaced
+ * arithmetic still matches: `obj.e-N`, `x1e-N`, `0x1e+N`, bare `e-N`.
+ * Found 2026-10-21 cross-repo (tinybench Lanczos coefficients, t-tables).
+ */
+const UNSAFE_INTEGER_RUN_RE =
+	/(?<!(?:^|[^.])\.)(?<!(?:^|[^\w$.])(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)[eE][+-]?)\b(\d{16,})\b(?!n)/g;
 
 /**
  * Detect number precision loss: integer literals > 2^53 - 1 (Number.MAX_SAFE_INTEGER).
@@ -452,7 +430,7 @@ export function checkNumberPrecisionLoss(content: string, filePath: string): Inl
 	for (const [i, line] of strippedLines.entries()) {
 		if (matches.length >= 10) break;
 		// Find large integer literals (not BigInt with n suffix)
-		const nums = line.match(/\b(\d{16,})\b(?!n)/g);
+		const nums = line.match(UNSAFE_INTEGER_RUN_RE);
 		if (!nums) continue;
 		for (const num of nums) {
 			if (Number.parseInt(num, 10) > MAX_SAFE) {
