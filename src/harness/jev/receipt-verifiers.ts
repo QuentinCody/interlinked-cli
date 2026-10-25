@@ -119,4 +119,3 @@ export function verifyOperationalClaim(claim: OperationalClaim, receipt: Operati
     if (!receipt.outputComplete || receipt.sourceUnchanged !== true) return result("not_assessable", "incomplete_output_or_source_identity");
     return receipt.exitCode === 0 ? result("supported", "selected_compiler_completed_cleanly") : result("contradicted", "compiler_failed");
 }
-
