@@ -49,6 +49,18 @@ describe("policy diff — positive (weakening is named)", () => {
         const browser = policy(() => {}, httpFixturePolicy);
         expect(kinds(browser, policy(json => { (json.projects[0]!.scenarios[0]!.boundary as Record<string, unknown>).real = ["application"]; }, httpFixturePolicy))).toEqual(["boundary-loosened"]);
     });
+    it("P2b: a controlled-fault proof that stops recording one of its faults is weakened; adding or reordering faults is not", () => {
+        const save = { id: "drop-save", path: "orders_cli.py", find: "json.dump(", replace: "len(", rationale: "persistence" };
+        const spaced = { id: "spaced-json", path: "orders_cli.py", find: "separators=(\",\", \":\")", replace: "", rationale: "stored bytes" };
+        const usage = { id: "usage-text", path: "orders_cli.py", find: "usage:", replace: "use:", rationale: "usage line" };
+        const designated = [{ id: "orders.create", outcome: ["files"] }];
+        const base = policy(json => { json.projects[0]!.scenarios[0]!.proof = { mode: "controlled-fault", faults: [save, spaced], designated }; });
+        const mutate = (proof: Record<string, unknown>) => kinds(base, policy(json => { json.projects[0]!.scenarios[0]!.proof = { ...proof, designated }; }, () => JSON.parse(JSON.stringify(base)) as Record<string, unknown>));
+        expect(mutate({ mode: "controlled-fault", faults: [save] })).toEqual(["proof-dropped"]);
+        expect(mutate({ mode: "controlled-fault", fault: spaced })).toEqual(["proof-dropped"]);
+        expect(mutate({ mode: "controlled-fault", faults: [spaced, save, usage] })).toEqual([]);
+        expect(comparePolicies(base, policy(json => { json.projects[0]!.scenarios[0]!.proof = { mode: "controlled-fault", faults: [save], designated }; }, () => JSON.parse(JSON.stringify(base)) as Record<string, unknown>), []).weakening[0]?.detail).toMatch(/no longer records fault spaced-json/);
+    });
     it("P3: a replacement record binding EXACTLY the base and head digests and the scenario discharges that weakening; the comparison still lists it as replaced", () => {
         const base = policy(), head = policy(json => { json.projects[0]!.scenarios = []; });
         const result = comparePolicies(base, head, [replacement(base, head, "order-persists")]);

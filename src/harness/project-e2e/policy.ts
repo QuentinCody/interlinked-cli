@@ -50,6 +50,7 @@ export interface E2eProof {
     mode: ProofMode;
     /** old-new / characterization: the git revision whose export is the comparison side. */ revision?: string;
     /** controlled-fault: the fault applied to a copy of the candidate. */ fault?: E2eFault;
+    /** controlled-fault, instead of `fault`: 1–8 recorded violations of the same requirement, each applied to its own copy; the proof needs every one (one violation under-samples a requirement, E64c). */ faults?: E2eFault[];
     /** old-new / controlled-fault (required): the cases whose designated outcome must fail on the comparison, with their action evidence; characterization (optional): the cases that must hold on both sides (default: every bound contract). */ designated?: E2eDesignated[];
 }
 /** §9.5 stability profile: `qualificationRuns` independent attempts must all pass at qualification; the baseline seed and an optional fixed clock are recorded and passed to every owned process. */
@@ -140,14 +141,28 @@ function fault(value: unknown, where: string): E2eFault {
     for (const key of ["find", "replace", "rationale"] as const) if (typeof row[key] !== "string" || (key !== "replace" && !String(row[key]).trim())) fail(`${where}.${key} must be a non-empty string`);
     return { id: id(row.id, where), path: relativePath(row.path, `${where}.path`), find: String(row.find), replace: String(row.replace), rationale: String(row.rationale) };
 }
+const MAX_PROOF_FAULTS = 8;
+function faults(value: unknown, where: string): E2eFault[] {
+    if (!Array.isArray(value) || value.length < 1 || value.length > MAX_PROOF_FAULTS) fail(`${where} must list 1 to ${MAX_PROOF_FAULTS} faults`);
+    const rows = value.map((item, n) => fault(item, `${where}[${n}]`));
+    unique(rows.map(row => row.id), where);
+    return rows;
+}
+/** The recorded faults of a controlled-fault proof — `faults`, or the single `fault`; none for any other mode. */
+export function proofFaults(proof: E2eProof): E2eFault[] {
+    return proof.faults ?? (proof.fault ? [proof.fault] : []);
+}
 /** The comparison input a mode needs is mandatory, and nothing a mode does not use may be declared (a stray revision would suggest a comparison that never runs). */
 function proofComparison(row: Record<string, unknown>, where: string, result: E2eProof): void {
     const needsRevision = result.mode === "old-new" || result.mode === "characterization", needsFault = result.mode === "controlled-fault";
+    if (row.fault !== undefined && row.faults !== undefined) fail(`${where}: declare fault or faults, not both`);
     if (needsRevision !== (row.revision !== undefined)) fail(`${where}.revision is ${needsRevision ? "required" : "not used"} for mode ${result.mode}`);
-    if (needsFault !== (row.fault !== undefined)) fail(`${where}.fault is ${needsFault ? "required" : "not used"} for mode ${result.mode}`);
+    const faultKey = row.faults !== undefined ? "faults" : "fault";
+    if (needsFault !== (row[faultKey] !== undefined)) fail(`${where}.${faultKey} is ${needsFault ? "required" : "not used"} for mode ${result.mode}`);
     if (typeof row.revision === "string") { if (!REVISION.test(row.revision)) fail(`${where}.revision must be a git revision name`); result.revision = row.revision; }
     else if (row.revision !== undefined) fail(`${where}.revision must be a string`);
     if (row.fault !== undefined) result.fault = fault(row.fault, `${where}.fault`);
+    if (row.faults !== undefined) result.faults = faults(row.faults, `${where}.faults`);
 }
 function designatedOutcome(value: unknown, where: string): ObservableKey[] {
     const outcome = stringList(value, where, OBSERVABLE_KEYS.length);
@@ -187,7 +202,7 @@ function proofDesignated(value: unknown, where: string, contractIds: readonly st
 /** §9.4 (D3): explicit per-scenario proof mode; execution is the default and declares nothing else. */
 function proof(value: unknown, where: string, contractIds: readonly string[]): E2eProof {
     const row = record(value, where);
-    onlyKeys(row, ["mode", "revision", "fault", "designated"], where);
+    onlyKeys(row, ["mode", "revision", "fault", "faults", "designated"], where);
     const result: E2eProof = { mode: oneOf(row.mode, ["execution", "old-new", "controlled-fault", "characterization"] as const, `${where}.mode`) };
     proofComparison(row, where, result);
     if (result.mode === "execution") { if (row.designated !== undefined) fail(`${where}.designated is not used for mode execution`); return result; }

@@ -10,7 +10,7 @@
 // `proof.revision` comparison side (PE-74): the two bases stay independent.
 
 import type { PolicyChangeRecord } from "./policy-changes.js";
-import { policyDigest, type E2eBoundary, type E2eGates, type E2ePolicy, type E2eProject, type E2eScenario } from "./policy.js";
+import { policyDigest, proofFaults, type E2eBoundary, type E2eGates, type E2ePolicy, type E2eProject, type E2eScenario } from "./policy.js";
 
 export type WeakeningKind = "project-removed" | "project-demoted" | "gate-loosened" | "observations-loosened" | "scope-narrowed"
     | "scenario-removed" | "scenario-demoted" | "contract-unbound" | "case-unbound" | "boundary-loosened" | "proof-dropped" | "stability-loosened";
@@ -45,6 +45,14 @@ function boundaryChanges(base: E2eBoundary | undefined, head: E2eBoundary | unde
     for (const request of missing(requests(base.requests), requests(head.requests))) changes.push(`required request ${request} dropped`);
     return changes;
 }
+function faultIds(scenario: E2eScenario): string[] { return scenario.proof ? proofFaults(scenario.proof).map(fault => fault.id) : []; }
+/** A weaker proof mode, or a controlled-fault proof that no longer records one of the base's faults: one violation under-samples a requirement (2026-10-21). */
+function proofChanges(base: E2eScenario, head: E2eScenario): string[] {
+    const baseProof = base.proof?.mode ?? "execution", headProof = head.proof?.mode ?? "execution";
+    if ((PROOF_RANK[headProof] ?? 0) < (PROOF_RANK[baseProof] ?? 0)) return [`scenario ${base.id} proof ${baseProof} → ${headProof}`];
+    if (baseProof !== "controlled-fault" || headProof !== "controlled-fault") return [];
+    return missing(faultIds(base), faultIds(head)).map(id => `scenario ${base.id} proof no longer records fault ${id}`);
+}
 function scenarioWeakening(projectId: string, base: E2eScenario, head: E2eScenario): Weakening[] {
     const rows: Weakening[] = [];
     const push = (kind: WeakeningKind, detail: string): number => rows.push({ kind, projectId, scenarioId: base.id, detail });
@@ -54,8 +62,7 @@ function scenarioWeakening(projectId: string, base: E2eScenario, head: E2eScenar
     const shrunk = missing(base.affects, head.affects);
     if (shrunk.length) push("scope-narrowed", `scenario ${base.id} affects dropped ${shrunk.join(", ")}`);
     for (const change of boundaryChanges(base.boundary, head.boundary)) push("boundary-loosened", `scenario ${base.id}: ${change}`);
-    const baseProof = base.proof?.mode ?? "execution", headProof = head.proof?.mode ?? "execution";
-    if ((PROOF_RANK[headProof] ?? 0) < (PROOF_RANK[baseProof] ?? 0)) push("proof-dropped", `scenario ${base.id} proof ${baseProof} → ${headProof}`);
+    for (const change of proofChanges(base, head)) push("proof-dropped", change);
     if (base.stability && (!head.stability || head.stability.qualificationRuns < base.stability.qualificationRuns)) push("stability-loosened", `scenario ${base.id} stability ${base.stability.qualificationRuns} run(s) → ${head.stability?.qualificationRuns ?? "none"}`);
     return rows;
 }

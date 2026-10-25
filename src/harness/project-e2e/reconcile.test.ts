@@ -57,6 +57,25 @@ describe("reconcileChanges — positive (must open obligations)", () => {
         const root = setup();
         expect(reconcileChanges({ root, changedPaths: "all", atMs: 10 }).pending.map(row => row.key)).toEqual([KEY]);
     });
+    it("P6: an acceptance change is a control-file change and re-evaluates every scenario at once (review R1)", () => {
+        const root = setup();
+        writeFileSync(join(root, ".interlinked/contract-policy.json"), JSON.stringify({ version: 1, accepted: {} }));
+        const result = reconcileChanges({ root, changedPaths: [".interlinked/contract-policy.json"], atMs: 10 });
+        expect(result.pending.map(row => row.key)).toEqual([KEY]);
+        expect(result.pending[0]?.reason).toBe("control file .interlinked/contract-policy.json changed");
+    });
+    it("P7: the repository policy controls a nested project too; the nested project's own acceptance file is its control file", () => {
+        const root = setup(raw => { (raw.projects as RawPolicy[])[0]!.root = "pkg"; });
+        mkdirSync(join(root, "pkg/src/orders"), { recursive: true });
+        mkdirSync(join(root, "pkg/.interlinked"), { recursive: true });
+        writeFileSync(join(root, "pkg/src/orders/create.js"), "1\n");
+        const policyChange = reconcileChanges({ root, changedPaths: [E2E_POLICY_PATH], atMs: 10 });
+        expect(policyChange.pending.map(row => row.key)).toEqual([KEY]);
+        expect(policyChange.pending[0]?.reason).toBe(`control file ${E2E_POLICY_PATH} changed`);
+        writeFileSync(join(root, "pkg/.interlinked/contract-policy.json"), JSON.stringify({ version: 1, accepted: {} }));
+        const acceptance = reconcileChanges({ root, changedPaths: ["pkg/.interlinked/contract-policy.json"], atMs: 11 });
+        expect(acceptance.pending.map(row => row.key)).toEqual([KEY]);
+    });
 });
 describe("reconcileChanges — negative (must not open obligations)", () => {
     it("N1: a docs edit outside every declared input opens nothing (PE-16)", () => {
@@ -82,5 +101,11 @@ describe("reconcileChanges — negative (must not open obligations)", () => {
         const result = reconcileChanges({ root, changedPaths: ["src/orders/create.js"], atMs: 10, dryRun: true });
         expect(result.pending).toHaveLength(1);
         expect(readE2eTxns(root)).toEqual([]);
+    });
+    it("N5: a file named like the policy inside a nested project is not the repository policy", () => {
+        const root = setup(raw => { (raw.projects as RawPolicy[])[0]!.root = "pkg"; });
+        mkdirSync(join(root, "pkg/.interlinked"), { recursive: true });
+        writeFileSync(join(root, "pkg/.interlinked/e2e-policy.json"), "{}\n");
+        expect(reconcileChanges({ root, changedPaths: ["pkg/.interlinked/e2e-policy.json"], atMs: 10 }).pending).toEqual([]);
     });
 });

@@ -12,7 +12,7 @@
 
 import { join } from "node:path";
 import { matchesAnyGlob } from "../../lib/path-glob.js";
-import { CONTRACT_MANIFEST } from "../contracts/paths.js";
+import { CONTRACT_MANIFEST, CONTRACT_POLICY } from "../contracts/paths.js";
 import { collectProjectInputs, scenarioGeneration } from "./generation.js";
 import { appendE2eTxn, readE2eTxns, reduceE2eLedger, scenarioKey, type E2eLedgerState } from "./ledger.js";
 import { E2E_POLICY_PATH, loadE2ePolicy, type E2ePolicy, type E2eProject, type E2eScenario, type E2eScheduling } from "./policy.js";
@@ -35,17 +35,21 @@ function projectRelative(project: E2eProject, path: string): string | null {
     const prefix = `${project.root}/`;
     return path.startsWith(prefix) ? path.slice(prefix.length) : null;
 }
+/** Control files re-evaluate every scenario of a project at once (PE-06). The repository policy controls every
+ *  project, nested ones included; the manifest and the acceptance file are the project's own (review R1). */
 function isControlPath(project: E2eProject, path: string): boolean {
-    return path === E2E_POLICY_PATH || path === (project.contractManifest ?? CONTRACT_MANIFEST);
+    if (path === E2E_POLICY_PATH) return true;
+    const local = projectRelative(project, path);
+    return local === (project.contractManifest ?? CONTRACT_MANIFEST) || local === CONTRACT_POLICY;
 }
-interface ProjectChanges { control: boolean; shared: string[]; protectedPaths: string[]; }
+interface ProjectChanges { control: string | null; shared: string[]; protectedPaths: string[]; }
 function classify(policy: E2ePolicy, project: E2eProject, changed: readonly string[]): ProjectChanges {
-    const result: ProjectChanges = { control: false, shared: [], protectedPaths: [] };
+    const result: ProjectChanges = { control: null, shared: [], protectedPaths: [] };
     for (const path of changed) {
         if (matchesAnyGlob(path, policy.sharedInputs ?? [])) { result.shared.push(path); continue; }
+        if (isControlPath(project, path)) { result.control ??= path; continue; }
         const local = projectRelative(project, path);
         if (local === null) continue;
-        if (isControlPath(project, local)) { result.control = true; continue; }
         if (matchesAnyGlob(local, project.sharedInputs ?? [])) result.shared.push(local);
         else if (matchesAnyGlob(local, project.protectedInputs)) result.protectedPaths.push(local);
     }
@@ -53,7 +57,7 @@ function classify(policy: E2ePolicy, project: E2eProject, changed: readonly stri
 }
 function scenarioReason(scenario: E2eScenario, changes: ProjectChanges | "all"): string | null {
     if (changes === "all") return "reconciliation against the current working tree";
-    if (changes.control) return "policy or contract manifest changed";
+    if (changes.control) return `control file ${changes.control} changed`;
     if (changes.shared.length) return `shared input ${changes.shared[0]} changed`;
     const hit = changes.protectedPaths.find(path => matchesAnyGlob(path, scenario.affects));
     return hit ? `${hit} changed` : null;

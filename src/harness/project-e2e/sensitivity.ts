@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { ContractState } from "../contracts/types.js";
+import type { ContractEvidence, ContractState } from "../contracts/types.js";
 import type { E2eDesignated, E2eFault, ProofMode } from "./policy.js";
 import type { ServiceRecord } from "./services.js";
 import { materializeTree } from "./target.js";
@@ -49,6 +49,46 @@ export interface SensitivityRecord extends SensitivityClassification {
     mode: Exclude<ProofMode, "execution">; comparison: { kind: "revision" | "fault"; identity: string; description: string };
     designated: E2eDesignated[]; candidate: SideOutcome[]; compared: SideOutcome[];
     lifecycle?: { complete: boolean; reasons: string[]; services?: ServiceRecord[] };
+    /** controlled-fault with `faults`: each fault's own comparison, in policy order. */ faults?: SensitivityRecord[];
+    /** controlled-fault with `faults`: how many recorded faults the designated cases noticed. */ killFraction?: { demonstrated: number; total: number };
+}
+/**
+ * One proof over several recorded faults (2026-10-21): demonstrated only when EVERY fault is. A fault the designated
+ * cases do not notice makes the proof not demonstrated and is named; otherwise an inconclusive fault makes it
+ * inconclusive. One violation under-samples a requirement: in E64, 174 of 296 killed (requirement, test) pairs failed
+ * on only one of two blind violations of the same requirement.
+ */
+export function aggregateFaultProofs(records: readonly [SensitivityRecord, ...SensitivityRecord[]]): SensitivityRecord {
+    const first = records[0];
+    const demonstrated = records.filter(row => row.verdict === "demonstrated").length;
+    const decisive = records.find(row => row.verdict === "not-demonstrated") ?? records.find(row => row.verdict === "inconclusive");
+    const reasons = decisive
+        ? [...records.filter(row => row.verdict !== "demonstrated").map(row => `fault ${row.comparison.identity} ${row.verdict} (${row.category}): ${row.reasons.join("; ")}`), `${demonstrated} of ${records.length} recorded faults demonstrated`]
+        : records.flatMap(row => row.reasons);
+    const incomplete = records.filter(row => row.lifecycle?.complete === false);
+    return {
+        mode: first.mode, verdict: decisive?.verdict ?? "demonstrated", category: decisive?.category ?? first.category, reasons,
+        comparison: { kind: "fault", identity: records.map(row => row.comparison.identity).join(","), description: `${records.length} recorded faults` },
+        designated: first.designated, candidate: first.candidate, compared: (decisive ?? first).compared,
+        lifecycle: { complete: incomplete.length === 0, reasons: incomplete.flatMap(row => (row.lifecycle?.reasons ?? []).map(reason => `fault ${row.comparison.identity}: ${reason}`)) },
+        faults: [...records], killFraction: { demonstrated, total: records.length },
+    };
+}
+/** The receipt fields one case contributes to a side; structural, so this module does not import the receipt. */
+interface CaseView { id: string; state: ContractState; observations?: ContractEvidence["observations"]; }
+/** One side's outcomes WITH the phase evidence the classifier reads (review D1): which observables differed, primary output, how the invocation ended. */
+export function outcomesFor(cases: readonly CaseView[], ids: readonly string[]): SideOutcome[] {
+    return cases.filter(row => ids.includes(row.id)).map(row => {
+        const outcome: SideOutcome = { id: row.id, state: row.state };
+        const observed = row.observations;
+        if (!observed) return outcome;
+        outcome.matched = observed.matched ?? [];
+        outcome.mismatched = observed.mismatched ?? [];
+        outcome.primaryOutput = observed.stdoutPreview.length > 0;
+        if (observed.exitCode !== undefined) outcome.exitCode = observed.exitCode;
+        if (observed.status !== undefined) outcome.status = observed.status;
+        return outcome;
+    });
 }
 export type BuildResult = { ok: true; identity: string; description: string } | { ok: false; reason: string };
 

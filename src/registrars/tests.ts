@@ -113,6 +113,45 @@ function registerE2e(tests: Command): void {
     }
 }
 
+/** Plan 32 item 7: recorded requirement faults against the tests that must notice them; a score, never a gate. */
+function registerFaults(tests: Command): void {
+    const faults = tests.command("faults")
+        .description("Requirement faults: recorded violations of stated requirements, run against the tests that must notice them");
+    faults.command("clauses")
+        .description("Detector header clauses joined with the newest retained fault outcomes across corpora; historical evidence, not current-tree certification")
+        .option("--cwd <path>", "Project root")
+        .option("--detectors <dir>", "Directory of detector modules (default src/harness/checks)")
+        .option("--json", "Machine-readable clause evidence")
+        .action(async (options: OptionValues) => {
+            const { testsFaultsClausesCommand } = await import("../commands/tests-faults.js");
+            await testsFaultsClausesCommand(options);
+        });
+    faults.command("run")
+        .description("Apply each recorded fault to a disposable copy, run its tests, and report kills and the per-requirement kill fraction")
+        .option("--cwd <path>", "Project root")
+        .option("--corpus <path>", "Corpus path relative to the root (default .interlinked/requirement-faults.json)")
+        .option("--ids <list>", "Comma-separated fault ids to run")
+        .option("--timeout <ms>", "Budget for each test run", "300000")
+        .option("--json", "Machine-readable report")
+        .action(async (options: OptionValues) => {
+            const { testsFaultsRunCommand } = await import("../commands/tests-faults.js");
+            await testsFaultsRunCommand(options);
+        });
+}
+/** Plan 32 item 6: the session's tests against its pre-change code, rebuilt from the harness edit log. */
+function registerFailBeforeFix(tests: Command): void {
+    tests.command("fail-before-fix")
+        .description("Run the tests a session changed against that session's pre-change code, rebuilt from the harness edit log; advisory")
+        .option("--cwd <path>", "Project root")
+        .option("--session <id>", "Session whose edits to undo (default: the latest session with an applied edit)")
+        .option("--timeout <ms>", "Budget for each test run", "300000")
+        .option("--strict", "Exit 1 when a new test whose subject changed passes on the pre-change code")
+        .option("--json", "Machine-readable report")
+        .action(async (options: OptionValues) => {
+            const { testsFailBeforeFixCommand } = await import("../commands/tests-fail-before-fix.js");
+            await testsFailBeforeFixCommand(options);
+        });
+}
 export function registerTestsCommands(program: Command): void {
     const tests = program.command("tests").description("Explain and run affected tests with bounded scheduling and snapshot validation");
     registerContracts(tests);
@@ -126,6 +165,8 @@ export function registerTestsCommands(program: Command): void {
             const { testsReviewCommand } = await import("../commands/tests-review.js");
             testsReviewCommand(paths, options);
         });
+    registerFailBeforeFix(tests);
+    registerFaults(tests);
     tests.command("readiness <language>")
         .description("Inspect test prerequisites without installing; Python also reports approved provisioning argv")
         .option("--cwd <path>", "Project root")

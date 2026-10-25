@@ -218,7 +218,15 @@ function parseSensitivity(value: unknown, where: string): SensitivityRecord {
         designated: list(row.designated, `${where}.designated`, parseDesignated), candidate: list(row.candidate, `${where}.candidate`, sideOutcome), compared: list(row.compared, `${where}.compared`, sideOutcome), reasons: strings(row.reasons, `${where}.reasons`),
     };
     if (row.lifecycle !== undefined) record.lifecycle = parseLifecycle(row.lifecycle, `${where}.lifecycle`);
+    if (row.faults !== undefined) record.faults = list(row.faults, `${where}.faults`, parseSensitivity);
+    if (row.killFraction !== undefined) record.killFraction = parseKillFraction(row.killFraction, `${where}.killFraction`);
     return record;
+}
+/** controlled-fault with several faults: 0 ≤ demonstrated ≤ total, total ≥ 1, whole numbers — anything else is not evidence. */
+function parseKillFraction(value: unknown, where: string): NonNullable<SensitivityRecord["killFraction"]> {
+    const row = obj(value, where), demonstrated = num(row.demonstrated, `${where}.demonstrated`), total = num(row.total, `${where}.total`);
+    if (!Number.isInteger(demonstrated) || !Number.isInteger(total) || total < 1 || demonstrated < 0 || demonstrated > total) fail(`${where} must hold whole numbers with 0 ≤ demonstrated ≤ total and total ≥ 1`);
+    return { demonstrated, total };
 }
 /** Unit D optional groups: owned services (D1) and per-scenario sensitivity (D3). */
 function parseUnitDFields(row: Record<string, unknown>, receipt: E2eReceipt): void {

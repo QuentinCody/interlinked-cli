@@ -76,6 +76,16 @@ describe("proof modes — positive (the comparison demonstrates the requirement)
         expect(sensitivity?.comparison.identity).toMatch(/^drop-save@[a-f0-9]{64}$/);
         expect(verdict(project).satisfied).toBe(true);
     }, TIMEOUT);
+    it("P4: controlled-fault with several faults — each fault gets its own comparison; every one demonstrated ⇒ demonstrated with kill fraction 2/2", async () => {
+        const project = repo();
+        const spaced = { id: "spaced-json", path: "orders_cli.py", find: SAVE_LINE, replace: "        json.dump(orders, handle)", rationale: "the stored bytes are the accepted requirement" };
+        setProof(project, { mode: "controlled-fault", faults: [FAULT, spaced], designated: [{ id: "orders.create", outcome: ["files"] }] });
+        const { result, sensitivity } = await run(project);
+        expect(result.exitCode, result.messages.join("\n")).toBe(0);
+        expect(sensitivity).toMatchObject({ verdict: "demonstrated", killFraction: { demonstrated: 2, total: 2 } });
+        expect(sensitivity?.faults?.map(row => row.comparison.identity.split("@")[0])).toEqual(["drop-save", "spaced-json"]);
+        expect(verdict(project).satisfied).toBe(true);
+    }, TIMEOUT);
     it("P3: characterization — the observations hold on the baseline revision and the candidate ⇒ preserved, satisfied", async () => {
         const project = repo();
         setProof(project, { mode: "characterization", revision: "HEAD" });
@@ -126,6 +136,15 @@ describe("proof modes — negative (nothing short of a demonstrated comparison s
         const { sensitivity } = await run(project);
         expect(sensitivity).toMatchObject({ verdict: "not-demonstrated", category: "unrelated-assertion-failure" });
         expect(sensitivity?.compared.find(row => row.id === "orders.invalid")).toMatchObject({ state: "failed", matched: ["stderr"], mismatched: ["exitCode"] });
+    }, TIMEOUT);
+    it("N6: one recorded fault the designated case does not notice ⇒ NOT_DEMONSTRATED naming that fault, kill fraction 1/2, obligation open", async () => {
+        const project = repo();
+        const usage = { id: "usage-text", path: "orders_cli.py", find: "print(\"usage: orders_cli.py add <name> | list\", file=sys.stderr)", replace: "print(\"usage: orders add <name>\", file=sys.stderr)", rationale: "a violation orders.create cannot observe" };
+        setProof(project, { mode: "controlled-fault", faults: [FAULT, usage], designated: [{ id: "orders.create", outcome: ["files"] }] });
+        const { sensitivity } = await run(project);
+        expect(sensitivity).toMatchObject({ verdict: "not-demonstrated", category: "comparison-passes", killFraction: { demonstrated: 1, total: 2 } });
+        expect(sensitivity?.reasons[0]).toMatch(/^fault usage-text@[a-f0-9]{64} not-demonstrated \(comparison-passes\)/);
+        expect(verdict(project).satisfied).toBe(false);
     }, TIMEOUT);
     it("N4: a candidate that does not itself pass makes every proof mode INCONCLUSIVE (candidate not passing); no comparison is built", async () => {
         const project = repo();

@@ -157,13 +157,25 @@ Interlinked version in CI so a candidate change cannot supply its own).
 |---|---|---|---|
 | execution (default) | none | every bound case passes | — |
 | old-new | export of `proof.revision` | designated cases fail there **at their declared outcome** with their action evidence established, and pass on the candidate | both pass; setup fails before the action; evidence undeclared |
-| controlled-fault | the candidate with exactly one recorded fault | as above | the fault anchor is absent or ambiguous |
+| controlled-fault | the candidate with exactly one recorded fault (`fault`), or one copy per fault in `faults` (1–8) | as above, under EVERY recorded fault | a fault anchor is absent or ambiguous; any one fault the designated cases do not notice |
 | characterization | export of `proof.revision` | every designated observation holds on both sides | the comparison cannot be built |
 
 `designated: [{ id, outcome?, action? }]` names the observables that ARE the
 outcome and the cases that must run first; output presence, exit codes and
 status classes are recorded but never decisive. An inconclusive comparison is
 `unavailable`, never a pass.
+
+One recorded fault is one violation of a requirement, and a case can notice one
+violation and miss another (measured on this repository: 174 of 296 test kills
+happened under only one of two independent violations of the same requirement).
+Record several with `faults: [{ id, path, find, replace, rationale }, …]`: each
+fault gets its own comparison snapshot, the receipt keeps every fault's record
+under `sensitivity[scenario].faults` with `killFraction {demonstrated, total}`,
+and the proof is demonstrated only when every fault is. A base policy whose
+proof recorded a fault that the head no longer records is `proof-dropped`.
+Changing a recipe while retaining its fault ID is not independently classified as
+proof weakening. The policy digest still changes and invalidates prior execution
+receipts; review the replacement recipe before accepting fresh evidence.
 
 ## Stability and quarantine
 

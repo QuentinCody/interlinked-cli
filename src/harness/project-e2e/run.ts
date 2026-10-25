@@ -24,12 +24,12 @@ import { recoverOrphanedRuns, writeAttemptRecord } from "./attempts.js";
 import { evaluateE2e, selectScenarios, type E2eEvaluation, type Selected } from "./evaluate.js";
 import { collectProjectInputs, scenarioGeneration, type ScenarioGeneration } from "./generation.js";
 import { appendE2eTxn, scenarioKey, type AttemptStatus } from "./ledger.js";
-import { digestOf, loadE2ePolicy, type E2eDesignated, type E2ePolicy, type E2eProject, type E2eProof, type E2eScenario, type E2eSuite, type ProofMode, type ReportFormat } from "./policy.js";
+import { digestOf, loadE2ePolicy, proofFaults, type E2eDesignated, type E2eFault, type E2ePolicy, type E2eProject, type E2eProof, type E2eScenario, type E2eSuite, type ProofMode, type ReportFormat } from "./policy.js";
 import { E2E_RUNS_DIRECTORY, emptyReceipt, writeE2eReceipt, type E2eReceipt, type PrepareResult, type ReceiptCase } from "./receipt.js";
 import { reconcileChanges } from "./reconcile.js";
 import { matchingRequests, serveRequests } from "./requests.js";
 import { effectiveScheduling } from "./scheduler.js";
-import { applyFault, classifySensitivity, exportRevision, proofCaseIds, type BuildResult, type SensitivityRecord, type SideOutcome } from "./sensitivity.js";
+import { aggregateFaultProofs, applyFault, classifySensitivity, exportRevision, outcomesFor, proofCaseIds, type BuildResult, type SensitivityRecord } from "./sensitivity.js";
 import { collectNodeCoverage, COVERAGE_DIRECTORY, writeRuntimeObservations } from "./runtime-observations.js";
 import { allocatePort, createOwnedService, restartService, serviceBaseUrl, startService, stopService, type OwnedService, type ServiceRecord, type ServiceStage } from "./services.js";
 import { runBrowserStage, structuredCase } from "./browser-stage.js";
@@ -382,30 +382,16 @@ function publish(ctx: SuiteRun, receipt: E2eReceipt, before: Map<string, Scenari
  * candidate with exactly one recorded fault applied — with its own run directory, data, ports and lifecycle. The
  * candidate's frozen controls (manifest + acceptance) are restored into it, so the test digest is fixed on both sides.
  */
-async function comparisonDisposable(ctx: SuiteRun, disposable: Disposable, scenario: E2eScenario): Promise<{ side: Disposable; built: BuildResult }> {
-    const proof = scenario.proof!, runDirectory = join(disposable.runDirectory, "comparison", scenario.id), home = join(runDirectory, "home");
+async function comparisonDisposable(ctx: SuiteRun, disposable: Disposable, scenario: E2eScenario, fault: E2eFault | undefined): Promise<{ side: Disposable; built: BuildResult }> {
+    const proof = scenario.proof!, runDirectory = join(disposable.runDirectory, "comparison", scenario.id, ...(proof.faults && fault ? [fault.id] : [])), home = join(runDirectory, "home");
     mkdirSync(join(runDirectory, "fixture"), { recursive: true });
     mkdirSync(home, { recursive: true });
     const snapshot = mkdtempSync(join(tmpdir(), "interlinked-e2e-comparison-"));
     let built: BuildResult;
-    if (proof.mode === "controlled-fault") { cpSync(ctx.projectRoot, snapshot, { recursive: true, dereference: false, filter: source => copyable(ctx.projectRoot, source) }); built = applyFault(snapshot, proof.fault!); }
+    if (proof.mode === "controlled-fault") { cpSync(ctx.projectRoot, snapshot, { recursive: true, dereference: false, filter: source => copyable(ctx.projectRoot, source) }); built = applyFault(snapshot, fault!); }
     else built = await exportRevision(join(ctx.options.gitRoot ?? ctx.root, ctx.project.root), proof.revision!, snapshot); // the REAL repository's project dir (review F2-3)
     if (built.ok) restoreControls(snapshot, disposable.controls);
     return { side: { snapshot, runDirectory, home, controls: disposable.controls, env: disposable.env }, built };
-}
-/** One side's outcomes WITH the phase evidence the classifier reads (review D1): which observables differed, primary output, how the invocation ended. */
-function outcomesFor(cases: ReceiptCase[], ids: readonly string[]): SideOutcome[] {
-    return cases.filter(row => ids.includes(row.id)).map(row => {
-        const outcome: SideOutcome = { id: row.id, state: row.state };
-        const observed = row.observations;
-        if (!observed) return outcome;
-        outcome.matched = observed.matched ?? [];
-        outcome.mismatched = observed.mismatched ?? [];
-        outcome.primaryOutput = observed.stdoutPreview.length > 0;
-        if (observed.exitCode !== undefined) outcome.exitCode = observed.exitCode;
-        if (observed.status !== undefined) outcome.status = observed.status;
-        return outcome;
-    });
 }
 interface ComparisonRun { prepared: boolean; complete: boolean; reasons: string[]; services: ServiceRecord[]; cases: ReceiptCase[]; }
 /** Prepare → services → contracts on the comparison snapshot for ONE scenario; a sink receipt collects what the classifier needs, INCLUDING the lifecycle outcome (review D2). */
@@ -424,9 +410,17 @@ async function sensitivityFor(ctx: SuiteRun, receipt: E2eReceipt, disposable: Di
     const kind = proof.mode === "controlled-fault" ? "fault" as const : "revision" as const;
     const base = { mode: proof.mode, designated, candidate };
     if (proofCaseIds(designated).some(id => candidate.find(row => row.id === id)?.state !== "passed")) return { ...base, compared: [], comparison: { kind, identity: "not-built", description: "the candidate did not pass; no comparison was built" }, ...classifySensitivity({ ...base, compared: [], comparisonPrepared: false, comparisonComplete: false }) };
-    const { side, built } = await comparisonDisposable(ctx, disposable, scenario);
-    if (!built.ok) return { ...base, compared: [], comparison: { kind, identity: "unavailable", description: built.reason }, verdict: "inconclusive", category: "comparison-unavailable", reasons: [built.reason] };
+    const [only, ...more] = proofFaults(proof); // none for a revision proof; `faults` gets one comparison per recorded fault
+    const first = await compareOnce(ctx, disposable, scenario, base, kind, only);
+    if (proof.faults === undefined) return first;
+    const rest: SensitivityRecord[] = [];
+    for (const fault of more) rest.push(await compareOnce(ctx, disposable, scenario, base, kind, fault));
+    return aggregateFaultProofs([first, ...rest]);
+}
+async function compareOnce(ctx: SuiteRun, disposable: Disposable, scenario: E2eScenario, base: Pick<SensitivityRecord, "mode" | "designated" | "candidate">, kind: "fault" | "revision", fault: E2eFault | undefined): Promise<SensitivityRecord> {
+    const { side, built } = await comparisonDisposable(ctx, disposable, scenario, fault);
     try {
+        if (!built.ok) return { ...base, compared: [], comparison: { kind, identity: "unavailable", description: built.reason }, verdict: "inconclusive", category: "comparison-unavailable", reasons: [built.reason] };
         const run = await runComparison(ctx, scenario, side);
         const compared = outcomesFor(run.cases, scenario.contractIds);
         const lifecycle: NonNullable<SensitivityRecord["lifecycle"]> = { complete: run.complete, reasons: run.reasons };

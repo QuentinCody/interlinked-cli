@@ -108,6 +108,12 @@ describe("C4 — a queued automatic launch never outlives its authorization", ()
         expect(off.receipts).toEqual([]);
         expect(off.messages).toEqual([expect.stringMatching(/automatic execution is off/)]);
         const path = join(project.root, E2E_POLICY_PATH), policy = readJson(path) as Record<string, unknown>;
+        // A scheduling block that says autoRun false is off too: the launch re-reads autoRun, not the block's presence.
+        policy.scheduling = { autoRun: false };
+        writeFileSync(path, JSON.stringify(policy));
+        const explicitOff = await runProjectE2e({ root: project.root, timeoutMs: TIMEOUT, automatic: true });
+        expect(explicitOff.receipts).toEqual([]);
+        expect(explicitOff.messages).toEqual([expect.stringMatching(/automatic execution is off/)]);
         policy.scheduling = { autoRun: true };
         writeFileSync(path, JSON.stringify(policy));
         const on = await runProjectE2e({ root: project.root, timeoutMs: TIMEOUT, automatic: true });

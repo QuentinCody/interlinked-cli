@@ -333,7 +333,10 @@ waits for a Cargo-equipped runner), the discover / surfaces / adopt /
 doctor adoption workflow, structured-runner suites (JSON protocol / JUnit
 report import), owned loopback HTTP services with service-bound contracts,
 and per-scenario proof modes (`proof {mode: old-new | controlled-fault |
-characterization}`). A counterfactual proof names its `designated` cases as
+characterization}`). A controlled-fault proof may record several violations
+of the same requirement with `faults: [...]`; it is demonstrated only when the
+designated cases fail under every one, because a case often notices one
+violation and misses another. A counterfactual proof names its `designated` cases as
 `{id, outcome?, action?}`: `outcome` lists the observables that ARE the
 designated outcome (the case's other declared observables must hold on the
 comparison side), `action` lists cases that must pass there first. Without
@@ -649,6 +652,17 @@ the run. Its 4 GiB maximum tree budget includes workers; a sampled overrun, lost
 or unavailable telemetry interrupts the process group and retains the request without a
 pass receipt. Worker planning reads current CPU load as well as available memory. These are
 sampled limits; see **interlinked-setup** for process-group and platform limitations.
+The scheduled Vitest coordinator uses a 1536 MiB V8 old-space ceiling. Built-in
+`forks`/`vmForks` workers receive an explicit cap after project resolution, preserving
+smaller supported absolute limits from worker arguments or `NODE_OPTIONS`;
+thread pools inherit it from the coordinator. Existing worker arguments and reporters
+are retained. Custom pools are not given an inferred heap contract, but remain inside
+the combined process-tree monitor. A heap limit is not an RSS limit: the 4 GiB tree
+budget still includes native memory and subprocesses. Receipt identities include the
+coordinator and fork heap settings.
+Percentage heap settings and ambiguous quoted/escaped heap overrides are unsupported
+and produce unavailable/deferred evidence, never a passing receipt. Unrelated runtime
+arguments are retained; prefer an unambiguous absolute heap setting when one is needed.
 Repository pre-push checks use the same admission lane and monitor. Do not respond to a
 resource deferral by launching the full suite directly. Small checks can use the repository's
 `scripts/run-resource-bounded.ts --light` supervisor with an enforced 1 GiB tree ceiling;
@@ -658,6 +672,9 @@ Public `interlinked verify` and `interlinked tests` commands have an outer resou
 as well: in-process planning/scanning is measured along with the runner tree. This supervisor
 does not acquire a second host lease; the actual command keeps its existing admission protocol.
 Memory interruption exits 75 without a verification verdict, even if partial output was printed.
+Interrupted outer runs print peak RSS (or unavailable), budget and reserve bytes and
+retain a deferred `cli:<command>` verification-stage row without a passing identity.
+The fallback ledger follows `tests --cwd`; an explicit stage-ledger override still wins.
 Exit 75 alone cannot say what happened — admission that never happened, a child killed
 mid-run and a child that itself exits 75 all surface as 75 — so the bounded runner
 (`scripts/run-resource-bounded.ts`, used by every pre-push gate step) writes a VERDICT
@@ -889,8 +906,9 @@ that needs coverage coalesces only onto a request that produces it, a batch prod
 every pending request requires, and a completion discharges only the requests whose
 requirements the run met — a plain run never satisfies a coverage subscriber. The pre-push
 hook's coverage branch runs exactly this with `--receipt-store` pointing at the SOURCE
-checkout's `.interlinked/test-runs`, so the previous push of the SAME revision is consumed
-instead of re-run (every export is fresh, so two exports of one revision share an identity).
+checkout's `.interlinked/test-runs`. That shared store retains execution artifacts; it
+does not make this path reusable. Static selection is opt-in, and the scope reporter
+is opaque, so the current pre-push coverage path runs fresh even for the same revision.
 A LOCAL `tests run --all --coverage` does not seed the export in practice: the runtime
 snapshot hashes every on-disk byte outside `.git`, `.interlinked` and generated
 directories, so gitignored local files (`scratch/`, `coverage/`, logs) enter the local
@@ -1287,6 +1305,41 @@ second compiler while same-project compiler work is active.
 Different project roots remain independent and may compile concurrently.
 
 ## Reviewing test discrimination
+
+After a fix, run `interlinked tests fail-before-fix` (optionally `--session <id>`).
+This Git/Vitest workflow replays logged edits from HEAD and must reproduce current bytes
+before reconstructing pre-session product code. It runs changed tests live and in a
+Git-visible temporary copy with linked `node_modules`, plus their old counterparts.
+No changed test files produces `no-tests` (exit 0), without a discrimination verdict.
+If a selected file has no executed case on either side, or a product file cannot be
+reconstructed, the report is unavailable. Whole-run interruption yields no usable rows;
+a reported test timeout, product crash or load failure is inconclusive. The presence
+check is per file and does not prove that every expected case executed. Only a test's
+own failing check demonstrates discrimination. The temporary copy confines supervisor
+edits and rejects symlink write targets; arbitrary test code is not OS-sandboxed.
+
+Exit 0 means evidence reported, 2 means unavailable/no session, and `--strict` exits 1
+when a new test whose subject changed passes on the old code. Such a test may deliberately
+preserve existing behavior; review its purpose before changing it. A negative case must
+also isolate its clause: remove the one exemption it names and
+the case must fail (a case that another exemption already keeps quiet pins nothing).
+To measure that, record the removal as a requirement fault (`clause:<module>:k<n>`) in
+`.interlinked/requirement-faults.json`, run `interlinked tests faults run`, then read
+`interlinked tests faults clauses`. Write faults without reading the tests they target.
+
+The fault corpus is `{ "version": 1, "faults": [...] }`. Each fault contains `id`,
+`requirement: {id, text?, source?}`, confined `path`, exactly-once `find`, `replace`,
+`rationale`, nonempty `tests`, and `origin: authored | edit-log | revision`. The Vitest
+runner applies one fault at a time to a Git-visible copy. A kill requires a passing
+live control and a failing own check under the fault; missing baseline evidence is
+inconclusive. `--corpus`, `--ids` and `--timeout` narrow the run. The reported fraction
+is killed / (killed + survived); invalid and inconclusive faults are reported separately.
+The command is advisory: a surviving fault does not itself set a failure exit code.
+
+`test-runs/faults/latest.json` and `outcomes.json` retain historical results under
+`.interlinked/`. Clause joins use `clause:<module>:k<n>`; unmeasured clauses remain
+unmeasured. These outcomes lack current source-digest authentication: rerun after code,
+tests, clauses or fault recipes change. A perfect fraction covers only recorded faults.
 
 Use paired examples that distinguish a real violation from similar valid code. In
 `test_legitimacy`, import-shaped text inside multiline fixture strings is not a real

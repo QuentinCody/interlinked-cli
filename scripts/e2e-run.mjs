@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
@@ -55,6 +55,21 @@ function publish(root, directory, merged, evidence) {
     }
 }
 
+async function mergeCoverage(root, v8Directory, inventory, children) {
+    // ONE merge row: post_ms is the whole merge, and the per-phase profile rides
+    // in detail rather than further rows that would double-count the total.
+    const mergeStarted = Date.now();
+    let merged;
+    try {
+        merged = await mergeChildCoverage({ root, v8Directory, inventory, children });
+    } catch (error) {
+        recordStage(root, mergeStageRow("failed", Date.now() - mergeStarted, {}));
+        throw error;
+    }
+    recordStage(root, mergeStageRow("passed", Date.now() - mergeStarted, merged.timings));
+    return merged;
+}
+
 async function main() {
     const root = realpathSync(process.cwd());
     mkdirSync(join(root, "coverage-e2e"), { recursive: true });
@@ -68,31 +83,29 @@ async function main() {
     const v8Directory = join(directory, "v8");
     mkdirSync(v8Directory, { recursive: true });
     const childLedger = join(directory, "children.jsonl");
-    // Load the CLI bundle as well as hook/server bundles, so installer code
-    // has an executable zero-hit model even when a test doesn't call it.
-    await runChild(root, ["dist/index.js", "--help"], { ...process.env, NODE_V8_COVERAGE: v8Directory }, childLedger);
-    // These inventoried writers have no production importers yet. Load their
-    // e2e-only bundles to measure their uncalled functions as zero, preserving
-    // their obligation instead of silently dropping them from the denominator.
-    await runChild(root, ["--input-type=module", "--eval", "await import('./dist/harness/agent-io/store.js'); await import('./dist/harness/break-glass.js');"],
-        { ...process.env, NODE_V8_COVERAGE: v8Directory }, childLedger);
-    const testEnv = { ...process.env, INTERLINKED_VIZ: "1", INTERLINKED_E2E_V8_DIR: v8Directory };
-    delete testEnv.NODE_V8_COVERAGE;
-    // Two ledger rows split the lane the way the CI timing cannot: the e2e tests (exec_ms) and the coverage merge (post_ms).
-    await timed(root, "e2e-tests", "exec_ms", () => runChild(root, ["node_modules/vitest/vitest.mjs", "run", "--config", "vitest.e2e.config.ts"], testEnv));
-    await unchanged(root, buildFingerprint, testFingerprint);
-    const children = readFileSync(childLedger, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-    // ONE merge row: post_ms is the whole merge, and the per-phase profile (Unit 6: measure before optimizing) rides in
-    // its detail — never as further rows, which a `--sum post_ms` would add to the total a second time.
-    const mergeStarted = Date.now();
+    let children;
     let merged;
     try {
-        merged = await mergeChildCoverage({ root, v8Directory, inventory, children });
-    } catch (error) {
-        recordStage(root, mergeStageRow("failed", Date.now() - mergeStarted, {}));
-        throw error;
+        // Load the CLI bundle as well as hook/server bundles, so installer code
+        // has an executable zero-hit model even when a test doesn't call it.
+        await runChild(root, ["dist/index.js", "--help"], { ...process.env, NODE_V8_COVERAGE: v8Directory }, childLedger);
+        // These inventoried writers have no production importers yet. Load their
+        // e2e-only bundles to measure their uncalled functions as zero, preserving
+        // their obligation instead of silently dropping them from the denominator.
+        await runChild(root, ["--input-type=module", "--eval", "await import('./dist/harness/agent-io/store.js'); await import('./dist/harness/break-glass.js');"],
+            { ...process.env, NODE_V8_COVERAGE: v8Directory }, childLedger);
+        const testEnv = { ...process.env, INTERLINKED_VIZ: "1", INTERLINKED_E2E_V8_DIR: v8Directory };
+        delete testEnv.NODE_V8_COVERAGE;
+        // Two ledger rows split the lane the way the CI timing cannot: the e2e tests (exec_ms) and the coverage merge (post_ms).
+        await timed(root, "e2e-tests", "exec_ms", () => runChild(root, ["node_modules/vitest/vitest.mjs", "run", "--config", "vitest.e2e.config.ts"], testEnv));
+        await unchanged(root, buildFingerprint, testFingerprint);
+        children = readFileSync(childLedger, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+        merged = await mergeCoverage(root, v8Directory, inventory, children);
+    } finally {
+        // The raw V8 dumps (~2 GB a run) are merge input only: the merged reports and run.json keep the evidence,
+        // and failed runs left them behind too, so every run used to grow coverage-e2e/runs/ without bound.
+        rmSync(v8Directory, { recursive: true, force: true });
     }
-    recordStage(root, mergeStageRow("passed", Date.now() - mergeStarted, merged.timings));
     await unchanged(root, buildFingerprint, testFingerprint);
     const report = `${JSON.stringify(merged.summary, null, 2)}\n`;
     const evidence = { schema: 1, lane: "e2e", passed: true, run_id: runId, build: buildFingerprint,
