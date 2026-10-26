@@ -179,6 +179,10 @@ the merge and strict coverage check must finish successfully. The merge stage
 records total scripts read, retained bundle scripts, and unique merged scripts.
 Vitest-only `src/test-setup/` helpers are outside the product boundary inventory;
 their unit tests remain in the full test suite.
+The source-only Jev entry modules `src/commands/jev.ts` and
+`src/harness/jev/internal-cli.ts` are also outside that inventory. Any emitted runtime
+bytes from either module fail inventory generation until it is reclassified. Runtime
+shadow writers and isolated runtime bundles still retain zero-hit coverage obligations.
 Route ratchet refusals to **interlinked-quality-gates**.
 
 The advisory `[interlinked:e2e-obligation]` Stop warning credits only commands

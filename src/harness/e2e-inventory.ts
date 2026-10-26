@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
-import { isBoundaryFile, isGeneratedHookSource } from "./e2e-boundary.js";
+import { isBoundaryFile, isGeneratedHookSource, isSourceOnlyEvaluationModule } from "./e2e-boundary.js";
 
 export function sourceFiles(root: string, directory = "src"): string[] {
     return readdirSync(join(root, directory), { withFileTypes: true }).flatMap((entry) => {
@@ -20,7 +20,10 @@ function erasedInputs(metafile: unknown): Set<string> {
         if (!isJsonObject(output) || !isJsonObject(output.inputs)) throw new Error("Malformed metafile output");
         for (const [path, info] of Object.entries(output.inputs)) {
             if (!isJsonObject(info) || typeof info.bytesInOutput !== "number") throw new Error(`Malformed metafile input: ${path}`);
-            if (info.bytesInOutput > 0) erased.delete(path);
+            if (info.bytesInOutput > 0) {
+                if (isSourceOnlyEvaluationModule(path)) throw new Error(`Source-only evaluation module contributes runtime bytes: ${path}; reclassify it before measuring E2E coverage`);
+                erased.delete(path);
+            }
         }
     }
     return erased;

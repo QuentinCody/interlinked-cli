@@ -24,6 +24,18 @@ describe("e2e boundary inventory", () => {
         expect(isProductSource("src/test-setup/home-sandbox.ts")).toBe(false);
         expect(isProductSource("src/harness/test-setup-policy.ts")).toBe(true);
     });
+    it("excludes only the source-checkout Jev entry modules while retaining runtime shadow writers", () => {
+        for (const path of ["src/commands/jev.ts", "src/harness/jev/internal-cli.ts"]) {
+            expect(isProductSource(path), path).toBe(false);
+            expect(isBoundaryFile(path), path).toBe(false);
+        }
+        for (const path of ["src/harness/jev/decision-shadow.ts", "src/harness/jev/edit-shadow.ts"]) {
+            expect(isProductSource(path), path).toBe(true);
+            expect(isBoundaryFile(path), path).toBe(true);
+        }
+        expect(isProductSource("src/commands/jev-plugin.ts")).toBe(true);
+        expect(isProductSource("src/harness/jev/internal-cli-helper.ts")).toBe(true);
+    });
     it("requires every source append writer to be explicitly inventoried", () => {
         const writers = sources("src").filter(isProductSource).filter((path) => /\b(?:appendFileSync|appendFile|appendFileWithMutationLock)\s*\(/.test(readFileSync(path, "utf8")));
         expect(writers.filter((path) => !isBoundaryFile(path))).toEqual([]);

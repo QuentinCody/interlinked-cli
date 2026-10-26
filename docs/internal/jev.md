@@ -25,6 +25,11 @@ Selected test bodies and document paragraphs are sent to TypeSafe. No API call
 is made by requesting runner help. Scripts and source are excluded from the npm
 package's file allowlist; the runner is not a public package entry point.
 
+The E2E runtime inventory excludes exactly the source-only entry modules
+`src/commands/jev.ts` and `src/harness/jev/internal-cli.ts`. It rejects a build that emits
+runtime bytes from either module until they are reclassified. Shipped edit and decision
+shadow writers retain their E2E coverage obligations, including uncalled functions.
+
 The reusable client and all three review algorithms remain under
 `src/harness/jev/`, including claim-versus-transcript evaluation. Historical
 datasets and calibration results remain under `scratch/2026-09-16-jev-*` and in
