@@ -24,6 +24,12 @@ describe("e2e boundary inventory", () => {
         expect(isProductSource("src/test-setup/home-sandbox.ts")).toBe(false);
         expect(isProductSource("src/harness/test-setup-policy.ts")).toBe(true);
     });
+    it("retains hook project discovery after its relocation into shared library code", () => {
+        expect(isBoundaryFile("src/lib/interlinked-root.ts")).toBe(true);
+        expect(isBoundaryFile("src\\lib\\interlinked-root.ts")).toBe(true);
+        expect(isBoundaryFile("src/lib/interlinked-root.test.ts")).toBe(false);
+        expect(isBoundaryFile("src/lib/interlinked-root-helper.ts")).toBe(false);
+    });
     it("excludes only the source-checkout Jev entry modules while retaining runtime shadow writers", () => {
         for (const path of ["src/commands/jev.ts", "src/harness/jev/internal-cli.ts"]) {
             expect(isProductSource(path), path).toBe(false);

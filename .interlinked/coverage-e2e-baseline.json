@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-09-23T00:13:32.387Z",
+  "updated_at": "2026-10-26T08:45:43.239Z",
   "files": {
     "src/commands/scanner.ts": {
       "lines_pct": 0.66,
@@ -1098,14 +1098,6 @@
       "lines_total": 13,
       "lines_covered": 10
     },
-    "src/hook-entry-project.ts": {
-      "lines_pct": 44.44,
-      "branches_pct": 25,
-      "statements_pct": 45.45,
-      "functions_pct": 100,
-      "lines_total": 9,
-      "lines_covered": 4
-    },
     "src/hook-entry-stop-self-heal.ts": {
       "lines_pct": 73.33,
       "branches_pct": 42.85,
@@ -1337,6 +1329,14 @@
       "functions_pct": 10,
       "lines_total": 44,
       "lines_covered": 7
+    },
+    "src/lib/interlinked-root.ts": {
+      "lines_pct": 44.44,
+      "branches_pct": 25,
+      "statements_pct": 45.45,
+      "functions_pct": 100,
+      "lines_total": 9,
+      "lines_covered": 4
     }
   }
 }

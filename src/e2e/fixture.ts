@@ -34,6 +34,8 @@ export function socketPaths(cwd: string): Record<Protocol, string> {
 export interface HookCall {
     protocol?: Protocol;
     runtime?: "entry" | "generated";
+    cwd?: string;
+    discoverSocket?: boolean;
     event?: string;
     tool?: string;
     input?: Record<string, unknown>;
@@ -190,6 +192,7 @@ export class E2eFixture {
 
     async hook(call: HookCall): Promise<HookResult> {
         const protocol = call.protocol ?? (this.protocol === "framed" ? "framed" : "raw");
+        const cwd = call.cwd ?? this.cwd;
         if (!call.cold) this.assertOwner(protocol);
         const sessionId = call.sessionId ?? `${this.sessionPrefix}-${randomUUID()}`;
         const event = call.event ?? "PreToolUse";
@@ -197,11 +200,11 @@ export class E2eFixture {
         const args = this.hookArgs(call, socket, event);
         const receiptPath = join(this.dataDir, "hook-transport.jsonl");
         const offset = existsSync(receiptPath) ? statSync(receiptPath).size : 0;
-        const child = spawn(process.execPath, args, { cwd: this.cwd, env: { ...this.env,
+        const child = spawn(process.execPath, args, { cwd, env: { ...this.env,
             INTERLINKED_HOOK_PROTOCOL: protocol, INTERLINKED_CLIENT: "claude", INTERLINKED_NO_SELF_HEAL: "1" } });
         const completion = childCompletion(child, 60_000);
         child.stdin?.end(JSON.stringify({ ...call.payload, hook_event_name: event, session_id: sessionId,
-            cwd: this.cwd, tool_name: call.tool, tool_input: call.input }));
+            cwd, tool_name: call.tool, tool_input: call.input }));
         const output = await completion;
         assert(child.pid);
         const rows = readFileSync(receiptPath).subarray(offset).toString("utf8").trim().split("\n").filter(Boolean).map((line) => parseReceipt(JSON.parse(line))).filter((row) => row.hook_pid === child.pid);
@@ -223,7 +226,8 @@ export class E2eFixture {
             writeFileSync(path, buildHookScript("e2e"));
             return [path];
         }
-        return [join(this.buildRoot, "dist/hook-entry.js"), "--runner", "claude-code", "--event", event, "--socket", socket];
+        return [join(this.buildRoot, "dist/hook-entry.js"), "--runner", "claude-code", "--event", event,
+            ...(call.discoverSocket ? [] : ["--socket", socket])];
     }
 
     assertServed(result: HookResult): void {

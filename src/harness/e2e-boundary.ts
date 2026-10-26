@@ -64,5 +64,5 @@ export function isBoundaryFile(file: string): boolean {
     return writers.has(path) || /^src\/hook-entry[^/]*\.ts$/.test(path)
         || path.startsWith("src/harness/adapters/") || path.startsWith("src/harness/server/")
         || isGeneratedHookSource(path) || /^src\/lib\/hook-installers[^/]*\.ts$/.test(path)
-        || /^(?:src\/lib\/hooks|src\/harness\/(?:server|daemon-client|legacy-client|session-paths|startup-lock)|src\/harness\/evaluator\/(?:pre-tool|pre-tool-pipeline|post-tool))\.ts$/.test(path);
+        || /^(?:src\/lib\/(?:hooks|interlinked-root)|src\/harness\/(?:server|daemon-client|legacy-client|session-paths|startup-lock)|src\/harness\/evaluator\/(?:pre-tool|pre-tool-pipeline|post-tool))\.ts$/.test(path);
 }
