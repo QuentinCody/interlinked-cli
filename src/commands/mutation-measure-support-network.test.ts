@@ -48,6 +48,25 @@ describe("resolveEndpoints — negative (must not fire)", () => {
 });
 
 describe("networkMeasure — positive (must fire)", () => {
+    it("keeps the retained-result GET bodyless and preserves its abort signal", async () => {
+        const response = new Response("{}", { status: 200 });
+        const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+        const measureFile = vi.fn<typeof import("../harness/mutation/measure.js").measureFile>(async (args) => {
+            const signal = new AbortController().signal;
+            const headers = { authorization: "Bearer test-token" };
+            expect(await args.fetchImpl("https://runner", { method: "POST", headers, body: "{}", signal })).toBe(response);
+            expect(await args.claimFetch?.("https://runner/job/retained", { method: "GET", headers, signal })).toBe(response);
+            expect(fetchSpy.mock.calls).toEqual([
+                ["https://runner", { method: "POST", headers, body: "{}", signal }],
+                ["https://runner/job/retained", { method: "GET", headers, signal }],
+            ]);
+            return { status: "measured", mutantCount: 1, survivorCount: 0, survivors: [] };
+        });
+        try {
+            await networkMeasure(measureFile)({ file: "src/a.ts", content: "export const x = 1;", overlays: [], endpoints: ["https://runner"] });
+        } finally { fetchSpy.mockRestore(); }
+    });
+
 	it("P1: forwards required fields and omits optional ones when absent", async () => {
 		const measureFile = vi.fn<typeof import("../harness/mutation/measure.js").measureFile>(async () => ({ status: "measured", mutantCount: 1, survivorCount: 0, survivors: [] }));
 		const measure = networkMeasure(measureFile);

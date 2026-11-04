@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as checkPolicy from "../harness/check-policy.js";
 import * as measureModule from "../harness/mutation/measure.js";
+import * as measureSupport from "./mutation-measure-support.js";
 import { c, header, kvLine, stripAnsi } from "../lib/formatter.js";
 import {
 	mutationAcceptCommand,
@@ -840,6 +841,34 @@ describe("mutationMeasureCommand", () => {
 		expect(io.mocks().stderr).toContain("No mutation runner configured");
 	});
 
+    it("resolves the target from the process directory when --cwd is omitted", async () => {
+        const cwd = vi.spyOn(process, "cwd").mockReturnValue(tmp);
+        const fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => strykerBody("Killed") }));
+        vi.stubGlobal("fetch", fetch);
+        try {
+            await mutationMeasureCommand(FILE, { runnerUrl: "http://runner/", skipPreflight: true, json: true });
+            expect(JSON.parse(io.mocks().stdout)).toMatchObject({ file: FILE, status: "measured" });
+            expect(fetch).toHaveBeenCalledTimes(1);
+            expect(io.mocks().exitCode).toBeFalsy();
+        } finally {
+            cwd.mockRestore();
+        }
+    });
+
+    it("identifies a local refusal even if its optional reason is absent", async () => {
+        const measure = vi.spyOn(measureSupport, "measureOneFile").mockResolvedValue({
+            file: FILE, status: "red_suite", mutants: 0, survivors: 0, survivorList: [], record: null, notes: [],
+        });
+        try {
+            await mutationMeasureCommand(FILE, { cwd: tmp });
+            expect(io.mocks().stderr).toContain("red_suite");
+            expect(io.mocks().exitCode).toBe(1);
+            expect(manifestExists(tmp)).toBe(false);
+        } finally {
+            measure.mockRestore();
+        }
+    });
+
 	// `--skip-preflight` behavior pin. The green-suite pre-flight refuses to
 	// spend a multi-minute engine run against a RED suite, because a failing
 	// suite makes the engine report every mutant it touches as killed. When it
@@ -888,6 +917,20 @@ describe("mutationMeasureCommand", () => {
 		expect(parsed.record).toBeNull();
 		expect(manifestExists(tmp)).toBe(false);
 	});
+
+    it.each([undefined, { attempts: 1, resumed: true }])("exposes request provenance or explicit absence in JSON (%j)", async (request) => {
+        const measure = vi.spyOn(measureModule, "measureFile").mockResolvedValue({
+            status: "measured", mutantCount: 1, survivorCount: 0, survivors: [],
+            ...(request ? { request } : {}),
+        });
+        try {
+            await mutationMeasureCommand(FILE, { cwd: tmp, runnerUrl: "http://runner/", skipPreflight: true, json: true });
+            const parsed = JSON.parse(io.mocks().stdout);
+            expect(parsed.status).toBe("measured");
+            expect(parsed.request).toEqual(request ?? null);
+            expect(io.mocks().exitCode).toBeFalsy();
+        } finally { measure.mockRestore(); }
+    });
 
 	it("P2: --record folds a clean run into mutation-manifest.json with a real before/after delta", async () => {
 		vi.stubGlobal(

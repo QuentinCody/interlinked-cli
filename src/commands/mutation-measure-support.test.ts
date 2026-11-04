@@ -107,6 +107,13 @@ describe("spawnVitestSuite", () => {
 });
 
 describe("renderMeasureCommand — outcome rendering", () => {
+    it("labels a partial report with no supplied detail as incomplete evidence", () => {
+        const rendered = renderMeasureCommand(FILE, {
+            status: "partial", mutantCount: 1, survivorCount: 0, survivors: [],
+        }, null);
+        expect(rendered).toContain("PARTIAL — NOT RECORDED: incomplete evidence");
+        expect(rendered).not.toContain("undefined");
+    });
 	it("renders a not_measurable outcome with its reason", () => {
 		const outcome: MeasureOutcome = {
 			status: "not_measurable",
@@ -537,6 +544,21 @@ describe("measureOneFile", () => {
 		expect(result.survivors).toBe(1);
 		expect(result.mutants).toBe(1);
 	});
+
+    it.each([
+        { attempts: 1, resumed: true, expected: "the same execution, observed again" },
+        { attempts: 2, resumed: false, expected: "measurement ran 2 times" },
+    ])("preserves request provenance and explains $expected", async ({ attempts, resumed, expected }) => {
+        const request = { attempts, resumed };
+        const result = await measureOneFile({
+            ...base(),
+            measure: async () => ({ ...measuredOutcome(report("Killed")), request }),
+        });
+        expect(result.request).toEqual(request);
+        expect(result.notes.join("\n")).toContain(expected);
+        expect(result.notes.some(note => note.startsWith("WARNING:"))).toBe(attempts > 1);
+        expect(result.notes.some(note => note.startsWith("NOTE:"))).toBe(resumed);
+    });
 
 	it("P1b: records the filename-fallback measurement regime when no graph tests are available", async () => {
 		let seenScope: string[] | undefined;

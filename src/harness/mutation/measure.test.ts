@@ -1364,7 +1364,10 @@ describe("recordMeasurement — the only write path, and it goes through seedFil
 		expect(result.reason).toBe("the runner reported zero mutants for this file — nothing to record");
 	});
 
-	it("threads BOTH `cwd` and `provenance` to the SAME normalized key the before/after summary reads back", () => {
+	it.each([
+        { file: "/repo/root/src/a.ts", cwd: "/repo/root" },
+        { file: FILE },
+    ])("stamps provenance under the normalized target key (%j)", (target) => {
 		// test-contract: invariant — before/after/fileProvenance are all keyed
 		// by normalizeManifestKey(file, cwd); if cwd failed to reach either the
 		// seeding call or the provenance stamp, the write would land under a
@@ -1373,11 +1376,10 @@ describe("recordMeasurement — the only write path, and it goes through seedFil
 		const base = emptyManifest(META);
 		const result = recordMeasurement({
 			base,
-			file: "/repo/root/src/a.ts",
+			...target,
 			content: CONTENT,
 			rawReport: report("Survived"),
 			at: "t1",
-			cwd: "/repo/root",
 			provenance: { scope: "unknown", testCount: 6, surface: "measure" },
 		});
 		expect(result.recorded).toBe(true);
