@@ -6,6 +6,10 @@ dist/
 # Dependencies
 node_modules/
 
+# Cargo outputs created when exercising the Rust E2E fixture.
+/src/harness/project-e2e/__fixtures__/rust-cli/target/
+/src/harness/project-e2e/__fixtures__/rust-cli/Cargo.lock
+
 # Lockfile for the alternate package manager we don't use — keep npm's only
 pnpm-lock.yaml
 yarn.lock
@@ -186,6 +190,7 @@ scripts/internal/*
 !scripts/function-token-migration-benchmark.ts
 !scripts/benchmark-tests.mjs
 !scripts/run-resource-bounded.ts
+!scripts/generate-managed-push-manifest.mjs
 !scripts/build-atomic.mjs
 !scripts/build-atomic-cli.mjs
 !scripts/build-atomic.test.mjs
@@ -401,6 +406,11 @@ docs/investigation-*.md
 docs/structure-validation-prompt.md
 docs/test-quality-harness-plan.md
 .interlinked/hook-runtime.json
+
+# Raw relation study outputs stay local; commit readable reports and root policy.
+/semantic-relations/studies/**
+!/semantic-relations/studies/**/
+!/semantic-relations/studies/**/*.md
 !.interlinked/coverage-e2e-baseline.json
 .interlinked/semantic.local.json
 
