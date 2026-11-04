@@ -1188,6 +1188,14 @@ elapsed time, failures and sampled process-tree RSS. Add `--full --coverage` for
 actual full coverage workload and `--iterations=3` for repeated measurements. Sample
 speedups alone do not establish a safe CI or pre-push default.
 
+The repository's E2E-capable build and deterministic E2E preflight run before that
+suite. Malformed baselines, unresolved inventory moves, invalid source maps or unsafe
+report destinations therefore fail before unit execution. Preflight is explicitly unmeasured:
+the E2E run, merge and strict measured ratchet remain required. Build fingerprints
+exclude untracked runtime-state files only when current build-input analysis proves
+they are not inputs; tracked files, declaration inputs, copied assets and uncertain
+cases remain bound. This does not authorize ignoring runtime files in test receipts.
+
 The gate copies the local coverage baseline into the export and checks that every
 changed, previously baselined runtime source is measured in that export's report,
 including when other changed files are present. A reporter captures the native
@@ -1226,7 +1234,8 @@ that captured shards ACCEPTS its proposal before returning (a proposal the
 current bytes no longer match is no verdict). The test child's environment
 identity excludes the supervisor's own variables and the shell's working
 directory (`PWD`, `OLDPWD`, `INIT_CWD`), so two exports of one revision share
-one identity. The pre-push hook runs this route in COMPARISON MODE — after a measured
+one identity. The pre-push hook runs this route only when explicitly enabled with
+`INTERLINKED_PRE_PUSH_COVERAGE_COMPARE=1`, in COMPARISON MODE — after a measured
 regression immediately (nothing follows), after a passing verdict LAST, once
 e2e and packaging have judged the export (the comparison runs tests in that
 export; no authoritative gate reads bytes it could have modified); only a
@@ -1234,12 +1243,14 @@ partial or unmeasured result compares nothing — and appends `{push_sha, full, 
 `.interlinked/coverage-index-comparison.jsonl` (`interlinked query
 coverage-compare`); it never decides the push, and promotion waits on that
 ledger agreeing over recorded pushes (`INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE=1`
-skips it for one push). Since 2026-10-02 the comparison runs in a DETACHED
+takes precedence and skips it for one push). When enabled, the comparison runs in a DETACHED
 background job that owns the export: the push returns as soon as the
 authoritative gates finish, the job appends the same row, writes its notes to
 `.interlinked/coverage-index-compare.log` and removes the export when done
 (`INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND=1` keeps it inline; the hook tests use
-that). Measured on this repository (2507 test shards, an
+that). Indexed checks and warm runs propagate SIGINT/SIGTERM through discovery and
+capture; cancellation prevents accepted summary/proposal promotion and exits without
+a verification verdict. Measured on this repository (2507 test shards, an
 export, 2026-09-30, supervised, one worker — `--workers`, default 1: three
 instrumented workers exceeded the 4 GiB tree budget): the first full index
 run 1679 s (961 s unsupervised with three workers on 2026-09-29), a re-run of

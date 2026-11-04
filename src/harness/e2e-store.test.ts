@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { checkE2eBaseline, type E2eStoreDeps } from "./e2e-store.js";
 import { type E2eEntry } from "./e2e-ratchet.js";
 
@@ -23,6 +23,14 @@ function report(root: string, pct: number): void {
 }
 
 describe("e2e baseline transactions", () => {
+    it("reports unresolved inventory identity before opening a report or validating measured evidence", async () => {
+        const { root, path, deps } = setup();
+        const original = readFileSync(path, "utf8");
+        const evidence = vi.fn(async () => undefined);
+        await expect(checkE2eBaseline({ root }, { ...deps, inventory: () => ["B"], evidence })).rejects.toThrow("UNRESOLVED");
+        expect(evidence).not.toHaveBeenCalled();
+        expect(readFileSync(path, "utf8")).toBe(original);
+    });
     it.each([[60, 55], [55, 60]])("serializes competing %i and %i writers against the latest floor", async (first, second) => {
         const { root, path, deps } = setup();
         let entered!: () => void;

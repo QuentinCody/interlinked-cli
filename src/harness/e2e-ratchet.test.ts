@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareE2e, moveE2e, parseE2eBaseline, parseE2eReport, retireE2e, type E2eEntry } from "./e2e-ratchet.js";
+import { compareE2e, moveE2e, parseE2eBaseline, parseE2eReport, preflightE2eComparison, retireE2e, type E2eEntry } from "./e2e-ratchet.js";
 
 function entry(covered: number, total = 100): E2eEntry {
     const pct = Math.floor(covered / total * 10_000 + 1e-8) / 100;
@@ -17,6 +17,15 @@ describe("strict e2e ratchet counterexamples", () => {
     });
     it("requires an explicit decision for a deletion plus a new path", () => {
         expect(() => compareE2e(context({ A: entry(90) }, { C: entry(10) }))).toThrow("UNRESOLVED");
+    });
+    it("detects unresolved identity before measurement while preserving mapped floors for the final check", () => {
+        const input = { before: { A: entry(90) }, base: {}, inventory: ["B"], mappings: [] };
+        expect(() => preflightE2eComparison(input)).toThrow("UNRESOLVED");
+        const mapped = { ...input, mappings: ["A=B"] };
+        expect(preflightE2eComparison(mapped)).toEqual({ B: entry(90) });
+        expect(input.before).toEqual({ A: entry(90) });
+        expect(() => compareE2e({ ...mapped, report: { B: entry(89) } })).toThrow("fell");
+        expect(compareE2e({ ...mapped, report: { B: entry(90) } })).toEqual({ B: entry(90) });
     });
     it("preserves a dirty-tree or rewritten rename floor without any commit anchor", () => {
         expect(() => compareE2e(context({ B: entry(90) }, { C: entry(10) }, { mappings: ["B=C"] }))).toThrow("C");

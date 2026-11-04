@@ -1,12 +1,31 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { readFileSync, readdirSync } from "node:fs";
+import { accessSync, constants, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fingerprintBuildInputs } from "./build-input-fingerprint.mjs";
 export { fingerprintBuildInputs } from "./build-input-fingerprint.mjs";
 
 export const hashBytes = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+/** Check destinations before the runner invalidates old evidence or starts any child. */
+export function assertE2eReportDestination(root) {
+    const directory = join(root, "coverage-e2e");
+    for (const path of [directory, join(directory, "runs")]) {
+        const stat = lstatSync(path, { throwIfNoEntry: false });
+        if (!stat) continue;
+        assert(stat.isDirectory(), `E2e report directory must be a real directory: ${path}`);
+        accessSync(path, constants.W_OK);
+    }
+    accessSync(lstatSync(directory, { throwIfNoEntry: false }) ? directory : root, constants.W_OK);
+    for (const name of ["run.json", "coverage-summary.json", "inventory.json", "coverage-final.json"]) {
+        const path = join(directory, name);
+        const stat = lstatSync(path, { throwIfNoEntry: false });
+        if (!stat) continue;
+        assert(stat.isFile(), `E2e report destination must be a regular file: ${path}`);
+        accessSync(path, constants.W_OK);
+    }
+}
 
 function treeFiles(directory) {
     return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {

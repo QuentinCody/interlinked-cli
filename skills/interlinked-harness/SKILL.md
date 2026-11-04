@@ -23,6 +23,25 @@ Remote-pipe detection permits interpreter inline programs preceded by bare flags
 (for example, `curl URL | python3 -I -c '...'`), where stdin is data. Shell sinks
 retain their existing remote-execution block.
 
+For recognized protected pushes in this repository, Codex and Claude can receive a
+native command replacement that makes Git's exact-revision pre-push hook the sole
+owner of typecheck and test execution. The replacement pins Git/Node, verifies a
+private snapshot of the recognized hook and its helper runtime, and forces Git to
+use that hook. Git still supplies the actual ref updates and pushed SHAs. This is
+not a cached passing verdict, and every other pre-tool guard remains active.
+
+Recognition is intentionally narrow: a plain `git push <named-remote> <protected-ref>`
+from the repository root, with supported literal output redirection. Compound
+commands, environment/config overrides, unsupported clients, custom/missing/changed
+hooks or unavailable snapshots retain legacy checks. A prepared command whose
+snapshot or execution context changes refuses the push. Do not weaken guards or
+use bypass flags to force the handoff. See `docs/verification-efficiency.md`.
+
+When maintaining this repository's gate or its helper runtime, regenerate the
+reviewed trust map with `node scripts/generate-managed-push-manifest.mjs` and run
+the same command with `--check`. A stale map disables recognition; it does not
+authorize skipping the legacy checks. Native client approval policies still apply.
+
 `[interlinked:decision-metrics]` is opt-in PostToolUse semantic advice. It can report
 an adverse judgment, uncertainty, failure or missing evidence, but it never sets a
 pre-execution block or authorizes an action. Both flags in
@@ -692,3 +711,21 @@ when checking commits and baseline writes. Read-only shell examples are not edit
 A thrown sequence detector or failed Stop scan records NOT CHECKED evidence while healthy detectors continue. Stop rescans are confined to the selected repository, including resolved symlink targets. External memory/config writes retained in session history are reported out of scope; they cannot launch another project's scan or receive repository check receipts. Project-aware detectors receive absolute paths in that repository. Endpoint checks build a project graph only when a finding requires reachability annotation. An instrumentation failure is not a source violation or a clean scan. LTL remains shadow-only: its event-clock.v1 counts PreToolUse and PostToolUse separately, including a paired tool-use ID. Open finite-trace obligations remain unknown at Stop; predicate exceptions taint that property and cannot manufacture violations. No local control-file guard is an immutable security boundary.
 
 Each throwing trajectory rule produces unavailable shadow telemetry while peer rules and the LTL monitor continue. Adapter failures also retain unavailable telemetry without changing the enforcement decision.
+
+## Opt-in TypeScript history at Stop
+
+`verification_stop_checks.session_tsc_history` defaults to `false`. Setting it
+to `true` appends advisory context only when the existing unverified-code Stop
+warning already fires. It reads up to the final 8 MiB of this repository's
+`.interlinked/check-results.jsonl`, using only the same session's executed
+TypeScript outcomes strictly before Stop and within the preceding hour.
+At least three valid runs and `(finding runs + 1) / (runs + 2) >= 0.5` are
+required; the latest valid run must still report a finding. Counted outcomes
+must carry a nonempty invocation ID; repeated IDs count only once. Missing, skipped,
+deferred, timeout and process/resource failure evidence does not count as a
+clean run. A later no-reported-findings result suppresses the addendum.
+
+This is a reported-finding history hint, not proof of full compile failure or
+success, not a per-edit risk score, and never a hard block. It does not change
+the TypeScript scheduler. Partial or unavailable log history can suppress the
+hint. Continue to use actual verification evidence for the final outcome.

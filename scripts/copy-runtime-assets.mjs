@@ -1,5 +1,5 @@
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 
 // Runtime assets that must accompany the bundled JS in `dist/`. The OPF
 // content-scanner's default config (`harness/rules/default-config.ts`)
@@ -9,6 +9,12 @@ import { dirname, join, resolve } from "node:path";
 // covered: `dist/sidecars/<file>` and `dist/sidecars/calibrations/<file>`
 // (see `resolveDefaultOpfSidecarScript` / `resolveDefaultOpfCalibrationPath`).
 const ASSETS = [
+	// Fingerprint analysis runs in a short-lived compiler process from source,
+	// the CLI bundle, and the nested daemon bundle.
+	{
+		from: "scripts/e2e-declaration-inputs.mjs",
+		to: "e2e-declaration-inputs.mjs",
+	},
 	{
 		from: "src/harness/content-scanner/sidecars/opf-sidecar.py",
 		to: "sidecars/opf-sidecar.py",
@@ -42,6 +48,11 @@ const ASSETS = [
 	},
 ];
 
+/** Explicit non-module inputs shared with the build fingerprint's runtime-state exclusion. */
+export function runtimeAssetInputs() {
+    return ASSETS.map((asset) => asset.from);
+}
+
 function copyDirectory(sourceRoot, destinationRoot) {
     for (const entry of readdirSync(sourceRoot, { withFileTypes: true })) {
         const source = join(sourceRoot, entry.name);
@@ -64,6 +75,8 @@ export function copyRuntimeAssets(
     sourceRoot = process.cwd(),
 ) {
     const outputRoot = resolve(outputDirectory);
+    // Research freezes retain the exact relation implementation used by published CLIs.
+    copyRelationSources(sourceRoot, outputRoot);
     for (const asset of ASSETS) {
         const src = join(sourceRoot, asset.from);
         const dest = join(outputRoot, asset.to);
@@ -84,4 +97,32 @@ export function copyRuntimeAssets(
         if (!existsSync(join(source, "SKILL.md"))) continue;
         copyDirectory(source, join(outputRoot, "skills", entry.name));
     }
+}
+
+function copyRelationSources(sourceRoot, outputRoot) {
+    const copiedRelationSources = new Set();
+    const copyRelationSource = (source) => {
+        const relativePath = relative(sourceRoot, source);
+        if (relativePath.startsWith("..") || copiedRelationSources.has(source) || !existsSync(source) || !statSync(source).isFile()) return;
+        copiedRelationSources.add(source);
+        const destination = join(outputRoot, "relation-source", relativePath);
+        mkdirSync(dirname(destination), { recursive: true }); copyFileSync(source, destination);
+        const content = readFileSync(source, "utf8");
+        for (const match of content.matchAll(/(?:from\s*|import\s*\(\s*|import\s*)["'](\.[^"']+)["']/g)) {
+            const base = resolve(dirname(source), match[1]).replace(/\.js$/, ".ts");
+            const dependency = [base, `${base}.ts`, join(base, "index.ts")].find(p => existsSync(p) && statSync(p).isFile());
+            if (dependency) copyRelationSource(dependency);
+        }
+    };
+    for (const relativePath of ["harness/semantic-graph", "lib/decision-metrics"]) {
+        const source = join(sourceRoot, "src", relativePath);
+        if (existsSync(source)) for (const name of readdirSync(source)) if (name.endsWith(".ts") && !name.includes(".test.")) copyRelationSource(join(source, name));
+    }
+    for (const relativePath of ["commands/metrics-relations.ts", "registrars/metrics-relations.ts"]) {
+        const source = join(sourceRoot, "src", relativePath);
+        if (existsSync(source)) {
+            copyRelationSource(source);
+        }
+    }
+    for (const name of ["package.json", "package-lock.json"]) if (existsSync(join(sourceRoot, name))) copyRelationSource(join(sourceRoot, name));
 }

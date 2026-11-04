@@ -5,6 +5,13 @@ description: "Run `interlinked verify`, understand the PostToolUse quality check
 
 # interlinked-verify — check your work & land edits through the gates
 
+`verify --all-checks` also includes the advisory catalogue for README command
+drift, unread configuration keys and summary coverage of observed file touches.
+These checks are omitted with `--only`; `--skip` still applies. Unavailable inputs
+remain counted separately. Summary evidence is session history, not a net Git diff,
+and lexical command/configuration findings require source review. Per-check timing
+is supplementary telemetry and never substitutes for a completed check.
+
 The experimental `metrics decisions` pipeline is separate from `verify` and its
 check registry. Its opt-in PostToolUse warnings are advisory, use actual pre-edit
 hashes, and retain failures/budget exclusions as unmeasured outcomes. They do not
@@ -722,7 +729,27 @@ their existing request deadline; edit callers that decline waiting still defer p
 Waiting supplies no verdict. The bounded wrapper preserves smaller absolute
 `NODE_OPTIONS` heap limits and refuses ambiguous or percentage overrides.
 
+For this repository's protected pushes, the managed push handoff can make the
+exact-revision Git gate the single validation owner on native clients that support
+command replacement. Unknown hooks, unsupported commands or an unavailable handoff
+retain the legacy checks. See **interlinked-harness** and
+`docs/verification-efficiency.md` for the recognition and fallback boundaries.
+
+The repository gate builds the E2E-capable CLI once, then runs
+`node scripts/e2e-preflight.mjs` before the full unit suite. This checks inventory,
+baseline, declared moves, build maps and report destinations; it does not measure
+coverage. The E2E execution and final strict measured coverage gate still run afterward.
+Optional coverage-index comparison now requires
+`INTERLINKED_PRE_PUSH_COVERAGE_COMPARE=1`; its existing skip flag takes precedence.
+It supplies advisory comparison evidence and cannot replace the full suite.
+
 ## Select, explain and resume tests
+
+When a bounded edit request already requires the full suite, the scheduler retains
+its durable obligation and records `budget-exceeded` before project/host admission,
+test discovery or runtime hashing. This preserves the existing full-suite budget
+policy; it is not a test pass. An already valid shared completion is checked first,
+and an unbounded `tests run` can still discharge the pending request.
 
 For substantial changes, identify the required verification scope before executing it.
 Record completed checks, the inputs they covered and unresolved work in the task plan.
@@ -1562,3 +1589,24 @@ The fast-check wrapper binds replay to engine/runtime, test source, lockfile and
 The weekly evidence audit is advisory, owned by the repository maintainer, bounded to 15 minutes of verification with 14-day artifacts. Inspect NOT CHECKED and incomplete output before interpreting finding counts. Lexical property-weakening candidates failed paired-intent calibration, so this work adds no pre_warn/pre_block policy for them. Skill tokens are diagnostic (`python3 scripts/skill-token-cost.py`), with no hard budget.
 
 `INTERLINKED_FC_EXPLORE=1` bypasses the fixed CI seed, including an explicit `INTERLINKED_FC_CI_SEED`. The weekly exploration step visibly fails on failed tests; an always-run summary consumes its JSON and reports passed, failed or unavailable. A missing or zero-test report is not success. The workflow is an advisory lane, not a required merge gate.
+
+## Edit-time shared-helper overlap advisory
+
+`extracted_helper_duplicate` remains a heuristic `pre_warn` advisory and a default
+verify skip. Its partial arm compares newly introduced named functions against bounded
+same-directory siblings; no-op/post-edit scans remain silent. Existing whole-body
+similarity/move handling is unchanged and can also compare introduced functions
+internally, including same-file parent/callback overlap. The partial path recognizes five contiguous
+AST statements with matching literals, property names and local binding relationships,
+including alpha-renamed locals. It excludes direct relative import edges and windows
+whose break/continue targets lie outside the block. Scans are capped at 40 sibling
+files of 256KiB each, 20,000 traversal visits and 256 windows per file; missing optional
+TypeScript is NOT MEASURED, and invalid syntax yields no partial-overlap claim.
+
+A partial-overlap message asks for review of shared logic while preserving behavioral
+differences. It does not prove semantic equivalence, safe extraction, a requirement to
+reuse, or net savings after parameters/imports/return plumbing. Common setup may be
+worth retaining. Inspect each caller and its context before changing an abstraction.
+Same-file overlaps are excluded from the partial arm; already-existing functions are
+outside both arms under the name-based edit delta;
+an empty result is not a whole-repository duplication audit.

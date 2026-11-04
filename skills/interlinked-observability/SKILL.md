@@ -494,6 +494,13 @@ never writes a row; a write failure is silent. Rows the pre-push hook writes
 inside its disposable export land in the source checkout through
 `INTERLINKED_STAGES_LEDGER`.
 
+Legacy asynchronous Git pre-tool checks now write `pre-tool:project-typecheck`
+and `pre-tool:project-tests` rows, including admission and execution times and
+available process-tree memory observations. One caller owns each row; observers
+do not create duplicate rows. A missing RSS sample is absent or null, never zero. Resource
+waiting and failed admission are not passing evidence. See
+`docs/verification-efficiency.md` for the corresponding execution changes.
+
 ```bash
 interlinked query stages --by reuse_denied_reason        # why results are not reused
 interlinked query stages --where check=coverage:index    # Unit 7: the index route (reused = no shard re-ran; unavailable rows carry the reason)

@@ -77,11 +77,12 @@ Commands:
   scratch                                    Manage the sanctioned session/agent-script home (<repo>/scratch/)
   search [options] <query>                   Search the local codebase (ripgrep with native fallback)
   semantic                                   Build and query the optional local semantic function index
+  semantic-graph                             Read the opt-in semantic graph (typed edges judged by a decision model; ranks, never gates)
   send [options] <to> [message]              Send a message to an agent
   setup [options]                            One-command setup: install hooks, configure server, authenticate
   simplify                                   Simplification evidence, explicit recording, and Agent CI handoff preparation
   skill                                      Skill marker management (scopes distilled rules via active_when)
-  spec                                       Spec-substrate utilities (fact ledger, review agenda)
+  spec                                       Spec-substrate utilities (fact ledger, review agenda, sentence citations)
   sponsor                                    Opt-in sponsor slot on the statusline (free-sponsor phase)
   status [options]                           Dashboard: local sessions, recent activity, sync status
   structure                                  Generic artifact structure management (manifests, catalogs, adoption)
@@ -1361,6 +1362,9 @@ Options:
   -h, --help                     display help for command
 
 Commands:
+  relations                      Experimental invariant, coupling, and
+                                 before/after judgments over pinned graph
+                                 evidence
   init [options]                 Write a disabled, local-first decision
                                  configuration
   catalog [options]              Show versioned metric contracts and the

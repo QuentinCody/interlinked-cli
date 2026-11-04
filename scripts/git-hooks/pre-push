@@ -86,7 +86,9 @@ bounded() {
     local outcome
     outcome="$(bounded_outcome_file)"
     rm -f "$outcome"
-    INTERLINKED_BOUNDED_OUTCOME="$outcome" node --max-old-space-size=128 --import tsx "$hook_dir/../run-resource-bounded.ts" "$@"
+    # Resolve the loader beside this hook, including a managed snapshot; the
+    # revision export's working directory must not substitute another loader.
+    INTERLINKED_BOUNDED_OUTCOME="$outcome" node --max-old-space-size=128 --import "$hook_dir/../../node_modules/tsx/dist/loader.mjs" "$hook_dir/../run-resource-bounded.ts" "$@"
     local status=$?
     case "$(bounded_verdict)" in
         not-run) echo "[pre-push] NOT RUN (host capacity or memory unavailable; nothing failed): $*" ;;
@@ -118,10 +120,12 @@ report_gate_failure() {
 # changed re-run — and append both verdicts to
 # `.interlinked/coverage-index-comparison.jsonl`. Promotion of the index route
 # waits on this ledger: verdicts and file counts must agree over recorded pushes.
-# Opt out per push with INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE=1. Reads the
+# Opt in per push with INTERLINKED_PRE_PUSH_COVERAGE_COMPARE=1; the existing
+# INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE=1 takes precedence. Reads the
 # caller's gate_dir / push_sha / cov_files (bash dynamic scope).
 coverage_index_compare() {
     local full_json="$1" index_json index_exit
+    [ "${INTERLINKED_PRE_PUSH_COVERAGE_COMPARE:-0}" = "1" ] || return 0
     [ "${INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE:-0}" = "1" ] && return 0
     echo "[pre-push] coverage index comparison (advisory) for $push_sha..."
     # stdout is the JSON verdict; the route's notes stay on stderr, visible to the pusher. NOT under `bounded`, for
@@ -158,6 +162,7 @@ coverage_index_compare() {
 # EXIT trap removes it underneath the job. INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND=1 keeps it inline.
 coverage_index_compare_handoff() {
     local full_json="$1" owned log job
+    [ "${INTERLINKED_PRE_PUSH_COVERAGE_COMPARE:-0}" = "1" ] || return 0
     [ "${INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE:-0}" = "1" ] && return 0
     if [ "${INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND:-0}" = "1" ]; then
         coverage_index_compare "$full_json"
@@ -203,7 +208,12 @@ run_gate() {
     (cd "$gate_dir" && bounded npm run docs:check) || return 1
     (cd "$gate_dir" && bounded npm run format:check) || return 1
     (cd "$gate_dir" && bounded npm run lint:readability) || return 1
-    if (cd "$gate_dir" && node -e 'process.exit((require("./package.json").scripts||{}).build?0:1)'); then
+    if [ "${INTERLINKED_PRE_PUSH_SKIP_E2E:-0}" != "1" ]; then
+        # build:e2e includes the normal CLI build. Check deterministic inventory,
+        # baseline and move prerequisites before spending a full unit-test run.
+        (cd "$gate_dir" && bounded npm run build:e2e) || return 1
+        (cd "$gate_dir" && bounded node scripts/e2e-preflight.mjs) || return 1
+    elif (cd "$gate_dir" && node -e 'process.exit((require("./package.json").scripts||{}).build?0:1)'); then
         (cd "$gate_dir" && bounded npm run build) || return 1
     fi
     cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | LC_ALL=C sort -u | paste -sd, - || true)"
@@ -301,7 +311,6 @@ fs.mkdirSync(directory, { recursive: true });
 fs.appendFileSync(path.join(directory, "test-events.jsonl"), JSON.stringify({ ts: new Date().toISOString(), kind: "run_end", run_id: `pre-push-skip-${process.pid}-${Date.now()}`, lane: "e2e", status: "skip", skipped: 1, label: "[interlinked:e2e] skipped" }) + "\n");
 NODE
     else
-        (cd "$gate_dir" && bounded npm run build:e2e) || return 1
         (cd "$gate_dir" && CI=1 bounded npm run test:e2e:coverage) || return 1
         (cd "$gate_dir" && bounded node dist/index.js coverage check --lane e2e --strict --require-measured --report coverage-e2e/coverage-summary.json) || return 1
     fi

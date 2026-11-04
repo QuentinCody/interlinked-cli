@@ -4,9 +4,9 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { build } from "esbuild";
-import { assertE2eBuild, fingerprintTestInputs, hashBytes } from "./e2e-evidence.mjs";
+import { assertE2eBuild, assertE2eReportDestination, fingerprintTestInputs, hashBytes } from "./e2e-evidence.mjs";
 import { mergeChildCoverage, mergeStageRow } from "./e2e-coverage-merge.mjs";
+import { preflightE2e } from "./e2e-preflight.mjs";
 import { recordStage } from "./e2e-stage-ledger.mjs";
 
 /** Times one stage of this lane into the verification-stages ledger; a thrown failure is recorded before it propagates. */
@@ -31,14 +31,6 @@ async function runChild(root, args, env, receipt) {
     });
     if (receipt) appendFileSync(receipt, `${JSON.stringify({ pid: child.pid, clean: code !== null })}\n`);
     assert.equal(code, 0, `E2e subprocess failed: ${args.join(" ")}`);
-}
-
-async function inventoryFor(root) {
-    const result = await build({ absWorkingDir: root, entryPoints: ["src/harness/e2e-inventory.ts"], bundle: true,
-        write: false, platform: "node", format: "esm", packages: "external",
-        define: { "import.meta.url": JSON.stringify(pathToFileURL(join(root, "src/harness/e2e-inventory.ts")).href) } });
-    const module = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
-    return module.boundaryInventory(root, JSON.parse(readFileSync(join(root, "dist/metafile-esm.json"), "utf8")));
 }
 
 async function unchanged(root, buildFingerprint, testFingerprint) {
@@ -70,14 +62,14 @@ async function mergeCoverage(root, v8Directory, inventory, children) {
     return merged;
 }
 
-async function main() {
-    const root = realpathSync(process.cwd());
+export async function runE2eCoverage(root) {
+    assertE2eReportDestination(root);
     mkdirSync(join(root, "coverage-e2e"), { recursive: true });
     // Invalidate the previous success before any prerequisite can fail.
     writeFileSync(join(root, "coverage-e2e/run.json"), JSON.stringify({ schema: 1, lane: "e2e", passed: false }));
-    const buildFingerprint = assertE2eBuild(root);
-    const testFingerprint = await fingerprintTestInputs(root);
-    const inventory = await inventoryFor(root);
+    // A standalone measured run may prepare an absent baseline for --init-baseline.
+    // Protected push preflight requires the baseline before any suite executes.
+    const { buildFingerprint, testFingerprint, inventory } = await preflightE2e(root, { requireBaseline: false });
     const runId = randomUUID();
     const directory = resolve(root, "coverage-e2e/runs", runId);
     const v8Directory = join(directory, "v8");
@@ -115,4 +107,6 @@ async function main() {
     process.stdout.write(`Measured ${merged.inventory.length} boundary files from ${children.length} child processes.\n`);
 }
 
-await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+    await runE2eCoverage(realpathSync(process.cwd()));
+}

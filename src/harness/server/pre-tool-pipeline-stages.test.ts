@@ -75,6 +75,12 @@ vi.mock("../project-typecheck-gate.js", () => ({
 	checkProjectTestsCleanAsync: vi.fn(async () : Promise<CheckResultEntry[]> => []),
 }));
 const releaseHeavyProcess = vi.fn<() => void>();
+vi.mock("../verification-stages.js", async importOriginal => ({
+    ...await importOriginal<typeof import("../verification-stages.js")>(), recordVerificationStage: vi.fn(),
+}));
+import { recordVerificationStage } from "../verification-stages.js";
+vi.mock("../managed-push.js", () => ({ prepareManagedPush: vi.fn((): string | null => null) }));
+import { prepareManagedPush } from "../managed-push.js";
 vi.mock("../project-heavy-process-lock.js", () => ({
 	tryAcquireProjectHeavyProcessLease: vi.fn(() => releaseHeavyProcess),
 }));
@@ -232,6 +238,7 @@ beforeEach(() => {
 	vi.mocked(checkProjectTypecheckCleanAsync).mockResolvedValue([]);
 	vi.mocked(checkProjectTestsClean).mockReturnValue([]);
 	vi.mocked(checkProjectTestsCleanAsync).mockResolvedValue([]);
+	vi.mocked(prepareManagedPush).mockReturnValue(null);
 	vi.mocked(tryAcquireProjectHeavyProcessLease).mockReturnValue(releaseHeavyProcess);
 	vi.mocked(loadCoverageFinal).mockReturnValue(null);
 	vi.mocked(snapshotCrap).mockReturnValue(new Map());
@@ -847,15 +854,111 @@ describe("runProjectWideGitGate", () => {
 	it("uses only bounded async gates on the daemon push path", async () => {
 		const pre = allow();
 		await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre);
-		expect(checkProjectTypecheckCleanAsync).toHaveBeenCalledWith("/repo");
+		expect(checkProjectTypecheckCleanAsync).toHaveBeenCalledWith("/repo", { observe: expect.any(Function) });
 		expect(checkProjectTestsCleanAsync).toHaveBeenCalledWith("/repo", {
 			admissionAlreadyHeld: true,
+            observe: expect.any(Function),
 		});
 		expect(checkProjectTypecheckClean).not.toHaveBeenCalled();
 		expect(checkProjectTestsClean).not.toHaveBeenCalled();
 		expect(pre.decision).toBe("allow");
 		expect(releaseHeavyProcess).toHaveBeenCalledTimes(1);
 	});
+
+    it.each([
+        "echo 'git push origin main'", "printf '%s' 'git commit -m example'", "rg 'git push|git commit' src",
+        "# git push origin main\ngit status", "git status # git commit -m example", "cat <<'EOF'\ngit push origin main\nEOF",
+        "node -e 'const example = \"git push origin main\";'", "sh -c 'echo \"git push origin main\"'", "git log --grep='git commit'",
+    ])("does not start expensive checks for shell data: %s", async command => {
+        const event = push(); event.tool_input = { command };
+        runProjectWideGitGate(makeCtx(), event, makeSession(), allow());
+        await runProjectWideGitGateAsync(makeCtx(), event, makeSession(), allow());
+        expect(checkProjectTypecheckClean).not.toHaveBeenCalled();
+        expect(checkProjectTypecheckCleanAsync).not.toHaveBeenCalled();
+        expect(checkProjectTestsClean).not.toHaveBeenCalled();
+        expect(checkProjectTestsCleanAsync).not.toHaveBeenCalled();
+        expect(tryAcquireProjectHeavyProcessLease).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { command: "git push origin main", tests: true },
+        { command: "git commit -m fix", tests: false },
+        { command: "git status && git push origin main", tests: true },
+        { command: "echo ready; git commit -m fix", tests: false },
+        { command: "sh -c 'git push origin main'", tests: true },
+        { command: "bash -lc 'git commit -m fix'", tests: false },
+        { command: "/custom/toolchain/git push origin main", tests: true },
+        { command: '"$TOOLS/git" commit -m fix', tests: false },
+        { command: "./git push --no-verify origin main", tests: true },
+        { command: "env MODE=check command git -C repo push origin main", tests: true },
+        { command: "# preparation\ngit commit -m fix && git push origin main", tests: true },
+        { command: "echo $(git push origin main)", tests: true },
+    ])("retains checks for actual shell invocation $command", async ({ command, tests }) => {
+        const event = push(); event.tool_input = { command };
+        runProjectWideGitGate(makeCtx(), event, makeSession(), allow());
+        await runProjectWideGitGateAsync(makeCtx(), event, makeSession(), allow());
+        expect(checkProjectTypecheckClean).toHaveBeenCalledTimes(1);
+        expect(checkProjectTypecheckCleanAsync).toHaveBeenCalledTimes(1);
+        expect(checkProjectTestsClean).toHaveBeenCalledTimes(tests ? 1 : 0);
+        expect(checkProjectTestsCleanAsync).toHaveBeenCalledTimes(tests ? 1 : 0);
+    });
+
+    it("hands a recognized native push to its pinned hook without duplicate compiler or test runs", async () => {
+        vi.mocked(prepareManagedPush).mockReturnValue("pinned-native-command");
+        const pre = allow();
+        await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre);
+        expect(pre.updated_input).toEqual({ command: "pinned-native-command" });
+        expect(pre.decision).toBe("allow");
+        expect(checkProjectTypecheckCleanAsync).not.toHaveBeenCalled();
+        expect(checkProjectTestsCleanAsync).not.toHaveBeenCalled();
+        expect(tryAcquireProjectHeavyProcessLease).not.toHaveBeenCalled();
+        expect(vi.mocked(recordVerificationStage).mock.calls.map(call => call[1])).toEqual([
+            expect.objectContaining({ check: "pre-tool:managed-push", status: "delegated", reused: false, exec_ms: 0, peak_rss_bytes: null }),
+        ]);
+    });
+
+    it("retains earlier guard decisions and existing native rewrites", async () => {
+        const blocked: HarnessDecision = { decision: "block", reason: "protected policy" };
+        await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), blocked);
+        expect(prepareManagedPush).not.toHaveBeenCalled();
+        const pre = allow(); pre.updated_input = { command: "earlier-rewrite" };
+        await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre);
+        expect(prepareManagedPush).not.toHaveBeenCalled();
+        expect(checkProjectTypecheckCleanAsync).toHaveBeenCalledTimes(1);
+        expect(checkProjectTestsCleanAsync).toHaveBeenCalledTimes(1);
+        expect(pre.updated_input.command).toBe("earlier-rewrite");
+    });
+
+    it("records one observed row per check, preserving a test failure and sampled RSS", async () => {
+        vi.mocked(checkProjectTypecheckCleanAsync).mockImplementationOnce(async (_cwd, options) => {
+            options?.observe?.({ waitMs: 4, execMs: 12 });
+            return [];
+        });
+        vi.mocked(checkProjectTestsCleanAsync).mockImplementationOnce(async (_cwd, options) => {
+            options?.observe?.({ waitMs: 7, execMs: 31, peakRssBytes: 123456, heapLimitMb: 768,
+                resourceBudget: { reserveBytes: 1000000, maxRssBytes: 2000000 } });
+            return [check({ name: "project_tests_clean", severity: "error", message: "actual assertion failed" })];
+        });
+        const pre = allow();
+        await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre);
+        expect(pre.decision).toBe("block");
+        expect(vi.mocked(recordVerificationStage).mock.calls.map(call => call[1])).toEqual([
+            expect.objectContaining({ stage: "push", check: "pre-tool:project-typecheck", status: "passed", wait_capacity_ms: 4, exec_ms: 12, peak_rss_bytes: null }),
+            expect.objectContaining({ stage: "push", check: "pre-tool:project-tests", status: "failed", wait_capacity_ms: 7, exec_ms: 31, peak_rss_bytes: 123456, rss_budget_bytes: 2000000 }),
+        ]);
+    });
+
+    it("records a host interruption as deferred with no fabricated RSS sample", async () => {
+        vi.mocked(checkProjectTestsCleanAsync).mockImplementationOnce(async (_cwd, options) => {
+            options?.observe?.({ waitMs: 8, execMs: 0, resourceReason: "Host reserve unavailable" });
+            return [check({ name: "project_tests_deferred", message: "NOT CHECKED: host reserve" })];
+        });
+        await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), allow());
+        expect(vi.mocked(recordVerificationStage).mock.calls.at(-1)?.[1]).toMatchObject({
+            check: "pre-tool:project-tests", status: "deferred", exec_ms: 0, peak_rss_bytes: null,
+            reuse_denied_reason: "plan-not-reusable:Host reserve unavailable",
+        });
+    });
 
 	it("defers the whole git gate before spawning work when the project lane is busy", async () => {
 		vi.mocked(tryAcquireProjectHeavyProcessLease).mockReturnValueOnce(null);

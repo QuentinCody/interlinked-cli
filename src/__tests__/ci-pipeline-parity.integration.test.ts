@@ -69,7 +69,7 @@ const CI_STEPS: readonly CiStep[] = [
     // Unit 8 — selective CI in comparison mode. None of these gates anything: they record whether a selected
     // subset would have caught every failure the full lanes saw, which only a CI run against an event base can.
     { name: "Upload test report", mirror: "skip", reason: "actions/upload-artifact — CI transport for each full lane's vitest JSON report into select-compare-report; the pre-push hook runs one full suite and has nothing to compare" },
-    { name: "Build CLI", mirror: "skip", reason: "builds dist/ for the select-compare planner only; the build gate itself is package-build in CI and `npm run build` in the hook" },
+    { name: "Build CLI", mirror: "skip", reason: "builds dist/ for the select-compare planner only; the build gate itself is package-build in CI and the shared `npm run build:e2e` artifact in the hook (normal build when E2E is skipped)" },
     { name: "Plan selected tests", mirror: "skip", reason: "scripts/ci-select-compare.mjs select — plans against the CI event base (resolveCiBase); comparison data, tested by ci-select-compare.test.mjs" },
     { name: "Run selected tests", mirror: "skip", reason: "scripts/ci-select-compare.mjs run-selected — runs only the plan's must-run tests (refuses an empty list); continue-on-error, never a verdict — the full lanes stay authoritative" },
     { name: "Upload selection", mirror: "skip", reason: "actions/upload-artifact — CI transport for the selection and the selected run's report" },

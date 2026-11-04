@@ -144,12 +144,18 @@ export function assertE2eTransition(before: E2eFiles, after: E2eFiles, inventory
     assertAggregates(surviving(base, inventory), surviving(after, inventory));
 }
 
-export function compareE2e(input: E2eComparison & { report: E2eFiles }): E2eFiles {
-    assert.deepEqual(Object.keys(input.report).sort(), [...input.inventory].sort(), "Report keys must equal the full inventory");
+/** Resolve identity decisions without requiring coverage measurements. This is not a coverage verdict. */
+export function preflightE2eComparison(input: E2eComparison): E2eFiles {
     const prior = mappedPrior(input);
     const removed = Object.keys(prior).filter((path) => !input.inventory.includes(path));
     const added = input.inventory.filter((path) => !Object.hasOwn(prior, path));
     assert(removed.length === 0 || added.length === 0, `UNRESOLVED: removed ${removed.join(", ")}; new ${added.join(", ")}. Record coverage move or retire first.`);
+    return prior;
+}
+
+export function compareE2e(input: E2eComparison & { report: E2eFiles }): E2eFiles {
+    assert.deepEqual(Object.keys(input.report).sort(), [...input.inventory].sort(), "Report keys must equal the full inventory");
+    const prior = preflightE2eComparison(input);
     for (const [path, entry] of Object.entries(input.report)) {
         parseE2eEntry(entry, path);
         assertFloors(path, entry, [prior[path], input.before[path], input.base[path]]);

@@ -1,4 +1,5 @@
 import { readToolString } from "../evaluator/tool-input-values.js";
+import { listGitInvocations } from "../evaluator/commit-parse.js";
 import { listWithOverflow } from "../finding-overflow.js";
 import {
 	checkProjectTestsClean,
@@ -7,6 +8,9 @@ import {
 	checkProjectTypecheckCleanAsync,
 } from "../project-typecheck-gate.js";
 import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
+import { prepareManagedPush } from "../managed-push.js";
+import type { ProjectProcessObservation, ProjectProcessObserver } from "../project-process-observation.js";
+import { elapsedMs, recordVerificationStage, type VerificationStage } from "../verification-stages.js";
 import type {
 	CheckResultEntry,
 	HarnessDecision,
@@ -119,7 +123,7 @@ async function applyProjectTypecheckGateAsync(
 		event,
 		session,
 		preDecision,
-		await checkProjectTypecheckCleanAsync(ctx.cwd),
+		await observeGitCheck(ctx.cwd, event, isCommit ? "commit" : "push", "typecheck", observe => checkProjectTypecheckCleanAsync(ctx.cwd, { observe })),
 		isCommit,
 	);
 }
@@ -186,11 +190,43 @@ async function applyProjectTestGateAsync(
 		event,
 		session,
 		preDecision,
-		await checkProjectTestsCleanAsync(
-			ctx.cwd,
-			admissionAlreadyHeld ? { admissionAlreadyHeld: true } : {},
-		),
+		await observeGitCheck(ctx.cwd, event, "push", "tests", observe => checkProjectTestsCleanAsync(ctx.cwd,
+            { ...(admissionAlreadyHeld ? { admissionAlreadyHeld: true } : {}), observe })),
 	);
+}
+
+/** One ledger row per legacy check; lower process layers only supply observations. */
+async function observeGitCheck(root: string, event: HarnessEvent, stage: VerificationStage, check: string, work: (observe: ProjectProcessObserver) => Promise<CheckResultEntry[]>): Promise<CheckResultEntry[]> {
+    const started = Date.now();
+    let observation: ProjectProcessObservation | undefined;
+    let results: CheckResultEntry[] | undefined;
+    try {
+        results = await work(value => { observation = value; });
+        return results;
+    } finally {
+        const status = legacyCheckStatus(results, observation);
+        recordVerificationStage(root, { stage, check: `pre-tool:project-${check}`, identity: null, status, reused: false,
+            session: event.session_id, wait_capacity_ms: observation?.waitMs ?? elapsedMs(started), exec_ms: observation?.execMs ?? 0,
+            peak_rss_bytes: observation?.peakRssBytes ?? null,
+            ...(observation?.resourceBudget ? { rss_budget_bytes: observation.resourceBudget.maxRssBytes } : {}),
+            ...(observation?.heapLimitMb !== undefined ? { heap_limit_mb: observation.heapLimitMb } : {}),
+            ...(status === "deferred" ? { reuse_denied_reason: `plan-not-reusable:${observation?.resourceReason ?? results?.[0]?.message ?? "Project check unavailable"}` as const } : {}),
+        });
+    }
+}
+
+function legacyCheckStatus(results: CheckResultEntry[] | undefined, observation: ProjectProcessObservation | undefined): string {
+    if (!results) return "deferred";
+    if (results.some(result => result.severity === "error")) return "failed";
+    if (results.some(result => /deferred|timed_out|failed_to_run/.test(result.name))) return "deferred";
+    if (results.some(result => result.name.endsWith("_skipped"))) return "skipped";
+    return observation ? "passed" : "not-applicable";
+}
+
+/** Share the execution parser used by commit safety gates; quoted examples are data. */
+function gitGateActions(command: string): { isCommit: boolean; isPush: boolean } {
+    const verbs = new Set(listGitInvocations(command).map(invocation => invocation.verb));
+    return { isCommit: verbs.has("commit"), isPush: verbs.has("push") };
 }
 
 /** Run the legacy synchronous commit/push project gate. */
@@ -202,8 +238,7 @@ export function runProjectWideGitGate(
 ): void {
 	if (preDecision.decision !== "allow" || event.tool_name !== "Bash") return;
 	const cmdStr = readToolString(event.tool_input?.command);
-	const isCommit = /\bgit\s+commit\b/.test(cmdStr);
-	const isPush = /\bgit\s+push\b/.test(cmdStr);
+	const { isCommit, isPush } = gitGateActions(cmdStr);
 	if (!isCommit && !isPush) return;
 
 	applyProjectTypecheckGate(ctx, event, session, preDecision, isCommit);
@@ -221,12 +256,13 @@ export async function runProjectWideGitGateAsync(
 ): Promise<void> {
 	if (preDecision.decision !== "allow" || event.tool_name !== "Bash") return;
 	const cmdStr = readToolString(event.tool_input?.command);
-	const isCommit = /\bgit\s+commit\b/.test(cmdStr);
-	const isPush = /\bgit\s+push\b/.test(cmdStr);
+	const { isCommit, isPush } = gitGateActions(cmdStr);
 	if (!isCommit && !isPush) return;
+	if (isPush && !isCommit && !preDecision.updated_input && applyManagedPush(ctx, event, preDecision, cmdStr)) return;
 
 	const releaseHeavyProcess = tryAcquireProjectHeavyProcessLease(ctx.cwd);
 	if (!releaseHeavyProcess) {
+		recordVerificationStage(ctx.cwd, { stage: isCommit ? "commit" : "push", check: "pre-tool:project-git", identity: null, status: "deferred", reused: false, session: event.session_id, wait_capacity_ms: 0, exec_ms: 0, peak_rss_bytes: null, reuse_denied_reason: "capacity-timeout" });
 		const warnings = preDecision.warnings || [];
 		warnings.push(
 			"[interlinked:project_git_gate_deferred] Project-wide typecheck/tests were NOT CHECKED because another heavyweight project check is active. Retry before committing or pushing.",
@@ -243,4 +279,14 @@ export async function runProjectWideGitGateAsync(
 	} finally {
 		releaseHeavyProcess();
 	}
+}
+
+function applyManagedPush(ctx: ServerRuntime, event: HarnessEvent, decision: HarnessDecision, command: string): boolean {
+    const started = Date.now();
+    const replacement = prepareManagedPush(ctx.cwd, command, event.agent_source);
+    if (!replacement) return false;
+    decision.updated_input = { ...event.tool_input, command: replacement };
+    recordVerificationStage(ctx.cwd, { stage: "push", check: "pre-tool:managed-push", identity: null, status: "delegated", reused: false,
+        session: event.session_id, validate_ms: elapsedMs(started), exec_ms: 0, peak_rss_bytes: null });
+    return true;
 }

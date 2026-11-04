@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { assertE2eBuild, validateE2eEvidence } from "../../scripts/e2e-evidence.mjs";
 import { withAsyncFileMutationLock } from "../lib/file-mutation-lock.js";
 import { boundaryInventory } from "./e2e-inventory.js";
-import { assertE2eTransition, compareE2e, moveE2e, parseE2eBaseline, parseE2eReport, retireE2e, type E2eBaseline, type E2eFiles } from "./e2e-ratchet.js";
+import { assertE2eTransition, compareE2e, moveE2e, parseE2eBaseline, parseE2eReport, preflightE2eComparison, retireE2e, type E2eBaseline, type E2eFiles } from "./e2e-ratchet.js";
 
 export const E2E_BASELINE_PATH = ".interlinked/coverage-e2e-baseline.json";
 
@@ -70,6 +70,7 @@ export async function checkE2eBaseline(options: E2eCheckOptions, deps: E2eStoreD
         const before = options.init ? {} : loadE2eBaseline(path).files;
         const inventory = await deps.inventory(options.root);
         const base = deps.base(options.root, options.base);
+        preflightE2eComparison({ before, base, inventory, mappings: options.mappings ?? [] });
         const reportPath = resolve(options.root, options.report ?? "coverage-e2e/coverage-summary.json");
         const bytes = readFileSync(reportPath, "utf8");
         await deps.evidence(options.root, reportPath, inventory);

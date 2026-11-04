@@ -17,6 +17,7 @@ vi.setConfig({ testTimeout: 180_000, hookTimeout: 180_000 });
 const COMMIT_DATE ="2026-01-01T00:00:00Z";
 const FILES = Array.from({ length: 20 }, (_, index) => `src/well${index}.ts`);
 const E2E_SCRIPTS = {
+    build: "echo NORMAL_BUILD_GATE",
     "build:e2e": "echo E2E_BUILD_GATE", "test:e2e:coverage": "echo E2E_TEST_GATE",
     "format:check": "echo FORMAT_GATE", "lint:readability": "echo READABILITY_GATE",
 };
@@ -50,6 +51,7 @@ describe("pre-push coverage integration", () => {
         symlinkSync(join(REPO, "scripts/run-resource-bounded.ts"), join(root, "scripts/run-resource-bounded.ts"));
         symlinkSync(join(REPO, "node_modules"), join(root, "node_modules"));
         write("scripts/ci-packaging.sh", "echo PACKAGE_GATE\n");
+        write("scripts/e2e-preflight.mjs", "console.log('E2E_PREFLIGHT_GATE'); process.exitCode = process.env.COVERAGE_E2E_PREFLIGHT_FAIL === '1' ? 1 : 0;\n");
         write(".gitignore", "coverage/\n.interlinked/\ncaptured.json\nnode_modules\n");
         write("package.json", JSON.stringify({ name: "gate-fixture", scripts: {
             ...E2E_SCRIPTS,
@@ -147,6 +149,7 @@ process.exitCode = result.status ?? 1;
             // not skip this fixture's assertions or change its worker contract.
             // Individual cases can still override these defaults in measurement.
             env: { ...inherited, INTERLINKED_PRE_PUSH_WORKERS: "1", INTERLINKED_PRE_PUSH_SKIP_E2E: "0",
+                INTERLINKED_PRE_PUSH_COVERAGE_COMPARE: "0",
                 INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE: "0", INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND: "1",
                 ...measurement, COVERAGE_CAPTURE: join(root, "captured.json") },
             input: updates.map(({ sha, remote, old }) => `refs/heads/local ${sha} refs/heads/${remote} ${old}\n`).join(""),
@@ -199,10 +202,52 @@ process.exitCode = result.status ?? 1;
         expect(passing.output).toContain("FORMAT_GATE");
         expect(passing.output).toContain("READABILITY_GATE");
         expect(passing.output).toContain("E2E_BUILD_GATE");
+        expect(passing.output.match(/^E2E_BUILD_GATE$/gm)).toHaveLength(1);
+        expect(passing.output).not.toContain("NORMAL_BUILD_GATE");
+        expect(passing.output.indexOf("E2E_PREFLIGHT_GATE")).toBeGreaterThan(passing.output.indexOf("E2E_BUILD_GATE"));
+        expect(passing.output.indexOf("TESTS_RUN_GATE")).toBeGreaterThan(passing.output.indexOf("E2E_PREFLIGHT_GATE"));
+        expect(passing.output.indexOf("E2E_TEST_GATE")).toBeGreaterThan(passing.output.indexOf("TESTS_RUN_GATE"));
         expect(passing.output).toContain("E2E_TEST_GATE");
         expect(passing.output).toContain("E2E_RATCHET_GATE coverage check --lane e2e --strict --require-measured --report coverage-e2e/coverage-summary.json");
         report(false, true);
         expect(run(updates).status).toBe(1);
+    });
+
+    it("stops at invalid E2E prerequisites before either test lane starts", () => {
+        const sha = codeCommit();
+        measurement.COVERAGE_E2E_PREFLIGHT_FAIL = "1";
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status, result.output).toBe(1);
+        expect(result.output).toContain("E2E_PREFLIGHT_GATE");
+        expect(result.output.match(/^E2E_BUILD_GATE$/gm)).toHaveLength(1);
+        expect(result.output).not.toContain("TESTS_RUN_GATE");
+        expect(result.output).not.toContain("TEST_GATE");
+        expect(result.output).not.toContain("E2E_TEST_GATE");
+    });
+
+    it("builds once in normal mode when the existing E2E skip is selected", () => {
+        const sha = codeCommit();
+        measurement.INTERLINKED_PRE_PUSH_SKIP_E2E = "1";
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status, result.output).toBe(0);
+        expect(result.output.match(/^NORMAL_BUILD_GATE$/gm)).toHaveLength(1);
+        expect(result.output).not.toContain("E2E_BUILD_GATE");
+        expect(result.output).not.toContain("E2E_PREFLIGHT_GATE");
+        expect(result.output).toContain("TESTS_RUN_GATE");
+    });
+
+    it("does not start an advisory comparison by default after passing or failing measured coverage", () => {
+        const sha = codeCommit();
+        const updates = [{ sha, remote: "main", old: base }];
+        for (const regression of [false, true]) {
+            report(false, regression);
+            const result = run(updates);
+            expect(result.status, result.output).toBe(regression ? 1 : 0);
+            expect(result.output).not.toContain("INDEX_ROUTE");
+            expect(result.output).not.toContain("continues in the background");
+        }
+        expect(existsSync(join(root, ".interlinked/coverage-index-comparison.jsonl"))).toBe(false);
+        expect(existsSync(join(root, ".interlinked/coverage-index-compare.log"))).toBe(false);
     });
 
     // test-contract: invariant — Unit 7 comparison mode is ADVISORY: after the authoritative full route the hook measures the export through the source checkout's coverage index, appends both verdicts to .interlinked/coverage-index-comparison.jsonl, and neither an index disagreement nor an index with no verdict changes the push's exit
@@ -211,6 +256,7 @@ process.exitCode = result.status ?? 1;
         report();
         const updates = [{ sha, remote: "main", old: base }];
         const ledger = join(root, ".interlinked", "coverage-index-comparison.jsonl");
+        measurement.INTERLINKED_PRE_PUSH_COVERAGE_COMPARE = "1";
         // SAFETY: the ledger is written only by the hook's comparison step, one JSON object per line with exactly these fields.
         const rows = () => readFileSync(ledger, "utf8").trim().split("\n").map(line => JSON.parse(line) as { push_sha: string; agree: boolean; full: { files_checked: number }; index: { exit: number; unavailable?: boolean } });
         const agreeing = run(updates);
@@ -241,7 +287,7 @@ process.exitCode = result.status ?? 1;
     it("runs the index comparison in the background and still records its row", async () => {
         const sha = codeCommit();
         report();
-        measurement = { ...measurement, INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND: "0" };
+        measurement = { ...measurement, INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND: "0", INTERLINKED_PRE_PUSH_COVERAGE_COMPARE: "1" };
         const ledger = join(root, ".interlinked", "coverage-index-comparison.jsonl");
         const pushed = run([{ sha, remote: "main", old: base }]);
         expect(pushed.status, pushed.output).toBe(0);
@@ -257,6 +303,7 @@ process.exitCode = result.status ?? 1;
     it("records the comparison row for a failing full verdict and still refuses the push", () => {
         const sha = codeCommit();
         report(false, true);
+        measurement.INTERLINKED_PRE_PUSH_COVERAGE_COMPARE = "1";
         const updates = [{ sha, remote: "main", old: base }];
         const ledger = join(root, ".interlinked", "coverage-index-comparison.jsonl");
         const regression = run(updates);
@@ -267,6 +314,7 @@ process.exitCode = result.status ?? 1;
         const rows = readFileSync(ledger, "utf8").trim().split("\n").map(line => JSON.parse(line) as { push_sha: string; agree: boolean; full: { findings: string[] }; index: { exit: number } });
         expect(rows).toMatchObject([{ push_sha: sha, agree: false, full: { findings: [TARGET] }, index: { exit: 0 } }]);
         report(true);
+        measurement.INTERLINKED_PRE_PUSH_COVERAGE_COMPARE = "1";
         expect(run(updates).status).toBe(1);
         expect(readFileSync(ledger, "utf8").trim().split("\n")).toHaveLength(1);
     });

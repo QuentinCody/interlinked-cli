@@ -383,6 +383,13 @@ share the deadline. Interrupted or unavailable runs exit 75 without a verdict.
 These controls do not change the daemon's limits below or govern commands
 launched independently by the user. `INTERLINKED_DISABLE_SESSION_END_JOBS=1` still opts out.
 
+Indexed coverage checks and warm runs install a scoped cancellation owner through
+discovery, capture and promotion. SIGINT/SIGTERM abort their children and prevent a
+passing result from incomplete evidence. Lightweight status/help commands retain their
+normal execution. The repository's optional post-push index comparison is default-off;
+enable it explicitly with `INTERLINKED_PRE_PUSH_COVERAGE_COMPARE=1` when collecting
+comparison evidence. See **interlinked-quality-gates** for its cost and limitations.
+
 In this repository, pre-push heavy commands also use the host lane through
 `scripts/run-resource-bounded.ts`. The supervisor retains ownership through child cleanup,
 and heavy commands wait at most ten minutes for admission so an existing five-minute

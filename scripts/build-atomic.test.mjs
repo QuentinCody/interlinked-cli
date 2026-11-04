@@ -104,6 +104,7 @@ describe("runtime-preserving distribution build", () => {
         expect(REQUIRED_OUTPUTS).toContain("lib/viz/reporter-vitest.d.ts");
         expect(REQUIRED_OUTPUTS).toContain("viz/mutation-runs.html");
         expect(REQUIRED_OUTPUTS).toContain(".npmignore");
+        expect(REQUIRED_OUTPUTS).toContain("e2e-declaration-inputs.mjs");
     });
 
     it("requires the exact shebang line rather than an accepted prefix", () => {

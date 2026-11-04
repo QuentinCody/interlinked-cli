@@ -12,7 +12,7 @@ import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { copyRuntimeAssets } from "./copy-runtime-assets.mjs";
 import { fixDistDts } from "./fix-dist-dts.mjs";
-import { fingerprintBuildInputs } from "./build-input-fingerprint.mjs";
+import { buildEntryPoints, COWORK_ENTRY_POINT, fingerprintBuildInputs } from "./build-input-fingerprint.mjs";
 import { acquireBuildLease } from "./build-lease.mjs";
 import {
     BUILD_INPUT_MARKER,
@@ -21,21 +21,10 @@ import {
     writePackageFileAllowlist,
 } from "./build-publish.mjs";
 
-const ENTRY_POINTS = [
-    "src/index.ts",
-    "src/hook-entry.ts",
-    "src/harness/server.ts",
-    "src/harness/background-job-main.ts",
-    "src/harness/replay/inference-proxy.ts",
-    "src/harness/check-engine/tool-runners/tsc-overlay-sidecar-main.ts",
-    "src/lib/demo-runtime/index.ts",
-    "src/lib/viz/reporter-vitest.ts",
-    "src/lib/hook-bridge/index.ts",
-];
-
 // Exported so the regression suite pins the public declaration surface.
 export const REQUIRED_OUTPUTS = [
     "index.js",
+    "e2e-declaration-inputs.mjs",
     "cowork/cowork-hook.js",
     "hook-entry.js",
     "harness/server.js",
@@ -78,14 +67,14 @@ function buildStage(root, stage, mode, fingerprint) {
     const tsup = join(root, "node_modules", ".bin", "tsup");
     runCommand(
         tsup,
-        [...ENTRY_POINTS, ...(mode === "e2e" ? ["src/harness/agent-io/store.ts", "src/harness/break-glass.ts"] : []),
+        [...buildEntryPoints(mode),
             "--format", "esm", "--dts", "--clean", "--out-dir", stage,
             "--define.__INTERLINKED_EVIDENCE_BUILD__", JSON.stringify(fingerprint),
             ...(mode === "e2e" ? ["--sourcemap", "--metafile", "--no-splitting"] : [])],
         root,
     );
     fixDistDts(stage);
-    runCommand(tsup, ["src/cowork-hook.ts", "--format", "esm", "--no-splitting", "--define.__INTERLINKED_EVIDENCE_BUILD__", JSON.stringify(fingerprint), "--out-dir", join(stage, "cowork")], root);
+    runCommand(tsup, [COWORK_ENTRY_POINT, "--format", "esm", "--no-splitting", "--define.__INTERLINKED_EVIDENCE_BUILD__", JSON.stringify(fingerprint), "--out-dir", join(stage, "cowork")], root);
     copyRuntimeAssets(stage, root);
     for (const rel of EXECUTABLE_OUTPUTS) chmodSync(join(stage, rel), 0o755);
 }

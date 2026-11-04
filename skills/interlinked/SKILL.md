@@ -5,6 +5,11 @@ description: "Overview and router for the Interlinked CLI — a local guard, qua
 
 # interlinked — overview & skill router
 
+For duplicated push checks, early E2E preflight, resource waits and retained test
+obligations, use **interlinked-verify**. Managed push command handoff belongs to
+**interlinked-harness**; timing/RSS evidence belongs to **interlinked-observability**.
+These optimizations do not enable general past-result reuse or relax coverage floors.
+
 For the internal, default-off `claims --receipt-shadow` observer and its explicit receipt
 links, use **interlinked-observability** and `docs/internal/jev.md`. It logs comparisons only;
 it does not enable claim evaluation in public Stop hooks or alter a model decision.
