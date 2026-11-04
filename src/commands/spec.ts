@@ -6,6 +6,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Command } from "commander";
+import { registerSpecSentenceCommand } from "./spec-sentences.js";
 import { openReviewFindings } from "../harness/server/review-reconcile-phase.js";
 import {
 	extractCodeInvariants,
@@ -37,7 +38,9 @@ function contentsFor(
 export function registerSpecCommands(program: Command): void {
 	const spec = program
 		.command("spec")
-		.description("Spec-substrate utilities (fact ledger, review agenda)");
+		.description("Spec-substrate utilities (fact ledger, review agenda, sentence citations)");
+
+    registerSpecSentenceCommand(spec);
 
 	spec
 		.command("agenda")

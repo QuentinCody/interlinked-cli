@@ -25,10 +25,11 @@ the fix.
 - Running executable examples embedded in docs.
 
 ## `interlinked spec`
-Two subcommands, no flags:
+The agenda and invariant commands retain their existing output paths:
 ```bash
 interlinked spec agenda                       # → .interlinked/review-agenda.md
 interlinked spec invariants <file>            # → .interlinked/policies/<basename>.invariants.md
+interlinked spec sentences [files...] --json  # read-only sentence and citation inventory
 ```
 - **`spec agenda`** — walks cwd, writes a review agenda with three sections: **compose-checks**
   (an ID namespace/declared fact constrained from ≥2 files — "read them together, confirm no
@@ -40,6 +41,14 @@ interlinked spec invariants <file>            # → .interlinked/policies/<basen
   doctrine sentences (fenced code/blockquotes skipped). For code: `// INVARIANT:` / `// SAFETY:`
   comments + `assert(`/`assert!` calls. Output is a labeled taxonomy with verbatim quotes +
   `file:line` provenance (review context / Tier-2 classification input).
+
+`spec sentences` classifies Markdown with a fixed lexical grammar and reports exact
+citations from bounded source/document scans. Without `--json`, it emits sentence
+JSONL on stdout and a summary on stderr. Default documents include plans,
+`docs/project-e2e.md`, `docs/harness.md` and `CLAUDE.md`. Symlinked, excluded,
+unreadable and oversized inputs remain explicit scan issues; inspect `complete`
+and the issues before interpreting citation shares. A citation establishes mention,
+not implementation or executable coverage. This command never gates an edit.
 
 ## `interlinked findings`
 Review-report ingestion + reconciliation. The CLI operates on `review_`-prefixed findings.
