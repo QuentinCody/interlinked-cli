@@ -55,6 +55,18 @@ one case `expect(typeof percentileOf(5, [1, 2, 9])).toBe("number")` against faul
 `survived`, exit 1, receipt `d4167e6217bea888`, reason
 "1 case(s) passed with the mutant applied — these tests do not detect it".
 
+Control source (kept here instead of in the tree):
+
+```ts
+import { expect, it } from "vitest";
+import { percentileOf } from "./percentile-rank.js";
+
+// test-contract: public-api — NEGATIVE CONTROL: asserts only the result's type, so it cannot see a rounding fault
+it("returns a number for a non-empty population", () => {
+	expect(typeof percentileOf(5, [1, 2, 9])).toBe("number");
+});
+```
+
 **(b) Import-time throw.** `recurrence-time.ts` `const MS_PER_SECOND = 1_000;` →
 `const MS_PER_SECOND: number = (() => { throw new Error("import-time fault"); })();`
 with the new recurrence-time test: `inconclusive`, exit 2, receipt `5dc30b7a1edd1d27`;
