@@ -3,7 +3,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JevClient } from "../harness/jev/client.js";
-import { jevClaimsAction, jevDocClaimsAction, jevTestTitlesAction, resolveImportersIn } from "./jev.js";
+import { jevClaimsAction, jevDocClaimsAction, jevStateMachinesAction, jevTestTitlesAction, resolveImportersIn } from "./jev.js";
+
+/** Counts every client construction the actions attempt, so --dry-run can prove it never builds one. */
+const clientFactory = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("../harness/jev/client.js", async (importOriginal) => {
+	const mod = await importOriginal<typeof import("../harness/jev/client.js")>();
+	return {
+		...mod,
+		createJevClient: (...args: Parameters<typeof mod.createJevClient>) => {
+			clientFactory.calls++;
+			return mod.createJevClient(...args);
+		},
+	};
+});
 
 let dir = "";
 const out: string[] = [];
@@ -60,6 +73,75 @@ describe("jevTestTitlesAction", () => {
 		await jevTestTitlesAction([file], { client: noulClient(0.95, "match") });
 		expect(out.join("")).not.toContain("[interlinked:jev-test-title]");
 		expect(out.join("")).toContain("0 finding");
+	});
+});
+
+const STATE_MACHINE_SRC = `import type { ChildProcess } from "node:child_process";
+/** Lifecycle: idle, spawning, dormant; disabled is permanent. */
+type State = "idle" | "spawning" | "dormant" | "disabled";
+export class Helper {
+	private child: ChildProcess | null = null;
+	private disposed = false;
+	private dormant = false;
+	private state: State = "idle";
+	constructor(private readonly spawnFn: () => ChildProcess) {}
+	send(): void { if (!this.disposed && !this.child) this.ensureSpawned(); }
+	shutdown(): void { this.disposed = true; this.state = "disabled"; this.child = null; }
+	private ensureSpawned(): void {
+		const child = this.spawnFn();
+		this.child = child;
+		this.dormant = false;
+		this.state = "spawning";
+		child.on("exit", () => { this.child = null; this.dormant = true; this.state = "dormant"; });
+	}
+}
+`;
+
+describe("jevStateMachinesAction", () => {
+	it("P1: --dry-run prints candidates, packets and stale-handle findings without building a client or calling fetch", async () => {
+		const file = join(dir, "helper.ts");
+		writeFileSync(file, STATE_MACHINE_SRC);
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+		const before = clientFactory.calls;
+		const code = await jevStateMachinesAction([file], { dryRun: true, cwd: dir });
+		expect(code).toBe(0);
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(clientFactory.calls).toBe(before);
+		const text = out.join("");
+		expect(text).toContain("[interlinked:state-machine-candidate]");
+		expect(text).toContain("helper.ts:4 class Helper");
+		expect(text).toContain('"scope": "Helper"');
+		expect(text).toContain("[interlinked:stale-handle]");
+		expect(text).toContain("1 candidate(s), 1 stale-handle finding(s)");
+	});
+	it("P2: --dry-run --json emits each candidate with its packet and the stale-handle findings", async () => {
+		const file = join(dir, "helper.ts");
+		writeFileSync(file, STATE_MACHINE_SRC);
+		expect(await jevStateMachinesAction([file], { dryRun: true, json: true, cwd: dir })).toBe(0);
+		const parsed = JSON.parse(out.join("")) as { files: Array<{ file: string; candidates: Array<{ packet: { scope: string } }>; staleHandlers: unknown[] }> }; // SAFETY: the dry run writes exactly this JSON shape
+		expect(parsed.files[0]?.file).toBe("helper.ts");
+		expect(parsed.files[0]?.candidates[0]?.packet.scope).toBe("Helper");
+		expect(parsed.files[0]?.staleHandlers).toHaveLength(1);
+	});
+	it("P3: without --dry-run it asks the injected client once per candidate and prints raw answers", async () => {
+		const file = join(dir, "helper.ts");
+		writeFileSync(file, STATE_MACHINE_SRC);
+		const client = noulClient(0.8, "none");
+		expect(await jevStateMachinesAction([file], { client, cwd: dir })).toBe(0);
+		expect(client.spend().calls).toBe(1);
+		expect(out.join("")).toContain("[interlinked:jev-state-machine]");
+		expect(out.join("")).toContain("one-lifecycle p=0.80");
+	});
+	it("N1: without --dry-run and with Jev disabled it explains and exits 2", async () => {
+		expect(await jevStateMachinesAction([join(dir, "helper.ts")], { client: null, cwd: dir })).toBe(2);
+		expect(err.join("")).toContain("TYPESAFE_API_KEY");
+	});
+	it("N2: a dry run over a file with no candidate prints only the summary", async () => {
+		const file = join(dir, "plain.ts");
+		writeFileSync(file, "export const x = 1;\n");
+		expect(await jevStateMachinesAction([file], { dryRun: true, cwd: dir })).toBe(0);
+		expect(out.join("")).not.toContain("[interlinked:state-machine-candidate]");
+		expect(out.join("")).toContain("0 candidate(s), 0 stale-handle finding(s) across 1 file(s)");
 	});
 });
 

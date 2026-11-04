@@ -7,6 +7,16 @@ import { isAbsolute, join, relative } from "node:path";
 import { createJevClient, type JevClient } from "../harness/jev/client.js";
 import { buildJevClaimWarning } from "../harness/jev/claim-review.js";
 import { formatDocClaimFindings, type ImporterResolver, scoreDocClaims } from "../harness/jev/doc-claim-liveness.js";
+import {
+	buildStateMachinePacket,
+	detectStaleHandleHandlers,
+	formatStaleHandleFindings,
+	formatStateMachineCandidates,
+	formatStateMachineFindings,
+	scoreStateMachines,
+	selectStateMachineCandidates,
+	stateMachineSelectorAvailable,
+} from "../harness/jev/implicit-state-machine.js";
 import { formatTitleBodyFindings, scoreTestTitles } from "../harness/jev/test-title-body.js";
 import { ProjectGraph } from "../harness/project-graph.js";
 import { scrubFinalMessage } from "../harness/server/agent-event-capture.js";
@@ -22,6 +32,10 @@ export interface JevCommandOptions {
 	client?: JevClient | null;
 	cwd?: string;
 	json?: boolean;
+	/** `state-machines`: print candidates, packets and stale-handle findings; build no client, call nothing. */
+	dryRun?: boolean;
+	/** `state-machines`: the measured selector variant that counts nullable records as lifecycle slots. */
+	nullableSlots?: boolean;
     receiptShadow?: string;
 	/** The receipt shadow's OWN client, injected in tests; resolved like `client` otherwise. `null` = shadow unmeasured. */
 	shadowClient?: JevClient | null;
@@ -94,6 +108,64 @@ export async function jevDocClaimsAction(files: string[], opts: JevCommandOption
 		lines.push(...formatDocClaimFindings(relPath(cwd, file), await scoreDocClaims(client, readFileSync(abs, "utf-8"), resolve)));
 	}
 	emit(lines, `jev doc-claims: ${lines.length} finding(s) across ${files.length} file(s); spend $${client.spend().usd.toFixed(4)}`, opts);
+	return EXIT_OK;
+}
+
+interface SourceInput {
+	file: string;
+	content: string;
+}
+
+function readSources(files: string[], cwd: string): SourceInput[] {
+	const out: SourceInput[] = [];
+	for (const file of files) {
+		const abs = isAbsolute(file) ? file : join(cwd, file);
+		if (existsSync(abs)) out.push({ file: relPath(cwd, file), content: readFileSync(abs, "utf-8") });
+	}
+	return out;
+}
+
+/** Selector output only: candidates with their Jev packets, plus deterministic stale-handle findings. No client. */
+function stateMachinesDryRun(inputs: SourceInput[], opts: JevCommandOptions): number {
+	const select = { nullableSlots: opts.nullableSlots === true };
+	const files = inputs.map(({ file, content }) => ({
+		file,
+		candidates: selectStateMachineCandidates(content, file, select).map((candidate) => ({ candidate, packet: buildStateMachinePacket(candidate, content) })),
+		staleHandlers: detectStaleHandleHandlers(content, file),
+	}));
+	const candidates = files.reduce((n, f) => n + f.candidates.length, 0);
+	const stale = files.reduce((n, f) => n + f.staleHandlers.length, 0);
+	const summary = `jev state-machines --dry-run: ${candidates} candidate(s), ${stale} stale-handle finding(s) across ${inputs.length} file(s); no Jev call`;
+	if (opts.json) {
+		process.stdout.write(`${JSON.stringify({ dryRun: true, files, summary })}\n`);
+		return EXIT_OK;
+	}
+	for (const f of files) {
+		for (const { candidate, packet } of f.candidates) {
+			process.stdout.write(`${formatStateMachineCandidates(f.file, [candidate]).join("")}\npacket ${JSON.stringify(packet, null, 2)}\n`);
+		}
+		for (const line of formatStaleHandleFindings(f.file, f.staleHandlers)) process.stdout.write(`${line}\n`);
+	}
+	process.stdout.write(`${summary}\n`);
+	return EXIT_OK;
+}
+
+/** Implicit state machines: deterministic selection, then two Jev questions per candidate (raw answers; UNMEASURED). */
+export async function jevStateMachinesAction(files: string[], opts: JevCommandOptions = {}): Promise<number> {
+	if (!stateMachineSelectorAvailable()) {
+		process.stderr.write("jev state-machines: NOT MEASURED: the optional `typescript` package is not installed, so no file was parsed.\n");
+		return EXIT_UNAVAILABLE;
+	}
+	const inputs = readSources(files, opts.cwd ?? process.cwd());
+	if (opts.dryRun) return stateMachinesDryRun(inputs, opts);
+	const client = resolveClient(opts);
+	if (!client) return explainDisabled();
+	const lines: string[] = [];
+	for (const { file, content } of inputs) {
+		lines.push(...formatStaleHandleFindings(file, detectStaleHandleHandlers(content, file)));
+		lines.push(...formatStateMachineFindings(file, await scoreStateMachines(client, file, content, { nullableSlots: opts.nullableSlots === true })));
+	}
+	emit(lines, `jev state-machines: ${lines.length} line(s) across ${inputs.length} file(s); spend $${client.spend().usd.toFixed(4)}; operating point UNMEASURED`, opts);
 	return EXIT_OK;
 }
 
