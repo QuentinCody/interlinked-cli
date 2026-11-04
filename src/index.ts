@@ -8,10 +8,12 @@
 // built without parsing argv. This file owns only the version lookup and
 // dispatch: a resource-bounded run, the zero-arg wizard, or argv parsing.
 
+import { ensureLocalRuntimePolicy } from "./harness/runtime-policy.js";
+ensureLocalRuntimePolicy();
 import { readFileSync } from "node:fs";
 import { buildProgram } from "./cli-program.js";
 import { handleImplicitEntry } from "./commands/first-run.js";
-import { superviseResourceCli } from "./harness/resource-cli.js";
+import { superviseResourceCli, withResourceCliCancellation } from "./harness/resource-cli.js";
 import { isJsonObject } from "./lib/json-types.js";
 
 // Read version from package.json so it stays in sync with the package
@@ -28,6 +30,8 @@ function resolveVersion(): string {
 
 const program = buildProgram(resolveVersion());
 
-if (!(await superviseResourceCli(process.argv)) && !(await handleImplicitEntry())) {
-	await program.parseAsync(process.argv);
-}
+await withResourceCliCancellation(process.argv, async () => {
+	if (!(await superviseResourceCli(process.argv)) && !(await handleImplicitEntry())) {
+		await program.parseAsync(process.argv);
+	}
+});

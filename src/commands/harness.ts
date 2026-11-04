@@ -1,3 +1,4 @@
+import { readProjectLeaseStatus, formatProjectLeaseStatus } from "../harness/project-lease-status.js";
 // ===========================================
 // interlinked harness — Harness server management
 // ===========================================
@@ -298,6 +299,7 @@ export async function harnessStatusCommand(opts: { json?: boolean }): Promise<vo
 				? readRssMb(processStatus.pid)
 				: null;
 		const activeMode = readActiveMode(cwd);
+		const leases = readProjectLeaseStatus(cwd);
 		const lastEventAt = readLastLatencyTimestamp(cwd);
 		const protocolStatus = readProtocolStatus(cwd);
 		const framedSockets = await readFramedSocketStatuses(cwd);
@@ -338,6 +340,8 @@ export async function harnessStatusCommand(opts: { json?: boolean }): Promise<vo
 			framed_timeout_count: protocolStatus?.framed_timeout_count ?? null,
 			orphan_count: orphanInfo.candidates.length,
 			rss_mb: rssMb,
+			lease_holders: leases.holders,
+			lease_inspection_errors: leases.unavailable,
 			mode: activeMode,
 			last_event_at: lastEventAt,
 			build_stale: staleness?.stale ?? false,
@@ -361,6 +365,7 @@ export async function harnessStatusCommand(opts: { json?: boolean }): Promise<vo
 				if (liveness === "zombie") lines.push(c.red(`  ${zombieWarningLine(processStatus.pid)}`));
 				if (protocolStatus) lines.push(...protocolStatusLines(protocolStatus));
 				lines.push(...framedSocketLines(framedSockets));
+				lines.push(kvLine("Lease holders", formatProjectLeaseStatus(leases)));
 				lines.push(
 					...operationalSignalLines({ rssMb, staleness, activeMode, lastEventAt }),
 				);
@@ -377,14 +382,7 @@ export async function harnessStatusCommand(opts: { json?: boolean }): Promise<vo
 				// serving nothing, and a 2h agent wave ran with the content gate
 				// never firing. State the gap in the unit that matters: how long,
 				// and whether it is still open.
-				const gapWarning = formatEnforcementGapWarning(
-					detectEnforcementGaps(readRecentDaemonEvents(cwd), Date.now()),
-					Date.now(),
-				);
-				if (gapWarning) {
-					lines.push("");
-					lines.push(c.yellow(`  ${gapWarning}`));
-				}
+				appendEnforcementGapWarning(cwd, lines);
 				if (!processStatus.running) {
 					lines.push("");
 					lines.push(c.dim("  Start with: interlinked harness start"));
@@ -395,4 +393,15 @@ export async function harnessStatusCommand(opts: { json?: boolean }): Promise<vo
 	} catch (err) {
 		outputError(mode, err instanceof Error ? err.message : String(err));
 	}
+}
+
+function appendEnforcementGapWarning(cwd: string, lines: string[]) {
+    const gapWarning = formatEnforcementGapWarning(
+        detectEnforcementGaps(readRecentDaemonEvents(cwd), Date.now()),
+        Date.now()
+    );
+    if (gapWarning) {
+        lines.push("");
+        lines.push(c.yellow(`  ${gapWarning}`));
+    }
 }

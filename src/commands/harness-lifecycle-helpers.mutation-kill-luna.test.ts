@@ -160,7 +160,7 @@ describe("harness lifecycle public contracts", () => {
         mocks.isHarnessRunning.mockReturnValue({ running: true, pid: 101 });
         mocks.output.mockImplementationOnce((_mode, _data, renderers) => expect(renderers.normal?.()).toBe("Harness started (PID 101)"));
         await daemonizeHarness({ mode: "normal", cwd: "/repo", nodePath: "/node", spawnArgs: ["server"], protocol: "raw", sessionId: "s", serverPath: "server" });
-        expect(mocks.spawn).toHaveBeenCalledWith("/node", ["server"], { stdio: ["ignore", "ignore", "ignore"], detached: true, cwd: "/repo" });
+        expect(mocks.spawn).toHaveBeenCalledWith("/node", ["server"], { stdio: ["ignore", "ignore", "ignore"], detached: true, cwd: "/repo", env: expect.any(Object) });
         expect(spawned.unref).toHaveBeenCalledOnce();
         expect(mocks.closeDaemonStderrLog).toHaveBeenCalledWith(undefined);
         expect(mocks.output).toHaveBeenCalledOnce();
@@ -192,7 +192,7 @@ describe("harness lifecycle public contracts", () => {
         mocks.isHarnessRunning.mockReturnValue({ running: true, pid: 202 });
         mocks.output.mockImplementation((_mode, _data, renderers) => renderers.json());
         await inlineJsonRestartStart("/repo", { verbose: true }, "framed", "session-2", 17, "json");
-        expect(mocks.spawn).toHaveBeenCalledWith(process.execPath, ["--max-old-space-size=1536", "--expose-gc", "server.mjs", "--cwd", "/repo", "--protocol", "framed", "--session-id", "session-2", "--verbose"], { stdio: "ignore", detached: true, cwd: "/repo" });
+        expect(mocks.spawn).toHaveBeenCalledWith(process.execPath, ["--max-old-space-size=1536", "--expose-gc", "server.mjs", "--cwd", "/repo", "--protocol", "framed", "--session-id", "session-2", "--verbose"], { stdio: "ignore", detached: true, cwd: "/repo", env: expect.any(Object) });
         expect(mocks.spawn.mock.results[0]?.value.unref).toHaveBeenCalledOnce();
         expect(mocks.output.mock.calls.at(-1)?.[1]).toEqual({});
     });

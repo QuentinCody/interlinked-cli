@@ -9,6 +9,7 @@
 // ./harness.ts and import these.
 
 import { spawn } from "node:child_process";
+import { daemonEnvironment } from "../harness/daemon-environment.js";
 import { existsSync } from "node:fs";
 import { recordInheritedDaemonSpawn } from "../harness/handover-churn.js";
 import { isDaemonSocketReady } from "../harness/session-paths.js";
@@ -23,6 +24,7 @@ import { c } from "../lib/formatter.js";
 import { getOutputMode, output } from "../lib/output.js";
 import {
 	closeDaemonStderrLog,
+	DaemonStderrLog,
 	getHarnessServerPath,
 	isHarnessRunning,
 	openDaemonStderrLog,
@@ -124,20 +126,7 @@ export async function daemonizeHarness(args: {
 }): Promise<void> {
 	const { mode, cwd, nodePath, spawnArgs, protocol, sessionId, serverPath } = args;
 	const stderrLog = openDaemonStderrLog(cwd);
-	const daemonStdio: ["ignore", "ignore", "ignore" | number] = ["ignore", "ignore", stderrLog?.fd ?? "ignore"];
-	const child = (() => {
-		try {
-			return spawn(nodePath, spawnArgs, { stdio: daemonStdio, detached: true, cwd });
-		} catch (err) {
-			// Attempt-ID protocol: a thrown daemon spawn is a TERMINAL outcome for
-			// the inherited attempt — the row resolves it so the churn reducer
-			// never waits on a daemon that was never created.
-			recordInheritedDaemonSpawn(cwd, "spawn_failed");
-			throw err;
-		} finally {
-			closeDaemonStderrLog(stderrLog);
-		}
-	})();
+	const child = spawnDetachedHarness(stderrLog, nodePath, spawnArgs, cwd);
 	// A mutable object property (rather than a bare `let`) so the compiler's
 	// flow analysis doesn't (incorrectly) narrow the exit-callback assignment
 	// away as unreachable at the later read sites below.
@@ -205,6 +194,24 @@ export async function daemonizeHarness(args: {
 	});
 }
 
+function spawnDetachedHarness(stderrLog: DaemonStderrLog | null, nodePath: string, spawnArgs: string[], cwd: string) {
+    const daemonStdio: ["ignore", "ignore", "ignore" | number] = ["ignore", "ignore", stderrLog?.fd ?? "ignore"];
+    const child = (() => {
+        try {
+            return spawn(nodePath, spawnArgs, { stdio: daemonStdio, detached: true, cwd, env: daemonEnvironment() });
+        } catch (err) {
+            // Attempt-ID protocol: a thrown daemon spawn is a TERMINAL outcome for
+            // the inherited attempt — the row resolves it so the churn reducer
+            // never waits on a daemon that was never created.
+            recordInheritedDaemonSpawn(cwd, "spawn_failed");
+            throw err;
+        } finally {
+            closeDaemonStderrLog(stderrLog);
+        }
+    })();
+    return child;
+}
+
 /** Foreground start: exec directly so the harness replaces this process. */
 export function startHarnessForeground(
 	mode: ReturnType<typeof getOutputMode>,
@@ -220,7 +227,7 @@ export function startHarnessForeground(
 			normal: () => c.dim("Starting harness in foreground (Ctrl+C to stop)..."),
 		},
 	);
-	const child = spawn(nodePath, spawnArgs, { stdio: "inherit", cwd });
+	const child = spawn(nodePath, spawnArgs, { stdio: "inherit", cwd, env: daemonEnvironment() });
 	// The caller releases its CLI-owned mutex as soon as this helper returns.
 	// Transfer first so a concurrent hook cannot start a second daemon during
 	// the foreground child's bind window.
@@ -266,7 +273,7 @@ export async function inlineJsonRestartStart(
 	const args = buildHarnessSpawnArgs(serverPath, cwd, protocol, sessionId, opts);
 	const child = (() => {
 		try {
-			return spawn(nodePath, args, { stdio: "ignore", detached: true, cwd });
+			return spawn(nodePath, args, { stdio: "ignore", detached: true, cwd, env: daemonEnvironment() });
 		} catch (err) {
 			// Terminal: the daemon spawn itself threw — same contract as
 			// daemonizeHarness's catch.

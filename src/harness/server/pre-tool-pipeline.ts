@@ -69,6 +69,7 @@ import {
 	runClassifierEscalation,
 } from "./pre-tool-pipeline-integrations.js";
 import { appendShellSandboxAdvisory } from "./shell-sandbox-policy.js";
+import { localAgentToolDecision } from "../runtime-policy.js";
 
 // ---------------------------------------------------------------------------
 // Phase helpers (internal — not exported)
@@ -237,6 +238,8 @@ export async function runPreToolPipeline(
 	event: HarnessEvent,
 	session: SessionTrajectory,
 ): Promise<HarnessDecision> {
+	const runtimeDecision = localAgentToolDecision(event);
+	if (runtimeDecision) return runtimeDecision;
 	const { rules } = ctx;
 	const CWD = ctx.cwd;
 	// The session works in the project its events name; anything persisted FOR the session (a learned permission)

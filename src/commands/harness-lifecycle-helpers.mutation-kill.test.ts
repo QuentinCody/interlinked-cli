@@ -483,7 +483,7 @@ describe("inlineJsonRestartStart — server resolution, argv, and poll convergen
 				"session-2",
 				"--verbose",
 			],
-			{ stdio: "ignore", detached: true, cwd: "/repo" },
+			{ stdio: "ignore", detached: true, cwd: "/repo", env: expect.any(Object) },
 		);
 		expect(jsonData).toEqual({
 			status: "restarted",
@@ -512,6 +512,7 @@ describe("inlineJsonRestartStart — server resolution, argv, and poll convergen
 				stdio: "ignore",
 				detached: true,
 				cwd: "/repo",
+				env: expect.any(Object),
 			},
 		);
 		expect(jsonData).toMatchObject({ status: "restarted", new_pid: 203 });

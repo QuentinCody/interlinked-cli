@@ -15,6 +15,8 @@
 // servers, and process lifecycle. `processEvent` builds a `ServerRuntime`
 // context once and delegates each event branch to the extracted pipelines.
 
+import { ensureLocalRuntimePolicy } from "./runtime-policy.js";
+ensureLocalRuntimePolicy();
 import { registerAllBuiltinVerifyPasses } from "./check-pipeline/builtin-verify-passes.js";
 import { astComplexityAvailable } from "./checks/cyclomatic-ast.js";
 import { recordDaemonEvent, recordDaemonExit } from "./daemon-ledger.js";

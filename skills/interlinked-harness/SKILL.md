@@ -12,6 +12,13 @@ Only the first eight findings are displayed; the full set still determines the b
 For unresolved compound staging scope, stage first and commit in a separate tool call
 to check the exact index. This changes the observed scope, not the cap or enforcement.
 
+`INTERLINKED_RUNTIME_POLICY=local-restricted` opts into a packaged local runtime
+policy shared by the CLI, daemon and generated cold fallback. It denies network
+calls and selected external commands, and refuses recognized agent reads of
+`.interlinked/config.local.json`; internal configuration readers still work.
+It is application policy, not a sandbox for arbitrary child code or computed paths.
+Unavailable tools remain unmeasured; this mode does not certify skipped checks.
+
 Remote-pipe detection permits interpreter inline programs preceded by bare flags
 (for example, `curl URL | python3 -I -c '...'`), where stdin is data. Shell sinks
 retain their existing remote-execution block.

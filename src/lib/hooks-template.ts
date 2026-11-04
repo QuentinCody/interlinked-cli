@@ -21,6 +21,7 @@ import {
 	DEFAULT_DAEMON_HEAP_MB,
 	DEFAULT_RSS_CEILING_BYTES,
 } from "../harness/memory-ceiling.js";
+import { localRuntimePolicyChunk } from "../harness/runtime-policy.js";
 import { READ_ONLY_TOOL_NAMES } from "./hook-read-only-tools.js";
 import { COLLECTION_WRITER_CHUNK } from "./hook-template-chunks/collection-writer.js";
 import { EVENT_NORMALIZERS_CHUNK } from "./hook-template-chunks/event-normalizers.js";
@@ -77,6 +78,7 @@ import { createConnection } from "node:net";
 import { execSync, execFileSync, spawn as nodeSpawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 
+${localRuntimePolicyChunk()}
 const CWD = process.cwd();
 
 // --- Resolve data directory (mirrors config.ts getDataDir logic) ---
@@ -1251,7 +1253,8 @@ ${PROVIDER_RESPONSES_CHUNK}
             timestamp: new Date().toISOString(),
         };
 
-        guardDecision = await evaluateViaHarness(harnessEvent);
+        guardDecision = localRuntimePolicy.agentToolDecision(harnessEvent, process.env.INTERLINKED_RUNTIME_POLICY === "local-restricted")
+            || await evaluateViaHarness(harnessEvent);
 
         if (!guardDecision) {
 			// No preflight ran when a stale socket existed. Try recovery now, but
