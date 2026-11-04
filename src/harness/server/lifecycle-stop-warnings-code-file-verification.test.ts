@@ -1,5 +1,8 @@
 import { makeServerRuntime, makeServerRules } from "./__tests__/fixtures.js";
 import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 // Companion smoke tests for lifecycle-stop-warnings-code-file-verification.ts.
 //
 // This module is a pure re-home (line-cap split of lifecycle-stop-warnings.ts,
@@ -121,6 +124,29 @@ describe("checkCodeFileVerification", () => {
 });
 
 describe("checkUnverifiedCode / checkVerifyNotRun", () => {
+    it("excludes the current Stop invocation from same-session TypeScript history", () => {
+        const cwd = mkdtempSync(join(tmpdir(), "stop-own-call-"));
+        try {
+            mkdirSync(join(cwd, ".interlinked"));
+            const now = Date.parse("2026-10-28T12:00:00Z");
+            const rows = [1, 2, 3].map(i => JSON.stringify({
+                schema: "check-results.v2", session: "s1", tool_use_id: `call-${i}`,
+                ts: new Date(now - i * 1000).toISOString(),
+                execution: [{ id: "typescript", status: "finding" }],
+            }));
+            writeFileSync(join(cwd, ".interlinked/check-results.jsonl"), rows.join("\n") + "\n");
+            const ctx = makeCtx({ verification_stop_checks: { enabled: true, session_tsc_history: true } });
+            const session = makeSession({ session_id: "s1", files_written: new Set(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts"]) });
+            const event = makeEvent({ cwd, timestamp: new Date(now).toISOString(), tool_use_id: "call-3" });
+            const warning = checkUnverifiedCode(ctx, session, new Set(), event);
+            expect(warning).toContain("[interlinked:verify-before-stop]");
+            expect(warning).not.toContain("same-session TypeScript checks");
+            expect(checkUnverifiedCode(ctx, session, new Set(), { ...event, tool_use_id: "next-call" })).toContain("findings in 3 of 3");
+        } finally {
+            rmSync(cwd, { recursive: true, force: true });
+        }
+    });
+
 	it("N: both return null with no code files written", () => {
 		const ctx = makeCtx();
 		const session = makeSession();

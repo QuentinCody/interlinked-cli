@@ -31,6 +31,21 @@ describe("verify-parity: scanProjectSwitchDiscriminants", () => {
 		expect(r.crossFileSwitchDiscriminant).toEqual([]);
 	});
 
+    it.each([
+        ["oversized", "//" + "x".repeat(256 * 1024) + "\n"],
+        ["generated", "// @generated\n"],
+        ["codegen data", "// @codegen-data\n"],
+    ])("excludes %s source from cross-file parity analysis", (_label, prefix) => {
+        const ordinary = join(dir, "ordinary.ts");
+        const excluded = join(dir, "excluded.ts");
+        const source = "function f(x) { switch (x.kind) { case 'A': return 1; } }";
+        writeFileSync(ordinary, source);
+        writeFileSync(excluded, prefix + source);
+        const result = runVerifyParityChecks([ordinary, excluded]);
+        expect(result.crossFileSwitchDiscriminant).toEqual([]);
+        expect(result.filesWithoutTest.map(finding => finding.file)).toEqual([ordinary]);
+    });
+
 	it("ignores non-discriminant switches (e.g., x.status)", () => {
 		const a = join(dir, "a.ts");
 		const b = join(dir, "b.ts");

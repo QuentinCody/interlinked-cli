@@ -25,6 +25,17 @@ const cloneBody = `{
 }`;
 
 describe("checkCodeClones", () => {
+    it("excludes oversized siblings but detects their duplicate after they shrink", () => {
+        const source = `function collectA(rows: Row[]): number[] ${cloneBody}`;
+        const edited = join(dir, "edited.ts");
+        const sibling = join(dir, "sibling.ts");
+        writeFileSync(edited, source);
+        writeFileSync(sibling, "//" + "x".repeat(256 * 1024) + "\n" + source);
+        expect(checkCodeClones(source, edited)).toEqual([]);
+        writeFileSync(sibling, source);
+        expect(checkCodeClones(source, edited)).toHaveLength(1);
+    });
+
 	it("P1: flags two near-identical functions in the same file", () => {
 		const content = `
 function collectA(rows: Row[]): number[] ${cloneBody}

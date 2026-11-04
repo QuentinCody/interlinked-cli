@@ -960,6 +960,32 @@ describe("runProjectWideGitGate", () => {
         });
     });
 
+    it("records a skipped project check distinctly from passed or unavailable checks", async () => {
+        vi.mocked(checkProjectTypecheckCleanAsync).mockResolvedValueOnce([
+            check({ name: "project_typecheck_skipped", message: "No TypeScript project configured" }),
+        ]);
+        const pre = allow();
+        await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre);
+        expect(pre.decision).toBe("allow");
+        expect(pre.warnings).toContain("[interlinked:project_typecheck_skipped] No TypeScript project configured");
+        expect(vi.mocked(recordVerificationStage).mock.calls[0]?.[1]).toMatchObject({
+            check: "pre-tool:project-typecheck", status: "skipped", exec_ms: 0, peak_rss_bytes: null,
+        });
+        expect(checkProjectTestsCleanAsync).toHaveBeenCalledOnce();
+        expect(releaseHeavyProcess).toHaveBeenCalledOnce();
+    });
+
+    it("records an unavailable check and releases its lease when the runner throws", async () => {
+        vi.mocked(checkProjectTypecheckCleanAsync).mockRejectedValueOnce(new Error("runner unavailable"));
+        await expect(runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), allow())).rejects.toThrow("runner unavailable");
+        expect(vi.mocked(recordVerificationStage).mock.calls[0]?.[1]).toMatchObject({
+            check: "pre-tool:project-typecheck", status: "deferred", exec_ms: 0, peak_rss_bytes: null,
+            reuse_denied_reason: "plan-not-reusable:Project check unavailable",
+        });
+        expect(checkProjectTestsCleanAsync).not.toHaveBeenCalled();
+        expect(releaseHeavyProcess).toHaveBeenCalledOnce();
+    });
+
 	it("defers the whole git gate before spawning work when the project lane is busy", async () => {
 		vi.mocked(tryAcquireProjectHeavyProcessLease).mockReturnValueOnce(null);
 		const pre = allow();

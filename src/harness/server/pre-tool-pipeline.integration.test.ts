@@ -331,6 +331,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	delete process.env.INTERLINKED_GREP_ACCELERATOR;
+    vi.unstubAllEnvs();
 });
 
 // ---------------------------------------------------------------------------
@@ -338,6 +339,19 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("baseline passthrough", () => {
+    it("blocks private configuration access before project or evaluator work under local policy", async () => {
+        vi.stubEnv("INTERLINKED_RUNTIME_POLICY", "local-restricted");
+        const decision = await runPreToolPipeline(
+            makeCtx(),
+            ev({ tool_name: "Read", tool_input: { file_path: "/repo/.interlinked/config.local.json" } }),
+            makeSession(),
+        );
+        expect(decision).toMatchObject({ decision: "block", rule: "local_private_config" });
+        expect(mEvaluate).not.toHaveBeenCalled();
+        expect(mProjectWide).not.toHaveBeenCalled();
+        expect(mCaptureBaseline).not.toHaveBeenCalled();
+    });
+
 	it("returns the evaluator's allow decision and runs the two unconditional stages", async () => {
 		const ctx = makeCtx();
 		const decision = await runPreToolPipeline(

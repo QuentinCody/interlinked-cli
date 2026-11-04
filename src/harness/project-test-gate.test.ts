@@ -32,6 +32,15 @@ function writePkg(scripts: Record<string, string>) {
 	writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts }));
 }
 
+// test-contract: public-api — a composed project gate must preserve its held admission and the caller's resource observer.
+it("forwards observation and existing admission to the test runner", async () => {
+    writePkg({ test: "vitest run" });
+    const observe = vi.fn();
+    runBoundedTestProcessMock.mockResolvedValue({ kind: "completed", code: 0, stdout: "", stderr: "" });
+    await expect(checkProjectTestsCleanAsync(dir, { admissionAlreadyHeld: true, observe })).resolves.toEqual([]);
+    expect(runBoundedTestProcessMock).toHaveBeenCalledWith(expect.objectContaining({ cwd: dir, admissionAlreadyHeld: true, observe }));
+});
+
 describe("checkProjectTestsCleanAsync — env-var skip", () => {
 	it("returns the skip warning without ever invoking a test process", async () => {
 		writePkg({ test: "vitest run" });

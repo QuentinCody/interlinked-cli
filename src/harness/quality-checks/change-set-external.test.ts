@@ -475,6 +475,22 @@ describe("ChangeSet external-check batching", () => {
         expect(runChecksAsync).toHaveBeenCalledTimes(2);
     });
 
+    // test-contract: public-api — a failed repository secret scan defers only Gitleaks; independently runnable checks still produce evidence.
+    it("continues other project tools after a recovery job's secret scan fails", async () => {
+        runChecksAsync.mockResolvedValue(completedReport());
+        const batch = createChangeSetExternalBatch({ cwd: "/repo", recovery: true,
+            recoveryScanFailures: new Map([["/repo", "scan interrupted"]]),
+            checks: { gitleaks: config("error"), typescript: config("error") }, paths: ["/repo/src/a.ts"] });
+        const findings = await batch.resultsForFile("/repo/src/a.ts");
+        expect(runChecksAsync).toHaveBeenCalledTimes(1);
+        expect(findings).toEqual(expect.arrayContaining([
+            expect.objectContaining({ name: "external_check_deferred", detail: expect.stringContaining("already unavailable") }),
+            expect.objectContaining({ name: "typescript", detail: expect.stringContaining("TS2304") }),
+        ]));
+        // Neither the failed compiler nor unavailable secret scan may issue a passing receipt.
+        expect((await batch.evidenceForFile("/repo/src/a.ts")).checks).toEqual([]);
+    });
+
 	it("attributes project findings only to exact normalized touched paths", async () => {
 		const report = completedReport();
 		report.results = [

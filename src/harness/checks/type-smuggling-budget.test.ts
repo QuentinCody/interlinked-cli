@@ -21,3 +21,10 @@ it("MUST-BUILD and retain a real incompatible cast, including a nested escape", 
     expect(checkTypeSmuggling('const x = "hello" as unknown as number;', "/repo/real2.ts").length).toBeGreaterThan(0);
     expect(counts.programs).toBe(2);
 });
+it("keeps const assertions quiet when another cast requires compiler analysis", () => {
+    const source = 'const literal = { value: 1 } as const;\nconst invalid = "hello" as number;';
+    const findings = checkTypeSmuggling(source, "/repo/mixed.ts");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.line).toBe(2);
+    expect(counts.programs).toBe(1);
+});

@@ -91,6 +91,8 @@ import {
 	protocolStatusLines,
 	reportPendingStart,
 	stopRunningHarnessForRestart,
+    startHarnessForeground,
+    lockedJsonRestartStart,
 } from "./harness-lifecycle-helpers.js";
 
 function child(pid = 4321): EventEmitter & {
@@ -194,6 +196,26 @@ describe("buildHarnessSpawnArgs — exact argv construction", () => {
 });
 
 describe("daemonizeHarness — readiness detection and failure reporting", () => {
+    // test-contract: public-api — service starts must drop caller-only loaders while forwarding foreground child exit codes.
+    it.each([null, 17])("starts foreground with a clean environment and forwards exit %s", code => {
+        const spawned = child(101);
+        mocks.spawn.mockReturnValue(spawned);
+        const exit = vi.spyOn(process, "exit").mockImplementation(exitCode => { throw new Error(`exit ${exitCode}`); });
+        vi.stubEnv("NODE_OPTIONS", "--import /repo/scratch/disposable-loader.mjs");
+        try {
+            mocks.output.mockImplementationOnce((_mode, _data, renderers) => {
+                expect(renderers.json()).toEqual({ status: "starting_foreground" });
+                expect(renderers.normal()).toContain("Starting harness in foreground");
+            });
+            startHarnessForeground("normal", "/node", ["server"], "/repo");
+            expect(mocks.spawn).toHaveBeenCalledWith("/node", ["server"], expect.objectContaining({ stdio: "inherit", cwd: "/repo" }));
+            expect(mocks.spawn.mock.calls[0]?.[2].env.NODE_OPTIONS).toBeUndefined();
+            expect(mocks.transferStartupLock).toHaveBeenCalledWith("/repo", { childPid: 101 });
+            expect(() => spawned.emit("exit", code)).toThrow(`exit ${code ?? 0}`);
+            expect(exit).toHaveBeenCalledWith(code ?? 0);
+        } finally { exit.mockRestore(); vi.unstubAllEnvs(); }
+    });
+
 	// test-contract: concurrency — a detached child without the owner-checked
 	// startup lease is terminated before any later start can overlap it.
 	it("terminates a detached child when the startup lease cannot transfer", async () => {
@@ -221,6 +243,9 @@ describe("daemonizeHarness — readiness detection and failure reporting", () =>
 		mocks.spawn.mockReturnValue(child(101));
 		mocks.existsSync.mockReturnValue(true);
 		mocks.isHarnessRunning.mockReturnValue({ running: true, pid: 101 });
+        mocks.output.mockImplementationOnce((_mode, _data, renderers) => {
+            expect(renderers.json()).toMatchObject({ status: "started", pid: 101 });
+        });
 		await daemonizeHarness({
 			mode: "normal",
 			cwd: "/repo",
@@ -414,6 +439,39 @@ describe("cleanStaleRestartFiles — delete-when-stale conditions", () => {
 });
 
 describe("inlineJsonRestartStart — server resolution, argv, and poll convergence", () => {
+    // test-contract: public-api — the default restart workflow must acquire ownership or wait for the existing owner, without dependency overrides.
+    it.each([true, false])("uses the production restart path when lock acquisition is %s", async acquired => {
+        const release = vi.fn();
+        mocks.acquireStartupLock.mockReturnValue(acquired ? { acquired: true, release } : { acquired: false, holder: { pid: 7 } });
+        mocks.getHarnessServerPath.mockReturnValue("/opt/server.mjs");
+        mocks.existsSync.mockReturnValue(true);
+        mocks.spawn.mockReturnValue(child(101));
+        mocks.waitForDaemonSocket.mockResolvedValue(true);
+        await lockedJsonRestartStart("/repo", { json: true }, "raw", "s", 7, "json");
+        expect(mocks.acquireStartupLock).toHaveBeenCalledWith("/repo");
+        expect(mocks.spawn).toHaveBeenCalledTimes(acquired ? 1 : 0);
+        expect(release).toHaveBeenCalledTimes(acquired ? 1 : 0);
+        expect(mocks.waitForDaemonSocket).toHaveBeenCalledTimes(acquired ? 0 : 1);
+    });
+
+    // test-contract: public-api — a restart with neither a live daemon nor a ready socket must finish as failed and exit nonzero.
+    it("reports failure when the restarted daemon never remains running", async () => {
+        vi.useFakeTimers();
+        mocks.getHarnessServerPath.mockReturnValue("/opt/server.mjs");
+        mocks.existsSync.mockReturnValue(true);
+        mocks.spawn.mockReturnValue(child(101));
+        mocks.isHarnessRunning.mockReturnValue({ running: false });
+        mocks.isDaemonSocketReady.mockResolvedValue(false);
+        mocks.output.mockImplementationOnce((_mode, _data, renderers) => expect(renderers.json()).toMatchObject({ status: "failed", old_pid: 7 }));
+        const before = process.exitCode;
+        try {
+            const restart = inlineJsonRestartStart("/repo", {}, "raw", "s", 7, "json");
+            await vi.advanceTimersByTimeAsync(30_000);
+            await restart;
+            expect(process.exitCode).toBe(1);
+        } finally { process.exitCode = before; }
+    });
+
 	// test-contract: bug — a resolvable but missing-on-disk server path must
 	// still error AND exit nonzero (review 2026-08-30: output() only prints,
 	// so automation received exit 0 for a failed restart).

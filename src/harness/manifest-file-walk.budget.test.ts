@@ -7,6 +7,16 @@ const file = (name: string) => ({ name, isDirectory: () => false, isFile: () => 
 const dir = (name: string) => ({ name, isDirectory: () => true, isFile: () => false });
 
 describe("manifest traversal budgets", () => {
+    // test-contract: boundary — exhausting the shared budget inside a subtree must stop its parent before scanning siblings.
+    it("stops ancestor traversal after a nested directory exhausts the budget", () => {
+        tree.clear(); tree.set("/nested", [dir("a"), file("z.ts")]);
+        tree.set("/nested/a", [file("first.ts"), file("second.ts")]);
+        const onLimit = vi.fn(), match = vi.fn(() => true);
+        expect(findManifestFiles("/nested", match, { maxEntries: 2, onLimit })).toEqual(["a/first.ts"]);
+        expect(match.mock.calls).toEqual([["first.ts"]]);
+        expect(onLimit).toHaveBeenCalledTimes(1);
+    });
+
     it("MUST-NOT-FAIL when one subtree exceeds the JS argument limit", () => {
         tree.clear(); tree.set("/wide", [dir("src")]);
         tree.set("/wide/src", Array.from({ length: 150_000 }, (_, i) => file(`${i}.ts`)));

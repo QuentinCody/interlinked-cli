@@ -48,6 +48,22 @@ describe("startIdleEvidenceDrain", () => {
 });
 
 describe("daemon coverage controls", () => {
+    // test-contract: public-api — a forbidden local configuration read is permanent; compact and final reports must tell callers to stop retrying.
+    it("marks a policy denial nonretryable in progress and verification reports", () => {
+        const { watcher } = fixture();
+        const reason = "Local runtime policy: private configuration unavailable";
+        vi.spyOn(watcher, "status").mockReturnValue({ ...watcher.status(), readiness: "unmeasured", unmeasured: [reason, reason] });
+        for (const detail of ["progress", "verification"] as const) {
+            const report = controlHookCoverage(watcher, { operation: "status", detail });
+            expect(report).toMatchObject({ readiness: "unmeasured", retryable: false, reason });
+            expect(isHookCoverageReport(JSON.parse(JSON.stringify(report)))).toBe(true);
+            if (detail === "verification") {
+                expect(report.remaining?.length).toBeGreaterThan(0);
+                expect(report.remaining?.every(version => version.reasons.includes(`Current observation unavailable: ${reason}`))).toBe(true);
+            }
+        }
+    });
+
     it("starts verification with a bounded acknowledgement instead of serializing receipt history", () => {
         const { root, watcher } = fixture();
         watcher.stop();

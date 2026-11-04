@@ -91,6 +91,25 @@ function ledger(): () => Array<Record<string, unknown>> {
 const budget = { reserveBytes: 1024 ** 3, maxRssBytes: 2 * 1024 ** 3 };
 
 describe("stage ledger rows", () => {
+    // test-contract: public-api — waiting for memory must explain that no check has started, then retain the eventual command verdict.
+    it("reports a memory wait before launching the admitted command", async () => {
+        const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+        const release = vi.fn();
+        vi.mocked(acquireTestCapacity).mockResolvedValue({ release });
+        vi.mocked(readResourceBudget).mockReturnValue(budget);
+        vi.mocked(waitForResource).mockImplementation(async (probe, _deadline, _signal, onWait) => {
+            expect(runProcessAsync).not.toHaveBeenCalled();
+            onWait?.();
+            return probe();
+        });
+        vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, killed: false, timedOut: false, stdout: "", stderr: "" });
+        await expect(runResourceCommand("node", [], new AbortController().signal)).resolves.toMatchObject({ kind: "ran", result: { code: 0 } });
+        expect(stderr).toHaveBeenCalledWith("[resources] Waiting for host memory capacity within the admission deadline; no check has started.\n");
+        expect(runProcessAsync).toHaveBeenCalledTimes(1);
+        expect(release).toHaveBeenCalledTimes(1);
+        expect(readRows()).toMatchObject([{ status: "passed" }]);
+    });
+
     // test-contract: public-api — an expired capacity wait is recorded as capacity-timeout with the wait measured, never as a failed check
     it("records capacity-timeout when the host lane never opens", async () => {
         const rows = readRows;
