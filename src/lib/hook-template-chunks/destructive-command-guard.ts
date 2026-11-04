@@ -268,9 +268,11 @@ function dcgCheckRemoteExecution(cmd: string): DestructiveCommandVerdict | null 
 	const fetchVerb = "(?:curl|wget|fetch)";
 	// Interpreter + an inline-code flag cluster (-c, -e, -r, -ne, -pe) means the
 	// pipe is DATA and the program is the argv literal; exempt it (2026-08-11).
-	// Shells have no exemption (they always execute stdin).
+	// Bare flag clusters may precede it (python3 -I -c ..., python3 -u -c ...;
+	// 2026-11-02, a false block on an isolated-mode JSON parse). Shells have no
+	// exemption (they always execute stdin).
 	const sink =
-		"(?:sudo\\s+)?(?:(?:ba|z|k|da)?sh|(?:python3?|perl|ruby|node|php)(?!\\s+-[a-zA-Z]*[cerm]\\b))";
+		"(?:sudo\\s+)?(?:(?:ba|z|k|da)?sh|(?:python3?|perl|ruby|node|php)(?!\\s+(?:-[a-zA-Z]+\\s+)*-[a-zA-Z]*[cerm]\\b))";
 	const piped = new RegExp("\\b" + fetchVerb + "\\b[^|]*\\|\\s*" + sink + "\\b", "i");
 	const subst = new RegExp("\\b" + sink + "\\b\\s*<\\(\\s*[^)]*\\b" + fetchVerb + "\\b", "i");
 	if (!piped.test(cmd) && !subst.test(cmd)) return null;

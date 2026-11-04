@@ -421,7 +421,7 @@ const EXPECTED_RULES: readonly ExpectedRule[] = [
 			{
 				field: "command",
 				regex:
-					"\\b(curl|wget|fetch)\\b[^|]*\\|\\s*(sudo\\s+)?((ba|z|k|da)?sh|(python3?|perl|ruby|node|php)(?!\\s+-[a-zA-Z]*[cerm]\\b))\\b",
+					"\\b(curl|wget|fetch)\\b[^|]*\\|\\s*(sudo\\s+)?((ba|z|k|da)?sh|(python3?|perl|ruby|node|php)(?!\\s+(-[a-zA-Z]+\\s+)*-[a-zA-Z]*[cerm]\\b))\\b",
 			},
 			{
 				field: "command",
