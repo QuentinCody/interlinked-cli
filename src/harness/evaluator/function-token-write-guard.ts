@@ -6,7 +6,6 @@ import {
     maxFunctionTokensFor,
 } from "../metric-caps.js";
 import {
-    buildMetricBlock,
     checkPerFunctionMetricWrite,
     metricViolations,
     type MetricGateSpec,
@@ -68,9 +67,28 @@ export function compareFunctionTokens(
     );
 }
 
-/** Render the canonical function-token block message for a commit batch. */
-export function buildFunctionTokenBlock(violations: string[], cwd: string): string {
-    return buildMetricBlock(FUNCTION_TOKEN_SPEC, violations, maxFunctionTokensFor(cwd));
+export type CommitTokenScope = "index" | "tracked" | "constructed" | "conservative-worktree";
+
+/** Commit comparisons establish a delta from HEAD, never writer or session attribution. */
+export function buildFunctionTokenBlock(violations: string[], cwd: string, scope: CommitTokenScope = "index"): string {
+    const scopes: Record<CommitTokenScope, string> = {
+        index: "staged index versus HEAD",
+        tracked: "tracked working-tree changes versus HEAD (commit --all)",
+        constructed: "selected working-tree paths versus HEAD (compound/pathspec command)",
+        "conservative-worktree": "conservative working-tree scan versus HEAD; the command's exact commit scope is unresolved",
+    };
+    const shown = violations.slice(0, 8).map(violation => violation
+        .replace(/raised from (\d+)/g, "HEAD value $1")
+        .replace(/new (?:anonymous )?function over cap|new over-cap function/g, "no matching function in HEAD"));
+    return [
+        `[interlinked:function-tokens] COMMIT BLOCKED: ${violations.length} function-size regression(s); cap ${maxFunctionTokensFor(cwd)} syntax tokens (${CANONICAL_TOKENIZER_ID}).`,
+        `Scope: ${scopes[scope]}.`,
+        "These are differences from the committed version; writer and edit time are not determined.",
+        ...shown.map(violation => `  • ${violation}`),
+        ...(shown.length < violations.length ? [`  … ${violations.length - shown.length} more; all findings still participate in the gate. Use interlinked metrics --full for the current-worktree inventory.`] : []),
+        ...(scope === "conservative-worktree" ? ["Run staging and git commit as separate tool calls to check the exact staged index."] : []),
+        "Simplify the affected functions or extract cohesive responsibilities. Existing over-cap functions may hold or shrink; they may not grow.",
+    ].join("\n");
 }
 
 export function resetFunctionTokenWarningsForTesting(): void {

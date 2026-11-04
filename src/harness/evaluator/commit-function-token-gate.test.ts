@@ -80,7 +80,9 @@ describe("commit function-token backstop", () => {
             event(),
             deps(functionWithTokens(700), functionWithTokens(701)),
         );
-        expect(result?.reason).toContain("raised from 700");
+        expect(result?.reason).toContain("HEAD value 700");
+        expect(result?.reason).toContain("staged index versus HEAD");
+        expect(result?.reason).not.toContain("this edit pushes");
     });
 
     it("reads worktree content for git commit -a", () => {
@@ -89,6 +91,27 @@ describe("commit function-token backstop", () => {
         expect(result?.decision).toBe("block");
         expect(d.readFile).toHaveBeenCalledWith("/repo/src/example.ts");
         expect(d.gitShow).not.toHaveBeenCalledWith("/repo", ":src/example.ts");
+        expect(result?.reason).toContain("tracked working-tree changes versus HEAD");
+    });
+
+    it("labels a pathspec-file compound command as a conservative scan", () => {
+        const result = checkCommitFunctionTokenGate(event("git add --pathspec-from-file=paths && git commit -m test"),
+            deps(functionWithTokens(500), functionWithTokens(501)));
+        expect(result?.reason).toContain("exact commit scope is unresolved");
+        expect(result?.reason).toContain("separate tool calls");
+        expect(result?.reason).toContain("writer and edit time are not determined");
+    });
+
+    it("bounds displayed findings without allowing any oversized candidate", () => {
+        const d = deps("", functionWithTokens(501));
+        d.changedFiles.mockReturnValue(Array.from({ length: 12 }, (_, index) => `src/file-${index}.ts`));
+        const result = checkCommitFunctionTokenGate(event(), d);
+        expect(result?.decision).toBe("block");
+        expect(result?.reason).toContain("12 function-size regression(s)");
+        expect(result?.reason).toContain("4 more");
+        expect(result?.reason?.match(/  • /g)).toHaveLength(8);
+        expect(result?.reason).toContain("no matching function in HEAD");
+        expect(result?.reason).not.toContain("new over-cap function");
     });
 
     it("does no git work for a non-commit command", () => {
@@ -120,6 +143,7 @@ describe("commit function-token backstop", () => {
         expect(changedFiles).toHaveBeenCalledWith("/repo", true);
         expect(result?.reason).toContain("src/example.ts");
         expect(result?.reason).toContain("src/staged-only.ts");
+        expect(result?.reason).toContain("selected working-tree paths versus HEAD");
     });
 
     it("skips a path whose file is not cappable (a test source file)", () => {

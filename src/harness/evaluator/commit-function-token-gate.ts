@@ -115,7 +115,9 @@ export function checkCommitFunctionTokenGate(
     if (violations.length === 0) return null;
     return {
         decision: "block",
-        reason: buildFunctionTokenBlock(violations, repoRoot),
+        reason: buildFunctionTokenBlock(violations, repoRoot, changed.mode === "worktree"
+            ? parse.constructedPaths?.length ? "constructed" : "conservative-worktree"
+            : changed.mode),
         rule_id: "commit-function-tokens-cap",
         severity: "medium",
         category: "function-size",

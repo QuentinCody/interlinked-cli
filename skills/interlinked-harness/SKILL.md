@@ -5,6 +5,13 @@ description: "Understand and respond to the Interlinked PreToolUse guard — the
 
 # interlinked-harness — the guard: what blocks you & how to respond
 
+Commit-time function-token diagnostics compare against `HEAD` and name their scope:
+staged index, tracked working tree, selected constructed paths, or a conservative
+worktree scan. They do not identify the writer or when the changes were made.
+Only the first eight findings are displayed; the full set still determines the block.
+For unresolved compound staging scope, stage first and commit in a separate tool call
+to check the exact index. This changes the observed scope, not the cap or enforcement.
+
 Remote-pipe detection permits interpreter inline programs preceded by bare flags
 (for example, `curl URL | python3 -I -c '...'`), where stdin is data. Shell sinks
 retain their existing remote-execution block.

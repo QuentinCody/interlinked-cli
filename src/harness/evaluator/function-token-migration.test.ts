@@ -48,7 +48,7 @@ describe("function-token migration ratchet", () => {
         const deps = { resolveRepoRoot: () => cwd, changedFiles: () => ["a.ts"],
             gitShow: (_root: string, ref: string) => ref.startsWith("HEAD:") ? templateDebt() : templateDebt(521),
             readFile: () => templateDebt(521) };
-        expect(checkCommitFunctionTokenGate(event, deps)?.reason).toContain("raised from 532");
+        expect(checkCommitFunctionTokenGate(event, deps)?.reason).toContain("HEAD value 532");
     });
 
     it("honors a stricter cap under the corrected measurement", () => {
