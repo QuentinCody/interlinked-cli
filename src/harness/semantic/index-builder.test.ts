@@ -28,6 +28,26 @@ function runtime(embed = vi.fn(async (inputs: string[]) => inputs.map(() => {
 }
 
 describe("semantic index builder", () => {
+    it("MUST-FIRE: batches a repository without losing or reordering functions", async () => {
+        temporary = mkdtempSync(join(tmpdir(), "interlinked-semantic-build-"));
+        mkdirSync(join(temporary, "src"));
+        writeFileSync(join(temporary, "src", "many.ts"), Array.from({ length: 35 }, (_, i) =>
+            `export function function${i}(value: number) { return value + ${i}; }`).join("\n"));
+        const embed = vi.fn(async (inputs: string[]) => inputs.map(() => {
+            const vector = new Float32Array(768); vector[0] = 1; return vector;
+        }));
+        const result = await buildSemanticIndex(temporary, { runtime: runtime(embed) });
+        expect(result.functions).toBe(35);
+        expect(embed.mock.calls.map(([inputs]) => inputs.length)).toEqual([16, 16, 3]);
+        expect(new Set(loadSemanticIndex(temporary).rows.map(row => row.qualifiedName)).size).toBe(35);
+    });
+    it("MUST-NOT-FIRE: a short batch response cannot publish a partial generation", async () => {
+        temporary = mkdtempSync(join(tmpdir(), "interlinked-semantic-build-"));
+        mkdirSync(join(temporary, "src"));
+        writeFileSync(join(temporary, "src", "one.ts"), "export function one() { return 1; }");
+        await expect(buildSemanticIndex(temporary, { runtime: runtime(vi.fn(async () => [])) })).rejects.toThrow("incorrect batch length");
+        expect(() => loadSemanticIndex(temporary)).toThrow();
+    });
     it("extracts exact functions and reuses an unchanged input hash", async () => {
         temporary = mkdtempSync(join(tmpdir(), "interlinked-semantic-build-"));
         mkdirSync(join(temporary, "src"));

@@ -39,7 +39,9 @@ function attachedDocumentation(content: string, entry: FunctionTokenEntry, code:
         return match?.[2] === undefined ? "" : normalizeEmbeddingSource(match[2]).trim();
     }
     const before = content.slice(0, entry.startOffset);
-    const match = /\/\*\*([\s\S]*?)\*\/\s*$/.exec(before);
+    // An earlier JSDoc block must not absorb intervening code while searching
+    // for the final closing delimiter before this declaration.
+    const match = /\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*$/.exec(before);
     return match?.[1] === undefined ? "" : cleanBlockDocumentation(match[1]);
 }
 

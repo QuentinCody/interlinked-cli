@@ -45,10 +45,26 @@ async function runProcess(command: string, args: string[], stdin = "", timeoutMs
     });
 }
 
-function runtimeArgs(config: SemanticLocalConfig): string[] {
-    const args: string[] = [];
+function runtimeVersionIdentity(result: ProcessResult): string {
+    const lines = `${result.stdout}\n${result.stderr}`.split(/\r?\n/).map(line => line.trim());
+    const version = lines.find(line => /^version:\s+\S/.test(line));
+    if (version === undefined) throw new Error("embedding runtime did not report a version identity");
+    const build = lines.find(line => /^built with\s+\S/.test(line));
+    // Backend initialization can include elapsed timings and device diagnostics.
+    // Only explicit version/build evidence identifies the runtime across processes.
+    return build === undefined ? version : `${version}\n${build}`;
+}
+
+function runtimeArgs(config: SemanticLocalConfig, manifest: EmbeddingModelManifest): string[] {
+    const batchSize = config.batch_size > 0 ? config.batch_size : manifest.maxInputTokens;
+    if (batchSize < manifest.maxInputTokens) {
+        throw new Error(`semantic batch_size must be at least the model context (${manifest.maxInputTokens})`);
+    }
+    // Non-causal embedding requires an entire sequence in one physical batch.
+    // Native defaults (2048 for nomic) can be smaller than the registry context.
+    const args: string[] = ["--ctx-size", String(manifest.maxInputTokens),
+        "--batch-size", String(batchSize), "--ubatch-size", String(batchSize)];
     if (config.threads > 0) args.push("--threads", String(config.threads));
-    if (config.batch_size > 0) args.push("--batch-size", String(config.batch_size));
     if (config.device === "cpu") args.push("--gpu-layers", "0");
     return args;
 }
@@ -62,6 +78,7 @@ function countFromOutput(output: string): number {
 }
 
 function parseVectors(output: string, expected: number, dimension: number): Float32Array[] {
+    if (output.trim().length === 0) throw new Error("embedding runtime returned empty stdout");
     const parsed: unknown = JSON.parse(output);
     if (!Array.isArray(parsed) || parsed.length !== expected) {
         throw new Error(`embedding runtime returned ${Array.isArray(parsed) ? parsed.length : "non-array"} vectors; expected ${expected}`);
@@ -70,7 +87,11 @@ function parseVectors(output: string, expected: number, dimension: number): Floa
         if (!Array.isArray(value) || value.length !== dimension || !value.every((item): item is number => typeof item === "number" && Number.isFinite(item))) {
             throw new Error(`embedding ${index} is not a finite ${dimension}-dimension vector`);
         }
-        return Float32Array.from(value);
+        const vector = Float32Array.from(value);
+        if (!vector.every(Number.isFinite)) {
+            throw new Error(`embedding ${index} is not a finite ${dimension}-dimension float32 vector`);
+        }
+        return vector;
     });
 }
 
@@ -103,17 +124,21 @@ export async function createLlamaRuntime(
     }
     const embeddingCommand = config.llama_embedding_command ?? "llama-embedding";
     const tokenizeCommand = config.llama_tokenize_command ?? "llama-tokenize";
+    const effectiveArgs = runtimeArgs(config, manifest);
     const version = await runProcess(embeddingCommand, ["--version"], "", 10_000);
-    const versionIdentity = `${version.stdout}\n${version.stderr}`.trim();
+    const versionIdentity = runtimeVersionIdentity(version);
     const fingerprint = createHash("sha256")
-        .update(`${modelFingerprint(manifest)}\n${versionIdentity}`)
+        .update(`${modelFingerprint(manifest)}\n${versionIdentity}\nembedding-args-v2:${JSON.stringify(effectiveArgs)}`)
         .digest("hex");
     const modelPath = modelArtifactPath(manifest);
-    const common = ["--model", modelPath, "--log-disable", ...runtimeArgs(config)];
+    const modelArgs = ["--model", modelPath];
+    // llama-embedding 8860 emits its JSON payload through the logging machinery:
+    // --log-disable suppresses embeddings too. Diagnostics are captured on stderr.
+    const embeddingArgs = [...modelArgs, ...effectiveArgs];
     return {
         fingerprint,
         async countTokens(input: string): Promise<number> {
-            const result = await runProcess(tokenizeCommand, [...common, "--stdin", "--show-count"], input);
+            const result = await runProcess(tokenizeCommand, [...modelArgs, "--stdin", "--show-count"], input);
             return countFromOutput(result.stdout);
         },
         async embed(inputs: string[]): Promise<Float32Array[]> {
@@ -121,7 +146,7 @@ export async function createLlamaRuntime(
             const separator = uniqueSeparator(inputs);
             return withPromptFile(inputs.join(separator), async (path) => {
                 const result = await runProcess(embeddingCommand, [
-                    ...common,
+                    ...embeddingArgs,
                     "--file", path,
                     "--pooling", manifest.pooling === "model-native" ? "mean" : manifest.pooling,
                     "--embd-normalize", "2",

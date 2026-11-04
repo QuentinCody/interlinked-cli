@@ -222,7 +222,16 @@ async function embedPending(
 ): Promise<CompletedRow[]> {
     if (pending.length === 0) return [];
     const allChunks = pending.flatMap((item) => item.chunks.map((chunk) => chunk.text));
-    const vectors = await runtime.embed(allChunks);
+    // Bound native process output and work per call. A whole repository in
+    // one call can exceed the runtime's 64 MiB output / 120-second limits.
+    const vectors: Float32Array[] = [];
+    const batchSize = 16;
+    for (let offset = 0; offset < allChunks.length; offset += batchSize) {
+        const batch = allChunks.slice(offset, offset + batchSize);
+        const embedded = await runtime.embed(batch);
+        if (embedded.length !== batch.length) throw new Error("embedding runtime returned an incorrect batch length");
+        vectors.push(...embedded);
+    }
     const completed: CompletedRow[] = [];
     let cursor = 0;
     for (const item of pending) {

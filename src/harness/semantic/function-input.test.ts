@@ -46,4 +46,31 @@ describe("function embedding input", () => {
         expect(input.code).toBe(code);
         expect(input.text).toContain("documentation:\nAdds one to the input.\ncode:");
     });
+
+    it("MUST-NOT-FIRE: unrelated earlier documentation and code do not change this function's input", () => {
+        const code = "function beta(value: number) { return value + 2; }";
+        const attached = "/** Adds two, including a literal /** marker in this comment. */\n";
+        const inputs = [
+            "/** Earlier documentation. */\nfunction alpha() { return 1; }\n",
+            "/** Completely different earlier documentation. */\nfunction unrelated() { throw new Error('unrelated'); }\n",
+        ].map(earlier => {
+            const content = earlier + attached + code;
+            return buildFunctionEmbeddingInput(content, {
+                ...entry, name: "beta", qualifiedName: "beta",
+                startOffset: earlier.length + attached.length, endOffset: content.length,
+            }, manifest);
+        });
+        expect(inputs[0]?.documentation).toBe("Adds two, including a literal /** marker in this comment.");
+        expect(inputs[0]?.inputHash).toBe(inputs[1]?.inputHash);
+        expect(inputs[0]?.text).not.toContain("function alpha");
+    });
+
+    it("MUST-NOT-FIRE: a non-documentation comment breaks attachment to earlier JSDoc", () => {
+        const before = "/** Not attached to alpha. */\n/* ordinary comment */\n";
+        const code = "function alpha() { return 1; }";
+        const input = buildFunctionEmbeddingInput(before + code, {
+            ...entry, startOffset: before.length, endOffset: before.length + code.length,
+        }, manifest);
+        expect(input.documentation).toBe("");
+    });
 });
