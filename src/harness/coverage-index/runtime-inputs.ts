@@ -5,6 +5,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { hashBytes } from "../../lib/metrics/inventory.js";
 import { skipsCoverageOverlayEntry } from "../coverage-overlay.js";
+import { currentProcessSignal } from "../check-engine/process-cancellation.js";
 
 export interface CoverageRuntimeInput { path: string; kind: string; mode: number; hash: string; }
 export interface CoverageRuntimeSnapshot { inputs: CoverageRuntimeInput[]; hash: string; }
@@ -15,9 +16,18 @@ interface Census { options: CoverageRuntimeOptions; entries: number; bytes: numb
 interface InputLocation { path: string; logical: string; canonical: string; entry: BigIntStats; stat: BigIntStats; link: string | undefined; mount: string | undefined; mounted: boolean; }
 
 export function remainingCoverageTime(deadline: number): number {
+    currentProcessSignal()?.throwIfAborted();
     const remaining = Math.floor(deadline - Date.now());
     if (remaining < 1) throw new Error("Coverage runtime validation deadline exhausted; index unavailable");
     return remaining;
+}
+
+/** Give pending OS cancellation a turn before a measurement becomes accepted state or a passing verdict. */
+export async function coverageCancellationCheckpoint(): Promise<void> {
+    const signal = currentProcessSignal();
+    if (!signal) return;
+    await setImmediate();
+    signal.throwIfAborted();
 }
 /** Vite's bundled config loader removes its temporary files but retains this directory. */
 export function prepareCoverageRuntime(root: string, deadline: number): void {

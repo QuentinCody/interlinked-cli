@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FileCoverageMetrics } from "./types.js";
+import { withProcessCancellation } from "../check-engine/process-cancellation.js";
 
 const runIndexedCoverage = vi.fn();
 const coverageIndexContext = vi.fn();
@@ -34,6 +35,22 @@ describe("metricsToSummary — positive (must fire)", () => {
 });
 
 describe("indexedCoverageSummary — negative (must not fire): unavailable evidence is never a summary", () => {
+    // test-contract: regression — successful partial capture cannot be promoted or returned as passing after cancellation; admission is still released.
+    it("releases admission without accepting or certifying an interrupted capture", async () => {
+        const controller = new AbortController();
+        coverageIndexContext.mockResolvedValue({ testFiles: ["a.test.ts"] });
+        release.mockClear();
+        promoteMatchingProposal.mockClear();
+        runIndexedCoverage.mockImplementationOnce(async () => {
+            controller.abort(new Error("capture interrupted"));
+            return { indexed: true, reason: null, selectedTests: ["a.test.ts"], result: { ok: true }, metrics: new Map([["src/a.ts", metrics([1, 1], [0, 0], [1, 1], null)]]) };
+        });
+        const outcome = await withProcessCancellation(controller.signal, () => indexedCoverageSummary({ root: "/repo", timeoutMs: 1000 }));
+        expect(outcome).toMatchObject({ indexed: false, reason: "capture interrupted" });
+        expect(outcome).not.toHaveProperty("summary");
+        expect(release).toHaveBeenCalledTimes(1);
+        expect(promoteMatchingProposal).not.toHaveBeenCalled();
+    });
     // test-contract: invariant — when the index cannot certify (tests failed, runtime changed, quarantine), the caller gets the reason and NO summary; when it can, the summary spans the full universe and reports how much re-ran
     it("N1: returns the controller's reason without a summary", async () => {
         coverageIndexContext.mockResolvedValue({ testFiles: ["a.test.ts", "b.test.ts"] });

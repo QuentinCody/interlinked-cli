@@ -11,9 +11,12 @@ import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
 import { COVERAGE_SOURCES_ARTIFACT, recordCoverageSources } from "./coverage-source-binding.js";
 import { captureTestRuntime, type TestRuntime } from "./test-runtime.js";
 import { runProcessAsync } from "./check-engine/spawn-async.js";
+import { combinedProcessSignal } from "./check-engine/process-cancellation.js";
 import { planResources } from "./resource-governor.js";
 import { readResourceMemory } from "./resource-memory.js";
 import { readResourceBudget } from "./resource-budget.js";
+import { waitForResource } from "./resource-wait.js";
+import { boundedNodeHeap } from "./node-heap-limit.js";
 import { readTestReceipt, receiptStorePath, writeTestReceipt, type PassedReceipt, type RunArtifacts, type TestExecution } from "./test-run-receipt.js";
 import type { TestPlan } from "./test-plan.js";
 import { testReportIssue } from "./test-run-report.js";
@@ -34,6 +37,8 @@ export interface TestRunOptions {
     queuedAt?: number;
     /** Milliseconds the scheduler waited for its leases before this execution. */
     waitCapacityMs?: number;
+    /** Interactive requests may wait for transient worker shortages within their existing deadline. */
+    waitForCapacity?: boolean;
     /** Collect coverage (json-summary) into the run directory; `reporters` are extra vitest reporter module paths (a scope recorder). */
     coverage?: { reporters?: string[] };
     /** Receipt + run-artifact store; defaults to `<root>/.interlinked/test-runs`. */
@@ -73,21 +78,7 @@ const HEAP_UNAVAILABLE = "Test heap limit unavailable: percentage, invalid or am
 
 /** Inspect only simple heap overrides; preserve NODE_OPTIONS verbatim and decline ambiguous quoting instead of parsing shell syntax. */
 function environmentHeapLimit(environment: NodeJS.ProcessEnv): number | null {
-    const options = environment.NODE_OPTIONS ?? "";
-    if (!/--max[-_]old[-_]space[-_]size/.test(options)) return TEST_HEAP_LIMIT_MB;
-    if (/["\\]/.test(options)) return null;
-    const args = options.split(/\s+/);
-    let limit = TEST_HEAP_LIMIT_MB;
-    for (let index = 0; index < args.length; index++) {
-        const arg = args[index] ?? "";
-        if (/^--max[-_]old[-_]space[-_]size[-_]percentage(?:=|$)/.test(arg)) return null;
-        const absolute = /^--max[-_]old[-_]space[-_]size(?:=(.*))?$/.exec(arg);
-        if (!absolute) continue;
-        const value = absolute[1] ?? args[++index];
-        if (!/^\d+$/.test(value ?? "") || Number(value) <= 0) return null;
-        limit = Math.min(limit, Number(value));
-    }
-    return limit;
+    return boundedNodeHeap(environment.NODE_OPTIONS ?? "", TEST_HEAP_LIMIT_MB);
 }
 
 type StageMemory = Pick<VerificationStageInput, "peak_rss_bytes" | "rss_budget_bytes" | "heap_limit_mb">;
@@ -207,10 +198,21 @@ interface AdmittedContext { environment: ReturnType<typeof captureVitestEnvironm
 async function executePlan(plan: TestPlan, options: TestRunOptions): Promise<TestExecution> {
     const started = Date.now();
     const base: TestExecution = { plan, runId: randomUUID(), reused: false, durationMs: 0, reason: "", output: "", status: "deferred" };
-    const record = (attempt: Attempt) => recordExecution(options, attempt.execution, { started, ...attempt.outcome });
+    let budgetWaitMs = 0;
+    const record = (attempt: Attempt) => recordExecution({ ...options,
+        ...(options.waitForCapacity ? { waitCapacityMs: (options.waitCapacityMs ?? 0) + budgetWaitMs } : {}),
+    }, attempt.execution, { started, ...attempt.outcome });
     if (plan.mode === "selected" && !plan.tests.length) return record({ execution: { ...base, status: "empty", reason: "No tests selected; no test pass certified" }, outcome: { identity: null, denied: "empty-selection" } });
-    const workers = testWorkerBudget(options.maxWorkers);
-    if (!workers) return record({ execution: { ...base, reason: "Host CPU or memory capacity unavailable for a test worker" }, outcome: { identity: null, denied: "worker-budget-unavailable" } });
+    const workers = options.waitForCapacity
+        ? await waitForResource(() => testWorkerBudget(options.maxWorkers) || null, options.deadline, options.signal,
+            () => process.stderr.write("[resources] Waiting for test worker capacity within the request deadline; no test has started.\n"))
+        : testWorkerBudget(options.maxWorkers);
+    budgetWaitMs = elapsedMs(started);
+    if (!workers) {
+        const cancelled = combinedProcessSignal(options.signal)?.aborted;
+        return record({ execution: { ...base, reason: cancelled ? "Test worker admission interrupted" : "Host CPU or memory capacity unavailable for a test worker" },
+            outcome: { identity: null, denied: cancelled ? "interrupted" : "worker-budget-unavailable" } });
+    }
     const environment = captureVitestEnvironment();
     if (environmentHeapLimit(environment.environment) === null) {
         return record({ execution: { ...base, reason: HEAP_UNAVAILABLE }, outcome: { identity: null, denied: `plan-not-reusable:${HEAP_UNAVAILABLE}` } });

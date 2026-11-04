@@ -1,6 +1,8 @@
 import { acquireTestCapacity } from "./test-capacity.js";
-import { readResourceBudget } from "./resource-budget.js";
+import { readResourceBudget, type ResourceBudget } from "./resource-budget.js";
 import { runProcessAsync, type RunProcessResult } from "./check-engine/spawn-async.js";
+import { boundedNodeHeap } from "./node-heap-limit.js";
+import { waitForResource } from "./resource-wait.js";
 import { elapsedMs, recordVerificationStage, stageFromEnvironment, type ReuseDeniedReason } from "./verification-stages.js";
 
 const CHECK_LABEL_MAX_CHARS = 200;
@@ -58,13 +60,14 @@ function commandStatus(result: RunProcessResult): { status: string; denied?: Reu
 }
 
 /**
- * What happened to a bounded command. Only `ran` carries a verdict; the other three mean the command
+ * What happened to a bounded command. Only `ran` carries a verdict; the other outcomes mean the command
  * never started, which the caller must report as NOT RUN and never as a failed check.
  */
 export type ResourceCommandOutcome =
     | { kind: "ran"; result: RunProcessResult; wait_capacity_ms: number; memory?: CommandMemory }
     | { kind: "capacity-timeout"; wait_capacity_ms: number }
     | { kind: "memory-budget-unavailable"; wait_capacity_ms: number }
+    | { kind: "invalid-heap-limit"; wait_capacity_ms: number }
     | { kind: "interrupted"; wait_capacity_ms: number };
 
 /** Exit status for a bounded command that produced no verdict (EX_TEMPFAIL): the caller may retry, nothing failed. */
@@ -91,6 +94,8 @@ export function describeResourceCommandOutcome(outcome: ResourceCommandOutcome):
             return { ...base, verdict: "not-run", exitCode: NO_VERDICT_EXIT_CODE, message: `[resources] NOT RUN: host memory budget unavailable after admission (waited ${waited}); no verification verdict.` };
         case "interrupted":
             return { ...base, verdict: "not-run", exitCode: NO_VERDICT_EXIT_CODE, message: "[resources] NOT RUN: interrupted before the command started; no verification verdict." };
+        case "invalid-heap-limit":
+            return { ...base, verdict: "not-run", exitCode: NO_VERDICT_EXIT_CODE, message: "[resources] NOT RUN: ambiguous or percentage heap override; use simple positive absolute MiB limits. No verification verdict." };
         case "ran": {
             const { result } = outcome;
             if (result.killed || result.timedOut || result.code === null) {
@@ -101,48 +106,70 @@ export function describeResourceCommandOutcome(outcome: ResourceCommandOutcome):
     }
 }
 
+interface AdmittedCommand {
+    signal: AbortSignal;
+    resourceBudget: ResourceBudget;
+    heapMb: number;
+    check: string;
+    waitCapacityMs: number;
+}
+
+/** Launch only after admission; preserve the child's actual outcome and sampled memory facts in one row. */
+async function launchCommand(file: string, args: string[], options: AdmittedCommand): Promise<ResourceCommandOutcome> {
+    const { signal, resourceBudget, heapMb, check, waitCapacityMs: wait_capacity_ms } = options;
+    const command = process.platform === "win32" ? [file, ...args] : ["nice", "-n", "10", file, ...args];
+    const executable = command.shift();
+    if (!executable) return { kind: "interrupted", wait_capacity_ms };
+    const execStarted = Date.now();
+    const result = await runProcessAsync(executable, command, {
+        cwd: process.cwd(), timeout: 3600_000, signal, resourceBudget, inheritOutput: true,
+        env: {
+            NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=${heapMb}`.trim(),
+            GOMAXPROCS: "2", UV_THREADPOOL_SIZE: "2", OMP_NUM_THREADS: "1", OPENBLAS_NUM_THREADS: "1",
+            MKL_NUM_THREADS: "1", VECLIB_MAXIMUM_THREADS: "1",
+        },
+    });
+    const memory = commandMemory(check, resourceBudget.maxRssBytes, heapMb, result);
+    recordCommand({ ...memory, wait_capacity_ms, exec_ms: elapsedMs(execStarted), ...commandStatus(result) });
+    return { kind: "ran", result, wait_capacity_ms, memory };
+}
+
 /** Developer checks use the same host lane and bounded child lifecycle as scheduled work. */
 export async function runResourceCommand(file: string, args: string[], signal: AbortSignal, profile: "heavy" | "light" = "heavy"): Promise<ResourceCommandOutcome> {
     // A daemon push check can already own the host lane for five minutes.
     const waitMs = profile === "light" ? 5000 : 600_000;
     const check = [file, ...args].join(" ").slice(0, CHECK_LABEL_MAX_CHARS);
     const waitStarted = Date.now();
+    const deadline = waitStarted + waitMs;
     let lane: Awaited<ReturnType<typeof acquireTestCapacity>>;
     try {
-        lane = await acquireTestCapacity("foreground", Date.now() + waitMs, signal);
+        lane = await acquireTestCapacity("foreground", deadline, signal);
     } catch (error) {
         // The blocking lease wait throws when its signal aborts; that is a cancelled admission, not a crash.
         if (!signal.aborted) throw error;
         lane = null;
     }
-    const wait_capacity_ms = elapsedMs(waitStarted);
+    let wait_capacity_ms = elapsedMs(waitStarted);
     if (!lane) {
         const denied = signal.aborted ? "interrupted" : "capacity-timeout";
         recordCommand({ check, wait_capacity_ms, status: "deferred", denied });
         return { kind: denied, wait_capacity_ms };
     }
     try {
-        const resourceBudget = readResourceBudget(profile);
+        const resourceBudget = await waitForResource(() => readResourceBudget(profile), deadline, signal,
+            () => process.stderr.write("[resources] Waiting for host memory capacity within the admission deadline; no check has started.\n"));
+        wait_capacity_ms = elapsedMs(waitStarted);
         if (!resourceBudget || signal.aborted) {
-            const denied = resourceBudget ? "interrupted" : "memory-budget-unavailable";
+            const denied = signal.aborted ? "interrupted" : "memory-budget-unavailable";
             recordCommand({ check, wait_capacity_ms, status: "deferred", denied });
             return { kind: denied, wait_capacity_ms };
         }
-        const command = process.platform === "win32" ? [file, ...args] : ["nice", "-n", "10", file, ...args];
-        const executable = command.shift();
-        if (!executable) return { kind: "interrupted", wait_capacity_ms };
-        const heapMb = profile === "light" ? LIGHT_HEAP_MB : Math.floor(resourceBudget.maxRssBytes / 1024 ** 2 * HEAVY_HEAP_SHARE_OF_BUDGET);
-        const execStarted = Date.now();
-        const result = await runProcessAsync(executable, command, {
-            cwd: process.cwd(), timeout: 3600_000, signal, resourceBudget, inheritOutput: true,
-            env: {
-                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=${heapMb}`.trim(),
-                GOMAXPROCS: "2", UV_THREADPOOL_SIZE: "2", OMP_NUM_THREADS: "1", OPENBLAS_NUM_THREADS: "1",
-                MKL_NUM_THREADS: "1", VECLIB_MAXIMUM_THREADS: "1",
-            },
-        });
-        const memory = commandMemory(check, resourceBudget.maxRssBytes, heapMb, result);
-        recordCommand({ ...memory, wait_capacity_ms, exec_ms: elapsedMs(execStarted), ...commandStatus(result) });
-        return { kind: "ran", result, wait_capacity_ms, memory };
+        const ceiling = profile === "light" ? LIGHT_HEAP_MB : Math.floor(resourceBudget.maxRssBytes / 1024 ** 2 * HEAVY_HEAP_SHARE_OF_BUDGET);
+        const heapMb = boundedNodeHeap(process.env.NODE_OPTIONS ?? "", ceiling);
+        if (heapMb === null) {
+            recordCommand({ check, wait_capacity_ms, status: "deferred", denied: "plan-not-reusable:invalid-heap-limit" });
+            return { kind: "invalid-heap-limit", wait_capacity_ms };
+        }
+        return await launchCommand(file, args, { signal, resourceBudget, heapMb, check, waitCapacityMs: wait_capacity_ms });
     } finally { lane.release(); }
 }

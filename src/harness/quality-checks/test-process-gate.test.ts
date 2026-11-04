@@ -6,6 +6,7 @@ import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-loc
 import { tryAcquireForegroundCapacity } from "../test-capacity.js";
 import { readResourceMemory } from "../resource-memory.js";
 import { runBoundedTestProcess } from "./test-process-gate.js";
+import type { ProjectProcessObservation } from "../project-process-observation.js";
 
 vi.mock("../resource-memory.js", () => ({ readResourceMemory: vi.fn() }));
 beforeEach(() => vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 8 * 1024 ** 3, availableBytes: 4 * 1024 ** 3 }));
@@ -13,6 +14,27 @@ beforeEach(() => vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 8 *
 describe("runBoundedTestProcess", () => {
 	const projectRoot = mkdtempSync(join(tmpdir(), "interlinked-test-process-gate-"));
 	afterAll(() => rmSync(projectRoot, { recursive: true, force: true }));
+
+    it("observes a failed child once without changing the failed outcome", async () => {
+        const observations: ProjectProcessObservation[] = [];
+        const outcome = await runBoundedTestProcess({ command: process.execPath, args: ["-e", "process.exit(2)"],
+            cwd: projectRoot, timeoutMs: 2000, observe: row => observations.push(row) });
+        expect(outcome).toMatchObject({ kind: "completed", code: 2 });
+        expect(observations).toHaveLength(1);
+        expect(observations[0]).toMatchObject({ heapLimitMb: 768, resourceBudget: { maxRssBytes: 2 * 1024 ** 3 } });
+        expect(observations[0]?.execMs).toBeGreaterThan(0);
+    });
+
+    it("observes a capacity deferral without claiming a measured child or losing the lease", async () => {
+        const owner = tryAcquireForegroundCapacity();
+        expect(owner).not.toBeNull();
+        const observations: ProjectProcessObservation[] = [];
+        try {
+            expect(await runBoundedTestProcess({ command: process.execPath, args: ["-e", "process.exit(0)"], cwd: projectRoot,
+                timeoutMs: 2000, observe: row => observations.push(row) })).toEqual({ kind: "deferred", reason: "busy" });
+            expect(observations).toEqual([{ waitMs: expect.any(Number), execMs: 0 }]);
+        } finally { owner?.release(); }
+    });
 
     it("waits for project capacity during recovery, then executes within the shared deadline", async () => {
         const owner = tryAcquireProjectHeavyProcessLease(projectRoot);

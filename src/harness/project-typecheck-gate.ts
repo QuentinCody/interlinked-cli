@@ -31,7 +31,10 @@ import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { nonNull } from "../lib/non-null.js";
-import { runProcessAsync } from "./check-engine/spawn-async.js";
+import { runProcessAsync, type RunProcessResult } from "./check-engine/spawn-async.js";
+import { readResourceBudget } from "./resource-budget.js";
+import { tryAcquireForegroundCapacity } from "./test-capacity.js";
+import { observeProjectProcess, type ProjectProcessObservation, type ProjectProcessObserver } from "./project-process-observation.js";
 import {
 	runWithProjectCompilerLease,
 	tryAcquireProjectCompilerLease,
@@ -233,7 +236,7 @@ export function checkProjectTypecheckClean(cwd: string): CheckResultEntry[] {
  */
 export async function checkProjectTypecheckCleanAsync(
 	cwd: string,
-	options: { timeoutMs?: number } = {},
+	options: { timeoutMs?: number; observe?: ProjectProcessObserver } = {},
 ): Promise<CheckResultEntry[]> {
 	if (process.env.INTERLINKED_SKIP_PROJECT_TYPECHECK === "1") {
 		return [
@@ -252,12 +255,10 @@ export async function checkProjectTypecheckCleanAsync(
 	if (!cmd) return [];
 
 	const timeoutMs = options.timeoutMs ?? TYPECHECK_TIMEOUT_MS;
+	const started = Date.now();
 	try {
 		return await runWithProjectCompilerLease(cwd, async () => {
-			const result = await runProcessAsync(cmd.bin, cmd.args, {
-				cwd,
-				timeout: timeoutMs,
-			});
+			const result = await runObservedCompiler(cwd, cmd, timeoutMs, started, options.observe);
 			if (result.timedOut || result.killed) {
 				return [
 					{
@@ -317,4 +318,29 @@ export async function checkProjectTypecheckCleanAsync(
 			},
 		];
 	}
+}
+
+/** Compiler admission alone does not bound host memory; supervise the complete child tree too. */
+async function runObservedCompiler(cwd: string, command: ResolvedTypecheckCommand, timeout: number, started: number, observer?: ProjectProcessObserver): Promise<RunProcessResult> {
+    const observation: ProjectProcessObservation = { waitMs: 0, execMs: 0 };
+    const capacity = tryAcquireForegroundCapacity();
+    let execStarted: number | undefined;
+    try {
+        if (!capacity) throw new Error("Host check capacity busy");
+        const resourceBudget = readResourceBudget();
+        if (!resourceBudget) throw new Error("Host memory reserve unavailable");
+        const heapLimitMb = Math.floor(resourceBudget.maxRssBytes / 1024 ** 2 * 0.8);
+        execStarted = Date.now();
+        Object.assign(observation, { waitMs: Math.max(0, execStarted - started), resourceBudget, heapLimitMb });
+        const result = await runProcessAsync(command.bin, command.args, { cwd, timeout, resourceBudget,
+            env: { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=${heapLimitMb}`.trim(), GOMAXPROCS: "2", UV_THREADPOOL_SIZE: "2" } });
+        if (result.peakRssBytes !== undefined) observation.peakRssBytes = result.peakRssBytes;
+        if (result.resourceReason !== undefined) observation.resourceReason = result.resourceReason;
+        return result;
+    } finally {
+        if (execStarted === undefined) observation.waitMs = Math.max(0, Date.now() - started);
+        else observation.execMs = Math.max(0, Date.now() - execStarted);
+        capacity?.release();
+        observeProjectProcess(observer, observation);
+    }
 }

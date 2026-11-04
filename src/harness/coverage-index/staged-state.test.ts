@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import type { StrictCapturedShard } from "./captured-elements.js";
 import type { CoverageIndexContext } from "./context.js";
 import { readAcceptedManifest } from "./store.js";
 import type { CanonicalCoverageElementSet, CoverageIndexManifest, ShardCoverageContribution } from "./types.js";
+import { withProcessCancellation } from "../check-engine/process-cancellation.js";
 
 const dependencyHashes = vi.fn((_context: unknown, tests: string[], _covered: string[]): Record<string, string> => Object.fromEntries(tests.map(test => [test, "h1"])));
 vi.mock("./context.js", () => ({ dependencyHashes: (context: unknown, tests: string[], covered: string[]) => dependencyHashes(context, tests, covered) }));
@@ -71,6 +72,15 @@ describe("stageCoverageIndex / beginStaging — positive (must fire)", () => {
 });
 
 describe("stageCoverageIndex / beginStaging — negative (must not fire)", () => {
+    it("does not publish a pending manifest after cancellation", async () => {
+        const ctx = context(), staging = beginStaging(ctx, null);
+        staging.add(shard("a.test.ts"));
+        const controller = new AbortController();
+        controller.abort(new Error("cancelled before staging"));
+        await expect(withProcessCancellation(controller.signal, async () => staging.finish())).rejects.toThrow("cancelled before staging");
+        expect(existsSync(join(indexStore(ctx.storeRoot), "pending"))).toBe(false);
+        expect(readAcceptedManifest(indexStore(ctx.storeRoot))).toBeNull();
+    });
     // test-contract: invariant — identical inputs that produce different coverage are churn: the shard is refused (quarantined) instead of staged, so a flaky shard never becomes accepted evidence
     it("N1: refuses churn, a quarantined previous entry, and an unreadable previous blob", () => {
         const ctx = context(), first = stageCoverageIndex(ctx, [shard("a.test.ts", 1)], null, true);
@@ -117,6 +127,16 @@ describe("iterateContributions / readContributions — boundaries", () => {
 });
 
 describe("promoteMatchingProposal — lazy reconciliation", () => {
+    // test-contract: regression — cancellation arriving during runtime validation cannot promote the otherwise valid proposal.
+    it("retains an unaccepted proposal when cancelled during runtime validation", async () => {
+        const ctx = context();
+        stageCoverageIndex(ctx, [shard("a.test.ts")], null, true);
+        const controller = new AbortController();
+        verifyOriginalRuntime.mockImplementationOnce(async () => { controller.abort(new Error("cancelled before promotion")); });
+        await expect(withProcessCancellation(controller.signal, () => promoteMatchingProposal(ctx))).rejects.toThrow("cancelled before promotion");
+        expect(readAcceptedManifest(indexStore(ctx.storeRoot))).toBeNull();
+        expect(readdirSync(join(indexStore(ctx.storeRoot), "pending"))).toHaveLength(1);
+    });
     // test-contract: public-api — a pending proposal whose input fingerprint matches the tree now on disk is promoted to the accepted manifest after the runtime is re-verified
     it("P1: promotes the matching proposal", async () => {
         const ctx = context();

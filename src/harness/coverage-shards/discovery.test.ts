@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { captureEvidenceEnvironment } from "../../lib/metrics/evidence-environment.js";
 import { captureVitestEnvironment, coverageIndexSpawn, discoverVitestTests } from "./discovery.js";
+import { withProcessCancellation } from "../check-engine/process-cancellation.js";
 
 // test-contract: invariant — the supervising route's own variables (a bounded runner's per-export outcome record, lease ancestry, one run's scope file, a capacity scope) never reach the test child: they are absent from the captured environment, so the identity stays exact and equal across pushes, while a variable a test could read still separates
 it("removes supervisor-only variables from the coverage child environment instead of hashing them", () => {
@@ -55,6 +56,27 @@ function fixture(): string {
     writeFileSync(join(root, "package.json"), '{"type":"module"}');
     return root;
 }
+// test-contract: regression — discovery is a child owned by the indexed dispatch, so cancellation closes it before returning unavailable.
+it("cancels and reaps a discovery process stalled while loading configuration", async () => {
+    const root = fixture(), controller = new AbortController(), ready = join(root, "discovery-pid");
+    writeFileSync(join(root, "vitest.config.ts"), `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(ready)}, String(process.pid));
+await new Promise(() => { setInterval(() => {}, 1000); });
+export default {};`);
+    const discovery = withProcessCancellation(controller.signal, () => discoverVitestTests(root, Date.now() + 20_000, captureEvidenceEnvironment().environment));
+    const rejected = expect(discovery).rejects.toThrow("test universe unavailable");
+    try {
+        await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 10_000 });
+        const pid = Number(readFileSync(ready, "utf8"));
+        expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+        controller.abort(new Error("discovery cancelled"));
+        await rejected;
+        expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+        controller.abort();
+        await discovery.catch(() => undefined);
+    }
+}, 30_000);
 it("uses native include/exclude and includeSource without counting or executing setup/helpers", async () => {
     const root = fixture(); mkdirSync(join(root, "__tests__"));
     writeFileSync(join(root, "vitest.config.ts"), 'export default { test: { include: ["__tests__/*.test.ts"], exclude: ["**/excluded.test.ts"], includeSource: ["inline.ts"], setupFiles: ["./setup.ts"] } };');

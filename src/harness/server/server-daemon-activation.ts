@@ -1,3 +1,4 @@
+import { startProjectLeaseSelfCheck } from "../project-lease-status.js";
 import { describeReason as describeMalformedReason } from "../../lib/settings-validator.js";
 import { DEFAULT_AUTO_COORDINATION_CONFIG } from "../auto-coordinate.js";
 import { startBuildRefreshWatcher } from "../build-refresh.js";
@@ -81,6 +82,7 @@ function installLostAgentScan(state: DaemonState, log: (message: string) => void
 function installRulesWatchers(options: ActivateDaemonOptions): void {
 	const { cli, state, runtime, socketLifecycle, log, logAlways } = options;
 	const stopHookCoverage = activateHookCoverage(runtime);
+	const stopLeaseSelfCheck = startProjectLeaseSelfCheck(cli.cwd, logAlways);
 	const unwatchRules = watchRulesFiles(cli.cwd, (newRules) => {
 		options.setRules(newRules);
 		runtime.rules = newRules;
@@ -129,6 +131,7 @@ function installRulesWatchers(options: ActivateDaemonOptions): void {
 	});
 	socketLifecycle.setUnwatchers(() => {
 		stopHookCoverage();
+		stopLeaseSelfCheck();
 		mutationBackground.stop();
 		unwatchRules();
 	}, unwatchSettings);

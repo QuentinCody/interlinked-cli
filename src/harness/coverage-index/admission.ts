@@ -18,14 +18,18 @@ export async function admitIndexedRun(root: string, deadline: number): Promise<I
     const signal = currentProcessSignal() ?? new AbortController().signal;
     const started = Date.now();
     const waited = (): number => Date.now() - started;
+    const cancelled = (): IndexedRunAdmission => ({ admitted: false, reason: "Coverage index cancelled; no verification verdict", wait_ms: waited() });
+    if (signal.aborted) return cancelled();
     const project = await acquireProjectHeavyProcessLease(root, deadline, signal);
     if (!project) return { admitted: false, reason: "Project check capacity busy; coverage index unavailable", wait_ms: waited() };
+    if (signal.aborted) { project(); return cancelled(); }
     let capacity: Awaited<ReturnType<typeof acquireTestCapacity>> = null;
     try { capacity = await acquireTestCapacity("foreground", deadline, signal); }
     finally { if (!capacity) project(); }
     if (!capacity) return { admitted: false, reason: "Host test capacity busy; coverage index unavailable", wait_ms: waited() };
     const held = capacity;
     const release = (): void => { held.release(); project(); };
+    if (signal.aborted) { release(); return cancelled(); }
     const resourceBudget = readResourceBudget();
     if (!resourceBudget) {
         release();

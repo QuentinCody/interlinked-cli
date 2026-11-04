@@ -448,6 +448,33 @@ describe("ChangeSet external-check batching", () => {
         expect(findings).toEqual([expect.objectContaining({ name: "external_check_deferred", detail: expect.stringContaining("background recovery") })]);
     });
 
+    it("retains a failed Gitleaks scan for the job without rerunning it for each receipt batch", async () => {
+        runChecksAsync.mockResolvedValue({ ...completedReport(),
+            skipped: [{ check: "gitleaks", category: "error", reason: "scan interrupted" }] });
+        const failures = new Map<string, string>();
+        const options = { cwd: "/repo", recovery: true, recoveryScanFailures: failures, checks: { gitleaks: config("error") } };
+        const first = createChangeSetExternalBatch({ ...options, paths: ["/repo/src/a.ts"] });
+        await first.resultsForFile("/repo/src/a.ts");
+        const second = createChangeSetExternalBatch({ ...options, paths: ["/repo/src/b.ts"] });
+        const rows = await second.resultsForFile("/repo/src/b.ts");
+        expect(runChecksAsync).toHaveBeenCalledTimes(1);
+        expect(rows).toEqual([expect.objectContaining({ name: "external_check_deferred", detail: expect.stringContaining("already unavailable") })]);
+        expect((await second.evidenceForFile("/repo/src/b.ts")).checks).not.toContain("gitleaks");
+        // A fresh recovery job gets a fresh attempt.
+        const fresh = createChangeSetExternalBatch({ ...options, recoveryScanFailures: new Map(), paths: ["/repo/src/b.ts"] });
+        await fresh.resultsForFile("/repo/src/b.ts");
+        expect(runChecksAsync).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not reuse a successful project scan for different file versions", async () => {
+        runChecksAsync.mockResolvedValue(completedReport());
+        const options = { cwd: "/repo", recovery: true, recoveryScanFailures: new Map<string, string>(), checks: { gitleaks: config() } };
+        for (const path of ["/repo/src/a.ts", "/repo/src/b.ts"]) {
+            await createChangeSetExternalBatch({ ...options, paths: [path] }).resultsForFile(path);
+        }
+        expect(runChecksAsync).toHaveBeenCalledTimes(2);
+    });
+
 	it("attributes project findings only to exact normalized touched paths", async () => {
 		const report = completedReport();
 		report.results = [

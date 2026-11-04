@@ -49,10 +49,12 @@ describe("recordVerificationStage — positive (must fire)", () => {
         const memory = { peak_rss_bytes: 3_060_000_000, rss_budget_bytes: 4 * 1024 ** 3, heap_limit_mb: 3276 };
         expect(recordVerificationStage(root, { ...input, ...memory }, { env })).toBe(true);
         expect(recordVerificationStage(root, input, { env })).toBe(true);
-        const [withMemory, legacy] = rows(ledger);
+        expect(recordVerificationStage(root, { ...input, peak_rss_bytes: null }, { env })).toBe(true);
+        const [withMemory, legacy, unsampled] = rows(ledger);
         expect(withMemory).toMatchObject({ ...memory, schema: VERIFICATION_STAGES_SCHEMA });
         expect(legacy).toMatchObject({ schema: VERIFICATION_STAGES_SCHEMA, check: input.check });
         expect(legacy).not.toHaveProperty("peak_rss_bytes");
+        expect(unsampled?.peak_rss_bytes).toBeNull();
     });
 
     // test-contract: public-api — INTERLINKED_STAGES_LEDGER redirects rows (the pre-push export writes into the source checkout)

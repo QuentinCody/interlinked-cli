@@ -9,6 +9,7 @@ import { nonNull } from "../lib/non-null.js";
 import { describeDeath, diedBySignal } from "./project-gate-process.js";
 import { runBoundedTestProcess } from "./quality-checks/test-process-gate.js";
 import type { CheckResultEntry } from "./types.js";
+import type { ProjectProcessObserver } from "./project-process-observation.js";
 
 const TESTS_TIMEOUT_MS = 300_000;
 const MAX_TEST_FAILURES_REPORTED = 10;
@@ -116,7 +117,7 @@ export function checkProjectTestsClean(cwd: string): CheckResultEntry[] {
 /** Daemon-safe push test gate with bounded, shared test-process admission. */
 export async function checkProjectTestsCleanAsync(
 	cwd: string,
-	options: { admissionAlreadyHeld?: boolean } = {},
+	options: { admissionAlreadyHeld?: boolean; observe?: ProjectProcessObserver } = {},
 ): Promise<CheckResultEntry[]> {
 	if (process.env.INTERLINKED_SKIP_PROJECT_TESTS === "1") {
 		return [
@@ -139,6 +140,7 @@ export async function checkProjectTestsCleanAsync(
 		cwd,
 		timeoutMs: TESTS_TIMEOUT_MS,
 		...(options.admissionAlreadyHeld ? { admissionAlreadyHeld: true } : {}),
+        ...(options.observe ? { observe: options.observe } : {}),
 	});
 	if (run.kind === "deferred") {
 		return [

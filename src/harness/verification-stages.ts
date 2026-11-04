@@ -52,8 +52,8 @@ export interface VerificationStageInput {
     lookup_ms?: number;
     exec_ms?: number;
     post_ms?: number;
-    /** Peak sampled RSS (bytes) of the bounded child tree; absent when no budget was watched or no sample landed. Rows written before this field existed omit it. */
-    peak_rss_bytes?: number;
+    /** Peak sampled RSS (bytes) of the bounded child tree; null for an unsampled legacy check. Older writers may omit it. */
+    peak_rss_bytes?: number | null;
     /** Resident-memory budget (bytes) the command was admitted under; compare with `peak_rss_bytes` for headroom. */
     rss_budget_bytes?: number;
     /** V8 heap limit (MiB) the bounded command was started with (`--max-old-space-size`). */

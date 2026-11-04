@@ -156,6 +156,15 @@ function overBudget(plan: TestPlan, options: ScheduleTestsOptions): TestExecutio
     return { plan, status: "deferred", runId: "", reused: false, durationMs: 0, output: "", reason: `Plan needs ${scope}; hook budget is ${options.maxTests}. Request retained for interlinked tests run.` };
 }
 
+/** A bounded caller never admits a full suite. Keep its obligation without collecting a plan that cannot run. */
+function deferKnownFullRun(options: ScheduleTestsOptions, queuedAt: number): void {
+    if (options.maxTests === undefined) return;
+    const pending = pendingTests(options.root);
+    if (!pending.full && pending.requirements.staticSelection === true) return;
+    recordSchedulerDeferral(options, "budget-exceeded", { queuedAt, waitCapacityMs: 0 }, "full");
+    throw new Error(`Plan needs the full suite; hook budget is ${options.maxTests}. Request retained for interlinked tests run.`);
+}
+
 /** The requests one passing batch discharges: its own, plus later ones its scope covers — but never one that required more than the batch PRODUCED (coverage). */
 function satisfiedRequests(root: string, batch: PendingTests): string[] {
     const current = pendingTests(root), paths = new Set(batch.paths);
@@ -186,6 +195,7 @@ async function runOneBatch(options: ScheduleTestsOptions, deadline: number, timi
     const produced = pending.requirements;
     const result = await executeTestPlan(plan, {
         root: options.root, deadline, stage: options.stage ?? "cli", dryRun: options.dryRun === true, queuedAt: timing.queuedAt, waitCapacityMs: timing.waitCapacityMs,
+        waitForCapacity: options.waitForCapacity !== false,
         ...(options.maxWorkers === undefined ? {} : { maxWorkers: options.maxWorkers }), ...(options.session ? { session: options.session } : {}),
         ...(produced.coverage ? { coverage: produced.coverage } : {}), ...(options.receiptStore ? { receiptStore: options.receiptStore } : {}),
     });
@@ -330,6 +340,7 @@ async function drain(options: ScheduledRequest): Promise<TestExecution> {
             return completed;
         }
         if (!hasTestRequest(options.root, options.requestId)) requeueRejectedCompletion(options);
+        deferKnownFullRun(options, queuedAt);
         leases = await acquireExecution(options, deadline, signal, owner);
     } catch (error) {
         owner.release();

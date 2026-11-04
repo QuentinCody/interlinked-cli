@@ -17,7 +17,7 @@ import { containedFile, hashBytes } from "../../lib/metrics/inventory.js";
 import { checkIndexStability, indexQuarantined } from "./stability.js";
 import { readEvidenceArtifact } from "../../lib/metrics/evidence-store.js";
 import { verifyIndexRuntime } from "./runtime-context.js";
-import { remainingCoverageTime } from "./runtime-inputs.js";
+import { coverageCancellationCheckpoint, remainingCoverageTime } from "./runtime-inputs.js";
 import type { ResourceBudget } from "../resource-budget.js";
 
 /**
@@ -73,7 +73,7 @@ function assertCaptureScope(context: CoverageIndexContext, selected: string[] | 
  * one written before a later validation failure is an unreferenced file, never accepted state; the pending
  * manifest is written only after every check passed.
  */
-function materialize(options: IndexedCoverageOptions, selection: Selection, directory: string): Aggregate {
+async function materialize(options: IndexedCoverageOptions, selection: Selection, directory: string): Promise<Aggregate> {
     const root = realpathSync(options.workspace), context = options.context;
     for (const file of context.inventory.files) {
         if (hashBytes(readFileSync(containedFile(root, file.path))) !== file.sha256) throw new Error(`Runner changed measured input: ${file.path}`);
@@ -92,6 +92,7 @@ function materialize(options: IndexedCoverageOptions, selection: Selection, dire
     if (selection.previous) for (const kept of iterateContributions(context.storeRoot, selection.previous, selection.retained)) foldContribution(aggregate, kept);
     if (selection.full && coverageSignature(aggregate) !== coverageSignature(full)) throw new Error("Per-shard aggregate differs from the full coverage report");
     validateStability(context, selection, aggregate);
+    await coverageCancellationCheckpoint();
     remainingCoverageTime(context.runtime.deadline);
     staging.finish();
     return aggregate;
@@ -118,7 +119,7 @@ async function captureSelected(options: IndexedCoverageOptions, selection: Selec
     }
     try {
         await verifyIndexRuntime(options.context.inventory.root, options.context.runtime, options.workspace, [directory]);
-        const { perFile, metrics } = measured(materialize(options, selection, directory));
+        const { perFile, metrics } = measured(await materialize(options, selection, directory));
         return { result: { ...captured.runResult, perFile }, metrics, indexed: true, selectedTests: selection.selected, reason: null,
             ...(options.full && captured.argv ? { artifact: { content: readEvidenceArtifact(join(directory, "coverage", "coverage-final.json")), root: realpathSync(options.workspace), argv: captured.argv } } : {}) };
     } catch (error) { return { result: captured.runResult, indexed: false, selectedTests: selection.selected, reason: error instanceof Error ? error.message : "Index validation failed" }; }
@@ -126,6 +127,7 @@ async function captureSelected(options: IndexedCoverageOptions, selection: Selec
 export async function runIndexedCoverage(input: IndexedCoverageOptions): Promise<IndexedCoverageResult> {
     const options = { ...input, context: { ...input.context, runtime: { ...input.context.runtime,
         deadline: Math.min(input.context.runtime.deadline, Date.now() + input.timeoutMs) } } };
+    remainingCoverageTime(options.context.runtime.deadline);
     await verifyIndexRuntime(options.context.inventory.root, options.context.runtime, options.workspace);
     const selection = await selectShards(options.context, options.full === true);
     if (selection.selected?.length === 0) {
@@ -134,6 +136,7 @@ export async function runIndexedCoverage(input: IndexedCoverageOptions): Promise
         const aggregate: Aggregate = new Map();
         if (selection.previous) for (const kept of iterateContributions(options.context.storeRoot, selection.previous, [...selection.retained, DENOMINATORS_SHARD])) foldContribution(aggregate, kept);
         const { perFile, metrics } = measured(aggregate);
+        await coverageCancellationCheckpoint();
         return { result: { ok: true, testsPassed: true, suiteMs: 0, perFile }, metrics, indexed: true, selectedTests: [], reason: null };
     }
     const directory = mkdtempSync(join(options.workspace, ".interlinked-coverage-capture-"));

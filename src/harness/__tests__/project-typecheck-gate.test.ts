@@ -6,7 +6,11 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readResourceMemory } from "../resource-memory.js";
+import type { ProjectProcessObservation } from "../project-process-observation.js";
+
+vi.mock("../resource-memory.js", () => ({ readResourceMemory: vi.fn() }));
 import { nonNull } from "../../lib/non-null.js";
 import { runWithProjectCompilerLease, tryRegisterWarmProjectCompiler } from "../project-compiler-gate.js";
 import {
@@ -25,6 +29,7 @@ let savedEnv: string | undefined;
 let savedTestsEnv: string | undefined;
 
 beforeEach(() => {
+    vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 8 * 1024 ** 3, availableBytes: 4 * 1024 ** 3 });
 	tmp = mkdtempSync(join(tmpdir(), "interlinked-tcgate-"));
 	savedEnv = process.env.INTERLINKED_SKIP_PROJECT_TYPECHECK;
 	delete process.env.INTERLINKED_SKIP_PROJECT_TYPECHECK;
@@ -550,6 +555,26 @@ describe("checkProjectTypecheckClean", () => {
 });
 
 describe("checkProjectTypecheckCleanAsync", () => {
+    it("observes one bounded compiler execution and preserves its diagnostics", async () => {
+        writeFileSync(join(tmp, "package.json"), JSON.stringify({ scripts: { "typecheck:stable": 'node -e "console.error(\\"src/a.ts(1,1): error TS2322: bad type.\\");process.exit(1)"' } }));
+        const observations: ProjectProcessObservation[] = [];
+        const results = await checkProjectTypecheckCleanAsync(tmp, { observe: row => observations.push(row) });
+        expect(results).toEqual([expect.objectContaining({ severity: "error", message: "src/a.ts:1:1 — TS2322: bad type." })]);
+        expect(observations).toHaveLength(1);
+        expect(observations[0]).toMatchObject({ resourceBudget: { maxRssBytes: 2 * 1024 ** 3 }, heapLimitMb: 1638 });
+        expect(observations[0]?.execMs).toBeGreaterThan(0);
+    });
+
+    it("does not start a compiler when the host reserve is unavailable", async () => {
+        writeFileSync(join(tmp, "package.json"), JSON.stringify({ scripts: { "typecheck:stable": 'node -e "throw new Error(\\"must not run\\")"' } }));
+        vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 8 * 1024 ** 3, availableBytes: 0 });
+        const observations: ProjectProcessObservation[] = [];
+        expect(await checkProjectTypecheckCleanAsync(tmp, { observe: row => observations.push(row) })).toEqual([
+            expect.objectContaining({ name: "project_typecheck_deferred", message: expect.stringContaining("Host memory reserve unavailable") }),
+        ]);
+        expect(observations).toHaveLength(1);
+        expect(observations[0]).toEqual({ waitMs: expect.any(Number), execMs: 0 });
+    });
 	it("runs the daemon production path without blocking on spawnSync", async () => {
 		writeFileSync(
 			join(tmp, "package.json"),

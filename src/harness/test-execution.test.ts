@@ -19,6 +19,9 @@ import { platformIdentity } from "./verification-stages.js";
 import { nonNull } from "../lib/non-null.js";
 import type { TestPlan } from "./test-plan.js";
 import type { TestRuntime } from "./test-runtime.js";
+import { waitForResource } from "./resource-wait.js";
+
+vi.mock("./resource-wait.js", () => ({ waitForResource: vi.fn() }));
 
 const roots: string[] = [];
 beforeEach(() => { vi.stubEnv("INTERLINKED_STAGES_LEDGER", ""); });
@@ -49,6 +52,47 @@ function slowRuntime(answer: TestRuntime): void {
 it("bounds foreground workers by memory and the requested cap", () => {
     expect(testWorkerBudget(8)).toBe(3);
     expect(testWorkerBudget(1)).toBe(1);
+});
+
+// test-contract: regression — explicit waiting callers retain their request through temporary resource shortages.
+it("waits within the execution deadline and accounts for admission time", async () => {
+    const root = fixture(), deadline = Date.now() + 5000;
+    vi.mocked(waitForResource).mockImplementation(async probe => { await new Promise(resolve => setTimeout(resolve, 20)); return probe(); });
+    vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h" });
+    vi.mocked(readTestReceipt).mockReturnValue(priorReceipt);
+    const result = await executeTestPlan(selectedPlan, { root, deadline, waitForCapacity: true, waitCapacityMs: 17 });
+    expect(result.status).toBe("passed");
+    expect(waitForResource).toHaveBeenCalledWith(expect.any(Function), deadline, undefined, expect.any(Function));
+    expect(stageRows(root)[0]?.wait_capacity_ms).toBeGreaterThanOrEqual(32);
+});
+
+// test-contract: boundary — an exhausted resource wait cannot read a receipt or execute a test as a passing check.
+it("defers when the resource wait expires", async () => {
+    const root = fixture();
+    vi.mocked(waitForResource).mockResolvedValue(null);
+    expect(await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, waitForCapacity: true })).toMatchObject({ status: "deferred", reused: false });
+    expect(captureTestRuntime).not.toHaveBeenCalled();
+    expect(readTestReceipt).not.toHaveBeenCalled();
+    expect(runProcessAsync).not.toHaveBeenCalled();
+});
+
+// test-contract: boundary — cancellation stays distinct from a resource shortage in both the result and ledger.
+it("records cancelled worker admission as interrupted", async () => {
+    const root = fixture();
+    vi.mocked(waitForResource).mockResolvedValue(null);
+    expect(await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, waitForCapacity: true, signal: AbortSignal.abort() }))
+        .toMatchObject({ status: "deferred", reason: "Test worker admission interrupted" });
+    expect(stageRows(root)[0]).toMatchObject({ reuse_denied_reason: "interrupted", identity: null });
+    expect(runProcessAsync).not.toHaveBeenCalled();
+});
+
+// test-contract: boundary — edit callers can explicitly decline waiting and keep their fast deferral behavior.
+it("does not wait when the caller has not opted in", async () => {
+    const root = fixture();
+    vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h" });
+    vi.mocked(readTestReceipt).mockReturnValue(priorReceipt);
+    await executeTestPlan(selectedPlan, { root, deadline: Date.now() + 5000, waitForCapacity: false });
+    expect(waitForResource).not.toHaveBeenCalled();
 });
 describe("validation phase is measured on every validated path", () => {
     // test-contract: invariant — a receipt hit retains the producing checkout for artifact relocation while locating its files in the requested store.

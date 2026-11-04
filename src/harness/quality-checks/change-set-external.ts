@@ -55,6 +55,8 @@ interface ChangeSetExternalBatchOptions {
 	/** Explicit background recovery, outside interactive hook deadlines. */
 	readonly recovery?: boolean;
     readonly recoveryTests?: RecoveryTestRuns;
+    /** Job-owned failures only; never reuse a successful scan for other inputs. */
+    readonly recoveryScanFailures?: Map<string, string>;
 	readonly paths:readonly string[];
 	/** Paths proven created by the request's observed ChangeSet. Only these may
 	 * turn a cold-start TypeScript finding into an "introduced" error without a
@@ -251,6 +253,14 @@ async function runEngineAdmitted(
         await runFileEngineAdmitted(options, resultMap, projectRoot, projectPaths, candidate, deferred);
     }
     candidates = candidates.filter(candidate => !candidate.fileOnly);
+    const scanFailure = options.recoveryScanFailures?.get(projectRoot);
+    if (scanFailure) {
+        candidates = candidates.filter(candidate => {
+            if (candidate.toolId !== "gitleaks") return true;
+            deferred.push({ name: candidate.name, reason: `Gitleaks already unavailable in this recovery job: ${scanFailure}` });
+            return false;
+        });
+    }
     if (candidates.length === 0) return;
 	try {
 		const timeoutMs = Math.min(
@@ -275,6 +285,10 @@ async function runEngineAdmitted(
 			report,
 			deferred,
 		);
+		if (candidates.some(candidate => candidate.toolId === "gitleaks")) {
+            const reason = unavailableReason(report, "gitleaks");
+            if (reason) options.recoveryScanFailures?.set(projectRoot, reason);
+        }
 	} catch (error) {
 		const reason = String(error);
 		for (const candidate of candidates) deferred.push({ name: candidate.name, reason });

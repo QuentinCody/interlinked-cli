@@ -101,8 +101,10 @@ function readHeader(abs: string): string | null {
  * THE denominator for every gate's reach. Sorted (the walker sorts each
  * directory), so two runs over an unchanged tree agree exactly.
  */
-export function enumerateEligibleFiles(cwd: string): string[] {
-	const candidates = findManifestFiles(cwd, (name) => CODE_EXT_RE.test(name));
+export function enumerateEligibleFiles(cwd: string, onLimit?: () => void): string[] {
+	const candidates = findManifestFiles(cwd, (name) => CODE_EXT_RE.test(name), {
+		maxEntries: 50_000, skipRootDirs: ["scratch"], ...(onLimit ? { onLimit } : {}),
+	});
 	const eligible: string[] = [];
 	for (const rel of candidates) {
 		const content = readHeader(join(cwd, rel));
@@ -277,7 +279,8 @@ export function collectGateReachSnapshot(args: {
 	/** Optional gate-id allow-list, for surfaces that want a subset. */
 	gates?: string[];
 }): GateReachSnapshot {
-	const eligible = enumerateEligibleFiles(args.cwd);
+	let truncated = false;
+	const eligible = enumerateEligibleFiles(args.cwd, () => { truncated = true; });
 	// No product code in this tree — a docs-only checkout, a test fixture dir, a
 	// cwd that is not a repo at all. There is no domain, so there is no reach
 	// question to answer, and asking it anyway would nag every Stop in a
@@ -286,7 +289,10 @@ export function collectGateReachSnapshot(args: {
 	// non-repo Stop is the louder failure, and `enumerateEligibleFiles` is
 	// directly tested.)
 	const inputs: GateReachInput[] =
-		eligible.length === 0
+		truncated
+			? ["coverage_ratchet", "per_edit_coverage"].map(gate => ({ gate, eligible: eligible.length,
+				measured: 0, sourceUnavailable: true, reason: "eligible_domain_exceeded_50000_entry_budget" }))
+			: eligible.length === 0
 			? []
 			: [
 					coverageRatchetInput(args.cwd, eligible),

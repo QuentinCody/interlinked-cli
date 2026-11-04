@@ -12,6 +12,7 @@ import { LEASE_ANCESTORS_ENV, leaseAncestorsForChildren } from "../project-compi
 import type { ResourceBudget } from "../resource-budget.js";
 import { remainingCoverageTime } from "../coverage-index/runtime-inputs.js";
 import { skipsCoverageOverlayEntry } from "../coverage-overlay.js";
+import { currentProcessSignal } from "../check-engine/process-cancellation.js";
 
 /** Match Vitest's prepareVitest environment before either public API loads config. */
 /**
@@ -101,8 +102,10 @@ export async function discoverVitestUniverse(root: string, deadline: number, env
     const mounts = dependencyPaths.map(logical => ({ logical, canonical: realpathSync(join(root, logical)) })).sort((a, b) => b.canonical.length - a.canonical.length);
     const directory = mkdtempSync(join(tmpdir(), "interlinked-test-discovery-"));
     try {
+        const signal = currentProcessSignal();
         const result = await runEvidenceProcess({ cwd: root, argv: [process.execPath, "--input-type=module", "--eval", discoverySource(pathToFileURL(module).href, root, directory)],
-            timeoutMs: remainingCoverageTime(deadline), environment: captureVitestEnvironment(environment).environment });
+            timeoutMs: remainingCoverageTime(deadline), environment: captureVitestEnvironment(environment).environment,
+            ...(signal ? { signal } : {}) });
         if (result.outcome !== "passed") throw new Error(`Vitest discovery ${result.outcome}; test universe unavailable`);
         remainingCoverageTime(deadline);
         return parseDiscovery(root, directory, mounts);

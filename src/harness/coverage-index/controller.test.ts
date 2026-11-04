@@ -1,10 +1,11 @@
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoverageRunResult } from "../coverage-runner.js";
 import type { CoverageIndexContext } from "./context.js";
 import type { CoverageIndexManifest } from "./types.js";
+import { withProcessCancellation } from "../check-engine/process-cancellation.js";
 
 // Real store, staging, aggregation, stability and capture parsing run against a temporary tree; only the vitest
 // child process, the runtime-snapshot verifier and per-shard dependency hashing are replaced.
@@ -126,6 +127,29 @@ describe("runIndexedCoverage — positive (must fire)", () => {
 });
 
 describe("runIndexedCoverage — negative (must not fire)", () => {
+    // test-contract: regression — a capture that finishes successfully while cancellation arrives cannot publish a reusable proposal.
+    it("discards a successful capture cancelled before materialization", async () => {
+        const root = workspace(), context = contextFor(root, TESTS), controller = new AbortController();
+        capturing(root, { tests: ["src/a.test.ts", "src/b.test.ts"] });
+        const inner = captureImpl;
+        captureImpl = async options => {
+            const captured = await inner(options);
+            controller.abort(new Error("capture cancelled"));
+            return captured;
+        };
+        const outcome = await withProcessCancellation(controller.signal, () => run(context, { full: true }));
+        expect(outcome).toMatchObject({ indexed: false, reason: "capture cancelled" });
+        expect(existsSync(join(indexStore(root), "pending"))).toBe(false);
+        expect(readAcceptedManifest(indexStore(root))).toBeNull();
+        expect(readdirSync(root).some(name => name.startsWith(".interlinked-coverage-capture-"))).toBe(false);
+    });
+    it("does not return an accepted aggregate when cancellation arrives during reuse validation", async () => {
+        const root = workspace(), context = await establish(root), controller = new AbortController();
+        captureImpl = async () => { throw new Error("must not capture"); };
+        verifyIndexRuntime.mockImplementationOnce(async () => { controller.abort(new Error("reuse cancelled")); });
+        await expect(withProcessCancellation(controller.signal, () => run(context))).rejects.toThrow("reuse cancelled");
+        expect(readAcceptedManifest(indexStore(root))).not.toBeNull();
+    });
     // test-contract: invariant — an index quarantined for unstable coverage refuses incremental use; a full run is still ATTEMPTED (it is the way out) but stays unindexed until three full runs agree
     it("N1: a quarantined index refuses an incremental run", async () => {
         const root = workspace(), context = await establish(root);

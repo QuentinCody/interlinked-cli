@@ -56,10 +56,12 @@ describe("cancellation while waiting for admission", () => {
 import { acquireTestCapacity } from "./test-capacity.js";
 import { readResourceBudget } from "./resource-budget.js";
 import { runProcessAsync } from "./check-engine/spawn-async.js";
+import { waitForResource } from "./resource-wait.js";
 
 vi.mock("./test-capacity.js", () => ({ acquireTestCapacity: vi.fn() }));
 vi.mock("./resource-budget.js", () => ({ readResourceBudget: vi.fn() }));
 vi.mock("./check-engine/spawn-async.js", () => ({ runProcessAsync: vi.fn() }));
+vi.mock("./resource-wait.js", () => ({ waitForResource: vi.fn() }));
 const temps: string[] = [];
 /** Reads the rows of this test's private stage ledger. */
 let readRows: () => Array<Record<string, unknown>>;
@@ -67,6 +69,8 @@ let readRows: () => Array<Record<string, unknown>>;
 // The pre-push hook also exports INTERLINKED_STAGE; an inherited value would change the default stage these rows assert.
 beforeEach(() => {
     vi.stubEnv("INTERLINKED_STAGE", "");
+    vi.stubEnv("NODE_OPTIONS", "");
+    vi.mocked(waitForResource).mockImplementation(async probe => probe());
     readRows = ledger();
 });
 afterEach(() => {
@@ -158,6 +162,45 @@ it("does not spawn when another project owns the host lane", async () => {
     vi.mocked(acquireTestCapacity).mockResolvedValue(null);
     expect(await runResourceCommand("node", [], new AbortController().signal)).toMatchObject({ kind: "capacity-timeout" });
     expect(runProcessAsync).not.toHaveBeenCalled();
+});
+
+// test-contract: regression — caller heap caps remain effective and are recorded as the actual child cap.
+it("honors a smaller caller heap limit", async () => {
+    vi.stubEnv("NODE_OPTIONS", "--trace-warnings --max-old-space-size=512");
+    vi.mocked(acquireTestCapacity).mockResolvedValue({ release: vi.fn() });
+    vi.mocked(readResourceBudget).mockReturnValue(budget);
+    vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, killed: false, timedOut: false, stdout: "", stderr: "" });
+    expect(await runResourceCommand("node", [], new AbortController().signal)).toMatchObject({ kind: "ran", memory: { heap_limit_mb: 512 } });
+    expect(vi.mocked(runProcessAsync).mock.calls[0]?.[2]?.env?.NODE_OPTIONS).toBe("--trace-warnings --max-old-space-size=512 --max-old-space-size=512");
+});
+
+// test-contract: boundary — a percentage override or ambiguous limit grants no child execution or passing verdict.
+it("rejects an unbounded heap override and releases admission", async () => {
+    vi.stubEnv("NODE_OPTIONS", "--max-old-space-size-percentage=90");
+    const release = vi.fn();
+    vi.mocked(acquireTestCapacity).mockResolvedValue({ release });
+    vi.mocked(readResourceBudget).mockReturnValue(budget);
+    const result = await runResourceCommand("node", [], new AbortController().signal);
+    expect(result.kind).toBe("invalid-heap-limit");
+    expect(describeResourceCommandOutcome(result)).toMatchObject({ verdict: "not-run", exitCode: 75 });
+    expect(runProcessAsync).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+});
+
+// test-contract: regression — transient memory pressure spends the remaining admission deadline without repeating earlier checks.
+it("includes memory admission waiting in the single command's timing", async () => {
+    let now = 1000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const release = vi.fn();
+    vi.mocked(acquireTestCapacity).mockImplementation(async () => { now += 100; return { release }; });
+    vi.mocked(waitForResource).mockImplementation(async probe => { now += 1200; return probe(); });
+    vi.mocked(readResourceBudget).mockReturnValue(budget);
+    vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, killed: false, timedOut: false, stdout: "", stderr: "" });
+    const signal = new AbortController().signal;
+    expect(await runResourceCommand("node", [], signal)).toMatchObject({ kind: "ran", wait_capacity_ms: 1300 });
+    expect(waitForResource).toHaveBeenCalledWith(expect.any(Function), 601000, signal, expect.any(Function));
+    expect(runProcessAsync).toHaveBeenCalledOnce();
+    expect(readRows()).toMatchObject([{ wait_capacity_ms: 1300, status: "passed" }]);
 });
 it("rechecks memory after admission and releases a deferred lane", async () => {
     const release = vi.fn();

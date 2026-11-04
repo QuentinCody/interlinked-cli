@@ -13,6 +13,8 @@ import { acquireTestCapacity, tryAcquireForegroundCapacity } from "./test-capaci
 import { tryAcquireCrossProcessCompilerLease, canonicalProjectRoot } from "./project-compiler-lock.js";
 import { publishTestCompletion } from "./test-request-completion.js";
 import { collectRepositoryInventory, hashBytes } from "../lib/metrics/inventory.js";
+import * as inventoryModule from "../lib/metrics/inventory.js";
+import * as runtimeModule from "./test-runtime.js";
 import { captureKnownTestInputs } from "./test-runtime.js";
 import { captureVitestEnvironment } from "./coverage-shards/discovery.js";
 
@@ -304,11 +306,62 @@ it("hands the stage, queue mark and lease wait to the executor", async () => {
 // test-contract: public-api — a hook-budget deferral is recorded as budget-exceeded before any executor runs
 it("records a budget-exceeded row when the plan exceeds the hook budget", async () => {
     const root = fixture();
-    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, maxTests: 0, stage: "edit" });
+    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, maxTests: 0, staticSelection: true, stage: "edit" });
     expect(result.status).toBe("deferred");
     expect(executeTestPlan).not.toHaveBeenCalled();
     expect(stageRows(root)).toMatchObject([{ stage: "edit", check: "vitest:selected", status: "deferred", reuse_denied_reason: "budget-exceeded" }]);
     expect(typeof stageRows(root)[0]?.wait_capacity_ms).toBe("number");
+});
+
+it("retains a required full run without discovery or resource admission, then completes it unbounded", async () => {
+    const root = fixture();
+    const project = tryAcquireProjectHeavyProcessLease(root);
+    const host = tryAcquireForegroundCapacity();
+    expect(project).not.toBeNull();
+    expect(host).not.toBeNull();
+    const inventory = vi.spyOn(inventoryModule, "collectRepositoryInventory");
+    const known = vi.spyOn(runtimeModule, "captureKnownTestInputs");
+    const runtime = vi.spyOn(runtimeModule, "captureTestRuntime");
+    const coverage = { reporters: ["proof-reporter.mjs"] };
+    try {
+        await expect(scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, maxTests: 8, waitForCapacity: false, coverage, stage: "edit" }))
+            .rejects.toThrow("Plan needs the full suite; hook budget is 8");
+        expect(loadTestPlan).not.toHaveBeenCalled();
+        expect(executeTestPlan).not.toHaveBeenCalled();
+        expect(inventory).not.toHaveBeenCalled();
+        expect(known).not.toHaveBeenCalled();
+        expect(runtime).not.toHaveBeenCalled();
+        expect(pendingTests(root)).toMatchObject({ paths: ["a.ts"], requirements: { coverage } });
+        expect(stageRows(root)).toMatchObject([{ check: "vitest:full", status: "deferred", identity: null,
+            reused: false, reuse_denied_reason: "budget-exceeded", wait_capacity_ms: 0 }]);
+        expect(existsSync(join(root, ".interlinked/test-runs/completions"))).toBe(false);
+    } finally {
+        inventory.mockRestore(); known.mockRestore(); runtime.mockRestore();
+        project?.(); host?.release();
+    }
+    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, coverage });
+    expect(result.status, result.reason).toBe("passed");
+    expect(executeTestPlan).toHaveBeenCalledOnce();
+    expect(executeTestPlan).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ coverage }));
+    expect(pendingTests(root).ids).toEqual([]);
+});
+
+it("keeps explicit full obligations outside a bounded opt-in request", async () => {
+    const root = fixture();
+    await expect(scheduleTests({ root, paths: ["a.ts"], full: true, staticSelection: true, maxTests: 100, timeoutMs: 2000 }))
+        .rejects.toThrow("Plan needs the full suite");
+    expect(loadTestPlan).not.toHaveBeenCalled();
+    expect(pendingTests(root)).toMatchObject({ full: true, requirements: { staticSelection: true } });
+});
+
+it("does not let an opt-in bounded caller narrow an already pending default obligation", async () => {
+    const root = fixture();
+    requestTests(root, ["b.ts"], false);
+    await expect(scheduleTests({ root, paths: ["a.ts"], staticSelection: true, maxTests: 8, timeoutMs: 2000 }))
+        .rejects.toThrow("Plan needs the full suite");
+    expect(loadTestPlan).not.toHaveBeenCalled();
+    expect(pendingTests(root).paths).toEqual(["a.ts", "b.ts"]);
+    expect(pendingTests(root).requirements.staticSelection).toBeUndefined();
 });
 
 // test-contract: invariant — timings are per batch: a batch queued by a mid-run edit carries its own queue mark and its own (re-acquired) lease wait
@@ -509,7 +562,8 @@ it("materializes a shared run's artifacts into each subscriber's own store", asy
 // test-contract: invariant — a dry run must not move any ledger
 it("writes no scheduler row for a dry run", async () => {
     const root = fixture();
-    await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, maxTests: 0, stage: "edit", dryRun: true });
+    await expect(scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, maxTests: 0, stage: "edit", dryRun: true }))
+        .rejects.toThrow("Plan needs the full suite");
     expect(stageRows(root)).toEqual([]);
 });
 
@@ -521,6 +575,21 @@ async function completedByAnotherOwner(root: string): Promise<Awaited<ReturnType
     completeTestRequests(root, requests.ids);
     return result;
 }
+
+it("returns an already shared completion before rejecting a bounded full-run request", async () => {
+    const root = fixture();
+    const owner = tryAcquireCrossProcessCompilerLease(`interlinked-test-scheduler-v1\0${canonicalProjectRoot(root)}`);
+    if (!owner) throw new Error("Fixture scheduler lease unavailable");
+    const waiting = scheduleTests({ root, paths: ["a.ts"], timeoutMs: 2000, maxTests: 8, stage: "edit" });
+    try { await completedByAnotherOwner(root); }
+    finally { owner.release(); }
+    const result = await waiting;
+    expect(result.status, result.reason).toBe("passed");
+    expect(result.runId).toBe("other-owner");
+    expect(executeTestPlan).not.toHaveBeenCalled();
+    expect(stageRows(root)).toEqual([]);
+    expect(pendingTests(root).ids).toEqual([]);
+});
 
 it("consumes another owner's completion without starting a second runner", async () => {
     const root = fixture(), owner = tryAcquireCrossProcessCompilerLease(`interlinked-test-scheduler-v1\0${canonicalProjectRoot(root)}`);

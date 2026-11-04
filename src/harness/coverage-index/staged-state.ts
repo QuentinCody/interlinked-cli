@@ -9,6 +9,8 @@ import type { StrictCapturedShard } from "./captured-elements.js";
 import type { CoverageIndexManifest, ShardCoverageContribution, ShardManifestEntry } from "./types.js";
 import { coverageSignature } from "./strict-elements.js";
 import { verifyOriginalRuntime } from "./runtime-context.js";
+import { coverageCancellationCheckpoint } from "./runtime-inputs.js";
+import { currentProcessSignal } from "../check-engine/process-cancellation.js";
 
 export function indexStore(root: string): string { return storeDirFor(root, "vitest-exact-v1"); }
 export function readContributions(root: string, manifest: CoverageIndexManifest): Map<string, ShardCoverageContribution> {
@@ -22,6 +24,7 @@ export function readContributions(root: string, manifest: CoverageIndexManifest)
 }
 /** Lazy reconciliation only accepts a proposal whose complete input fingerprint is now on disk. */
 export async function promoteMatchingProposal(context: CoverageIndexContext): Promise<boolean> {
+    currentProcessSignal()?.throwIfAborted();
     const directory = indexStore(context.storeRoot), pending = join(directory, "pending");
     if (!existsSync(pending)) return false;
     const proposals = readdirSync(pending).filter(path => /^[a-f0-9]{64}$/.test(path)).slice(-100);
@@ -33,6 +36,7 @@ export async function promoteMatchingProposal(context: CoverageIndexContext): Pr
         const candidate = readAcceptedManifest(join(pending, path));
         if (!candidate || candidate.sourceRevision !== context.fingerprint || !manifestValidity(candidate, context.validity).valid) continue;
         readContributions(context.storeRoot, candidate);
+        await coverageCancellationCheckpoint();
         if (promoteManifest(directory, candidate, candidate.generation === 1 ? null : candidate.generation - 1)) return true;
     }
     return false;
@@ -79,6 +83,7 @@ export function beginStaging(context: CoverageIndexContext, previous: CoverageIn
             entries[shard.contribution.shardId] = entryFor(context, shard, replaceAll ? undefined : previous?.shards[shard.contribution.shardId]);
         },
         finish() {
+            currentProcessSignal()?.throwIfAborted();
             const manifest: CoverageIndexManifest = { version: 1, generation: (previous?.generation ?? 0) + 1, authoritativeAt: new Date().toISOString(),
                 ...context.validity, sourceRevision: context.fingerprint, shards: entries };
             const pending = join(indexStore(context.storeRoot), "pending", hashBytes(JSON.stringify(manifest)));

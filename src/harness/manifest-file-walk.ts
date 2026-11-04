@@ -56,36 +56,51 @@ function readDirSorted(dir: string): Dirent[] | null {
 // Recursion state threaded alongside each entry: where we are (dir/rel/depth)
 // and what counts as a match. Bundled so walkEntry takes one context param
 // instead of three separate positional values a caller would have to track.
+export interface ManifestWalkOptions {
+	maxEntries?: number;
+	skipRootDirs?: readonly string[];
+	onLimit?: () => void;
+}
+type WalkState = { out: string[]; visited: number; limited: boolean; options: ManifestWalkOptions };
 type WalkContext = {
 	dir: string;
 	rel: string;
 	depth: number;
 	match: (name: string) => boolean;
+	state: WalkState;
 };
 
 // One entry's contribution to the walk: itself (if a matching file) or its
 // whole subtree (if a directory worth descending into).
-function walkEntry(e: Dirent, ctx: WalkContext): string[] {
+function walkEntry(e: Dirent, ctx: WalkContext): void {
 	const childRel = ctx.rel ? `${ctx.rel}/${e.name}` : e.name;
 	if (e.isDirectory()) {
-		if (ctx.depth >= MAX_WALK_DEPTH || WALK_IGNORE_DIRS.has(e.name)) return [];
-		return walk(join(ctx.dir, e.name), childRel, ctx.depth + 1, ctx.match);
+		if (ctx.depth >= MAX_WALK_DEPTH || WALK_IGNORE_DIRS.has(e.name)
+			|| (ctx.depth === 0 && ctx.state.options.skipRootDirs?.includes(e.name))) return;
+		walk(join(ctx.dir, e.name), childRel, ctx.depth + 1, ctx.match, ctx.state);
+		return;
 	}
-	if (e.isFile() && ctx.match(e.name)) return [childRel];
-	return [];
+	if (e.isFile() && ctx.match(e.name)) ctx.state.out.push(childRel);
 }
 
-function walk(dir: string, rel: string, depth: number, match: (name: string) => boolean): string[] {
+function walk(dir: string, rel: string, depth: number, match: (name: string) => boolean, state: WalkState): void {
 	const entries = readDirSorted(dir);
-	if (!entries) return [];
-	const ctx: WalkContext = { dir, rel, depth, match };
-	const out: string[] = [];
+	if (!entries) return;
+	const ctx: WalkContext = { dir, rel, depth, match, state };
 	for (const e of entries) {
-		out.push(...walkEntry(e, ctx));
+		if (state.limited) break;
+		if (state.visited >= (state.options.maxEntries ?? Infinity)) {
+			state.limited = true; state.options.onLimit?.(); break;
+		}
+		state.visited++;
+		walkEntry(e, ctx);
 	}
-	return out;
 }
 
-export function findManifestFiles(root: string, match: (name: string) => boolean): string[] {
-	return walk(root, "", 0, match);
+export function findManifestFiles(root: string, match: (name: string) => boolean, options: ManifestWalkOptions = {}): string[] {
+	const state: WalkState = { out: [], visited: 0, limited: false, options };
+	// Append one path at a time: a large subtree must never become function
+	// arguments (spreading 100k+ paths previously overflowed the call stack).
+	walk(root, "", 0, match, state);
+	return state.out;
 }

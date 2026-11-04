@@ -198,7 +198,7 @@ it("names exactly ten changed inputs without a 'more' suffix", () => {
 // basis: the deferral reason reads "Plan needs N tests; hook budget is M" (test-scheduler.ts:156): a plan of exactly M tests is within budget
 it("runs a selected plan whose test count equals the hook budget", async () => {
     const root = fixture();
-    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 3000, maxTests: 1, stage: "edit" });
+    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 3000, maxTests: 1, staticSelection: true, stage: "edit" });
     expect(result.status, result.reason).toBe("passed");
     expect(executeTestPlan).toHaveBeenCalledTimes(1);
     expect(stageRows(root)).toEqual([]);
@@ -207,7 +207,7 @@ it("runs a selected plan whose test count equals the hook budget", async () => {
 // basis: overBudget treats the full suite as its own scope ("the full suite", test-scheduler.ts:155): a full plan never fits a hook budget by test count
 it("defers a full-suite plan under a hook budget even when its test list is short", async () => {
     const root = fixture("full");
-    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 3000, maxTests: 100, stage: "edit" });
+    const result = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 3000, maxTests: 100, staticSelection: true, stage: "edit" });
     expect(result.status).toBe("deferred");
     expect(executeTestPlan).not.toHaveBeenCalled();
     expect(stageRows(root)).toMatchObject([{ status: "deferred", reuse_denied_reason: "budget-exceeded", check: "vitest:full" }]);
@@ -364,7 +364,8 @@ it("releases every lease when another owner's completion answers the caller at a
 // basis: a result with a run id is a run on disk and is observed; a deferral that ran nothing (runId "") has nothing to observe (test-scheduler.ts:302)
 it("observes an executed run and does not observe a budget deferral that ran nothing", async () => {
     const root = fixture();
-    await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 3000, maxTests: 0, stage: "edit" });
+    await expect(scheduleTests({ root, paths: ["a.ts"], timeoutMs: 3000, maxTests: 0, stage: "edit" }))
+        .rejects.toThrow("Plan needs the full suite");
     expect(probes.observed).toEqual([]);
     const executed = await scheduleTests({ root, paths: ["a.ts"], timeoutMs: 3000 });
     expect(executed.runId).toBe("run");

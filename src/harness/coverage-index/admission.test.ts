@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withProcessCancellation } from "../check-engine/process-cancellation.js";
 
 const projectRelease = vi.fn();
 const acquireProjectHeavyProcessLease = vi.fn(async () => projectRelease as (() => void) | null);
@@ -29,6 +30,19 @@ describe("admitIndexedRun — positive (must fire)", () => {
 });
 
 describe("admitIndexedRun — negative (must not fire): no lease means no run", () => {
+    // test-contract: regression — cancellation at either admission boundary returns every acquired lease and never reads a launch budget.
+    it.each(["before", "project", "capacity"] as const)("releases only acquired leases when cancelled at %s", async boundary => {
+        const controller = new AbortController();
+        if (boundary === "before") controller.abort();
+        if (boundary === "project") acquireProjectHeavyProcessLease.mockImplementationOnce(async () => { controller.abort(); return projectRelease; });
+        if (boundary === "capacity") acquireTestCapacity.mockImplementationOnce(async () => { controller.abort(); return { release: capacityRelease }; });
+        const admission = await withProcessCancellation(controller.signal, () => admitIndexedRun("/repo", Date.now() + 5000));
+        expect(admission).toMatchObject({ admitted: false, reason: "Coverage index cancelled; no verification verdict" });
+        expect(readResourceBudget).not.toHaveBeenCalled();
+        expect(projectRelease).toHaveBeenCalledTimes(boundary === "before" ? 0 : 1);
+        expect(capacityRelease).toHaveBeenCalledTimes(boundary === "capacity" ? 1 : 0);
+        expect(acquireTestCapacity).toHaveBeenCalledTimes(boundary === "capacity" ? 1 : 0);
+    });
     it("N1: a busy project lane is refused before the host slot is asked", async () => {
         acquireProjectHeavyProcessLease.mockResolvedValue(null);
         expect(await admitIndexedRun("/repo", 5000)).toMatchObject({ admitted: false, reason: "Project check capacity busy; coverage index unavailable" });

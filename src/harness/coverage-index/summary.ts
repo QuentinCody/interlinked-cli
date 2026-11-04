@@ -7,6 +7,7 @@ import { coverageIndexContext } from "./context.js";
 import { runIndexedCoverage } from "./controller.js";
 import { promoteMatchingProposal } from "./staged-state.js";
 import type { DimensionCounts, FileCoverageMetrics } from "./types.js";
+import { coverageCancellationCheckpoint } from "./runtime-inputs.js";
 
 /**
  * The coverage index as a ratchet input (Unit 7). `runIndexedCoverage` re-runs only the test shards whose
@@ -74,6 +75,7 @@ export async function indexedCoverageSummary(options: IndexedSummaryOptions): Pr
         let result: Awaited<ReturnType<typeof runIndexedCoverage>>;
         try { result = await runIndexedCoverage({ context, workspace: options.root, timeoutMs: options.timeoutMs, full: false, maxWorkers, resourceBudget: admission.resourceBudget }); }
         finally { admission.release(); }
+        await coverageCancellationCheckpoint();
         if (!result.indexed) return unavailable(result.reason ?? "Index unavailable");
         if (!result.metrics || result.metrics.size === 0) return unavailable("Index produced no per-file metrics");
         const rerunTests = result.selectedTests?.length ?? context.testFiles.length;
@@ -81,6 +83,7 @@ export async function indexedCoverageSummary(options: IndexedSummaryOptions): Pr
         // one. Left staged, the next run (a different revision) can never match it and re-runs everything; a proposal
         // the current bytes no longer match is no verdict either (review 2026-09-30). A reuse run staged nothing.
         if (rerunTests > 0 && !(await promoteMatchingProposal(context))) return unavailable("Measured coverage index was not accepted: inputs changed after the run");
+        await coverageCancellationCheckpoint();
         return { indexed: true, summary: metricsToSummary(result.metrics), rerunTests, universeTests: context.testFiles.length, validate_ms, exec_ms: Date.now() - execStarted };
     } catch (error) {
         const elapsed = Date.now() - started;

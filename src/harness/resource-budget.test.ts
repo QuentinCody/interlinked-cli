@@ -37,3 +37,8 @@ it.each([Number.NaN, Number.POSITIVE_INFINITY, 0, -1])("refuses invalid availabl
     vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 48 * GIB, availableBytes });
     expect(readResourceBudget()).toBeNull();
 });
+
+it("admits the recorded warning sample without increasing a budget or reducing the reserve", () => {
+    vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 51539607552, availableBytes: 9145384960 });
+    expect(readResourceBudget()).toEqual({ reserveBytes: 6442450944, maxRssBytes: 2702934016 });
+});

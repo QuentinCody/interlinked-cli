@@ -26,7 +26,7 @@ import { readRecentLines } from "../lib/local-activity-collection.js";
 import { wireAbsentOptional, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 
 /** Known reasons; readers must handle unknown strings (forward compatibility). */
-export type DaemonEventKind = "start" | "listening" | "handover" | "exit" | "spike" | "emergency-gc";
+export type DaemonEventKind = "start" | "listening" | "handover" | "exit" | "spike" | "emergency-gc" | "lease-warning";
 
 /** Typed handover-attempt outcomes (attempt-ID protocol, 2026-08-29).
  *  The cross-process chain is requested → launcher_spawned (the restart CLI

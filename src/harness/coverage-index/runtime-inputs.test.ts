@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { createCoverageOverlay } from "../coverage-overlay.js";
 import { captureCoverageRuntime, coverageRuntimeSupportHash, prepareCoverageRuntime } from "./runtime-inputs.js";
+import { withProcessCancellation } from "../check-engine/process-cancellation.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -17,6 +18,17 @@ function fixture(): string {
     symlinkSync("dependency/index.js", join(root, "node_modules", "linked.js"));
     return root;
 }
+
+it("stops a cancelled census before reading files and reports incomplete evidence", async () => {
+    const root = fixture(), events: unknown[] = [], controller = new AbortController();
+    const diagnostics = channel("interlinked.coverage-runtime-scan"), collect = (value: unknown) => { events.push(value); };
+    controller.abort(new Error("census cancelled"));
+    diagnostics.subscribe(collect);
+    try {
+        await expect(withProcessCancellation(controller.signal, () => captureCoverageRuntime(root, { originalRoot: root, deadline: Date.now() + 10_000 }))).rejects.toThrow("census cancelled");
+        expect(events).toEqual([expect.objectContaining({ root, completed: false, bytesRead: 0, entriesVisited: 0 })]);
+    } finally { diagnostics.unsubscribe(collect); }
+});
 
 it("reports bounded scan cost for successful and failed captures without changing identities", async () => {
     const root = fixture(), events: unknown[] = [];

@@ -14,6 +14,7 @@ import { acquireProjectHeavyProcessLease, tryAcquireProjectHeavyProcessLease } f
 import { acquireTestCapacity, tryAcquireForegroundCapacity } from "../test-capacity.js";
 import { readResourceBudget } from "../resource-budget.js";
 import { combinedProcessSignal } from "../check-engine/process-cancellation.js";
+import { observeProjectProcess, type ProjectProcessObservation, type ProjectProcessObserver } from "../project-process-observation.js";
 
 interface TestProcessSpec {
 	command: string;
@@ -28,6 +29,7 @@ interface TestProcessSpec {
 	 * process lease across a larger compiler+test transaction. Ordinary callers
 	 * must omit it so this function acquires nonqueueing admission itself. */
 	admissionAlreadyHeld?: boolean;
+    observe?: ProjectProcessObserver;
 }
 
 type TestProcessOutcome =
@@ -51,6 +53,16 @@ type TestProcessOutcome =
 export async function runBoundedTestProcess(
 	spec: TestProcessSpec,
 ): Promise<TestProcessOutcome> {
+    const started = Date.now();
+    const observation: ProjectProcessObservation = { waitMs: 0, execMs: 0 };
+    try { return await executeBoundedTestProcess(spec, observation, started); }
+    finally {
+        if (!observation.resourceBudget) observation.waitMs = Math.max(0, Date.now() - started);
+        observeProjectProcess(spec.observe, observation);
+    }
+}
+
+async function executeBoundedTestProcess(spec: TestProcessSpec, observation: ProjectProcessObservation, started: number): Promise<TestProcessOutcome> {
     const deadline = Date.now() + spec.timeoutMs;
     const signal = combinedProcessSignal(spec.signal) ?? new AbortController().signal;
     const release = await admitProject(spec, deadline, signal);
@@ -60,7 +72,7 @@ export async function runBoundedTestProcess(
             ? await acquireTestCapacity("background", deadline, signal)
             : tryAcquireForegroundCapacity();
 		if (!capacity) return { kind: "deferred", reason: "busy" };
-        try { return await runBeforeDeadline(spec, deadline, signal); }
+        try { return await runBeforeDeadline(spec, deadline, signal, observation, started); }
 		finally { capacity.release(); }
 	} catch {
         return { kind: "deferred", reason: signal.aborted ? "interrupted" : "unavailable" };
@@ -76,17 +88,19 @@ async function admitProject(spec: TestProcessSpec, deadline: number, signal: Abo
     } catch { return null; }
 }
 
-async function runBeforeDeadline(spec: TestProcessSpec, deadline: number, signal: AbortSignal): Promise<TestProcessOutcome> {
+async function runBeforeDeadline(spec: TestProcessSpec, deadline: number, signal: AbortSignal, observation: ProjectProcessObservation, started: number): Promise<TestProcessOutcome> {
     if (signal.aborted) return { kind: "deferred", reason: "interrupted" };
     if (Date.now() >= deadline) return { kind: "deferred", reason: "timeout" };
-    return runAdmittedTestProcess({ ...spec, timeoutMs: deadline - Date.now(), signal });
+    return runAdmittedTestProcess({ ...spec, timeoutMs: deadline - Date.now(), signal }, observation, started);
 }
 
 /** Only reachable through `runBeforeDeadline`, which always threads a real
  *  AbortSignal — so the signal is required here, not optional. */
-async function runAdmittedTestProcess(spec: TestProcessSpec & { signal: AbortSignal }): Promise<TestProcessOutcome> {
+async function runAdmittedTestProcess(spec: TestProcessSpec & { signal: AbortSignal }, observation: ProjectProcessObservation, started: number): Promise<TestProcessOutcome> {
 	const resourceBudget = readResourceBudget();
 	if (!resourceBudget) return { kind: "deferred", reason: "unavailable" };
+    const execStarted = Date.now();
+    Object.assign(observation, { waitMs: Math.max(0, execStarted - started), resourceBudget, heapLimitMb: 768 });
 	let result: Awaited<ReturnType<typeof runProcessAsync>>;
 	try {
 		result = await runProcessAsync(spec.command, spec.args, {
@@ -101,7 +115,9 @@ async function runAdmittedTestProcess(spec: TestProcessSpec & { signal: AbortSig
 		// can emit the ordinary ENOENT-style `error` event. Preserve this API's
 		// total no-verdict contract and release the shared slot in `finally`.
 		return { kind: "deferred", reason: "unavailable" };
-	}
+	} finally { observation.execMs = Math.max(0, Date.now() - execStarted); }
+    if (result.peakRssBytes !== undefined) observation.peakRssBytes = result.peakRssBytes;
+    if (result.resourceReason !== undefined) observation.resourceReason = result.resourceReason;
 	if (result.timedOut) return { kind: "deferred", reason: "timeout" };
 	if (result.killed) return { kind: "deferred", reason: "interrupted" };
 	if (result.code === null) return { kind: "deferred", reason: "unavailable" };
