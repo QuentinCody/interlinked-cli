@@ -28,6 +28,8 @@ const spawnSyncMock = vi.fn<SpawnSyncStub>();
 const existsSyncMock = vi.fn();
 const runProcessAsyncMock = vi.fn<typeof import("../spawn-async.js").runProcessAsync>();
 const hasOsvScannerMock = vi.fn();
+const memoryBudgetMock = vi.hoisted(() => vi.fn((): {reserveBytes: number; maxRssBytes: number} | null => ({ reserveBytes: 2 * 1024 ** 3, maxRssBytes: 1024 ** 3 })));
+vi.mock("../../resource-budget.js", () => ({ readResourceBudget: memoryBudgetMock }));
 
 vi.mock("node:child_process", () => ({
 	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
@@ -645,6 +647,7 @@ describe("runGitleaks (sync)", () => {
 			"detect",
 			"--no-git",
 			"--no-banner",
+			"--redact",
 			"--report-format",
 			"json",
 			"--report-path",
@@ -1100,6 +1103,36 @@ describe("runSemgrepAsync", () => {
 // ===========================================================================
 
 describe("runGitleaksAsync", () => {
+    it("does not spawn without the light scanner memory budget", async () => {
+        memoryBudgetMock.mockReturnValueOnce(null);
+        await expect(runGitleaksAsync(input(projectScope()))).rejects.toThrow("lacks memory headroom");
+        expect(runProcessAsyncMock).not.toHaveBeenCalled();
+    });
+    it("monitors the admitted scanner tree at the light budget", async () => {
+        runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+        await runGitleaksAsync(input(projectScope()));
+        expect(memoryBudgetMock).toHaveBeenCalledWith("light");
+        expect(runProcessAsyncMock).toHaveBeenCalledWith("gitleaks", expect.arrayContaining(["--redact", "--no-git"]), expect.objectContaining({ resourceBudget: { reserveBytes: 2 * 1024 ** 3, maxRssBytes: 1024 ** 3 } }));
+    });
+
+    it.each(["1", "2", "12", "invalid", ""])("bounds sync and async scanner CPU with GOMAXPROCS=%s", async value => {
+        vi.stubEnv("GOMAXPROCS", value);
+        try {
+            spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
+            runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+            runGitleaks(input(projectScope()));
+            await runGitleaksAsync(input(projectScope()));
+            const expected = value === "1" ? "1" : "2";
+            expect(spawnSyncMock.mock.calls[0]?.[2].env?.GOMAXPROCS).toBe(expected);
+            expect(runProcessAsyncMock.mock.calls[0]?.[2]?.env?.GOMAXPROCS).toBe(expected);
+        } finally { vi.unstubAllEnvs(); }
+    });
+
+    it.each(["timedOut", "killed", "stdoutTruncated", "stderrTruncated"] as const)("refuses a security verdict when %s", async flag => {
+        runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, [flag]: true }));
+        await expect(runGitleaksAsync(input(projectScope()))).rejects.toThrow("no complete security verdict");
+    });
+
 	it("returns [] without spawning when mode is not 'project' (hot-path skip)", async () => {
 		const out = await runGitleaksAsync(input(fileScope()));
 		expect(out).toEqual([]);
@@ -1115,6 +1148,7 @@ describe("runGitleaksAsync", () => {
 			"detect",
 			"--no-git",
 			"--no-banner",
+			"--redact",
 			"--report-format",
 			"json",
 			"--report-path",
@@ -1122,7 +1156,7 @@ describe("runGitleaksAsync", () => {
 			"--source",
 			".",
 		]);
-		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 11_111 });
+		expect(opts).toMatchObject({ cwd: PROJECT_ROOT, timeout: 11_111 });
 	});
 
 	it("returns [] when code === null (process never started)", async () => {

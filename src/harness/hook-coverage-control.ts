@@ -4,6 +4,7 @@ import type { startHookFilesystemWatch } from "./hook-filesystem-watch.js";
 import { isHookCheckReceipt } from "./hook-coverage-evidence.js";
 import { isHookVerificationProgress, isHookVerificationStatus, type HookVerificationProgress, type HookVerificationStatus } from "./hook-coverage-verification.js";
 import { isHookCoverageHistory, type HookCoverageHistory } from "./hook-coverage-history.js";
+import { remainingCoverageVersions, type RemainingVersion } from "./hook-coverage-remaining.js";
 
 export type HookCoverageRequest = { operation: "status"; detail?: "progress" | "verification" } | { operation: "verify"; detail?: "progress" } | { operation: "accept_policy"; digest: string } | { operation: "acknowledge"; id: string; generation: number; identity: string; evidence: string };
 export interface HookCoverageProgress {
@@ -24,6 +25,7 @@ export interface HookCoverageReport {
     checks?: LedgerState["checks"];
     history?: HookCoverageHistory;
     verification?: HookVerificationStatus | undefined;
+    remaining?: RemainingVersion[];
     watchPaths?: string[];
     changed?: boolean;
     /** Cached observation only; never a fresh file/check verdict. */
@@ -40,6 +42,7 @@ export const isHookCoverageReport = wireObject<HookCoverageReport>({
     readiness: wireLiteral("ready", "unmeasured"), reason: wireAbsentOptional(wireOptional(wireString)), retryable: wireAbsentOptional(wireBoolean), generation: wireAbsentOptional(wireNumber), policyDigest: wireAbsentOptional(wireString), acceptedPolicy: wireAbsentOptional(wireOptional(wireString)), changed: wireAbsentOptional(wireBoolean), watchPaths: wireAbsentOptional(wireArray(wireString)),
     pending: wireAbsentOptional(wireArray(wireObject({ id: wireString, path: wireString, identity: wireString, scope: wireLiteral("policy", "reservation"), writer: wireLiteral("unknown") }))),
     reviews: wireAbsentOptional(wireArray(wireObject({ id: wireString, path: wireString, identity: wireString, evidence: wireString, reviewedAt: wireString, kind: wireLiteral("manual_review") }))),
+    remaining: wireAbsentOptional(wireArray(wireObject({ id: wireString, path: wireString, identity: wireString, reasons: wireArray(wireString) }))),
     checks: wireAbsentOptional(wireArray(isHookCheckReceipt)), history: wireAbsentOptional(isHookCoverageHistory), verification: wireAbsentOptional(wireOptional(isHookVerificationStatus)),
     progress: wireAbsentOptional(wireObject<HookCoverageProgress>({ observedAt: wireNullable(wireString), pendingCount: wireNumber,
         verification: wireAbsentOptional(wireOptional(isHookVerificationProgress)) })),
@@ -48,8 +51,14 @@ export const isHookCoverageReport = wireObject<HookCoverageReport>({
 function coverageProgress(watcher: ReturnType<typeof startHookFilesystemWatch>): HookCoverageReport {
     const status = watcher.status(), summary = watcher.ledger.summary();
     return { readiness: status.readiness === "ready" ? "ready" : "unmeasured",
-        reason: status.unmeasured.slice(0, 3).join("; ") || undefined, generation: summary.generation,
+        reason: [...new Set(status.unmeasured)].slice(0, 3).join("; ") || undefined, generation: summary.generation,
+        ...(policyBlocked(status.unmeasured) ? { retryable: false } : {}),
         progress: { observedAt: status.lastReconciled, pendingCount: summary.pendingCount, verification: watcher.verification?.progress() } };
+}
+
+/** An explicitly forbidden read cannot heal by polling the same policy. */
+function policyBlocked(reasons: readonly string[]): boolean {
+    return reasons.some(reason => reason.includes("Local runtime policy: private configuration unavailable"));
 }
 
 /** Opt-out for the idle evidence drain (`=0`); the drain is on by default. */
@@ -65,16 +74,18 @@ export function startIdleEvidenceDrain(watcher: ReturnType<typeof startHookFiles
     if (env[AUTO_DRAIN_ENV] === "0" || !watcher?.verification || watcher.verification.isRunning()) return false;
     watcher.reconcile();
     if (watcher.status().readiness !== "ready" || watcher.ledger.summary().pendingCount === 0) return false;
-    watcher.verification.start();
+    watcher.verification.start(true);
     return watcher.verification.isRunning();
 }
 
 /** Only current pending versions and this job's results, without historical receipts. */
 function verificationReport(watcher: ReturnType<typeof startHookFilesystemWatch>): HookCoverageReport {
     const status = watcher.status();
+    const pending = watcher.ledger.observation().pending;
     return { readiness: status.readiness === "ready" ? "ready" : "unmeasured",
-        reason: status.unmeasured.join("; ") || undefined, generation: watcher.ledger.summary().generation,
-        pending: watcher.ledger.observation().pending, verification: watcher.verification?.status() };
+        reason: [...new Set(status.unmeasured)].join("; ") || undefined, generation: watcher.ledger.summary().generation,
+        ...(policyBlocked(status.unmeasured) ? { retryable: false } : {}),
+        pending, remaining: remainingCoverageVersions(pending, watcher.ledger.recovery(), status.readiness === "ready" ? [] : status.unmeasured), verification: watcher.verification?.status() };
 }
 
 function applyCoverageMutation(watcher: ReturnType<typeof startHookFilesystemWatch>, request: HookCoverageRequest): boolean | undefined {

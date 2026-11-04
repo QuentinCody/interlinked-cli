@@ -8,6 +8,7 @@ import { isLikelyTestFile } from "./quality-checks/test-classifier.js";
 import { withProcessCancellation } from "./check-engine/process-cancellation.js";
 import type { BatchCheckScope } from "./quality-checks/change-set-evidence.js";
 import type { HookVerificationCheckpoint, HookVerificationStatus } from "./hook-coverage-job.js";
+import { readResourceBudget } from "./resource-budget.js";
 export { isHookVerificationStatus, type HookVerificationStatus } from "./hook-coverage-job.js";
 
 export interface HookCheckEvidence {
@@ -38,6 +39,13 @@ interface VerificationOwner {
 // Stay within the ordinary external batch and related-test source caps.
 const BATCH_SIZE = 8;
 const JOB_BUDGET_MS = 30 * 60 * 1000;
+export const RESOURCE_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
+
+/** Retry only explicit transient resource failures; filenames mentioning memory are not evidence. */
+export function retryableCapacityFailure(checkpoint: HookVerificationCheckpoint, now: number): boolean {
+    return checkpoint.job.status === "complete" && now >= (checkpoint.completedAt ?? checkpoint.deadlineAt) + RESOURCE_RETRY_COOLDOWN_MS
+        && checkpoint.job.unmeasured.some(reason => /(?:host memory (?:capacity |reserve )?(?:unavailable|exhausted)|memory-budget-unavailable|memory admission (?:unavailable|timed out)|project heavyweight lease unavailable)/i.test(reason));
+}
 
 function sourceOrder(entry: HookPendingCheck): number {
     return isLikelyTestFile(basename(entry.path, extname(entry.path)), entry.path) ? 0 : 1;
@@ -71,12 +79,20 @@ export class HookCoverageVerification {
 
     isRunning(): boolean { return !this.stopped && this.current?.status === "running"; }
 
-    start(): void {
+    start(onlyIfChanged = false): void {
         if (this.stopped || this.current?.status === "running") return;
         this.owner.reconcile();
         // Related-test batches operate on source files. Group test files first
         // so a source's deferred related suite does not hold unrelated tests.
         const entries = this.owner.ledger.observation().pending.sort((a, b) => sourceOrder(a) - sourceOrder(b));
+        // A failed or incomplete job is not new work. Keep its pending evidence,
+        // but do not spend another 30 minutes on the same versions every idle tick.
+        // The durable plan also preserves this boundary across daemon restarts.
+        if (onlyIfChanged && this.checkpoint) {
+            const planned = new Set(this.checkpoint.batches.flat().map(entry => entry.id));
+            if (entries.every(entry => planned.has(entry.id))
+                && !(retryableCapacityFailure(this.checkpoint, Date.now()) && readResourceBudget() !== null)) return;
+        }
         const job: HookVerificationStatus = { id: randomUUID(), status: "running", total: entries.length, processed: 0, checked: 0, findings: 0, unmeasured: [] };
         const batches = this.checker.batches?.(entries) ?? Array.from(
             { length: Math.ceil(entries.length / BATCH_SIZE) },
@@ -96,6 +112,7 @@ export class HookCoverageVerification {
     }
 
     private persist(checkpoint: HookVerificationCheckpoint): void {
+        if (checkpoint.job.status === "complete" && checkpoint.completedAt === undefined) checkpoint = { ...checkpoint, completedAt: Date.now() };
         this.owner.ledger.saveRecovery(checkpoint);
         this.checkpoint = checkpoint;
         this.current = checkpoint.job;
@@ -150,9 +167,9 @@ export class HookCoverageVerification {
             const receipt = this.receipt(entry, evidence.get(entry.id), { policyDigest, policyGeneration }, job);
             return receipt ? [receipt] : [];
         });
-        const next = { ...checkpoint, nextBatch: checkpoint.nextBatch + 1, job };
+        const next: HookVerificationCheckpoint = { ...checkpoint, nextBatch: checkpoint.nextBatch + 1, job };
         job.processed += entries.length;
-        if (next.nextBatch === next.batches.length) job.status = "complete";
+        if (next.nextBatch === next.batches.length) { job.status = "complete"; next.completedAt = Date.now(); }
         this.owner.ledger.recordChecks(receipts, recorded => {
             for (const [index, receipt] of receipts.entries()) {
                 if (!recorded[index]) { job.unmeasured.push(`${receipt.path}: file/policy changed or no completed checks`); continue; }

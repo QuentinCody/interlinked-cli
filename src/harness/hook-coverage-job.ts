@@ -1,4 +1,4 @@
-import { parseWire, wireArray, wireLiteral, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
+import { parseWire, wireArray, wireLiteral, wireNumber, wireObject, wireString, wireAbsentOptional } from "../lib/value-validation.js";
 import type { HookPendingCheck } from "./hook-coverage-ledger.js";
 
 export interface HookVerificationStatus {
@@ -22,10 +22,11 @@ export interface HookVerificationCheckpoint {
     batches: HookPendingCheck[][];
     nextBatch: number;
     deadlineAt: number;
+    completedAt?: number;
 }
 const natural = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 const isCheckpoint = wireObject<HookVerificationCheckpoint>({
-    schema: wireLiteral(1), job: isHookVerificationStatus, nextBatch: natural, deadlineAt: natural,
+    schema: wireLiteral(1), job: isHookVerificationStatus, nextBatch: natural, deadlineAt: natural, completedAt: wireAbsentOptional(natural),
     batches: wireArray(wireArray(wireObject<HookPendingCheck>({ id: wireString, path: wireString, identity: wireString,
         scope: wireLiteral("policy", "reservation"), writer: wireLiteral("unknown") }))),
 });

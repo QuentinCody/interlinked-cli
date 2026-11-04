@@ -25,6 +25,34 @@ function deferred() {
 }
 
 describe("coverage verification evidence", () => {
+    it("does not automatically retry unchanged pending versions, including after restart", async () => {
+        const owner = fixture();
+        const unavailable: HookCoverageChecker = async entries => new Map(entries.map(entry =>
+            [entry.id, { checks: [], findings: [], unavailable: ["scan timed out"] }]));
+        const verifier = new HookCoverageVerification(owner, unavailable);
+        verifier.start(true);
+        await expect.poll(() => verifier.progress()?.status).toBe("complete");
+        const id = verifier.progress()?.id;
+        verifier.start(true);
+        expect(verifier.progress()?.id).toBe(id);
+        verifier.stop();
+        const reopened = new HookCoverageLedger(owner.path);
+        const retry = new HookCoverageVerification({ ...owner, ledger: reopened }, unavailable);
+        retry.start(true);
+        expect(retry.progress()?.id).toBe(id);
+        expect(reopened.observation().pending).toHaveLength(1);
+        // Operators can retry after fixing an unavailable tool without editing a file.
+        retry.start();
+        expect(retry.progress()?.id).not.toBe(id);
+        await expect.poll(() => retry.progress()?.status).toBe("complete");
+        const manualId = retry.progress()?.id;
+        reopened.observe("source.ts", "changed", "reservation");
+        retry.start(true);
+        expect(retry.progress()?.id).not.toBe(manualId);
+        await expect.poll(() => retry.progress()?.status).toBe("complete");
+        retry.stop();
+    });
+
     it("persists one receipt transaction per recovery batch", async () => {
         const owner = fixture();
         for (let index = 0; index < 16; index++) owner.ledger.observe(`batch-${index}.ts`, "v1", "reservation");

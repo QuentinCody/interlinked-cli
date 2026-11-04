@@ -19,6 +19,7 @@ import {
 import { parseEslintJson } from "../output-parsers-eslint-json.js";
 import { interlinkedSemgrepConfigArgs } from "../semgrep-rules.js";
 import { runProcessAsync } from "../spawn-async.js";
+import { readResourceBudget } from "../../resource-budget.js";
 import type { AuditResult, CheckResult, ToolRunnerInput } from "../types.js";
 
 // -------------------------------------------
@@ -189,6 +190,11 @@ export function runSemgrep(input: ToolRunnerInput): CheckResult[] {
 // Gitleaks
 // -------------------------------------------
 
+function gitleaksEnvironment(): NodeJS.ProcessEnv {
+    // Go otherwise uses every host core, even for a background recovery scan.
+    return { ...process.env, GOMAXPROCS: process.env.GOMAXPROCS === "1" ? "1" : "2" };
+}
+
 export function runGitleaks(input: ToolRunnerInput): CheckResult[] {
 	const { scope, timeoutMs } = input;
 
@@ -203,6 +209,7 @@ export function runGitleaks(input: ToolRunnerInput): CheckResult[] {
 			"detect",
 			"--no-git",
 			"--no-banner",
+			"--redact",
 			"--report-format",
 			"json",
 			"--report-path",
@@ -213,6 +220,7 @@ export function runGitleaks(input: ToolRunnerInput): CheckResult[] {
 
 		const result = spawnSync("gitleaks", args, {
 			cwd: scope.projectRoot,
+			env: gitleaksEnvironment(),
 			timeout: timeoutMs,
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
@@ -327,6 +335,7 @@ export async function runGitleaksAsync(input: ToolRunnerInput): Promise<CheckRes
 		"detect",
 		"--no-git",
 		"--no-banner",
+		"--redact",
 		"--report-format",
 		"json",
 		"--report-path",
@@ -334,10 +343,19 @@ export async function runGitleaksAsync(input: ToolRunnerInput): Promise<CheckRes
 		"--source",
 		".",
 	];
+	const resourceBudget = readResourceBudget("light");
+	if (!resourceBudget) throw new Error("Gitleaks scan lacks memory headroom; no complete security verdict");
 	const result = await runProcessAsync("gitleaks", args, {
 		cwd: scope.projectRoot,
+		env: gitleaksEnvironment(),
 		timeout: timeoutMs,
+		resourceBudget,
 	});
+	// An interrupted scan provides no security verdict. Throw so the engine
+	// records an unavailable check and recovery can avoid repeating the failure.
+	if (result.timedOut || result.killed || result.stdoutTruncated || result.stderrTruncated) {
+		throw new Error("Gitleaks scan interrupted or report truncated; no complete security verdict");
+	}
 	if (result.code === null) return [];
 	if (result.code !== 1) return [];
 	const combined = result.stderr + result.stdout;

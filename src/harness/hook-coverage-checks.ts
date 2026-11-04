@@ -20,6 +20,7 @@ import { RecoveryTestRuns } from "./recovery-test-runs.js";
 // so overlapping related suites run once; bound worker count in the runner.
 const RECOVERY_BATCH_SIZE = 32;
 const RECOVERY_TEST_TIMEOUT_MS = 900_000;
+export const RESTRICTED_RECOVERY_TESTS = "affected_tests unavailable: local-restricted recovery does not execute arbitrary project tests (subprocess writes/network are outside this session's permissions)";
 
 function recoveryChecks(configured: Record<string, QualityCheckConfig>): Record<string, QualityCheckConfig> {
     const checks = structuredClone(configured);
@@ -88,13 +89,14 @@ function collectInputs(root: string, entries: readonly HookPendingCheck[], evide
  * Receipts enumerate completed checks; they do not certify unrun hook phases. */
 export function createHookCoverageChecker(root: string, getChecks: () => Record<string, QualityCheckConfig>): HookCoverageChecker {
     let preparedTests: RecoveryTestRuns | undefined;
+    const scanFailures = new Map<string, string>();
     const checker: HookCoverageChecker = async entries => {
         const evidence = new Map<string, HookCheckEvidence>();
         const configured = structuredClone(getChecks());
         const checks = recoveryChecks(configured);
         const tests = preparedTests ?? new RecoveryTestRuns(root, entries.map(entry => entry.path), Date.now() + RECOVERY_TEST_TIMEOUT_MS);
         for (const batch of recoveryBatches(root, entries, configured)) {
-            await checkRecoveryBatch(root, batch, checks, evidence, tests);
+            await checkRecoveryBatch(root, batch, checks, evidence, tests, scanFailures);
         }
         if (JSON.stringify(configured) !== JSON.stringify(getChecks())) {
             for (const result of evidence.values()) result.unavailable.push("Configured checks changed during verification");
@@ -102,17 +104,23 @@ export function createHookCoverageChecker(root: string, getChecks: () => Record<
         return evidence;
     };
     checker.batches = entries => recoveryBatches(root, entries, getChecks());
-    checker.prepare = (entries, deadlineAt) => { preparedTests = new RecoveryTestRuns(root, entries.map(entry => entry.path), deadlineAt); };
+    checker.prepare = (entries, deadlineAt) => {
+        scanFailures.clear();
+        preparedTests = new RecoveryTestRuns(root, entries.map(entry => entry.path), deadlineAt);
+    };
     return checker;
 }
 
-async function checkRecoveryBatch(root: string, entries: readonly HookPendingCheck[], checks: Record<string, QualityCheckConfig>, evidence: Map<string, HookCheckEvidence>, tests: RecoveryTestRuns): Promise<void> {
+async function checkRecoveryBatch(root: string, entries: readonly HookPendingCheck[], checks: Record<string, QualityCheckConfig>, evidence: Map<string, HookCheckEvidence>, tests: RecoveryTestRuns, scanFailures: Map<string, string>): Promise<void> {
     const scoped = recoverySourceScope(root, entries, checks);
     checks = scoped.checks;
+    const restrictedTests = process.env.INTERLINKED_RUNTIME_POLICY === "local-restricted" && checks.affected_tests?.enabled
+        ? checks.affected_tests : undefined;
+    if (restrictedTests) checks = Object.fromEntries(Object.entries(checks).filter(([name]) => name !== "affected_tests"));
     const inputs = collectInputs(root, entries, evidence);
     if (!inputs.size) return;
     const externalRan: string[] = [];
-    const external = createChangeSetExternalBatch({ cwd: root, paths: [...inputs.keys()].map(entry => entry.path), checks, outChecksRan: externalRan, recovery: true, recoveryTests: tests });
+    const external = createChangeSetExternalBatch({ cwd: root, paths: [...inputs.keys()].map(entry => entry.path), checks, outChecksRan: externalRan, recovery: true, recoveryTests: tests, recoveryScanFailures: scanFailures });
     const externalRows = new Map<string, QualityCheckResult[]>();
     for (const [entry] of inputs) externalRows.set(entry.id, await external.resultsForFile(entry.path));
     // Shared deferrals invalidate their compatible group, never unrelated
@@ -121,6 +129,8 @@ async function checkRecoveryBatch(root: string, entries: readonly HookPendingChe
     for (const [entry, event] of inputs) {
         const shared = await external.evidenceForFile(entry.path);
         evidence.set(entry.id, await checkInput({ root, entry, event, checks, shared, externalRows: externalRows.get(entry.id) ?? [], deferred, exclusion: scoped.exclusion }));
+        if (restrictedTests && !isLikelyTestFile(basename(entry.path, extname(entry.path)), entry.path)
+            && pathMatchesCheck(entry.path, restrictedTests)) evidence.get(entry.id)!.unavailable.push(RESTRICTED_RECOVERY_TESTS);
     }
 }
 

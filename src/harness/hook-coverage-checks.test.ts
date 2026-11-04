@@ -15,7 +15,7 @@ vi.mock("./quality-checks.js", () => ({
     runQualityChecks: mocks.quality,
     resolveQualityCheckTarget: () => ({ filePath: "eligible" }),
 }));
-import { createHookCoverageChecker } from "./hook-coverage-checks.js";
+import { createHookCoverageChecker, RESTRICTED_RECOVERY_TESTS } from "./hook-coverage-checks.js";
 
 const roots: string[] = [];
 const noSharedEvidence = async () => ({ checks: [], unavailable: [], scopes: [] });
@@ -43,6 +43,43 @@ function fixture() {
 }
 
 describe("coverage check scope", () => {
+    it("keeps test evidence unavailable under the opt-in restricted runtime instead of executing foreign suites", async () => {
+        const { root, entries } = fixture();
+        vi.stubEnv("INTERLINKED_RUNTIME_POLICY", "local-restricted");
+        try {
+            const affected_tests = { enabled: true, severity: "error" as const, timeout_ms: 1000, file_types: [".ts"] };
+            const evidence = await createHookCoverageChecker(root, () => ({ affected_tests }))(entries);
+            expect(mocks.batch).toHaveBeenCalledWith(expect.objectContaining({ checks: {} }));
+            expect([...evidence.values()].every(row => row.unavailable.includes(RESTRICTED_RECOVERY_TESTS))).toBe(true);
+        } finally { vi.unstubAllEnvs(); }
+    });
+    it("does not invent a deferred related-test obligation on test files", async () => {
+        const { root, first } = fixture();
+        const path = join(root, "one.test.ts"), content = "export const count = 1;\n";
+        writeFileSync(path, content);
+        vi.stubEnv("INTERLINKED_RUNTIME_POLICY", "local-restricted");
+        try {
+            const affected_tests = { enabled: true, severity: "error" as const, timeout_ms: 1000, file_types: [".ts"] };
+            const evidence = await createHookCoverageChecker(root, () => ({ affected_tests }))([{ ...first, path }]);
+            expect(evidence.get(first.id)?.unavailable).toEqual([]);
+            expect(evidence.get(first.id)?.checks).toContain("strong_typing");
+            expect(mocks.batch).toHaveBeenCalledWith(expect.objectContaining({ checks: {} }));
+        } finally { vi.unstubAllEnvs(); }
+    });
+    it("shares failed scans across receipt batches and clears them for a fresh job", async () => {
+        const { root, entries } = fixture();
+        const checker = createHookCoverageChecker(root, () => ({}));
+        checker.prepare?.(entries, Date.now() + 60_000);
+        await checker(entries);
+        const failures = mocks.batch.mock.calls[0]?.[0].recoveryScanFailures;
+        failures.set(root, "timeout");
+        await checker(entries);
+        expect(mocks.batch.mock.calls[1]?.[0].recoveryScanFailures.get(root)).toBe("timeout");
+        checker.prepare?.(entries, Date.now() + 60_000);
+        await checker(entries);
+        expect(mocks.batch.mock.calls[2]?.[0].recoveryScanFailures.size).toBe(0);
+    });
+
     it("keeps installer exclusions separate from source passes during recovery", async () => {
         const { root, first } = fixture();
         execFileSync("git", ["init", "-q", root]);
