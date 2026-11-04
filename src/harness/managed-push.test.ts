@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -14,12 +14,27 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 // `prepareManagedPush` refuses any inherited GIT_* variable except GIT_PAGER (an IDE shell exports
 // GIT_ASKPASS / GIT_EDITOR), so the suite must not depend on the parent shell; scrub and restore.
 const scrubbed: Record<string, string> = {};
+const originalNode = process.execPath;
+let privateRuntime: string | undefined;
 beforeAll(() => {
+    // Hosted CI tool caches can make Node writable by others. Positive fixtures
+    // need a real executable that satisfies the unchanged production boundary.
+    if (statSync(originalNode).mode & 0o022) {
+        privateRuntime = mkdtempSync(join(tmpdir(), "managed-push-node-"));
+        const node = join(privateRuntime, "node");
+        copyFileSync(originalNode, node);
+        chmodSync(node, 0o500);
+        process.execPath = node;
+    }
     for (const [key, value] of Object.entries(process.env)) {
         if (/^GIT_/.test(key) && key !== "GIT_PAGER" && value !== undefined) { scrubbed[key] = value; delete process.env[key]; }
     }
 });
-afterAll(() => { Object.assign(process.env, scrubbed); });
+afterAll(() => {
+    Object.assign(process.env, scrubbed);
+    process.execPath = originalNode;
+    if (privateRuntime) rmSync(privateRuntime, { recursive: true, force: true });
+});
 function git(root: string, ...args: string[]): string {
     const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
     if (result.status !== 0) throw new Error(result.stderr);
@@ -66,6 +81,17 @@ setInterval(()=>{},1000);\n`;
 }
 
 describe("managed native push handoff", () => {
+    it("retains the legacy path for a group-writable Node executable", () => {
+        const { root, trust } = fixture();
+        const node = join(root, "writable-node");
+        copyFileSync(process.execPath, node);
+        chmodSync(node, 0o720);
+        const previous = process.execPath;
+        try {
+            process.execPath = node;
+            expect(prepareManagedPush(root, "git push origin main", "codex", trust)).toBeNull();
+        } finally { process.execPath = previous; }
+    });
     it.each([
         { label: "0022", mask: 0o022 },
         { label: "0002", mask: 0o002 },

@@ -73,6 +73,14 @@ function fakeTsgo(name: string, body: string): string {
 	return path;
 }
 
+/** Parser fixtures emit one pass; their source must predate it, including sub-ms filesystem mtimes. */
+function writeExistingSource(): string {
+    const path = join(tmp, "a.ts");
+    writeFileSync(path, "export const a = 1;\n");
+    utimesSync(path, new Date(0), new Date(0));
+    return path;
+}
+
 /** WatchProcess spawns a fixed executable+args; point `/bin/sh` at a script
  * by using it AS the executable (shebang-based scripts are directly
  * executable on darwin/linux, so the script path itself works as
@@ -250,9 +258,8 @@ describe("WatchProcess — pass-marker parsing", () => {
 	it("parses the 'build' format pass and returns its diagnostic", async () => {
 		const script = fakeTsgo("build.sh", ONE_PASS_THEN_SLEEP);
 		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, script);
+		const tsPath = writeExistingSource();
 		wp.start();
-		const tsPath = join(tmp, "a.ts");
-		writeFileSync(tsPath, "export const a = 1;\n");
 		const diags = await wp.diagnosticsForFile(tsPath);
 		expect(diags).not.toBeNull();
 		expect(diags?.length).toBe(1);
@@ -262,9 +269,8 @@ describe("WatchProcess — pass-marker parsing", () => {
 	it("parses the 'classic' format pass (ANSI-glued marker) and returns its diagnostic", async () => {
 		const script = fakeTsgo("classic.sh", CLASSIC_FORMAT_THEN_SLEEP);
 		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, script);
+		const tsPath = writeExistingSource();
 		wp.start();
-		const tsPath = join(tmp, "a.ts");
-		writeFileSync(tsPath, "export const a = 1;\n");
 		const diags = await wp.diagnosticsForFile(tsPath);
 		expect(diags).not.toBeNull();
 		expect(diags?.length).toBe(1);
@@ -285,9 +291,8 @@ describe("WatchProcess — pass-marker parsing", () => {
 	it("also reads pass output written to stderr (future split-stream tsgo)", async () => {
 		const script = fakeTsgo("stderr.sh", STDERR_DIAG_THEN_SLEEP);
 		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, script);
+		const tsPath = writeExistingSource();
 		wp.start();
-		const tsPath = join(tmp, "a.ts");
-		writeFileSync(tsPath, "export const a = 1;\n");
 		const diags = await wp.diagnosticsForFile(tsPath);
 		expect(diags).not.toBeNull();
 		expect(diags?.length).toBe(1);
@@ -297,9 +302,8 @@ describe("WatchProcess — pass-marker parsing", () => {
 	it("ignores a line that is neither a pass marker nor a parseable diagnostic", async () => {
 		const script = fakeTsgo("noise.sh", NOISE_LINE_THEN_PASS);
 		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, script);
+		const tsPath = writeExistingSource();
 		wp.start();
-		const tsPath = join(tmp, "a.ts");
-		writeFileSync(tsPath, "export const a = 1;\n");
 		const diags = await wp.diagnosticsForFile(tsPath);
 		expect(diags).toEqual([]);
 	});

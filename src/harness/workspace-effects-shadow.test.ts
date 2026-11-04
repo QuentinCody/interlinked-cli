@@ -3,7 +3,7 @@
 // each effect (rule: touch-attribution.ts) and keeps shadows out of the
 // caller's ownership records.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -95,6 +95,10 @@ describe("workspace effect shadow attribution — negative (must not fire)", () 
 	it("N1: my own Bash-created file is attributed, and the row says shadow: false", () => {
 		rememberWorkspaceSnapshot({ toolUseId: "mine", sessionId: "shared", subagentId: "me", root });
 		writeFileSync(join(root, "generated.ts"), "export {};\n");
+		// Pin this fixture inside the call window; Linux filesystem timestamps
+		// can lag the JavaScript clock by more than the attribution slack.
+		const writtenAt = new Date();
+		utimesSync(join(root, "generated.ts"), writtenAt, writtenAt);
 		const changeSet = consumeWorkspaceSnapshot({ toolUseId: "mine", sessionId: "shared", subagentId: "me", root, call: bash });
 		expect(changeSet?.files[0]).toMatchObject({ path: "generated.ts", attribution: "observed-in-window" });
 		const event: HarnessEvent = { hook_event: "PostToolUse", session_id: "shared", agent_source: "claude", timestamp: "t", tool_name: "Bash", ...(changeSet ? { change_set: changeSet } : {}) };
