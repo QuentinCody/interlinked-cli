@@ -1,0 +1,226 @@
+{
+ "version": 1,
+ "faults": [
+  {
+   "id": "zimmerframe-01",
+   "path": "src/walk.js",
+   "find": "if (stopped) return;",
+   "replace": "if (false) return;",
+   "rationale": "dropped branch: stop() ignored",
+   "requirement": {
+    "id": "stop",
+    "text": "context.stop() halts the walk"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "zimmerframe-02",
+   "path": "src/walk.js",
+   "find": "\t\tpath.pop();\n\n\t\tif (mutations) {",
+   "replace": "\n\t\tif (mutations) {",
+   "rationale": "dropped statement: path never popped after children",
+   "requirement": {
+    "id": "path",
+    "text": "context.path lists only the ancestors of the current node"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "zimmerframe-03",
+   "path": "src/walk.js",
+   "find": "(mutated_array ??= child_node.slice())[i] = result;",
+   "replace": "(mutated_array ??= child_node)[i] = result;",
+   "rationale": "dropped copy: array mutated in place",
+   "requirement": {
+    "id": "immutable",
+    "text": "transformations never mutate the input tree"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "zimmerframe-04",
+   "path": "src/walk.js",
+   "find": "for (let i = 0; i < len; i++) {",
+   "replace": "for (let i = 1; i < len; i++) {",
+   "rationale": "off-by-one: first array element skipped",
+   "requirement": {
+    "id": "arrays",
+    "text": "every element of an array child is visited"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "zimmerframe-05",
+   "path": "src/walk.js",
+   "find": "if (!result && next_result) {",
+   "replace": "if (!result && !next_result) {",
+   "rationale": "flipped condition",
+   "requirement": {
+    "id": "next-result",
+    "text": "a transformed subtree returned through next() is kept"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "zimmerframe-06",
+   "path": "src/walk.js",
+   "find": "\t\tobj[key] = mutations[key];",
+   "replace": "\t\tobj[key] = node[key];",
+   "rationale": "wrong operand: mutations dropped",
+   "requirement": {
+    "id": "apply",
+    "text": "child replacements appear in the returned node"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "zimmerframe-07",
+   "path": "src/walk.js",
+   "find": "if (!node.type) return;",
+   "replace": "if (node.type) return;",
+   "rationale": "negated condition",
+   "requirement": {
+    "id": "typed",
+    "text": "nodes with a type are visited"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "zimmerframe-08",
+   "path": "src/walk.js",
+   "find": "return visit(node, [], state) ?? node;",
+   "replace": "return visit(node, [], state);",
+   "rationale": "dropped default",
+   "requirement": {
+    "id": "return-root",
+    "text": "walk returns the original node when nothing changes"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "zimmerframe-09",
+   "path": "src/walk.js",
+   "find": "// avoid manipulating the prototype",
+   "replace": "// skip the prototype key",
+   "rationale": "comment change",
+   "requirement": {
+    "id": "comment",
+    "text": "comment-only change"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "zimmerframe-10",
+   "path": "src/walk.js",
+   "find": "if (Array.isArray(child_node)) {",
+   "replace": "if (child_node instanceof Array) {",
+   "rationale": "equivalent rewrite for same-realm arrays",
+   "requirement": {
+    "id": "equiv-array",
+    "text": "same-realm arrays detected"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "zimmerframe-11",
+   "path": "src/walk.js",
+   "find": "\tconst universal = visitors._;\n\n\tlet stopped = false;",
+   "replace": "\tlet stopped = false;\n\n\tconst universal = visitors._;",
+   "rationale": "reorder of independent declarations",
+   "requirement": {
+    "id": "reorder",
+    "text": "independent declarations reordered"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "zimmerframe-12",
+   "path": "src/walk.js",
+   "find": "/** @import { Context, Visitor, Visitors } from './types.js' */",
+   "replace": "/** @import { Context, Visitor, Visitors } from './types.js' */\nthrow new Error('fault: walk.js throws at import');",
+   "rationale": "module throws at import",
+   "requirement": {
+    "id": "load",
+    "text": "module loads"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  },
+  {
+   "id": "zimmerframe-13",
+   "path": "src/walk.js",
+   "find": "export function walk(node, state, visitors) {",
+   "replace": "function walk(node, state, visitors) {",
+   "rationale": "exported function removed while tests import it",
+   "requirement": {
+    "id": "export",
+    "text": "walk is exported"
+   },
+   "tests": [
+    "test/traversal.js",
+    "test/transformation.js"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  }
+ ]
+}

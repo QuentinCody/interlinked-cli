@@ -1,0 +1,219 @@
+{
+ "version": 1,
+ "faults": [
+  {
+   "id": "clack-01",
+   "path": "packages/core/src/utils/cursor.ts",
+   "find": "const clampedCursor = newCursor < 0 ? maxCursor : newCursor > maxCursor ? 0 : newCursor;",
+   "replace": "const clampedCursor = newCursor < 0 ? 0 : newCursor > maxCursor ? 0 : newCursor;",
+   "rationale": "wrong branch value",
+   "requirement": {
+    "id": "wrap-up",
+    "text": "moving up from the first option wraps to the last"
+   },
+   "tests": [
+    "packages/core/test/utils/cursor.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "clack-02",
+   "path": "packages/core/src/utils/cursor.ts",
+   "find": "return findCursor(clampedCursor, delta < 0 ? -1 : 1, options);",
+   "replace": "return clampedCursor;",
+   "rationale": "dropped branch",
+   "requirement": {
+    "id": "skip-disabled",
+    "text": "the cursor skips disabled options"
+   },
+   "tests": [
+    "packages/core/test/utils/cursor.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "clack-03",
+   "path": "packages/core/src/utils/cursor.ts",
+   "find": "\t\treturn cursor;\n\t}\n\tconst newCursor",
+   "replace": "\t\treturn 0;\n\t}\n\tconst newCursor",
+   "rationale": "wrong return value",
+   "requirement": {
+    "id": "all-disabled",
+    "text": "with every option disabled the cursor stays put"
+   },
+   "tests": [
+    "packages/core/test/utils/cursor.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "clack-04",
+   "path": "packages/core/src/utils/cursor.ts",
+   "find": "\t\tcursorX -= line.length + 1;",
+   "replace": "\t\tcursorX -= line.length;",
+   "rationale": "off-by-one",
+   "requirement": {
+    "id": "text-newline",
+    "text": "text cursor accounts for the newline between lines"
+   },
+   "tests": [
+    "packages/core/test/utils/cursor.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "clack-05",
+   "path": "packages/core/src/utils/settings.ts",
+   "find": "if (!settings.aliases.has(alias)) {",
+   "replace": "if (settings.aliases.has(alias)) {",
+   "rationale": "negated condition",
+   "requirement": {
+    "id": "alias-add",
+    "text": "updateSettings adds new aliases"
+   },
+   "tests": [
+    "packages/core/test/utils/settings.test.ts",
+    "packages/core/test/utils.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "clack-06",
+   "path": "packages/core/src/utils/settings.ts",
+   "find": "settings.withGuide = updates.withGuide !== false;",
+   "replace": "settings.withGuide = true;",
+   "rationale": "dropped value",
+   "requirement": {
+    "id": "with-guide",
+    "text": "withGuide: false disables the guide"
+   },
+   "tests": [
+    "packages/core/test/utils/settings.test.ts",
+    "packages/core/test/utils.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "clack-07",
+   "path": "packages/core/src/utils/settings.ts",
+   "find": "['j', 'down'],",
+   "replace": "['j', 'up'],",
+   "rationale": "swapped value",
+   "requirement": {
+    "id": "vim-j",
+    "text": "j is aliased to down"
+   },
+   "tests": [
+    "packages/core/test/utils/settings.test.ts",
+    "packages/core/test/utils.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "clack-08",
+   "path": "packages/core/src/utils/settings.ts",
+   "find": "settings.messages.cancel = messages.cancel;",
+   "replace": "settings.messages.error = messages.cancel;",
+   "rationale": "wrong target",
+   "requirement": {
+    "id": "cancel-msg",
+    "text": "messages.cancel updates the cancel message"
+   },
+   "tests": [
+    "packages/core/test/utils/settings.test.ts",
+    "packages/core/test/utils.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "clack-09",
+   "path": "packages/core/src/utils/settings.ts",
+   "find": "// opinionated defaults!",
+   "replace": "// defaults",
+   "rationale": "comment change",
+   "requirement": {
+    "id": "comment",
+    "text": "comment-only change"
+   },
+   "tests": [
+    "packages/core/test/utils/settings.test.ts",
+    "packages/core/test/utils.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "clack-10",
+   "path": "packages/core/src/utils/cursor.ts",
+   "find": "const maxCursor = Math.max(options.length - 1, 0);",
+   "replace": "const maxCursor = options.length - 1;",
+   "rationale": "equivalent rewrite",
+   "requirement": {
+    "id": "equiv-max",
+    "text": "options is non-empty past the early return"
+   },
+   "tests": [
+    "packages/core/test/utils/cursor.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "clack-11",
+   "path": "packages/core/src/utils/string.ts",
+   "find": "\tconst aLines = a.split('\\n');\n\tconst bLines = b.split('\\n');",
+   "replace": "\tconst bLines = b.split('\\n');\n\tconst aLines = a.split('\\n');",
+   "rationale": "reorder of independent declarations",
+   "requirement": {
+    "id": "reorder",
+    "text": "independent declarations reordered"
+   },
+   "tests": [
+    "packages/core/test/utils/settings.test.ts",
+    "packages/core/test/utils.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "clack-12",
+   "path": "packages/core/src/utils/cursor.ts",
+   "find": "export function findCursor<",
+   "replace": "throw new Error('fault: cursor.ts throws at import');\nexport function findCursor<",
+   "rationale": "module throws at import",
+   "requirement": {
+    "id": "load",
+    "text": "module loads"
+   },
+   "tests": [
+    "packages/core/test/utils/cursor.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  },
+  {
+   "id": "clack-13",
+   "path": "packages/core/src/utils/cursor.ts",
+   "find": "export function findTextCursor(",
+   "replace": "function findTextCursor(",
+   "rationale": "exported function removed while tests import it",
+   "requirement": {
+    "id": "export",
+    "text": "findTextCursor is exported"
+   },
+   "tests": [
+    "packages/core/test/utils/cursor.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  }
+ ]
+}

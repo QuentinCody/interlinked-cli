@@ -1,0 +1,224 @@
+{
+ "version": 1,
+ "faults": [
+  {
+   "id": "esrap-01",
+   "path": "src/index.js",
+   "find": "const indent_str = opts.indent ?? '\\t';",
+   "replace": "const indent_str = opts.indent ?? '  ';",
+   "rationale": "wrong default",
+   "requirement": {
+    "id": "indent-default",
+    "text": "default indentation is a tab"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/indent.test.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "esrap-02",
+   "path": "src/index.js",
+   "find": "append(needs_margin ? '\\n' + current_newline : current_newline);",
+   "replace": "append(current_newline);",
+   "rationale": "dropped branch",
+   "requirement": {
+    "id": "margin",
+    "text": "a margin command emits a blank line"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/indent.test.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "esrap-03",
+   "path": "src/index.js",
+   "find": "\t\t\t} else if (needs_space) {\n\t\t\t\tappend(' ');\n\t\t\t}",
+   "replace": "\t\t\t}",
+   "rationale": "dropped branch",
+   "requirement": {
+    "id": "space",
+    "text": "a space command emits a space before the next text"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/indent.test.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "esrap-04",
+   "path": "src/index.js",
+   "find": "\t\t\tlocation.line - 1,",
+   "replace": "\t\t\tlocation.line,",
+   "rationale": "off-by-one",
+   "requirement": {
+    "id": "map-line",
+    "text": "source map lines are zero-based"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/sourcemap-keywords.test.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "esrap-05",
+   "path": "src/index.js",
+   "find": "\t\t\t\tcurrent_column = 0;",
+   "replace": "\t\t\t\tcurrent_column = 1;",
+   "rationale": "off-by-one",
+   "requirement": {
+    "id": "map-column",
+    "text": "generated columns restart at 0 after a newline"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/sourcemap-keywords.test.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "esrap-06",
+   "path": "src/context.js",
+   "find": "if (this.#has_newline || context.multiline) {",
+   "replace": "if (this.#has_newline && context.multiline) {",
+   "rationale": "flipped logical operator",
+   "requirement": {
+    "id": "multiline",
+    "text": "appending a multiline context makes the parent multiline"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/indent.test.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "esrap-07",
+   "path": "src/languages/ts/index.js",
+   "find": "const quote_char = options.quotes === 'double' ? '\"' : \"'\";",
+   "replace": "const quote_char = options.quotes === 'double' ? \"'\" : '\"';",
+   "rationale": "swapped arms",
+   "requirement": {
+    "id": "quotes",
+    "text": "quotes option selects the string delimiter (single by default)"
+   },
+   "tests": [
+    "test/quotes.test.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "esrap-08",
+   "path": "src/context.js",
+   "find": "\t\tif (this.#visitors._) {",
+   "replace": "\t\tif (false) {",
+   "rationale": "dropped branch",
+   "requirement": {
+    "id": "universal",
+    "text": "a `_` visitor wraps every node visit"
+   },
+   "tests": [
+    "test/pluggability.test.js"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "esrap-09",
+   "path": "src/index.js",
+   "find": "0, // source index is always zero",
+   "replace": "0, // single source",
+   "rationale": "comment change",
+   "requirement": {
+    "id": "comment",
+    "text": "comment-only change"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/sourcemap-keywords.test.js"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "esrap-10",
+   "path": "src/index.js",
+   "find": "\tfor (let i = 0; i < commands.length; i += 1) {\n\t\trun(commands[i]);\n\t}",
+   "replace": "\trun(commands);",
+   "rationale": "equivalent rewrite",
+   "requirement": {
+    "id": "equiv-run",
+    "text": "run() iterates arrays itself"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/indent.test.js"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "esrap-11",
+   "path": "src/index.js",
+   "find": "\tlet needs_newline = false;\n\tlet needs_margin = false;",
+   "replace": "\tlet needs_margin = false;\n\tlet needs_newline = false;",
+   "rationale": "reorder of independent declarations",
+   "requirement": {
+    "id": "reorder",
+    "text": "independent declarations reordered"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/indent.test.js"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "esrap-12",
+   "path": "src/context.js",
+   "find": "export const margin = 0;",
+   "replace": "throw new Error('fault: context.js throws at import');\nexport const margin = 0;",
+   "rationale": "module throws at import",
+   "requirement": {
+    "id": "load",
+    "text": "module loads"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/indent.test.js"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  },
+  {
+   "id": "esrap-13",
+   "path": "src/index.js",
+   "find": "export function print(node, visitors, opts = {}) {",
+   "replace": "function print(node, visitors, opts = {}) {",
+   "rationale": "exported function removed while tests import it",
+   "requirement": {
+    "id": "export",
+    "text": "print is exported"
+   },
+   "tests": [
+    "test/esrap.test.js",
+    "test/indent.test.js"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  }
+ ]
+}

@@ -1,0 +1,236 @@
+{
+ "version": 1,
+ "faults": [
+  {
+   "id": "entities-01",
+   "path": "src/escape.ts",
+   "find": "? \"&apos;\"",
+   "replace": "? \"&#39;\"",
+   "rationale": "wrong replacement literal",
+   "requirement": {
+    "id": "xml-apos",
+    "text": "encodeXML escapes ' as &apos;"
+   },
+   "tests": [
+    "src/escape.spec.ts",
+    "src/encode.spec.ts",
+    "src/index.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "entities-02",
+   "path": "src/decode-codepoint.ts",
+   "find": "        codePoint === 0 ||\n",
+   "replace": "",
+   "rationale": "dropped branch",
+   "requirement": {
+    "id": "nul-invalid",
+    "text": "code point 0 decodes to U+FFFD"
+   },
+   "tests": [
+    "src/decode.spec.ts",
+    "src/decode-codepoint.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "entities-03",
+   "path": "src/escape.ts",
+   "find": "if (cp !== char) index++; // Skip trailing surrogate",
+   "replace": "// Skip trailing surrogate",
+   "rationale": "dropped statement",
+   "requirement": {
+    "id": "astral",
+    "text": "astral characters encode as one numeric reference"
+   },
+   "tests": [
+    "src/escape.spec.ts",
+    "src/encode.spec.ts",
+    "src/index.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "entities-04",
+   "path": "src/escape.ts",
+   "find": "const textEscapeRegex = /[&<>\\u{A0}]/gu;",
+   "replace": "const textEscapeRegex = /[&<>]/gu;",
+   "rationale": "dropped character class member",
+   "requirement": {
+    "id": "text-nbsp",
+    "text": "escapeText escapes U+00A0 as &nbsp;"
+   },
+   "tests": [
+    "src/escape.spec.ts",
+    "src/encode.spec.ts",
+    "src/index.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "entities-05",
+   "path": "src/escape.ts",
+   "find": "        last = index + 1;",
+   "replace": "        last = index;",
+   "rationale": "off-by-one",
+   "requirement": {
+    "id": "escape-advance",
+    "text": "an escaped character is not repeated in the output"
+   },
+   "tests": [
+    "src/escape.spec.ts",
+    "src/encode.spec.ts",
+    "src/index.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "entities-06",
+   "path": "src/decode-codepoint.ts",
+   "find": "if (codePoint >= 128 && codePoint <= 159) {",
+   "replace": "if (codePoint >= 128 && codePoint < 159) {",
+   "rationale": "boundary flip",
+   "requirement": {
+    "id": "c1-159",
+    "text": "&#159; decodes to U+0178 per the C1 table"
+   },
+   "tests": [
+    "src/decode.spec.ts",
+    "src/decode-codepoint.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "entities-07",
+   "path": "src/escape.ts",
+   "find": "if (last < length) out += input.substr(last);",
+   "replace": "if (last < length - 1) out += input.substr(last);",
+   "rationale": "off-by-one",
+   "requirement": {
+    "id": "tail",
+    "text": "a one-character tail after the last escape is kept"
+   },
+   "tests": [
+    "src/escape.spec.ts",
+    "src/encode.spec.ts",
+    "src/index.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "entities-08",
+   "path": "src/escape.ts",
+   "find": "const attributeEscapeRegex = /[\"&<>\\u{A0}]/gu;",
+   "replace": "const attributeEscapeRegex = /[&<>\\u{A0}]/gu;",
+   "rationale": "dropped character class member",
+   "requirement": {
+    "id": "attr-quote",
+    "text": "escapeAttribute escapes double quotes"
+   },
+   "tests": [
+    "src/escape.spec.ts",
+    "src/encode.spec.ts",
+    "src/index.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "entities-09",
+   "path": "src/escape.ts",
+   "find": "// Skip trailing surrogate",
+   "replace": "// skip the low surrogate",
+   "rationale": "comment change",
+   "requirement": {
+    "id": "comment",
+    "text": "comment-only change"
+   },
+   "tests": [
+    "src/escape.spec.ts",
+    "src/encode.spec.ts",
+    "src/index.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "entities-10",
+   "path": "src/escape.ts",
+   "find": "    if (out === undefined) return input;",
+   "replace": "    if (out == undefined) return input;",
+   "rationale": "equivalent rewrite",
+   "requirement": {
+    "id": "equiv-undef",
+    "text": "out is string | undefined, never null"
+   },
+   "tests": [
+    "src/escape.spec.ts",
+    "src/encode.spec.ts",
+    "src/index.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "entities-11",
+   "path": "src/escape.ts",
+   "find": "    let last = 0;\n    let index = 0;",
+   "replace": "    let index = 0;\n    let last = 0;",
+   "rationale": "reorder of independent declarations",
+   "requirement": {
+    "id": "reorder",
+    "text": "independent declarations reordered"
+   },
+   "tests": [
+    "src/escape.spec.ts",
+    "src/encode.spec.ts",
+    "src/index.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "entities-12",
+   "path": "src/decode-codepoint.ts",
+   "find": "export function replaceCodePoint(",
+   "replace": "throw new Error(\"fault: decode-codepoint throws at import\");\nexport function replaceCodePoint(",
+   "rationale": "module throws at import",
+   "requirement": {
+    "id": "load",
+    "text": "module loads"
+   },
+   "tests": [
+    "src/decode.spec.ts",
+    "src/decode-codepoint.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  },
+  {
+   "id": "entities-13",
+   "path": "src/escape.ts",
+   "find": "export function escapeText(",
+   "replace": "function escapeText(",
+   "rationale": "exported function removed while index re-exports it",
+   "requirement": {
+    "id": "export",
+    "text": "escapeText is exported"
+   },
+   "tests": [
+    "src/escape.spec.ts",
+    "src/encode.spec.ts",
+    "src/index.spec.ts"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  }
+ ]
+}
