@@ -199,6 +199,60 @@
         "approved_by": "QuentinCody",
         "reason": "User approved isolated whatever==0.7 setup for the Funcy nomination-to-repair experiment",
         "version_range": "0.7"
+      },
+      "sentence-transformers": {
+        "approved_at": "2026-10-28T16:57:51.781Z",
+        "approved_by": "qcody",
+        "reason": "local-embedding-arms",
+        "license": "Apache-2.0"
+      },
+      "torch": {
+        "approved_at": "2026-10-28T16:57:52.390Z",
+        "approved_by": "qcody",
+        "reason": "local-embedding-arms",
+        "license": "Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND ISC AND MIT AND Zlib"
+      },
+      "scikit-learn": {
+        "approved_at": "2026-10-28T16:58:09.598Z",
+        "approved_by": "qcody",
+        "reason": "local-embedding-head",
+        "license": "BSD-3-Clause"
+      },
+      "transformers": {
+        "approved_at": "2026-10-28T18:44:40.843Z",
+        "approved_by": "qcody",
+        "reason": "local-decision-model-finetune; Apache-2.0 with a non-SPDX license string on PyPI",
+        "license": "Apache 2.0 License"
+      },
+      "peft": {
+        "approved_at": "2026-10-28T18:44:41.280Z",
+        "approved_by": "qcody",
+        "reason": "local-decision-model-finetune; Apache-2.0 with a non-SPDX license string on PyPI",
+        "license": "Apache"
+      },
+      "accelerate": {
+        "approved_at": "2026-10-28T18:44:41.819Z",
+        "approved_by": "qcody",
+        "reason": "local-decision-model-finetune; Apache-2.0 with a non-SPDX license string on PyPI",
+        "license": "Apache"
+      },
+      "datasets": {
+        "approved_at": "2026-10-28T18:44:42.419Z",
+        "approved_by": "qcody",
+        "reason": "local-decision-model-finetune; Apache-2.0 with a non-SPDX license string on PyPI",
+        "license": "Apache 2.0"
+      },
+      "mlx-lm": {
+        "approved_at": "2026-10-29T09:43:07.976Z",
+        "approved_by": "quentincody",
+        "reason": "A4 local MLX training",
+        "license": "MIT"
+      },
+      "mlx-lm-lora": {
+        "approved_at": "2026-10-30T17:19:40.500Z",
+        "approved_by": "qcody",
+        "reason": "step 6a local LoRA/DPO/GRPO training stack (mutation-rl campaign)",
+        "license": "Apache-2.0"
       }
     },
     "cargo": {
