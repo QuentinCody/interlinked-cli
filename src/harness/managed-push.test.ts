@@ -28,7 +28,7 @@ function git(root: string, ...args: string[]): string {
 function fixture(): { root: string; remote: string; trust: ManagedPushTrust } {
     const parent = mkdtempSync(join(tmpdir(), "managed-push-test-")); roots.push(parent);
     const root = join(parent, "work"); const remote = join(parent, "remote.git");
-    mkdirSync(root); git(parent, "init", "--bare", remote); git(root, "init", "-b", "main");
+    mkdirSync(root, { mode: 0o700 }); git(parent, "init", "--bare", remote); git(root, "init", "-b", "main");
     git(root, "config", "user.email", "fixture@example.invalid"); git(root, "config", "user.name", "Fixture");
     git(root, "remote", "add", "origin", remote);
     mkdirSync(join(root, "scripts/git-hooks"), { recursive: true });
@@ -66,8 +66,14 @@ setInterval(()=>{},1000);\n`;
 }
 
 describe("managed native push handoff", () => {
-    it("executes one frozen gate, preserves log redirection, and updates the receiver", () => {
-        const { root, remote, trust } = fixture();
+    it.each([
+        { label: "0022", mask: 0o022 },
+        { label: "0002", mask: 0o002 },
+    ])("executes one frozen gate, preserves logging, and updates the receiver under umask $label", ({ mask }) => {
+        const previous = process.umask(mask);
+        let prepared: ReturnType<typeof fixture>;
+        try { prepared = fixture(); } finally { process.umask(previous); }
+        const { root, remote, trust } = prepared;
         const command = prepareManagedPush(root, "git push origin main > push.log 2>&1", "codex", trust);
         expect(command).not.toBeNull();
         if (!command) throw new Error("Expected native rewrite");
