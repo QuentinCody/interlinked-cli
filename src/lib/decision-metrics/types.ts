@@ -40,6 +40,9 @@ export interface EvidenceRecord {
     reason?: string;
 }
 
+/** Inference transport needs the question, not an evidence-population unit. */
+export type DecisionQuestion = Pick<MetricContract, "id" | "kind" | "question" | "on" | "options" | "levels" | "labels" | "adverse">;
+
 export type RawAnswer =
     | { kind: "yes_no"; probability: number }
     | {

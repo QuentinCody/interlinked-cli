@@ -15,6 +15,13 @@ load **interlinked-quality-gates**. For Qwen embedding retrieval/resource policy
 also load **interlinked-semantic-index**. These unvalidated judgments are advisory;
 they do not participate in deterministic PreToolUse blocking.
 
+For shared invariants, directed semantic coupling, and relational before/after
+comparison, use `metrics decisions relations` and **interlinked-quality-gates**.
+The graph owns snapshot evidence and runtime claims; reviewed policy and study
+reports live in version-controlled `semantic-relations/`; raw study bundles remain
+local and ignored. Its Astra reference reviews are explicitly model judgments; no human-review
+stage or automatic semantic blocking is part of the workflow.
+
 For repeated implementation advice (`repeated_implementation`), load
 **interlinked-verify**. This is an advisory AST comparison for Python and JS/TS,
 reported after a changeset and in the Stop/verification review. It is not a hard gate.

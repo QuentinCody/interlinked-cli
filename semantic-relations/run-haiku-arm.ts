@@ -1,0 +1,27 @@
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { hash } from "../src/harness/semantic-graph/relation-core.js";
+import { sealPlan } from "../src/harness/semantic-graph/relation-plan.js";
+import { freezeRelations, loadRelationArtifact } from "../src/harness/semantic-graph/relation-freeze.js";
+import { exportBundle, writeArtifactFile } from "../src/harness/semantic-graph/relation-store.js";
+import { assessRelations } from "../src/lib/decision-metrics/relation-assess.js";
+import { auditRelations } from "../src/lib/decision-metrics/relation-audit.js";
+import type { RelationPlan } from "../src/harness/semantic-graph/relation-types.js";
+
+const root = process.cwd(), study = resolve(process.argv[2] ?? "semantic-relations/studies/2026-10-27-exploratory"), name = process.argv[3];
+if (!name || !["A", "B", "fixtures", "B-targeted"].includes(name)) throw new Error("specify A, B, fixtures or B-targeted");
+const frozen = loadRelationArtifact(join(study, `${name}-input`)) as { plan: RelationPlan };
+const original = frozen.plan;
+const { id: _id, ...body } = original;
+const engine = original.jobs.find(j => j.engine.id === "H")!.engine;
+const plan = sealPlan({ ...body, createdAt: new Date().toISOString(), jobs: original.jobs.filter(j => j.engine.id === "H"), sourcePlans: [original.id] });
+const references = JSON.parse(readFileSync(join(study, `${name}-labels.json`), "utf8"));
+const labels = { ...references, planId: plan.id };
+writeArtifactFile(join(study, `${name}-H-labels.json`), labels);
+writeArtifactFile(join(study, `${name}-H-protocol.json`), { originalPlanId: original.id, originalLabelDigest: hash(references), packetIdsUnchanged: true, threshold: engine.band, requestedModel: engine.model, backend: "haiku", standalone: true, userSubscription: "Claude Code Max via native account authentication", authenticationFix: "Retain USER in the minimal environment so Claude Code can resolve its macOS keychain account. No tool-policy relaxation.", priorFailure: "Initial H unavailability was a runner environment defect; failed preflights are retained separately." });
+freezeRelations(root, plan, join(study, `${name}-H-input`));
+let n = 0;
+const run = await assessRelations(root, plan, { fresh: true, onMeasurement: m => { if (++n % 10 === 0 || m.status === "failed") console.log(JSON.stringify({ case: n, total: plan.jobs[0]!.packets.length, status: m.status, reason: m.reason, cost: m.costUsd })); } });
+exportBundle(join(study, `${name}-H-result`), run, "result");
+writeArtifactFile(join(study, `${name}-H-audit.json`), auditRelations(run, labels));
+console.log(JSON.stringify({ finished: name, count: run.measurements.length, statuses: run.measurements.reduce<Record<string, number>>((a,m)=>(a[m.status]=(a[m.status]??0)+1,a),{}), knownCostUsd: run.measurements.reduce((n,m)=>n+(m.costUsd??0),0) }));

@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { decisionsAction, type DecisionsOptions } from "../commands/metrics-decisions.js";
+import { registerRelationCommands } from "./metrics-relations.js";
 
 export function registerDecisionMetricCommands(metrics: Command): void {
     const group = metrics
@@ -7,6 +8,7 @@ export function registerDecisionMetricCommands(metrics: Command): void {
         .description(
             "Experimental semantic measurements with local decision models, ThinkThen, and auditable uncertainty",
         );
+    registerRelationCommands(group);
     const definitions = [
         ["init", "Write a disabled, local-first decision configuration"],
         ["catalog", "Show versioned metric contracts and the ThinkThen question set"],

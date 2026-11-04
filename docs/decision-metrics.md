@@ -363,3 +363,7 @@ truncation is not enabled. The [developer guide](https://developers.googleblog.c
 explains that full-model loading adds vision and audio encoders around the shared
 text backbone. Image/screenshot/spec retrieval remains a separate extension;
 the current evidence path is text even when the full model is selected.
+
+## Shared invariant and coupling relations
+
+The nested `metrics decisions relations` commands implement graph-backed v2 invariant membership, nonexclusive roles, pair/group compatibility, directed coupling and paired before/after comparison. See [the relation workflow](../semantic-relations/README.md) for explicit history, engine and freeze contracts. Groups never enter the v1 description-claim population. Astra model reference review replaces a human-review stage for this workflow; reports distinguish model agreement from executable fixture evidence and remain experimental.

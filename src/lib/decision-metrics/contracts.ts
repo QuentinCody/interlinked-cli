@@ -1,4 +1,4 @@
-import type { Band, Json, MetricContract } from "./types.js";
+import type { Band, DecisionQuestion, Json, MetricContract } from "./types.js";
 
 type Definition = Omit<MetricContract, "version" | "population" | "aggregation">;
 function metric(definition: Definition): MetricContract {
@@ -336,7 +336,7 @@ export function selectEvidence(
     return result;
 }
 
-export function questionSet(contracts: MetricContract[], band: Band): Record<string, Json> {
+export function questionSet(contracts: DecisionQuestion[], band: Band): Record<string, Json> {
     const questions: Record<string, Json> = Object.create(null);
     for (const contract of contracts) {
         const question: Record<string, Json> = {

@@ -1,0 +1,22 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, expect, it } from "vitest";
+import { boundedHistory } from "./relation-history.js";
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+it("excludes future counterpart commits and distinguishes unavailable from empty", () => {
+    const root = mkdtempSync(join(tmpdir(), "relations-history-")); roots.push(root);
+    const git = (args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+    git(["init", "-q"]); git(["config", "user.email", "fixture@example.invalid"]); git(["config", "user.name", "Fixture"]);
+    writeFileSync(join(root, "a.ts"), "export const a=1;"); git(["add", "."]); git(["commit", "-qm", "before"]);
+    const before = git(["rev-parse", "HEAD"]);
+    writeFileSync(join(root, "a.ts"), "export const a=2;"); writeFileSync(join(root, "b.ts"), "export const b=2;");
+    git(["add", "."]); git(["commit", "-qm", "future counterpart"]);
+    const boundary = { tip: before, since: "2000-01-01T00:00:00Z", until: "2100-01-01T00:00:00Z", maxCommits: 100 };
+    const result = boundedHistory(root, boundary);
+    expect(result.status).toBe("available"); expect(result.commits).toEqual([before]); expect(result.map).toEqual({});
+    expect(boundedHistory(root, { ...boundary, tip: "missing" }).status).toBe("unavailable");
+    expect(boundedHistory(root, { ...boundary, tip: git(["rev-parse", "HEAD"]), maxCommits: 1 }).status).toBe("unavailable");
+});

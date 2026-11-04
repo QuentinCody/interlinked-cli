@@ -34,6 +34,7 @@ import { registerQualityCommands } from "./registrars/quality.js";
 import { registerReplayCommands } from "./registrars/replay.js";
 import { registerScratchCommands } from "./registrars/scratch.js";
 import { registerSemanticCommands } from "./registrars/semantic.js";
+import { registerSemanticGraphCommands } from "./registrars/semantic-graph.js";
 import { registerSimplifyCommands } from "./registrars/simplification.js";
 import { registerSetupCommands } from "./registrars/setup.js";
 import { registerSponsorCommands } from "./registrars/sponsor.js";
@@ -72,6 +73,7 @@ function registerDomainCommands(program: Command): void {
 	registerCapsCommands(program);
 	registerScratchCommands(program);
 	registerSemanticCommands(program);
+	registerSemanticGraphCommands(program);
 	registerSimplifyCommands(program);
 	registerFindingsCommands(program);
 	registerSpecCommands(program);

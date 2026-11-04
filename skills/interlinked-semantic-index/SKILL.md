@@ -13,6 +13,30 @@ runtime fingerprint requires rebuilding the index before using its vectors.
 
 ## Separate decision-metrics research index
 
+The source-only Jev runner also exposes `state-machines <files...>` with `--dry-run`,
+`--nullable-slots` and `--json`. Dry runs print candidate packets and deterministic
+stale-handle findings without creating a client or making model calls. Other runs
+remain uncalibrated research; they do not add a public command or blocking policy.
+Missing optional TypeScript means the selector is NOT MEASURED.
+
+The nested `metrics decisions relations` workflow consumes shared graph units and
+snapshot packets from `src/harness/semantic-graph/`. It reuses deterministic candidate
+rules over pinned source/imports and ancestor-bounded Git history. Candidate recall
+is measured separately from judgments on curated participants; missing history and
+missing reference selectors stay visible. The relation implementation currently
+offers `shared_rules` and `lexical` retrieval; it does not silently use the local
+embedding index or install an embedding model. Graph-backed relation claims use
+their own v2 populations and append-only events within `.interlinked/semantic-graph/`.
+The tracked registry and readable reports live under `semantic-relations/`;
+raw study outputs and immutable exports remain local and ignored.
+Use **interlinked-quality-gates** for its freeze/assess/compare/audit commands.
+Keep retrieval coverage ahead of judgment accuracy when interpreting runtime advice.
+The scoped runtime trial recovered only 1/6 authored counterparts with shared rules
+and 4/6 lexically at k=12; the isolated capture had no usable co-change edges.
+These are small registry-relative measurements, not a repository-wide recall
+estimate. Curated participants can support a useful second
+check while the discovery workflow still misses relevant code.
+
 `metrics decisions embed|geometry|retrieve|candidates` uses a separate Ollama pipeline
 under `.interlinked/decision-metrics/`; it does not reuse or change `semantic.json`,
 the GGUF manifest, or `index/functions/`. Load **interlinked-quality-gates** for its

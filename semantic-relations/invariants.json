@@ -1,0 +1,28 @@
+[
+  {
+    "id": "verification.no-false-pass", "version": "1",
+    "statement": "A verification result establishes pass only after the requested check actually executes successfully. Missing, failed, cancelled, deferred, or unavailable evidence cannot establish pass.",
+    "applicability": "Verification execution, admission, evidence recording, and summaries in the Interlinked CLI. An empty diagnostic list may mean no observed finding; it is not itself a completed verification verdict.",
+    "clauses": ["Only completed successful execution discharges verification.", "Preserve unavailable and deferred states through callers and reports.", "A cancellation or capacity refusal creates no passing evidence."],
+    "exceptions": ["A diagnostic-only adapter may return no findings when a tool is unavailable if that return is not recorded or presented as successful verification."],
+    "participants": ["src/harness/test-execution.ts#function:executeTestPlan", "src/harness/project-test-gate.ts#function:checkProjectTestsClean", "src/harness/project-test-gate.ts#function:checkProjectTestsCleanAsync", "src/harness/coverage-index/admission.ts#function:admitIndexedRun", "src/harness/coverage-index/controller.ts#function:runIndexedCoverage", "src/harness/coverage-index/summary.ts#function:indexedCoverageSummary", "src/harness/verification-stages.ts#function:buildVerificationStageRow", "src/harness/verification-stages.ts#function:recordVerificationStage", "src/harness/coverage-index/warm-evidence.ts#function:recordWarmEvidence", "src/harness/coverage-index/warm-evidence.ts#function:recordWarmFailure", "src/harness/check-engine/tool-runners/generic.ts#function:runEslint", "src/harness/check-engine/tool-runners/generic.ts#function:runEslintAsync"],
+    "groups": [["src/harness/test-execution.ts#function:executeTestPlan", "src/harness/project-test-gate.ts#function:checkProjectTestsCleanAsync", "src/harness/verification-stages.ts#function:recordVerificationStage"], ["src/harness/coverage-index/admission.ts#function:admitIndexedRun", "src/harness/coverage-index/controller.ts#function:runIndexedCoverage", "src/harness/coverage-index/summary.ts#function:indexedCoverageSummary"], ["src/harness/coverage-index/warm-evidence.ts#function:recordWarmEvidence", "src/harness/coverage-index/warm-evidence.ts#function:recordWarmFailure", "src/harness/verification-stages.ts#function:buildVerificationStageRow"]],
+    "contextFiles": ["src/harness/verification-stages.ts"]
+  },
+  {
+    "id": "evidence.target-bound", "version": "1",
+    "statement": "Verification evidence is reusable only for the source, target, configuration, and execution scope it actually measured.",
+    "applicability": "Coverage index validity and reuse; a matching name alone is insufficient.",
+    "clauses": ["Changes in evidence dependencies invalidate reuse.", "Scope or target mismatch cannot discharge an obligation.", "Unavailable identity evidence remains unresolved."], "exceptions": [],
+    "participants": ["src/harness/coverage-index/invalidation.ts#function:manifestValidity", "src/harness/coverage-index/invalidation.ts#function:staleShards", "src/harness/coverage-index/context.ts#function:indexValidity", "src/harness/coverage-index/staged-state.ts#function:promoteMatchingProposal"],
+    "groups": [["src/harness/coverage-index/invalidation.ts#function:manifestValidity", "src/harness/coverage-index/context.ts#function:indexValidity", "src/harness/coverage-index/staged-state.ts#function:promoteMatchingProposal"]], "contextFiles": []
+  },
+  {
+    "id": "obligation.persists-until-discharged", "version": "1",
+    "statement": "A required verification obligation remains unresolved until matching successful evidence or an explicitly authorized policy exception discharges it.",
+    "applicability": "Verification obligations and coverage evidence. Deferral, suppression, and excluding a check from a run do not by themselves establish satisfaction.",
+    "clauses": ["Deferred work stays unresolved.", "An exception must explicitly cover the obligation and scope.", "Reports distinguish successful evidence from absence of findings."], "exceptions": ["An explicit applicable policy exception may discharge an obligation; record that exception rather than a fabricated passing execution."],
+    "participants": ["src/harness/coverage-index/controller.ts#function:runIndexedCoverage", "src/harness/coverage-index/summary.ts#function:indexedCoverageSummary", "src/harness/verification-stages.ts#function:recordVerificationStage"],
+    "groups": [["src/harness/coverage-index/controller.ts#function:runIndexedCoverage", "src/harness/coverage-index/summary.ts#function:indexedCoverageSummary", "src/harness/verification-stages.ts#function:recordVerificationStage"]], "contextFiles": []
+  }
+]

@@ -5,7 +5,7 @@ import { decisionChildEnvironment } from "./config.js";
 import { questionSet } from "./contracts.js";
 import { readJson, saveImmutable } from "./store.js";
 import { runCommand, startRecorder } from "./transport.js";
-import type { DecisionConfig, EvidenceRecord, MetricContract, RawAnswer } from "./types.js";
+import type { DecisionConfig, DecisionQuestion, EvidenceRecord, RawAnswer } from "./types.js";
 
 export interface BackendAnswer {
     metric: string;
@@ -21,7 +21,7 @@ export interface BackendAnswer {
 export function decodeAnnotated(
     stdout: string,
     id: string,
-    contracts: MetricContract[],
+    contracts: DecisionQuestion[],
 ): BackendAnswer[] {
     const lines = stdout.trim().split("\n").filter(Boolean);
     if (lines.length !== 1) throw new Error("expected exactly one annotated record");
@@ -37,7 +37,7 @@ export function decodeAnnotated(
 
 function decodeQuestion(
     value: unknown,
-    contract: MetricContract,
+    contract: DecisionQuestion,
     meta: Record<string, unknown>,
 ): BackendAnswer {
     const result: BackendAnswer = {
@@ -68,8 +68,8 @@ function recordedRequestHashes(folder: string): string[] {
 
 export async function annotate(
     config: DecisionConfig,
-    record: EvidenceRecord,
-    contracts: MetricContract[],
+    record: Pick<EvidenceRecord, "id" | "evidence">,
+    contracts: DecisionQuestion[],
     options: { folder: string; deadline: number; plan: boolean },
 ): Promise<BackendAnswer[]> {
     const questionPath = join(options.folder, "questions.json");

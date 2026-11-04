@@ -1,4 +1,4 @@
-import type { Band, Interpretation, MetricContract, RawAnswer } from "./types.js";
+import type { Band, DecisionQuestion, Interpretation, RawAnswer } from "./types.js";
 
 export function object(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -12,7 +12,7 @@ function probability(value: unknown): number {
     return value;
 }
 
-export function parseAnswer(value: unknown, contract: MetricContract): RawAnswer {
+export function parseAnswer(value: unknown, contract: DecisionQuestion): RawAnswer {
     const raw = object(value);
     if (contract.kind === "decide") {
         if (raw.kind !== "yes_no") throw new Error("expected yes_no answer");
@@ -42,7 +42,7 @@ export function parseAnswer(value: unknown, contract: MetricContract): RawAnswer
 }
 
 export function interpretAnswer(
-    contract: MetricContract,
+    contract: DecisionQuestion,
     raw: RawAnswer,
     band: Band,
 ): Interpretation {
@@ -82,12 +82,12 @@ export function interpretAnswer(
     return { status: "answered", value: top[0] };
 }
 
-export function scorePosition(contract: MetricContract, level: string): number {
+export function scorePosition(contract: DecisionQuestion, level: string): number {
     const named = contract.levels?.indexOf(level) ?? -1;
     return named >= 0 ? named : Number(level);
 }
 
-export function adverseProbability(contract: MetricContract, raw: RawAnswer): number | null {
+export function adverseProbability(contract: DecisionQuestion, raw: RawAnswer): number | null {
     const adverse = contract.adverse ?? true;
     if (raw.kind === "yes_no") return adverse === false ? 1 - raw.probability : raw.probability;
     if (typeof adverse === "string") return raw.probabilities[adverse] ?? null;
@@ -98,7 +98,7 @@ export function adverseProbability(contract: MetricContract, raw: RawAnswer): nu
     return null;
 }
 
-export function adverseAnswer(contract: MetricContract, raw: RawAnswer, band: Band): boolean {
+export function adverseAnswer(contract: DecisionQuestion, raw: RawAnswer, band: Band): boolean {
     const result = interpretAnswer(contract, raw, band);
     if (result.status !== "answered") return false;
     const adverse = contract.adverse ?? true;

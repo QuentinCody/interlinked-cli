@@ -953,6 +953,22 @@ cannot write a block reason, and its probabilities are calibrated per group,
 not per call. Re-measure before moving any threshold; the eval drivers and
 labeled datasets are under `scratch/2026-09-16-jev-checks/`.
 
+### Semantic graph (opt-in, 2026-10-27)
+
+`src/harness/semantic-graph/` builds typed edges between code units (functions,
+doc comments, tests, markdown sections): deterministic candidate rules
+(`candidates.ts`) bound each packet, Jev judges it as one Choice plus `none`
+(`judge.ts`), Haiku 5.5 confirms the top slice (`confirm.ts`), and the
+append-only store under `.interlinked/semantic-graph/` keeps every judgment
+(`store.ts`; `build.ts` skips any packet hash with a live edge, `refresh.ts`
+marks changed sources stale first). Relationship types live in
+`.interlinked/semantic-relationships.json` (three seed types written on the
+first build; strict parser, unknown keys refused). Jev/Haiku actions run only
+on the internal runner — `node --import tsx scripts/internal/jev.mjs
+semantic-graph build|refresh|confirm` (`commands/semantic-graph-internal.ts`);
+the public `interlinked semantic-graph metrics|status|edges` is read-only.
+The rule: the graph ranks and proposes, never gates, never in `verify`.
+
 ## External-pulse intake
 
 Before "what can we do with X?" on a tool, paper, or repo found on the

@@ -14,6 +14,43 @@ Missing optional dependencies and unsupported targets remain explicitly unavaila
 
 ## Experimental decision-model measurements
 
+`metrics decisions relations` implements shared-invariant membership, nonexclusive
+roles, pair/group compatibility, directional coupling and paired evidence comparison.
+Use `prepare --revision REF --history-tip REF --since ISO --until ISO --engines FILE`,
+then `freeze PLAN --output BUNDLE`, `assess BUNDLE`, and `export RUN`. The registry
+lives in version-controlled `semantic-relations/invariants.json` and `scenarios.json`;
+`--exploratory` explicitly permits an uncommitted registry. Runtime artifacts and
+claim events share `.interlinked/semantic-graph/`, not the v1 decision-metrics store.
+Groups have a dedicated v2 population and must not be joined to description claims.
+For two revisions, `compare BEFORE --after AFTER --output-plan PLAN` creates a plan
+consumed by `freeze` and `assess`; report with `compare --assessment-run PAIRED_RUN`.
+Use the same pre-change history tip/window on both sides. Missing participants,
+ambiguous identity, changed measurement conditions and unresolved sides remain
+non-comparable. A changed probability or categorical answer is not a repair verdict.
+Explicit D/J/H engine records pin backend, model identity, budgets and uncertainty
+band; the default v1 backend remains Ollama. H is an independent Haiku 5.5 low arm,
+with empty tools/MCP, safe mode, no persistence and a required canary. Preserve
+unavailable arms; never replace them silently. No downloads are automatic.
+`labels` creates blind Astra review inputs. `audit --labels FILE` separates model
+reference agreement from fixture evidence, reports candidate recall first, and uses
+one-sided 95% exact Clopper–Pearson bounds only when case IDs are independent.
+No human review is required by this workflow. Model labels are not independent
+ground truth, and these exploratory reports do not qualify or enable automatic alerts.
+Retain frozen inputs and results locally under `semantic-relations/studies/`;
+raw outputs are ignored, while readable Markdown reports are committed. Fresh clones
+cannot regenerate study summaries without those local inputs. Hashes of
+uncommitted bundles do not constitute Git review authority. See
+`semantic-relations/README.md` for the complete current workflow and limitations.
+
+For interactive use, pass `--cwd` for the repository whose revision is being assessed;
+the nested command inherits it from `metrics`. Source evidence comes from the pinned
+Git revision, even with `--exploratory` policy. Capture dirty source in an isolated
+snapshot if that is the intended subject. Compare the advice against a prior source
+review and executable checks: confirmation of an existing hypothesis is a second
+opinion, not a new finding. Exact cached assessments make no new model calls; their
+latency is not fresh-inference latency. The runtime dogfood report under
+`semantic-relations/studies/2026-10-27-runtime/` records these limits in actual use.
+
 For the internal public-GitHub semantic collection and Jev/Luna research workflow,
 the optional local research checkout may contain
 `research/semantic-factory/repo-pipeline/README.md`. That directory is ignored and
