@@ -66,7 +66,7 @@ export const CLAUDE_CODE_CAPABILITIES = defineCapabilities({
 		event("SessionStart", "session-start", { modelContext: true }),
 		event("SessionEnd", "session-end"),
 		event("UserPromptSubmit", "user-prompt", { control: "deny", modelContext: true }),
-		event("Stop", "stop", { control: "continue", modelContext: true }),
+		event("Stop", "stop", { control: "continue" }),
 		event("PreToolUse", "pre-tool", {
 			control: "ask",
 			modelContext: true,
@@ -121,7 +121,7 @@ export const CODEX_CAPABILITIES = defineCapabilities({
 		event("SessionStart", "session-start", { modelContext: true }),
 		event("SessionEnd", "session-end"),
 		event("UserPromptSubmit", "user-prompt", { control: "deny", modelContext: true }),
-		event("Stop", "stop", { control: "continue", modelContext: true }),
+		event("Stop", "stop", { control: "continue" }),
 		event("PreToolUse", "pre-tool", {
 			control: "deny",
 			modelContext: true,
