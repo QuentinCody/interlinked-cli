@@ -33,6 +33,18 @@ function captureStdout(fn: () => void): string {
 }
 
 describe("outputJson", () => {
+    it("preserves catalogue findings and unavailable counts for JSON consumers", () => {
+        const catalogue = { unread_config_key: {
+            findings: [{ check: "unread_config_key", file: "docs/config.md", line: 4, message: "No static read", evidence: "config.retired" }],
+            examined: 5, unavailable: 2, durationMs: 1.5,
+        } };
+        const out = captureStdout(() => outputJson({
+            tscResults: [], linterResults: [], linterName: "biome", semgrepResults: [],
+            gitleaksResults: [], auditResult: null, cq: emptyCq(), suggestions: null,
+            totalFiles: 5, catalogue,
+        }));
+        expect(JSON.parse(out).catalogue_advisories).toEqual(catalogue);
+    });
     it("includes duplicate HTML ID locations in JSON output", () => {
         const cq = emptyCq();
         const issue = {

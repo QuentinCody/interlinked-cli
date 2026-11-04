@@ -144,7 +144,6 @@ export function discoverFiles(root: string): string[] {
 		}
 	}
 	function walk(dir: string, relPrefix: string): void {
-		if (files.length >= MAX_WALK_ENTRIES) return;
 		try {
 			// Match ProjectGraph's root-local scratch exclusion. Disposable
 			// repo copies can otherwise consume the budget before real source.
