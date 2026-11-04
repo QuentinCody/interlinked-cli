@@ -83,6 +83,8 @@ import {
 } from "./verify/verify-summary.js";
 import { streamExternalTools } from "./verify/verify-tools.js";
 import { streamImportedLint } from "./verify/lint-import.js";
+import { runCatalogueAdvisories, streamCatalogueAdvisories } from "./verify/catalogue.js";
+import { withVerifyTimings, measureVerifyCheck, measureVerifyCheckAsync, recordVerifyMeasurement } from "./verify/check-timing.js";
 
 // Re-export for consumers (tests + external scripts that imported these
 // names historically from this file). These names are load-bearing — the
@@ -129,6 +131,10 @@ interface VerifyOpts {
  * scanning. Actual checks live in `runVerify`.
  */
 export async function verifyCommand(opts: VerifyOpts): Promise<void> {
+	return withVerifyTimings(opts.cwd || process.cwd(), () => verifyWithTiming(opts));
+}
+
+async function verifyWithTiming(opts: VerifyOpts): Promise<void> {
 	const cwd = opts.cwd || process.cwd();
 	const interlinkedDir = join(cwd, ".interlinked");
 
@@ -309,7 +315,7 @@ async function runVerifyWithHostCapacity(cwd: string, opts: VerifyOpts): Promise
 
 /** Run one verify after the caller owns the cross-process project lane. */
 async function runVerifyWithHeavyProcessLease(cwd: string, opts: VerifyOpts): Promise<void> {
-	const files = discoverFiles(cwd);
+	const files = measureVerifyCheck("file_discovery", () => discoverFiles(cwd));
 	const engine = new CheckEngine(cwd);
 	const details = opts.details ?? false;
 	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks);
@@ -332,6 +338,7 @@ async function runVerifyWithHeavyProcessLease(cwd: string, opts: VerifyOpts): Pr
 	streamLockfileMultiplicity(detectLockfileMultiplicity(cwd));
 	streamDecisionSurfaceRatchet(computeDecisionSurfaceRatchet(cwd));
 	if (opts.allChecks) streamCaseDivergence(cwd, files, allFlaggedFiles);
+	if (opts.allChecks && !opts.only) streamCatalogueAdvisories(await runCatalogueAdvisories(cwd, skipChecks));
 
 	const cqStart = Date.now();
 	// `--only` promises one external tool. Previously it still ran the entire
@@ -367,28 +374,31 @@ async function runVerifyWithHeavyProcessLease(cwd: string, opts: VerifyOpts): Pr
 
 	await streamTailSections(cwd, opts);
 
-	const tally = summarizeFlaggedFiles(cwd, files, allFlaggedFiles);
-	process.stderr.write(`\n  ${tally.flaggedFiles} / ${tally.totalFiles} files flagged`);
-	if (tally.projectFindings > 0) {
-		const noun =
-			tally.projectFindings === 1 ? "project-level finding" : "project-level findings";
-		process.stderr.write(` · \x1b[33m${tally.projectFindings} ${noun}\x1b[0m`);
-	}
-	if (summary.length > 0) {
-		process.stderr.write(
-			` · ${summary.map((s) => `\x1b[${s.color}m${s.label}\x1b[0m`).join(" · ")}`,
-		);
-	}
-	process.stderr.write("\n\n");
+	reportVerifySummary(cwd, files, allFlaggedFiles, summary, opts, cqStart);
+}
 
-	emitVerifyRun(cwd, {
-		mode: opts.allChecks ? "all-checks" : "default",
-		files_scanned: files.length,
-		flagged_files: tally.flaggedFiles,
-		project_findings: tally.projectFindings,
-		summary,
-		duration_ms: Date.now() - cqStart,
-	});
+function reportVerifySummary(cwd: string, files: string[], allFlaggedFiles: Set<string>, summary: { label: string; count: number; color: string; }[], opts: VerifyOpts, cqStart: number) {
+    const tally = summarizeFlaggedFiles(cwd, files, allFlaggedFiles);
+    process.stderr.write(`\n  ${tally.flaggedFiles} / ${tally.totalFiles} files flagged`);
+    if (tally.projectFindings > 0) {
+        const noun = tally.projectFindings === 1 ? "project-level finding" : "project-level findings";
+        process.stderr.write(` · \x1b[33m${tally.projectFindings} ${noun}\x1b[0m`);
+    }
+    if (summary.length > 0) {
+        process.stderr.write(
+            ` · ${summary.map((s) => `\x1b[${s.color}m${s.label}\x1b[0m`).join(" · ")}`
+        );
+    }
+    process.stderr.write("\n\n");
+
+    emitVerifyRun(cwd, {
+        mode: opts.allChecks ? "all-checks" : "default",
+        files_scanned: files.length,
+        flagged_files: tally.flaggedFiles,
+        project_findings: tally.projectFindings,
+        summary,
+        duration_ms: Date.now() - cqStart,
+    });
 }
 
 function safeRegistryParity(cwd: string): RegistryDriftFinding[] {
@@ -438,23 +448,13 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 	const skipTools = [...new Set([...onlySkipTools, ...getSkipTools(skipChecks)])];
 	setActiveSkipChecks(skipChecks);
 
-	const report = await engine.runChecksAsync({ ...scope, lintCadence: opts.allChecks ? "all" : "hook" }, {
+	const report = await measureVerifyCheckAsync("external_tools", () => engine.runChecksAsync({ ...scope, lintCadence: opts.allChecks ? "all" : "hook" }, {
 		timeoutMs: CHECK_ENGINE_TIMEOUT_MS,
 		skipTools,
 		admissionAlreadyHeld: true,
-	});
+	}));
 
-	const interlinkedDir = join(cwd, ".interlinked");
-	const byTool = (tool: string): CheckResult[] =>
-		filterSuppressedToolResults(report.results.filter((result) => result.tool === tool), interlinkedDir);
-	const tscResults = byTool("tsc");
-	const biomeResults = byTool("biome");
-	const eslintResults = byTool("eslint");
-	const semgrepResults = byTool("semgrep");
-	const gitleaksResults = byTool("gitleaks");
-	const linterResults = [...biomeResults, ...eslintResults, ...byTool("lint-import")];
-	let linterName = eslintResults.length > 0 ? "eslint" : "biome";
-    if (report.toolsRun.some((tool) => tool.id === "lint-import")) linterName = "lint";
+	const { tscResults, linterResults, linterName, semgrepResults, gitleaksResults } = groupBatchToolResults(cwd, report);
 	const auditResult = opts.only && opts.only !== "sca" ? null : engine.runDepAudit();
 	const cq = opts.only
 		? emptyResults()
@@ -488,6 +488,7 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 		projectE2e: projectE2e.json,
 		rules: computeRulesFingerprint(cwd),
 		fpFilter: fpFilterJsonFor(cq, cwd, opts.fpFilter),
+		catalogue: opts.allChecks && !opts.only ? await runCatalogueAdvisories(cwd, skipChecks) : undefined,
 	});
 }
 
@@ -497,3 +498,22 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 // handles runtime; this reference keeps the name bundled in any build output
 // that tree-shakes aggressively.)
 void DEFAULT_ADVISORY_SKIPS;
+
+function groupBatchToolResults(cwd: string, report: Awaited<ReturnType<CheckEngine["runChecksAsync"]>>) {
+        const interlinkedDir = join(cwd, ".interlinked");
+        const byTool = (tool: string): CheckResult[] =>
+            filterSuppressedToolResults(report.results.filter((result) => result.tool === tool), interlinkedDir);
+        // Timing is supplementary: older/adapted engine reports can contain valid
+        // results without per-tool telemetry. Keep the measured batch duration and
+        // never prevent those results from being reported or invent zero tool times.
+        for (const metric of report.metrics ?? []) recordVerifyMeasurement(metric.tool, metric.elapsedMs);
+        const tscResults = byTool("tsc");
+        const biomeResults = byTool("biome");
+        const eslintResults = byTool("eslint");
+        const semgrepResults = byTool("semgrep");
+        const gitleaksResults = byTool("gitleaks");
+        const linterResults = [...biomeResults, ...eslintResults, ...byTool("lint-import")];
+        let linterName = eslintResults.length > 0 ? "eslint" : "biome";
+        if (report.toolsRun.some((tool) => tool.id === "lint-import")) linterName = "lint";
+    return { tscResults, linterResults, linterName, semgrepResults, gitleaksResults };
+}

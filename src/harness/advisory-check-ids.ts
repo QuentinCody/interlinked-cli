@@ -25,6 +25,11 @@ export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
     "persistent_warning_escalation",
     "repeated_implementation",
     "python_simplification",
+    // Catalogue checks are verify-only advice; repeated warnings must not
+    // promote them into blocking errors.
+    "readme_command_drift",
+    "unread_config_key",
+    "summary_file_coverage",
 	// Dead-code / coverage scans
 	"knip",
 	"tseslint-types",

@@ -1,3 +1,4 @@
+import { measureVerifyCheck } from "./check-timing.js";
 // ===========================================
 // Per-file check battery
 // ===========================================
@@ -201,7 +202,7 @@ function collectLargeFileFinding(file: string, content: string, cwd: string, rel
 	// but silently IGNORED here (finding 2026-06, round 8). Grandfathering still
 	// comes from `baseline.files` inside evaluateLargeFile.
 	const cap = maxLinesFor(cwd);
-	const verdict = evaluateLargeFile({ relPath, lines: countLines(content), baseline, maxLines: cap });
+	const verdict = measureVerifyCheck("evaluateLargeFile", () => (evaluateLargeFile({ relPath, lines: countLines(content), baseline, maxLines: cap })));
 	if (!verdict.overCap || verdict.grandfathered) return;
 	r.largeFiles.push({
 		check: "large_files",
@@ -219,7 +220,7 @@ function collectFunctionTokenFindings(
 	r: CodeQualityResults,
 ): void {
 	if (!isCappableFile({ filePath: file, content, root: cwd })) return;
-	const entries = computeFunctionTokens(content, file);
+	const entries = measureVerifyCheck("computeFunctionTokens", () => (computeFunctionTokens(content, file)));
 	if (entries === null) {
 		const status = functionTokenAnalyzerStatus(file);
 		if (status.language === "unknown") return;
@@ -309,7 +310,7 @@ function collectUntestedFileFinding(
  * of the per-file battery, preserving the original early-return semantics).
  */
 function collectMarkupFindings(file: string, content: string, ext: string, relPath: string, r: CodeQualityResults): boolean {
-    r.htmlDuplicateId.push(...toIssues("html_duplicate_id", relPath, checkHtmlDuplicateId(content, file)));
+    r.htmlDuplicateId.push(...toIssues("html_duplicate_id", relPath, checkHtmlDuplicateId, content, file));
     return collectJsonFindings(file, content, ext, relPath, r);
 }
 
@@ -333,7 +334,7 @@ function collectJsonFindings(file: string, content: string, ext: string, relPath
 	// filter (`tsconfig.json` / `tsconfig.*.json`) and node_modules skip
 	// internally, so we can call it unconditionally for any .json file.
 	r.tsconfigStrictness.push(
-		...toIssues("tsconfig_strictness", relPath, checkTsconfigStrictness(content, file)),
+		...toIssues("tsconfig_strictness", relPath, checkTsconfigStrictness, content, file),
 	);
 	return true;
 }
@@ -343,7 +344,7 @@ function collectStrongTypingFindings(file: string, content: string, ext: string,
 	const base = basename(file, ext);
 	const isTest = base.endsWith(".test") || base.endsWith(".spec") || file.includes("__tests__");
 	if (isTest || (ext !== TS_EXT && ext !== TSX_EXT) || isGeneratedFile(content)) return;
-	for (const m of findAnyTypes(content)) {
+	for (const m of measureVerifyCheck("findAnyTypes", () => (findAnyTypes(content)), () => [])) {
 		if (m.kind !== ANY_KIND) continue;
 		r.strongTyping.push({
 			check: "strong_typing",
@@ -387,9 +388,9 @@ function collectPerFileFindings(args: RunFileChecksArgs): void {
 	collectStrongTypingFindings(file, content, ext, relPath, r);
 
 	r.consoleStatements.push(
-		...toIssues("console_statements", relPath, checkConsoleDebug(content, file)),
+		...toIssues("console_statements", relPath, checkConsoleDebug, content, file),
 	);
-	r.silentCatches.push(...toIssues("silent_catches", relPath, checkSilentCatch(content, file)));
+	r.silentCatches.push(...toIssues("silent_catches", relPath, checkSilentCatch, content, file));
 
 	if (JS_TS_EXTS.has(ext) && !isGeneratedFile(content)) {
 		collectSuppressionFindings(content, relPath, r.suppressions);
@@ -399,9 +400,9 @@ function collectPerFileFindings(args: RunFileChecksArgs): void {
 		collectPhantomImportFindings(file, content, relPath, r);
 	}
 
-	const testResult = checkTestRegressions(content, file);
+	const testResult = measureVerifyCheck("checkTestRegressions", () => (checkTestRegressions(content, file)));
 	if (testResult.skipped.length > 0) {
-		r.testRegressions.push(...toIssues("test_regressions", relPath, testResult.skipped));
+		r.testRegressions.push(...toIssues("test_regressions", relPath, () => (testResult.skipped)));
 	}
 
 	for (const ref of extractEnvReferences(content, file)) {
@@ -423,10 +424,10 @@ function collectPerFileFindings(args: RunFileChecksArgs): void {
 	}
 
 	r.missingReturnTypes.push(
-		...toIssues("missing_return_types", relPath, checkMissingReturnTypes(content, file)),
+		...toIssues("missing_return_types", relPath, checkMissingReturnTypes, content, file),
 	);
-	r.noTestFile.push(...toIssues("no_test_file", relPath, checkTestFileExists(file, content)));
-	r.complexity.push(...toIssues("complexity", relPath, checkFunctionComplexity(content, file)));
+	r.noTestFile.push(...toIssues("no_test_file", relPath, checkTestFileExists, file, content));
+	r.complexity.push(...toIssues("complexity", relPath, checkFunctionComplexity, content, file));
 
 	// Remaining stateless detector groups — fanned out to sibling modules. The
 	// shared context carries everything they need; each group mutates `r` in
@@ -448,10 +449,10 @@ function runStatelessChecks(ctx: FileCheckContext): void {
 }
 
 function collectExpressionFindings({ content, file, relPath, r }: FileCheckContext): void {
-    r.expressionSize.push(...toIssues("expression_size", relPath, checkExpressionSize(content, file)));
-    r.inlineCallbackCount.push(...toIssues("inline_callback_count", relPath, checkInlineCallbackCount(content, file)));
-    r.controlFlowDepth.push(...toIssues("control_flow_depth", relPath, checkControlFlowDepth(content, file)));
-    r.expressionMeasurement.push(...toIssues("expression_measurement", relPath, checkExpressionMeasurement(content, file)));
-    r.requiredBraces.push(...toIssues("required_braces", relPath, checkRequiredBraces(content, file)));
-    r.statementsPerLine.push(...toIssues("statements_per_line", relPath, checkStatementsPerLine(content, file)));
+    r.expressionSize.push(...toIssues("expression_size", relPath, checkExpressionSize, content, file));
+    r.inlineCallbackCount.push(...toIssues("inline_callback_count", relPath, checkInlineCallbackCount, content, file));
+    r.controlFlowDepth.push(...toIssues("control_flow_depth", relPath, checkControlFlowDepth, content, file));
+    r.expressionMeasurement.push(...toIssues("expression_measurement", relPath, checkExpressionMeasurement, content, file));
+    r.requiredBraces.push(...toIssues("required_braces", relPath, checkRequiredBraces, content, file));
+    r.statementsPerLine.push(...toIssues("statements_per_line", relPath, checkStatementsPerLine, content, file));
 }

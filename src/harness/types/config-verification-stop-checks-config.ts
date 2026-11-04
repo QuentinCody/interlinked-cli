@@ -30,6 +30,8 @@
  *  Master `enabled` switch gates all six together. */
 export interface VerificationStopChecksConfig {
 	enabled: boolean;
+	/** Opt-in advisory addendum: same-session, prior-hour TypeScript finding history. Default false. */
+	session_tsc_history?: boolean;
 	warn_unverified_code: boolean;
 	warn_verify_not_run: boolean;
 	warn_ui_not_interacted: boolean;

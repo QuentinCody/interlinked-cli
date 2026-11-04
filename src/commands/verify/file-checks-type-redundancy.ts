@@ -12,13 +12,13 @@ import { toIssues } from "./file-checks-shared.js";
 export function runTypeRedundancyChecks(ctx: Pick<FileCheckContext, "content" | "file" | "relPath" | "cwd" | "r">): void {
 	const { content, file, relPath, cwd, r } = ctx;
 	r.deadTypeExports.push(
-		...toIssues("dead_type_exports", relPath, checkDeadTypeExports(content, file, cwd)),
+		...toIssues("dead_type_exports", relPath, checkDeadTypeExports, content, file, cwd),
 	);
 	r.duplicateTypeDeclaration.push(
 		...toIssues(
 			"duplicate_type_declaration",
 			relPath,
-			checkDuplicateTypeDeclaration(content, file, cwd),
+			checkDuplicateTypeDeclaration, content, file, cwd,
 		),
 	);
 }

@@ -30,6 +30,10 @@ import { TEST_QUALITY_ADVISORY_IDS } from "./advisory-test-quality.js";
  * pins the current set — update it together with this list.
  */
 export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
+    // Project documentation/configuration and recorded Stop coverage are audit-only.
+    "readme_command_drift",
+    "unread_config_key",
+    "summary_file_coverage",
     // A repeated warning adds no independent evidence of a defect.
     "persistent_warning_escalation",
     "python_simplification",
@@ -489,7 +493,7 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	"duplicate_type_declaration",
 	"new_export_without_importer", // helper-hygiene (2026-09-01): exporter-first edits are legitimately unconsumed for one edit — nudge, not gate
 	"single_use_trivial_helper", // over-extraction (2026-09-03): whether a short helper's NAME earns its hop is a judgement, not a proof — the caps' counterweight reports, never blocks
-	"extracted_helper_duplicate", // helper-hygiene (2026-09-01): 0.90 shingle-Jaccard is a taste bar (DRY class is advisory as code_clones); pending dogfood calibration
+	"extracted_helper_duplicate", // helper-hygiene (2026-09-01): whole-body similarity and bounded partial AST overlap are review evidence, not equivalence or net benefit
 ]);
 
 // Public API (verify.ts, tool-results.ts) — ONE definition, in checks/shared.ts.

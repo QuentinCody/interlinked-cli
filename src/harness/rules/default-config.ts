@@ -173,6 +173,7 @@ export const DEFAULT_CONFIG: GuardRulesConfig = {
 		// all six.
 		enabled: true,
 		warn_unverified_code: true,
+		session_tsc_history: false,
 		warn_verify_not_run: true,
 		warn_ui_not_interacted: true,
 		warn_stubs_introduced: true,

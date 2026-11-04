@@ -146,7 +146,13 @@ export function discoverFiles(root: string): string[] {
 	function walk(dir: string, relPrefix: string): void {
 		if (files.length >= MAX_WALK_ENTRIES) return;
 		try {
-			for (const entry of readdirSync(dir)) {
+			// Match ProjectGraph's root-local scratch exclusion. Disposable
+			// repo copies can otherwise consume the budget before real source.
+			const entries = readdirSync(dir).sort((a, b) =>
+				Number(b === "src") - Number(a === "src") || a.localeCompare(b));
+			for (const entry of entries) {
+				if (files.length >= MAX_WALK_ENTRIES) break;
+				if (!relPrefix && entry === "scratch") continue;
 				if (skip.has(entry) || entry.startsWith(".") || entry === INTERLINKED_DIR) continue;
 				visitEntry(dir, entry, relPrefix);
 			}

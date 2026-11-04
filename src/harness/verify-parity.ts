@@ -46,6 +46,8 @@ function safeReadAll(files: string[]): FileContent[] {
 		} catch {
 			continue;
 		}
+		if (Buffer.byteLength(content) > 256 * 1024 || isGeneratedFile(content)
+			|| /^\s*(?:\/\/|\/\*|\*)\s*@codegen-data\b/m.test(content.split("\n", 20).join("\n"))) continue;
 		out.push({
 			file,
 			content,

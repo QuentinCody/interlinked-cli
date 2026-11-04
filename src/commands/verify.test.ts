@@ -17,6 +17,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ScanProgress } from "./verify/scan-progress.js";
 
+// --all-checks intentionally gained the advisory catalogue. Preserve this
+// suite's orchestration-only boundary; catalogue behavior has its own tests.
+vi.mock("./verify/catalogue.js", () => ({
+    runCatalogueAdvisories: vi.fn(async () => ({})), streamCatalogueAdvisories: vi.fn(),
+}));
+
 // Every mock is a plain `vi.fn()` referenced DIRECTLY by the module factory
 // (no `(...a) => fn(...a)` wrapper). That keeps each export's identity equal to
 // the spy — so `verify.ts`'s live `export { … } from "./verify/*"` re-exports

@@ -10,6 +10,7 @@
 
 import type { CodeQualityIssue, CodeQualityResults } from "./tool-results-types.js";
 import type { InlineMatch } from "../../harness/check-registry/types.js";
+import { measureVerifyCheck } from "./check-timing.js";
 
 /**
  * Public API — consumed by `file-checks.ts` and the `file-checks-<group>.ts`
@@ -17,12 +18,14 @@ import type { InlineMatch } from "../../harness/check-registry/types.js";
  *
  * Convert `InlineMatch[]` from generic-checks into `CodeQualityIssue[]`.
  */
-export function toIssues(
+export function toIssues<Args extends unknown[]>(
 	check: string,
 	file: string,
-	matches: InlineMatch[],
+	matches: InlineMatch[] | ((...args: Args) => InlineMatch[]),
+    ...args: Args
 ): CodeQualityIssue[] {
-    return matches.map((match) => {
+    const measured = typeof matches === "function" ? measureVerifyCheck(check, () => matches(...args), () => []) : matches;
+    return measured.map((match) => {
         const issue: CodeQualityIssue = { check, file, line: match.line, message: match.text };
         if (match.startOffset !== undefined) issue.startOffset = match.startOffset;
         if (match.endOffset !== undefined) issue.endOffset = match.endOffset;

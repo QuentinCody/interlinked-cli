@@ -8,6 +8,7 @@
 // orchestrator still calls them in the same order).
 
 import { readFileSync } from "node:fs";
+import { appendTscStopHistory } from "../session-tsc-stop-history.js";
 import { formatE2eObligationWarning } from "../e2e-obligation-stop-check.js";
 import { formatProjectE2eStopWarning, hasProjectE2ePolicy } from "../project-e2e/hooks.js";
 import { checkDeadOnArrival } from "../dead-on-arrival.js";
@@ -72,7 +73,7 @@ export function buildVerificationStopWarnings(
 	pushIfNotNull(warnings, projectE2e);
 	if (!hasProjectE2ePolicy(stopCwd)) pushIfNotNull(warnings, formatE2eObligationWarning({ cwd: stopCwd, files: session.files_written, lanes: session.test_lanes_run ?? [] }));
 	const unverifiedCode = vsc.warn_unverified_code
-		? checkUnverifiedCode(ctx, session, verificationObserved)
+		? checkUnverifiedCode(ctx, session, verificationObserved, event)
 		: null;
 	pushIfNotNull(warnings, unverifiedCode);
 	// Single-nudge invariant: verify-not-run ("ran individual tools but not the
@@ -168,13 +169,21 @@ export function checkUnverifiedCode(
 	ctx: ServerRuntime,
 	session: SessionTrajectory,
 	verificationObserved: Set<string>,
+	event?: HarnessEvent,
 ): string | null {
-	return checkCodeFileVerification({
+	const warning = checkCodeFileVerification({
 		ctx,
 		session,
 		verificationObserved,
 		formatter: formatUnverifiedCodeWarning,
 		logTag: "unverified-code",
+	});
+	return appendTscStopHistory(warning, {
+		enabled: event?.hook_event === "Stop" && ctx.rules.verification_stop_checks?.session_tsc_history === true,
+		cwd: event?.cwd ?? ctx.cwd,
+		session: session.session_id,
+		now: Date.parse(event?.timestamp ?? ""),
+		...(event?.tool_use_id ? { ownCall: event.tool_use_id } : {}),
 	});
 }
 

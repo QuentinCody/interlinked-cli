@@ -26,6 +26,8 @@ import { runVerifyParityChecks } from "../../harness/verify-parity.js";
 import { readSharedConfig } from "../../lib/config.js";
 import { nonNull } from "../../lib/non-null.js";
 import { JS_TS_EXTS } from "./advisory.js";
+import { verifyInputExclusion } from "./input-budget.js";
+import { recordVerifyMeasurement, measureVerifyCheck, recordVerifyInputDeferral } from "./check-timing.js";
 import { runPerFileChecks } from "./file-checks.js";
 import { staleFileSuppressions } from "./suppression-hygiene.js";
 import type { PiiOpts } from "./file-checks-shared.js";
@@ -167,15 +169,22 @@ function runOneFileChecks(file: string, cwd: string, ctx: CqRunContext): void {
 	} catch {
 		return;
 	}
-	runPerFileChecks({
-		file,
-		content,
-		cwd,
-		r: ctx.r,
-		moduleExportsCache: ctx.moduleExportsCache,
-		allEnvRefs: ctx.allEnvRefs,
-		piiOpts: ctx.piiOpts,
-	});
+	const excluded = verifyInputExclusion(content);
+	if (excluded) {
+		if (excluded === "oversized") recordVerifyInputDeferral("inline_input_size");
+		else recordVerifyMeasurement(`input_excluded:${excluded}`, 0);
+		return;
+	}
+    try {
+        runPerFileChecks({ file, content, cwd, r: ctx.r, moduleExportsCache: ctx.moduleExportsCache,
+            allEnvRefs: ctx.allEnvRefs, piiOpts: ctx.piiOpts });
+    } catch (error) {
+        // Malformed/adversarial input must not abort every other file's checks.
+        // Findings already collected remain observations, but this file is incomplete.
+        recordVerifyInputDeferral("file_checks_unavailable", {
+            file: relative(cwd, file), reason: error instanceof Error ? error.name : "Unknown check error",
+        });
+    }
 }
 
 /** Pass 3 + post-loop aggregation + suppression filtering. */
@@ -217,7 +226,7 @@ async function forEachFileWithProgress(
 }
 
 function applyParityFindings(r: CodeQualityResults, files: string[], cwd: string): void {
-	const parity = runVerifyParityChecks(files);
+	const parity = measureVerifyCheck("project_parity", () => runVerifyParityChecks(files));
 	for (const sr of parity.crossFileSwitchDiscriminant) {
 		r.crossFileSwitchDiscriminant.push({
 			check: "cross_file_switch_discriminant",

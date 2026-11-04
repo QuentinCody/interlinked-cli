@@ -16,6 +16,7 @@ import { TYPED_ESLINT_PROFILE } from "../../lib/lint-import/builtin-profiles.js"
 import type { CheckEngine, CheckResult } from "../../harness/check-engine/index.js";
 import { loadFileSuppressions } from "../../harness/suppressions.js";
 import { nonNull } from "../../lib/non-null.js";
+import { measureVerifyCheckAsync } from "./check-timing.js";
 import {
 	runToolSilent,
 	runToolWithSpinner,
@@ -289,37 +290,18 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 	}
 
 	function displayDepAuditResult(result: { items: AuditResult[]; elapsedMs: string }): void {
-		const auditResult = result.items[0] ?? null;
-		if (auditResult) {
-			const sc = auditResult.critical > 0 || auditResult.high > 0 ? "31" : "33";
-			process.stderr.write(
-				`\n  \x1b[1mdependency audit (SCA)\x1b[0m \x1b[2m${result.elapsedMs}\x1b[0m\n`,
-			);
-			process.stderr.write(
-				`    \x1b[${sc}m✗\x1b[0m \x1b[${sc}m${auditResult.total}\x1b[0m vulnerabilities (${auditResult.detail})\n`,
-			);
-			summary.push({
-				label: `${auditResult.total} dep vulnerabilities`,
-				count: auditResult.total,
-				color: sc,
-			});
-		} else {
-			process.stderr.write(
-				`\n  \x1b[1mdependency audit (SCA)\x1b[0m \x1b[2m${result.elapsedMs}\x1b[0m\n`,
-			);
-			process.stderr.write("    \x1b[32m✓\x1b[0m no known vulnerabilities\n");
-		}
+		displayDependencyAudit(result, summary);
 	}
 
 	if (toolCount <= 1 && availableTools.length === 1 && !runDepAudit) {
 		const tool = nonNull(availableTools[0]);
-		const rawResults = await runToolWithSpinner({
+		const rawResults = await measureVerifyCheckAsync(tool.id, () => runToolWithSpinner({
 			label: tool.label,
 			cmd: tool.cmd,
 			cwd,
 			timeoutMs: tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
 			parseOutput: (output, status) => parseToolOutput(tool, output, status, toolParsers),
-		});
+		}));
 		displayToolResult(tool, rawResults);
 		return;
 	}
@@ -344,12 +326,12 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 
 	for (const tool of availableTools) {
 		allDone.push(
-			runToolSilent({
+			measureVerifyCheckAsync(tool.id, () => runToolSilent({
 				cmd: tool.cmd,
 				cwd,
 				timeoutMs: tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
 				parseOutput: (output, status) => parseToolOutput(tool, output, status, toolParsers),
-			}).then((rawResults) => {
+			})).then((rawResults) => {
 				process.stderr.write("\r\x1b[K");
 				displayToolResult(tool, rawResults);
 				completed++;
@@ -360,7 +342,7 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 
 	if (runDepAudit) {
 		allDone.push(
-			runToolSilent({
+			measureVerifyCheckAsync("sca", () => runToolSilent({
 				cmd: ["npm", "audit", "--json", "--audit-level=moderate"],
 				cwd,
 				timeoutMs: DEFAULT_DEP_AUDIT_TIMEOUT_MS,
@@ -368,7 +350,7 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 					const audit = parseNpmAuditJson(output);
 					return audit ? [audit] : [];
 				},
-			}).then((depResult) => {
+			})).then((depResult) => {
 				process.stderr.write("\r\x1b[K");
 				displayDepAuditResult(depResult);
 				completed++;
@@ -383,4 +365,27 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 
 	const parallelElapsed = ((Date.now() - parallelStart) / 1000).toFixed(1);
 	process.stderr.write(`\x1b[2m  all tools completed in ${parallelElapsed}s (parallel)\x1b[0m\n`);
+}
+
+function displayDependencyAudit(result: { items: AuditResult[]; elapsedMs: string; }, summary: { label: string; count: number; color: string; }[]) {
+    const auditResult = result.items[0] ?? null;
+    if (auditResult) {
+        const sc = auditResult.critical > 0 || auditResult.high > 0 ? "31" : "33";
+        process.stderr.write(
+            `\n  \x1b[1mdependency audit (SCA)\x1b[0m \x1b[2m${result.elapsedMs}\x1b[0m\n`
+        );
+        process.stderr.write(
+            `    \x1b[${sc}m✗\x1b[0m \x1b[${sc}m${auditResult.total}\x1b[0m vulnerabilities (${auditResult.detail})\n`
+        );
+        summary.push({
+            label: `${auditResult.total} dep vulnerabilities`,
+            count: auditResult.total,
+            color: sc,
+        });
+    } else {
+        process.stderr.write(
+            `\n  \x1b[1mdependency audit (SCA)\x1b[0m \x1b[2m${result.elapsedMs}\x1b[0m\n`
+        );
+        process.stderr.write("    \x1b[32m✓\x1b[0m no known vulnerabilities\n");
+    }
 }

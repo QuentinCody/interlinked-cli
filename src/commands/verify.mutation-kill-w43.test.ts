@@ -15,6 +15,12 @@ vi.mock("../harness/test-capacity.js", () => ({
 
 import type { ScanProgress } from "./verify/scan-progress.js";
 
+// The new --all-checks catalogue is a dependency, like the other subchecks
+// mocked here; its filesystem traversal is not a verify.ts literal mutant.
+vi.mock("./verify/catalogue.js", () => ({
+    runCatalogueAdvisories: vi.fn(async () => ({})), streamCatalogueAdvisories: vi.fn(),
+}));
+
 type SuppEntry = { file: string; check: string; reason: string };
 type ToolResult = { tool: string; file: string; message: string };
 

@@ -155,3 +155,24 @@ and request-bound P5 validation bindings. No Cloud job, Workflow, model, or Sand
   automatic obligations, and manual debt-marker syntax.
 - **interlinked-spec-audit** — prose-spec drift and the legacy review-finding reconciliation tools.
 - **interlinked-observability** — evidence-classed `interlinked impact` reporting.
+
+## Edit-time shared-helper overlap advisory
+
+`extracted_helper_duplicate` remains a heuristic `pre_warn` advisory and a default
+verify skip. Its partial arm compares newly introduced named functions against bounded
+same-directory siblings; no-op/post-edit scans remain silent. Existing whole-body
+similarity/move handling is unchanged and can also compare introduced functions
+internally, including same-file parent/callback overlap. The partial path recognizes five contiguous
+AST statements with matching literals, property names and local binding relationships,
+including alpha-renamed locals. It excludes direct relative import edges and windows
+whose break/continue targets lie outside the block. Scans are capped at 40 sibling
+files of 256KiB each, 20,000 traversal visits and 256 windows per file; missing optional
+TypeScript is NOT MEASURED, and invalid syntax yields no partial-overlap claim.
+
+A partial-overlap message asks for review of shared logic while preserving behavioral
+differences. It does not prove semantic equivalence, safe extraction, a requirement to
+reuse, or net savings after parameters/imports/return plumbing. Common setup may be
+worth retaining. Inspect each caller and its context before changing an abstraction.
+Same-file overlaps are excluded from the partial arm; already-existing functions are
+outside both arms under the name-based edit delta;
+an empty result is not a whole-repository duplication audit.

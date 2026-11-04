@@ -20,6 +20,8 @@
 import { scanUserPrompt } from "../content-scanner/prompt-scan.js";
 import { captureProviderCapabilities } from "../data-capture-capabilities.js";
 import { buildEditMechanicsStopNudge } from "../edit-mechanics-stop.js";
+import { captureTouchedFiles } from "../session-touched-files.js";
+import { summaryCoverageWarnings } from "./summary-coverage.js";
 import { buildGateReachStopWarning, recordedDisableReason } from "../gate-reach-collect.js";
 import { deleteLiveSnapshot } from "../live-snapshot.js";
 import {
@@ -121,6 +123,7 @@ export async function handleLifecycleEvent(
 
 	switch (event.hook_event) {
 		case "SessionStart":
+			captureTouchedFiles(event, ctx.cwd);
 			return handleSessionStart(ctx, event);
 		case "SessionEnd":
 			return handleSessionEnd(ctx, event);
@@ -284,6 +287,7 @@ async function handleStop(
 	for (const w of buildStopWarnings(ctx, event, session)) {
 		turnWarnings.push(w);
 	}
+	turnWarnings.push(...summaryCoverageWarnings(event, ctx.cwd));
 	turnWarnings.push(...residueWarnings);
 	// Plan-drift reflection (PB&J item #6) — compare session.declared_plan
 	// against the actual tool_sequence; advisory-only, never blocks.

@@ -339,14 +339,14 @@ export const CODE_QUALITY_ENTRIES_EXTRA: CheckRegistration[] = [
 		id: "extracted_helper_duplicate",
 		name: "Extracted helper duplicates a sibling",
 		description:
-			"Detects a newly-added function (vs the on-disk baseline) whose normalized body is ≥0.90 shingle-Jaccard similar to a function already defined in the same file or a same-directory sibling — the decomposition move that re-extracts a helper another agent already extracted (parallel-campaign duplicate class).",
+			"Advises on a newly-added function (vs the on-disk baseline) with ≥0.90 whole-body shingle similarity or an exact normalized-AST five-statement overlap in a same-directory sibling. Partial overlap preserves literals, properties and binding identity, excludes direct import edges, and is review evidence rather than proof of equivalence or extraction benefit. The partial arm is strictly cross-file; the legacy whole-body matcher also compares introduced functions internally and can select same-file parent/callback overlap.",
 		tier: 2,
 		determinism: "heuristic",
 		severity: "warning",
 		pipeline: "agent_safety",
 		phase: "pre_warn",
 		fix_instruction:
-			"Import and reuse the existing sibling helper instead of adding a near-copy; if the two genuinely differ, name the difference in the new helper's name.",
+			"Review the existing sibling helper and the shared logic; preserve behavioral differences. Partial overlap alone does not establish safe extraction, required reuse, or a net benefit.",
 		fn: checkExtractedHelperDuplicate,
 		resultsPropName: "extractedHelperDuplicate",
 		content_keywords: ["function", "=>"],

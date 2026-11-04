@@ -15,7 +15,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { computeCyclomaticComplexity, type FunctionComplexityEntry } from "./cyclomatic.js";
 import type { CloneFinding, FunctionShingles } from "./dry.js";
-import { extractFunctionShingles, findClones } from "./dry.js";
+import { findClones } from "./dry.js";
+import { cachedFunctionShingles } from "./dry-source-cache.js";
 import { getExtension, type InlineMatch, isTestFile, JS_TS_EXTS } from "./shared.js";
 
 /** Largest sibling file (bytes) we will read + tokenize. Skips bundles. */
@@ -58,7 +59,7 @@ export function checkCodeCloneFindings(content: string, filePath: string): Clone
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
 
-	const edited = extractFunctionShingles(content, filePath);
+	const edited = cachedFunctionShingles(content, filePath);
 	if (edited.length === 0) return [];
 
 	const candidates = collectSiblingFunctions(filePath);
@@ -151,7 +152,7 @@ export function collectSiblingFunctions(filePath: string): FunctionShingles[] {
 		const sibContent = readSiblingIfSmall(sibPath);
 		if (sibContent === null) continue;
 		scanned++;
-		out.push(...extractFunctionShingles(sibContent, sibPath));
+		out.push(...cachedFunctionShingles(sibContent, sibPath));
 	}
 	return out;
 }

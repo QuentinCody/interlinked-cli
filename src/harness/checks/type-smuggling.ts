@@ -353,6 +353,15 @@ function createSingleFileProgram(
 		/* setParentNodes */ true,
 		filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
 	);
+	// Imports aliased with `as`, comments, strings, `as const`, and broad
+	// any/unknown assertions do not need a type checker or standard libraries.
+	const relevant = (node: TS.Node): boolean => {
+		if ((ts.isAsExpression(node) || ts.isTypeAssertionExpression(node))
+			&& !targetIsAnyOrUnknownSyntax(ts, node.type)
+			&& !(ts.isTypeReferenceNode(node.type) && ts.isIdentifier(node.type.typeName) && node.type.typeName.text === "const")) return true;
+		return ts.forEachChild(node, relevant) === true;
+	};
+	if (!relevant(sourceFile)) return null;
 
 	const realHost = ts.createCompilerHost(compilerOptions, /* setParentNodes */ true);
 

@@ -66,156 +66,156 @@ export function runEndpointAndLazinessChecks(ctx: FileCheckContext): void {
 	// fit the standard `(content, filePath) => InlineMatch[]` shape while
 	// internally loading RouteMap + SecurityConfig + SanitizerRegistry.
 	r.endpointAuthMissing.push(
-		...toIssues("endpoint_auth_missing", relPath, adaptEndpointAuthMissing(content, file)),
+		...toIssues("endpoint_auth_missing", relPath, adaptEndpointAuthMissing, content, file),
 	);
 	r.endpointIdorShape.push(
-		...toIssues("endpoint_idor_shape", relPath, adaptEndpointIdorShape(content, file)),
+		...toIssues("endpoint_idor_shape", relPath, adaptEndpointIdorShape, content, file),
 	);
 	r.endpointMissingTenantFilter.push(
 		...toIssues(
 			"endpoint_missing_tenant_filter",
 			relPath,
-			adaptEndpointMissingTenantFilter(content, file),
+			adaptEndpointMissingTenantFilter, content, file,
 		),
 	);
 	r.endpointSsrfShape.push(
-		...toIssues("endpoint_ssrf_shape", relPath, adaptEndpointSsrfShape(content, file)),
+		...toIssues("endpoint_ssrf_shape", relPath, adaptEndpointSsrfShape, content, file),
 	);
 	r.endpointMassAssignment.push(
 		...toIssues(
 			"endpoint_mass_assignment",
 			relPath,
-			adaptEndpointMassAssignment(content, file),
+			adaptEndpointMassAssignment, content, file,
 		),
 	);
 
 	// === Batch 1: agent-laziness checks ===
 	r.agentThumbprintProse.push(
-		...toIssues("agent_thumbprint_prose", relPath, checkAgentThumbprintProse(content, file)),
+		...toIssues("agent_thumbprint_prose", relPath, checkAgentThumbprintProse, content, file),
 	);
 	r.stubNotImplementedThrow.push(
 		...toIssues(
 			"stub_not_implemented_throw",
 			relPath,
-			checkStubNotImplementedThrow(content, file),
+			checkStubNotImplementedThrow, content, file,
 		),
 	);
 	r.deadBranchLiteral.push(
-		...toIssues("dead_branch_literal", relPath, checkDeadBranchLiteral(content, file)),
+		...toIssues("dead_branch_literal", relPath, checkDeadBranchLiteral, content, file),
 	);
 	r.fileLevelSuppression.push(
-		...toIssues("file_level_suppression", relPath, checkFileLevelSuppression(content, file)),
+		...toIssues("file_level_suppression", relPath, checkFileLevelSuppression, content, file),
 	);
 	r.untestableTimeInSource.push(
 		...toIssues(
 			"untestable_time_in_source",
 			relPath,
-			checkUntestableTimeInSource(content, file),
+			checkUntestableTimeInSource, content, file,
 		),
 	);
 	r.doubleCastUnknown.push(
-		...toIssues("double_cast_unknown", relPath, checkDoubleCastUnknown(content, file)),
+		...toIssues("double_cast_unknown", relPath, checkDoubleCastUnknown, content, file),
 	);
 	r.typeSmuggling.push(
-		...toIssues("type_smuggling", relPath, checkTypeSmuggling(content, file)),
+		...toIssues("type_smuggling", relPath, checkTypeSmuggling, content, file),
 	);
 	r.unionWidenedWithString.push(
 		...toIssues(
 			"union_widened_with_string",
 			relPath,
-			checkUnionWidenedWithString(content, file),
+			checkUnionWidenedWithString, content, file,
 		),
 	);
 	r.nodeenvBranchInProd.push(
-		...toIssues("nodeenv_branch_in_prod", relPath, checkNodeEnvBranchInProd(content, file)),
+		...toIssues("nodeenv_branch_in_prod", relPath, checkNodeEnvBranchInProd, content, file),
 	);
 	r.fetchWithoutTimeout.push(
-		...toIssues("fetch_without_timeout", relPath, checkFetchWithoutTimeout(content, file)),
+		...toIssues("fetch_without_timeout", relPath, checkFetchWithoutTimeout, content, file),
 	);
 	r.unboundedPromiseAll.push(
-		...toIssues("unbounded_promise_all", relPath, checkUnboundedPromiseAll(content, file)),
+		...toIssues("unbounded_promise_all", relPath, checkUnboundedPromiseAll, content, file),
 	);
 	r.syncIoOnHotPath.push(
-		...toIssues("sync_io_on_hot_path", relPath, checkSyncIoOnHotPath(content, file)),
+		...toIssues("sync_io_on_hot_path", relPath, checkSyncIoOnHotPath, content, file),
 	);
 
 	// === Batch 2: test-hygiene checks ===
 	r.duplicateTestNames.push(
-		...toIssues("duplicate_test_names", relPath, checkDuplicateTestNames(content, file)),
+		...toIssues("duplicate_test_names", relPath, checkDuplicateTestNames, content, file),
 	);
 	r.realIoInTests.push(
-		...toIssues("real_io_in_tests", relPath, checkRealIoInTests(content, file)),
+		...toIssues("real_io_in_tests", relPath, checkRealIoInTests, content, file),
 	);
 	r.testNondeterminism.push(
-		...toIssues("test_nondeterminism", relPath, checkTestNondeterminism(content, file)),
+		...toIssues("test_nondeterminism", relPath, checkTestNondeterminism, content, file),
 	);
 	r.hardcodedTimeoutInTests.push(
 		...toIssues(
 			"hardcoded_timeout_in_tests",
 			relPath,
-			checkHardcodedTimeoutInTests(content, file),
+			checkHardcodedTimeoutInTests, content, file,
 		),
 	);
 	r.testMissingSutImport.push(
 		...toIssues(
 			"test_missing_sut_import",
 			relPath,
-			checkTestMissingSutImport(content, file),
+			checkTestMissingSutImport, content, file,
 		),
 	);
 	r.mockingTheSutSelf.push(
-		...toIssues("mocking_the_sut_self", relPath, checkMockingTheSutSelf(content, file)),
+		...toIssues("mocking_the_sut_self", relPath, checkMockingTheSutSelf, content, file),
 	);
 	r.testSubprocessDefaultTimeout.push(
 		...toIssues(
 			"test_subprocess_default_timeout",
 			relPath,
-			checkTestSubprocessDefaultTimeout(content, file),
+			checkTestSubprocessDefaultTimeout, content, file,
 		),
 	);
-	r.mockOnlyTest.push(...toIssues("mock_only_test", relPath, checkMockOnlyTest(content, file)));
+	r.mockOnlyTest.push(...toIssues("mock_only_test", relPath, checkMockOnlyTest, content, file));
 	r.happyPathOnlyTest.push(
-		...toIssues("happy_path_only_test", relPath, checkHappyPathOnlyTest(content, file)),
+		...toIssues("happy_path_only_test", relPath, checkHappyPathOnlyTest, content, file),
 	);
 	r.introvertedTest.push(
-		...toIssues("introverted_test", relPath, checkIntrovertedTest(content, file)),
+		...toIssues("introverted_test", relPath, checkIntrovertedTest, content, file),
 	);
 	r.testLegitimacy.push(
-		...toIssues("test_legitimacy", relPath, checkTestLegitimacy(content, file)),
+		...toIssues("test_legitimacy", relPath, checkTestLegitimacy, content, file),
 	);
 	r.procfsProbeInTest.push(
-		...toIssues("procfs_probe_in_test", relPath, detectProcfsProbeInTest(content, file)),
+		...toIssues("procfs_probe_in_test", relPath, detectProcfsProbeInTest, content, file),
 	);
 
 	// === Batch 5: cross-file checks ===
 	r.emptyBodyHandler.push(
-		...toIssues("empty_body_handler", relPath, checkEmptyBodyHandler(content, file)),
+		...toIssues("empty_body_handler", relPath, checkEmptyBodyHandler, content, file),
 	);
 	r.listenerPairing.push(
-		...toIssues("listener_pairing", relPath, checkListenerPairing(content, file)),
+		...toIssues("listener_pairing", relPath, checkListenerPairing, content, file),
 	);
 	r.schemaTypeDrift.push(
-		...toIssues("schema_type_drift", relPath, checkSchemaTypeDrift(content, file)),
+		...toIssues("schema_type_drift", relPath, checkSchemaTypeDrift, content, file),
 	);
 	r.migrationParity.push(
-		...toIssues("migration_parity", relPath, checkMigrationParity(content, file)),
+		...toIssues("migration_parity", relPath, checkMigrationParity, content, file),
 	);
 
 	// === Batch 8: demo-data checks ===
 	r.demoDataUnmarked.push(
-		...toIssues("demo_data_unmarked", relPath, checkDemoDataUnmarked(content, file)),
+		...toIssues("demo_data_unmarked", relPath, checkDemoDataUnmarked, content, file),
 	);
 	r.silentDemoFallback.push(
-		...toIssues("silent_demo_fallback", relPath, checkSilentDemoFallback(content, file)),
+		...toIssues("silent_demo_fallback", relPath, checkSilentDemoFallback, content, file),
 	);
 	r.demoRuntimeMissingBanner.push(
 		...toIssues(
 			"demo_runtime_missing_banner",
 			relPath,
-			checkDemoRuntimeMissingBanner(content, file),
+			checkDemoRuntimeMissingBanner, content, file,
 		),
 	);
 	r.placeholderDataInUi.push(
-		...toIssues("placeholder_data_in_ui", relPath, checkPlaceholderDataInUi(content, file)),
+		...toIssues("placeholder_data_in_ui", relPath, checkPlaceholderDataInUi, content, file),
 	);
 }

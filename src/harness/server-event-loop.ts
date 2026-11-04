@@ -50,6 +50,7 @@ import { observeBlockWorkaround } from "./trajectory/block-fingerprint-session.j
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent, SessionTrajectory } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 import { discardWorkspaceSnapshot } from "./workspace-effects.js";
+import { captureTouchedFiles } from "./session-touched-files.js";
 
 async function lifecycleWithCompiler(ctx: ServerRuntime, event: HarnessEvent, session: SessionTrajectory): Promise<HarnessDecision | null> {
     const lifecycle = await handleLifecycleEvent(ctx, event, session);
@@ -313,47 +314,13 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 		}
 
 		if (isPostToolUse(event)) {
-			return await dispatchPostToolUse(event, session);
+			return await dispatchPostToolUse(ctx, writeCollectionRecord, event, session);
 		}
 
 		// Non-tool events (lifecycle, notifications, etc.) — always allow
 		return { decision: "allow" };
 	}
 
-	/** The PostToolUse arm of `dispatchEvent`, moved verbatim (body + its
-	 *  fail-open catch). PostToolUse runs AFTER the tool — the action already
-	 *  happened, so a thrown observability/quality check must NEVER become a
-	 *  block. A reason-less block here was surfacing to the user as a spurious
-	 *  "harness bug". Fail OPEN (feedback_safety_continuity) and report the
-	 *  skipped check as a non-blocking warning. */
-	async function dispatchPostToolUse(
-		event: HarnessEvent,
-		session: ReturnType<typeof sessions.recordEvent>,
-	): Promise<HarnessDecision> {
-		try {
-			const decision = await runPostToolPipeline(ctx, event, session);
-			// `session.files_read` survives a daemon restart (it is in the
-			// live snapshot); the trajectory engine's own read map does not.
-			// Passing it seeds a state created after a restart, so reads from
-			// before it are not forgotten mid-session (red-team F4).
-			mergeTrajectoryShadow(event, decision, ctx.rules, [...session.files_read]);
-			writeCollectionRecord(event, decision);
-			// Fire-and-forget faithful per-call record for the viz BASELINE filmstrip.
-			// Runs AFTER the decision is returned to the hook — never blocks the tool loop.
-			appendCheckResults(CWD, event, decision);
-			return decision;
-		} catch (postErr) {
-			log(
-				`PostToolUse pipeline threw (failing open): ${
-					postErr instanceof Error ? postErr.message : String(postErr)
-				}`,
-			);
-			return {
-				decision: "allow",
-				warnings: [POST_TOOL_PIPELINE_FAILURE_WARNING],
-			};
-		}
-	}
 
 	/** Per-event durability: write the live snapshot AFTER `processEvent`
 	 *  completes so it reflects every post-event state mutation — PostToolUse
@@ -448,4 +415,44 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 	}
 
 	return { evaluateEventLine, evaluateUnifiedViaRuntime, writeProtocolStatus };
+}
+
+/** The PostToolUse arm of `dispatchEvent`, moved verbatim (body + its
+	 *  fail-open catch). PostToolUse runs AFTER the tool — the action already
+	 *  happened, so a thrown observability/quality check must NEVER become a
+	 *  block. A reason-less block here was surfacing to the user as a spurious
+	 *  "harness bug". Fail OPEN (feedback_safety_continuity) and report the
+	 *  skipped check as a non-blocking warning. */
+async function dispatchPostToolUse(
+    ctx: ServerRuntime,
+    writeCollectionRecord: EventLoopDeps["writeCollectionRecord"],
+	event: HarnessEvent,
+	session: SessionTrajectory,
+): Promise<HarnessDecision> {
+    const { cwd: CWD, log } = ctx;
+	// Capture the completed write before optional checks can defer or fail.
+	captureTouchedFiles(event, CWD);
+	try {
+		const decision = await runPostToolPipeline(ctx, event, session);
+		// `session.files_read` survives a daemon restart (it is in the
+		// live snapshot); the trajectory engine's own read map does not.
+		// Passing it seeds a state created after a restart, so reads from
+		// before it are not forgotten mid-session (red-team F4).
+		mergeTrajectoryShadow(event, decision, ctx.rules, [...session.files_read]);
+		writeCollectionRecord(event, decision);
+		// Fire-and-forget faithful per-call record for the viz BASELINE filmstrip.
+		// Runs AFTER the decision is returned to the hook — never blocks the tool loop.
+		appendCheckResults(CWD, event, decision);
+		return decision;
+	} catch (postErr) {
+		log(
+			`PostToolUse pipeline threw (failing open): ${
+				postErr instanceof Error ? postErr.message : String(postErr)
+			}`,
+		);
+		return {
+			decision: "allow",
+			warnings: [POST_TOOL_PIPELINE_FAILURE_WARNING],
+		};
+	}
 }

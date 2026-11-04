@@ -10,12 +10,17 @@ import { checkPythonSimplification } from "../../harness/checks/python-simplific
 import { checkRepeatedImplementation } from "../../harness/generic-checks.js";
 import type { FileCheckContext } from "./file-checks-shared.js";
 import { toIssues } from "./file-checks-shared.js";
+import { checkExistingPartialOverlap } from "./partial-overlap-audit.js";
+import { getActiveSkipChecks } from "./streaming-output.js";
 
 export function runOverExtractionChecks(ctx: FileCheckContext): void {
 	const { content, file, relPath, r } = ctx;
-    r.pythonSimplification.push(...toIssues("python_simplification", relPath, checkPythonSimplification(content, file)));
-    r.repeatedImplementation.push(...toIssues("repeated_implementation", relPath, checkRepeatedImplementation(content, file)));
+	if (!getActiveSkipChecks().has("extracted_helper_duplicate")) {
+		r.extractedHelperDuplicate.push(...toIssues("extracted_helper_duplicate", relPath, checkExistingPartialOverlap, content, file, ctx.cwd));
+	}
+    r.pythonSimplification.push(...toIssues("python_simplification", relPath, checkPythonSimplification, content, file));
+    r.repeatedImplementation.push(...toIssues("repeated_implementation", relPath, checkRepeatedImplementation, content, file));
 	r.singleUseTrivialHelper.push(
-		...toIssues("single_use_trivial_helper", relPath, checkSingleUseTrivialHelper(content, file)),
+		...toIssues("single_use_trivial_helper", relPath, checkSingleUseTrivialHelper, content, file),
 	);
 }

@@ -15,6 +15,7 @@ import { appendCollection } from "../../lib/collection/writer.js";
 import type { JsonObject } from "../../lib/json-types.js";
 import { eventAttributionFields } from "../event-attribution-fields.js";
 import type { HarnessEvent } from "../types.js";
+import { captureTouchedFiles } from "../session-touched-files.js";
 
 const CLIENT_RUNNER_BY_AGENT_SOURCE: Partial<Record<string, string>> = {
 	codex: "codex",
@@ -71,6 +72,7 @@ export function mapEventToCollectionInput(
  *  any failure (mapping, build, or write) is swallowed so the pipeline never
  *  breaks on collection I/O. */
 export function writeCollectionRecord(event: HarnessEvent, fallbackCwd: string): void {
+	captureTouchedFiles(event, fallbackCwd);
 	try {
 		const mapped = mapEventToCollectionInput(event, fallbackCwd);
 		const record = buildCollectionRecord(mapped);

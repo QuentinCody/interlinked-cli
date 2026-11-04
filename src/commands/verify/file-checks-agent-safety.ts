@@ -174,10 +174,10 @@ export function runCrapCheck(ctx: FileCheckContext): void {
 /** Content-only advisory detectors, kept out of `runAgentSafetyChecks` (over the token cap). */
 function runContentHygieneChecks({ content, file, relPath, r }: FileCheckContext): void {
 	r.snapshotHygiene.push(
-		...toIssues("snapshot_hygiene", relPath, detectSnapshotHygiene(content, file)),
+		...toIssues("snapshot_hygiene", relPath, detectSnapshotHygiene, content, file),
 	);
 	r.handRolledLexer.push(
-		...toIssues("hand_rolled_lexer", relPath, detectHandRolledLexer(content, file)),
+		...toIssues("hand_rolled_lexer", relPath, detectHandRolledLexer, content, file),
 	);
 }
 
@@ -190,50 +190,50 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 	const { content, file, relPath, cwd, r } = ctx;
 
 	r.exportRipple.push(
-		...toIssues("export_ripple", relPath, checkExportRipple(content, file, cwd)),
+		...toIssues("export_ripple", relPath, checkExportRipple, content, file, cwd),
 	);
-	r.deadExports.push(...toIssues("dead_exports", relPath, checkDeadExports(content, file, cwd)));
+	r.deadExports.push(...toIssues("dead_exports", relPath, checkDeadExports, content, file, cwd));
 	r.circularImports.push(
-		...toIssues("circular_imports", relPath, checkCircularImports(content, file, cwd)),
+		...toIssues("circular_imports", relPath, checkCircularImports, content, file, cwd),
 	);
 	r.untestedInversePair.push(
-		...toIssues("untested_inverse_pair", relPath, checkUntestedInversePair(content, file, cwd)),
+		...toIssues("untested_inverse_pair", relPath, checkUntestedInversePair, content, file, cwd),
 	);
 	r.untestedIdempotent.push(
-		...toIssues("untested_idempotent", relPath, checkUntestedIdempotent(content, file, cwd)),
+		...toIssues("untested_idempotent", relPath, checkUntestedIdempotent, content, file, cwd),
 	);
 	r.lifecycleCleanup.push(
-		...toIssues("lifecycle_cleanup", relPath, checkLifecycleCleanup(content, file)),
+		...toIssues("lifecycle_cleanup", relPath, checkLifecycleCleanup, content, file),
 	);
-	r.defaultExport.push(...toIssues("default_export", relPath, checkDefaultExport(content, file)));
-	r.codeClones.push(...toIssues("code_clones", relPath, checkCodeClones(content, file)));
+	r.defaultExport.push(...toIssues("default_export", relPath, checkDefaultExport, content, file));
+	r.codeClones.push(...toIssues("code_clones", relPath, checkCodeClones, content, file));
 
 	// --- Agent safety checks ---
 	r.misusedPromises.push(
-		...toIssues("misused_promises", relPath, checkMisusedPromises(content, file)),
+		...toIssues("misused_promises", relPath, checkMisusedPromises, content, file),
 	);
 	r.floatingPromises.push(
-		...toIssues("floating_promises", relPath, checkFloatingPromises(content, file)),
+		...toIssues("floating_promises", relPath, checkFloatingPromises, content, file),
 	);
 	r.broadObjectTypes.push(
-		...toIssues("broad_object_types", relPath, checkBroadObjectTypes(content, file)),
+		...toIssues("broad_object_types", relPath, checkBroadObjectTypes, content, file),
 	);
-	r.booleanTrap.push(...toIssues("boolean_trap", relPath, checkBooleanTrap(content, file)));
+	r.booleanTrap.push(...toIssues("boolean_trap", relPath, checkBooleanTrap, content, file));
 	r.positionalOptionalBoolean.push(
 		...toIssues(
 			"positional_optional_boolean",
 			relPath,
-			checkPositionalOptionalBoolean(content, file),
+			checkPositionalOptionalBoolean, content, file,
 		),
 	);
 	r.manyOptionalParams.push(
-		...toIssues("many_optional_params", relPath, checkManyOptionalParams(content, file)),
+		...toIssues("many_optional_params", relPath, checkManyOptionalParams, content, file),
 	);
 	r.sameTypedPrimitiveParams.push(
 		...toIssues(
 			"same_typed_primitive_params",
 			relPath,
-			checkSameTypedPrimitiveParams(content, file),
+			checkSameTypedPrimitiveParams, content, file,
 		),
 	);
 	// Comment-vs-behavior drift (Mythos Phase 2 verify-side wiring).
@@ -241,134 +241,134 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 		...toIssues(
 			"comment_claims_limit_no_guard",
 			relPath,
-			checkCommentClaimsLimitNoGuard(content, file),
+			checkCommentClaimsLimitNoGuard, content, file,
 		),
 	);
 	r.commentClaimsNullThrowsInstead.push(
 		...toIssues(
 			"comment_claims_null_throws_instead",
 			relPath,
-			checkCommentClaimsNullThrowsInstead(content, file),
+			checkCommentClaimsNullThrowsInstead, content, file,
 		),
 	);
 	r.commentClaimsValidationMissing.push(
 		...toIssues(
 			"comment_claims_validation_missing",
 			relPath,
-			checkCommentClaimsValidationMissing(content, file),
+			checkCommentClaimsValidationMissing, content, file,
 		),
 	);
 	r.commentClaimsIdempotentMutates.push(
 		...toIssues(
 			"comment_claims_idempotent_mutates",
 			relPath,
-			checkCommentClaimsIdempotentMutates(content, file),
+			checkCommentClaimsIdempotentMutates, content, file,
 		),
 	);
 	r.commentClaimsThrowsDoesnt.push(
 		...toIssues(
 			"comment_claims_throws_doesnt",
 			relPath,
-			checkCommentClaimsThrowsDoesnt(content, file),
+			checkCommentClaimsThrowsDoesnt, content, file,
 		),
 	);
 	r.iteratorInvalidation.push(
-		...toIssues("iterator_invalidation", relPath, checkIteratorInvalidation(content, file)),
+		...toIssues("iterator_invalidation", relPath, checkIteratorInvalidation, content, file),
 	);
 	r.freshCollectionKeyLookup.push(
 		...toIssues(
 			"fresh_collection_key_lookup",
 			relPath,
-			checkFreshCollectionKeyLookup(content, file),
+			checkFreshCollectionKeyLookup, content, file,
 		),
 	);
 	r.discriminatedUnionExhaustiveness.push(
 		...toIssues(
 			"discriminated_union_exhaustiveness",
 			relPath,
-			checkDiscriminatedUnionExhaustiveness(content, file),
+			checkDiscriminatedUnionExhaustiveness, content, file,
 		),
 	);
 	r.indexBoundsUnchecked.push(
 		...toIssues(
 			"index_bounds_unchecked",
 			relPath,
-			checkIndexBoundsUnchecked(content, file),
+			checkIndexBoundsUnchecked, content, file,
 		),
 	);
 	r.cleanupSkippedOnEarlyExit.push(
 		...toIssues(
 			"cleanup_skipped_on_early_exit",
 			relPath,
-			checkCleanupSkippedOnEarlyExit(content, file),
+			checkCleanupSkippedOnEarlyExit, content, file,
 		),
 	);
 	r.taintedToPrivilegedSink.push(
 		...toIssues(
 			"tainted_to_privileged_sink",
 			relPath,
-			checkTaintedToPrivilegedSink(content, file),
+			checkTaintedToPrivilegedSink, content, file,
 		),
 	);
 	r.awaitStateToctou.push(
-		...toIssues("await_state_toctou", relPath, checkAwaitStateToctou(content, file)),
+		...toIssues("await_state_toctou", relPath, checkAwaitStateToctou, content, file),
 	);
 	r.cleanupReentrancy.push(
-		...toIssues("cleanup_reentrancy", relPath, checkCleanupReentrancy(content, file)),
+		...toIssues("cleanup_reentrancy", relPath, checkCleanupReentrancy, content, file),
 	);
 	r.boundaryCopyNoRevalidation.push(
 		...toIssues(
 			"boundary_copy_no_revalidation",
 			relPath,
-			checkBoundaryCopyNoRevalidation(content, file),
+			checkBoundaryCopyNoRevalidation, content, file,
 		),
 	);
 	r.magicLiteralInConditional.push(
 		...toIssues(
 			"magic_literal_in_conditional",
 			relPath,
-			checkMagicLiteralInConditional(content, file),
+			checkMagicLiteralInConditional, content, file,
 		),
 	);
 	r.nanCoercionGuard.push(
-		...toIssues("nan_coercion_guard", relPath, detectNaNCoercionGuards(content, file)),
+		...toIssues("nan_coercion_guard", relPath, detectNaNCoercionGuards, content, file),
 	);
 	r.unawaitedAsyncAssertion.push(
-		...toIssues("unawaited_async_assertion", relPath, detectUnawaitedAsyncAssertions(content, file)),
+		...toIssues("unawaited_async_assertion", relPath, detectUnawaitedAsyncAssertions, content, file),
 	);
-	r.designSlop.push(...toIssues("design_slop", relPath, detectDesignSlop(content, file)));
+	r.designSlop.push(...toIssues("design_slop", relPath, detectDesignSlop, content, file));
 	r.arrayPushReturnUsed.push(
-		...toIssues("array_push_return_used", relPath, detectReturnArrayPush(content, file)),
+		...toIssues("array_push_return_used", relPath, detectReturnArrayPush, content, file),
 	);
 	r.arrayIterateeVariadicBuiltin.push(
 		...toIssues(
 			"array_iteratee_variadic_builtin",
 			relPath,
-			detectArrayIterateeVariadicBuiltin(content, file),
+			detectArrayIterateeVariadicBuiltin, content, file,
 		),
 	);
 	r.writeWithoutMkdir.push(
-		...toIssues("write_without_mkdir", relPath, detectWriteWithoutMkdir(content, file)),
+		...toIssues("write_without_mkdir", relPath, detectWriteWithoutMkdir, content, file),
 	);
 	r.homedirWriteEscape.push(
-		...toIssues("homedir_write_escape", relPath, detectHomedirWriteEscape(content, file)),
+		...toIssues("homedir_write_escape", relPath, detectHomedirWriteEscape, content, file),
 	);
 	r.duplicatedPolicyConstant.push(
 		...toIssues(
 			"duplicated_policy_constant",
 			relPath,
-			detectPolicyConstantDrift(content, file),
+			detectPolicyConstantDrift, content, file,
 		),
 	);
 	r.typePredicateDrift.push(
-		...toIssues("type_predicate_drift", relPath, detectTypePredicateDrift(content, file)),
+		...toIssues("type_predicate_drift", relPath, detectTypePredicateDrift, content, file),
 	);
 	runContentHygieneChecks(ctx);
 	r.payloadFieldCasing.push(
-		...toIssues("payload_field_casing", relPath, detectPayloadFieldCasing(content, file)),
+		...toIssues("payload_field_casing", relPath, detectPayloadFieldCasing, content, file),
 	);
 	r.anonymousRegistration.push(
-		...toIssues("anonymous_registration", relPath, checkAnonymousRegistration(content, file)),
+		...toIssues("anonymous_registration", relPath, checkAnonymousRegistration, content, file),
 	);
 	// halstead_difficulty — verify-only. Pure, but a full TS parse plus a
 	// per-token tally per file: measured, it pushed the determinism-conformance
@@ -376,7 +376,7 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 	// advisory taste check that fires 17 times repo-wide does not earn per-edit
 	// latency; deep audit is the right cadence.
 	r.halsteadDifficulty.push(
-		...toIssues("halstead_difficulty", relPath, maintainabilityCheck(content, file)),
+		...toIssues("halstead_difficulty", relPath, maintainabilityCheck, content, file),
 	);
 	// type_smuggling is verify-only since 2026-08-22 (its per-file ts.Program
 	// melted the daemon) — its verify invocation ALREADY lives in
@@ -387,7 +387,7 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 	// the PostToolUse registry contract requires (and the determinism-conformance
 	// test enforces). Same standing as the resolver-backed checks below.
 	r.propertyTestCandidate.push(
-		...toIssues("property_test_candidate", relPath, propertyCandidateCheck(content, file)),
+		...toIssues("property_test_candidate", relPath, propertyCandidateCheck, content, file),
 	);
 	// gitignored_written_config — verify-only (3-arg detector needs git context).
 	// Backed by a `git check-ignore` resolver; fails open to "not ignored" off-git.
@@ -395,7 +395,7 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 		...toIssues(
 			"gitignored_written_config",
 			relPath,
-			detectGitignoredWrites(content, file, makeGitIgnoreResolver(cwd, file)),
+			() => (detectGitignoredWrites(content, file, makeGitIgnoreResolver(cwd, file))),
 		),
 	);
 	// readme_script_drift — verify-only sibling of gitignored_written_config
@@ -407,9 +407,9 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 		...toIssues(
 			"readme_script_drift",
 			relPath,
-			detectReadmeScriptDrift(content, file, (markdownPath) =>
+			() => (detectReadmeScriptDrift(content, file, (markdownPath) =>
 				resolveNearestPackageScripts(markdownPath, cwd),
-			),
+			)),
 		),
 	);
 	// spec_path_ref — verify-only (3-arg detector needs a filesystem resolver).
@@ -419,7 +419,7 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 		...toIssues(
 			"spec_path_ref",
 			relPath,
-			checkSpecPathRef(content, file, (target) => existsSync(resolve(cwd, target))),
+			() => (checkSpecPathRef(content, file, (target) => existsSync(resolve(cwd, target)))),
 		),
 	);
 	// Bun-regression detector pack (2026-07-20): confessed stand-in constants +
@@ -428,69 +428,69 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 		...toIssues(
 			"placeholder_runtime_constant",
 			relPath,
-			checkPlaceholderRuntimeConstant(content, file),
+			checkPlaceholderRuntimeConstant, content, file,
 		),
 	);
 	r.rustUnsafeSpan.push(
-		...toIssues("rust_unsafe_span", relPath, checkRustUnsafeSpan(content, file)),
+		...toIssues("rust_unsafe_span", relPath, checkRustUnsafeSpan, content, file),
 	);
 	r.suppressionBlockSpan.push(
-		...toIssues("suppression_block_span", relPath, checkSuppressionSpan(content, file)),
+		...toIssues("suppression_block_span", relPath, checkSuppressionSpan, content, file),
 	);
 	r.asyncPromiseExecutor.push(
-		...toIssues("async_promise_executor", relPath, checkAsyncPromiseExecutor(content, file)),
+		...toIssues("async_promise_executor", relPath, checkAsyncPromiseExecutor, content, file),
 	);
-	r.selfImports.push(...toIssues("self_import", relPath, checkSelfImport(content, file)));
+	r.selfImports.push(...toIssues("self_import", relPath, checkSelfImport, content, file));
 	r.extraneousDeps.push(
-		...toIssues("extraneous_deps", relPath, checkExtraneousDependencies(content, file)),
+		...toIssues("extraneous_deps", relPath, checkExtraneousDependencies, content, file),
 	);
 	r.nonNullAssertions.push(
-		...toIssues("non_null_assertion", relPath, checkNonNullAssertions(content, file)),
+		...toIssues("non_null_assertion", relPath, checkNonNullAssertions, content, file),
 	);
-	r.evalUsage.push(...toIssues("eval_usage", relPath, checkEvalUsage(content, file)));
-	r.innerHtml.push(...toIssues("inner_html", relPath, checkInnerHtmlUsage(content, file)));
-	r.nanComparison.push(...toIssues("nan_comparison", relPath, checkNanComparison(content, file)));
+	r.evalUsage.push(...toIssues("eval_usage", relPath, checkEvalUsage, content, file));
+	r.innerHtml.push(...toIssues("inner_html", relPath, checkInnerHtmlUsage, content, file));
+	r.nanComparison.push(...toIssues("nan_comparison", relPath, checkNanComparison, content, file));
 	r.constantCondition.push(
-		...toIssues("constant_condition", relPath, checkConstantCondition(content, file)),
+		...toIssues("constant_condition", relPath, checkConstantCondition, content, file),
 	);
 	r.unsafeOptionalChaining.push(
 		...toIssues(
 			"unsafe_optional_chaining",
 			relPath,
-			checkUnsafeOptionalChaining(content, file),
+			checkUnsafeOptionalChaining, content, file,
 		),
 	);
 	r.numberPrecisionLoss.push(
-		...toIssues("number_precision_loss", relPath, checkNumberPrecisionLoss(content, file)),
+		...toIssues("number_precision_loss", relPath, checkNumberPrecisionLoss, content, file),
 	);
-	r.throwLiteral.push(...toIssues("throw_literal", relPath, checkThrowLiteral(content, file)));
+	r.throwLiteral.push(...toIssues("throw_literal", relPath, checkThrowLiteral, content, file));
 	r.promiseRejectNonError.push(
-		...toIssues("promise_reject_non_error", relPath, checkPromiseRejectNonError(content, file)),
+		...toIssues("promise_reject_non_error", relPath, checkPromiseRejectNonError, content, file),
 	);
 	r.rawControlBytes.push(
-		...toIssues("raw_control_bytes", relPath, checkRawControlBytes(content, file)),
+		...toIssues("raw_control_bytes", relPath, checkRawControlBytes, content, file),
 	);
 	r.lossyErrorRethrow.push(
-		...toIssues("lossy_error_rethrow", relPath, checkLossyErrorRethrow(content, file)),
+		...toIssues("lossy_error_rethrow", relPath, checkLossyErrorRethrow, content, file),
 	);
 	r.importFromOwnBarrel.push(
-		...toIssues("import_from_own_barrel", relPath, checkImportFromOwnBarrel(content, file)),
+		...toIssues("import_from_own_barrel", relPath, checkImportFromOwnBarrel, content, file),
 	);
 	r.errorDispatchByInstanceof.push(
 		...toIssues(
 			"error_dispatch_by_instanceof",
 			relPath,
-			checkErrorDispatchByInstanceof(content, file),
+			checkErrorDispatchByInstanceof, content, file,
 		),
 	);
 	r.silentPromiseSwallow.push(
-		...toIssues("silent_promise_catch", relPath, checkSilentPromiseSwallow(content, file)),
+		...toIssues("silent_promise_catch", relPath, checkSilentPromiseSwallow, content, file),
 	);
-	r.requireAwait.push(...toIssues("require_await", relPath, checkRequireAwait(content, file)));
+	r.requireAwait.push(...toIssues("require_await", relPath, checkRequireAwait, content, file));
 	r.accumulatingSpread.push(
-		...toIssues("accumulating_spread", relPath, checkAccumulatingSpread(content, file)),
+		...toIssues("accumulating_spread", relPath, checkAccumulatingSpread, content, file),
 	);
 	r.manualFieldCopy.push(
-		...toIssues("manual_field_copy", relPath, checkManualFieldCopy(content, file)),
+		...toIssues("manual_field_copy", relPath, checkManualFieldCopy, content, file),
 	);
 }

@@ -20,8 +20,9 @@
 //   extracted_helper_duplicate — a function NEW to this edit whose body is at
 //     least 90% shingle-similar to a function in a sibling module: the helper
 //     the agent just extracted already exists next door. Stricter than
-//     code_clones (0.82) and cross-file only; same-file pairs stay with
-//     code_clones. The exporter-first MOVE flow — the edited file is brand
+//     code_clones (0.82), with a cross-file candidate scan. The legacy
+//     matcher also compares introduced functions internally, so a new parent
+//     and its nested callback can produce a same-file hit. The exporter-first MOVE flow — the edited file is brand
 //     new, or a same-directory sibling holds a >=99% identical copy — is a
 //     move in progress, not a duplicate: one info-level finding per sibling
 //     file names the count and steers at deleting the originals, instead of
@@ -30,7 +31,12 @@
 //     the import-it remedy. Limit: a same-session function added to BOTH
 //     files at >=99% similarity reads as a move too — indistinguishable from
 //     one side of the pair without extra signal.
+//     A separate bounded AST arm advises on >=5 contiguous shared statements,
+//     retaining literals, properties and binding relationships. It does not
+//     infer equivalence, safe extraction or savings; direct import edges and
+//     outer break/continue windows are excluded from that arm.
 
+import { analyzeHelperOverlap, collectSiblingOverlapSources, matchPartialHelperOverlaps, type OverlapSource } from "./helper-overlap.js";
 import { readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { parseExports } from "../project-graph/parser-exports.js";
@@ -260,29 +266,36 @@ function groupMoveFindings(args: HelperHygieneArgs, hits: DuplicateHit[]): Inlin
 /**
  * Core detector. `candidates` is a thunk so the sibling scan is only paid when
  * the edit actually introduces a comparable function. Each new function is
- * matched on its own against foreign candidates only (its single best match),
- * so a same-file twin can never shadow the cross-file match.
+ * matched against foreign candidates plus the legacy matcher's internal
+ * comparisons between introduced functions. That arm can select same-file
+ * parent/callback overlap; its existing behavior is retained. The partial
+ * AST arm below is strictly cross-file and suppresses existing whole-arm hits.
  */
 export function findExtractedHelperDuplicates(
 	args: HelperHygieneArgs,
 	candidates: () => FunctionShingles[],
+	partialCandidates?: () => OverlapSource[],
 ): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(args.filePath)) || isTestFile(args.filePath)) return [];
+	if (args.content === args.preContent) return [];
 	const existing = preExistingFunctionNames(args.preContent, args.filePath);
+	const partial = (suppressed: ReadonlySet<number> = new Set()): InlineMatch[] => {
+		return partialHelperDuplicateFindings(args, partialCandidates, existing, suppressed);
+	};
 	const introduced = extractFunctionShingles(args.content, args.filePath).filter(
 		(f) => f.shingles.size > 0 && !existing.has(f.name),
 	);
-	if (introduced.length === 0) return [];
+	if (introduced.length === 0) return partial();
 
 	const foreign = candidates().filter((c) => c.file !== args.filePath);
-	if (foreign.length === 0) return [];
+	if (foreign.length === 0) return partial();
 
 	const hits = findClones({
 		edited: introduced,
 		candidates: foreign,
 		threshold: HELPER_DUPLICATE_THRESHOLD,
 	});
-	if (hits.length === 0) return [];
+	if (hits.length === 0) return partial();
 
 	const moves: DuplicateHit[] = [];
 	const extractions: DuplicateHit[] = [];
@@ -291,6 +304,7 @@ export function findExtractedHelperDuplicates(
 	return [
 		...extractions.map((hit) => ({ line: hit.line, text: describeDuplicate(args, hit) })),
 		...groupMoveFindings(args, moves),
+		...partial(new Set(hits.map(hit => hit.line))),
 	];
 }
 
@@ -338,5 +352,17 @@ export function checkExtractedHelperDuplicate(
 	return findExtractedHelperDuplicates(
 		{ content, filePath: abs, preContent: readPreContent(abs) },
 		() => collectSiblingFunctions(abs),
+		() => collectSiblingOverlapSources(abs),
 	);
+}
+
+function partialHelperDuplicateFindings(args: HelperHygieneArgs, partialCandidates: (() => OverlapSource[]) | undefined, existing: ReadonlySet<string>, suppressed: ReadonlySet<number>): InlineMatch[] {
+    if (partialCandidates === undefined) return [];
+    const edited = analyzeHelperOverlap(args.content, args.filePath);
+    const names = new Set(edited.functions.filter(f => !existing.has(f.name) && !suppressed.has(f.line)).map(f => f.name));
+    if (names.size === 0 || !edited.windows.some(w => names.has(w.name))) return [];
+    return matchPartialHelperOverlaps(edited, partialCandidates(), names).map(hit => ({
+        line: hit.line,
+        text: `${hit.name}() contains a 5-statement structural overlap at lines ${hit.window.line}-${hit.window.endLine} with ${hit.other.name}() in ${siblingLabel(args, hit.otherFile)}:${hit.other.line} — review shared logic and preserve behavioral differences; overlap does not establish safe extraction or a net benefit`,
+    }));
 }

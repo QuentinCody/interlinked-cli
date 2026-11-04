@@ -1,7 +1,7 @@
 // Agent-safety checks — "Additional correctness / style" (part 2 of 2).
 // Extracted from agent-safety.ts to stay under the 800-line module ceiling.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import { parseImports, resolveImportPath } from "../project-graph.js";
@@ -293,11 +293,15 @@ type ParsedImportEdge = ReturnType<typeof parseImports>[number];
 function collectImportCycles(content: string, absStart: string): string[][] {
 	const MAX_DEPTH = 10;
 	const MAX_PATHS = 5;
+	const MAX_VISITS = 256;
+	let visits = 0;
 	const fileCache = new Map<string, string | null>();
+	const edgeCache = new Map<string, ParsedImportEdge[]>();
 	const readCached = (p: string): string | null => {
 		const hit = fileCache.get(p);
 		if (hit !== undefined) return hit;
 		try {
+			if (statSync(p).size > 256 * 1024) { fileCache.set(p, null); return null; }
 			const raw = readFileSync(p, "utf-8");
 			fileCache.set(p, raw);
 			return raw;
@@ -331,11 +335,13 @@ function collectImportCycles(content: string, absStart: string): string[][] {
 	const dfs = (current: string, trail: string[]): void => {
 		if (cycles.length >= MAX_PATHS) return;
 		if (trail.length > MAX_DEPTH) return;
+		if (visits++ >= MAX_VISITS) return;
 
 		const src = current === absStart && trail.length === 0 ? content : readCached(current);
 		if (!src) return;
 
-		const imports = parseImports(src, current);
+		let imports = edgeCache.get(current);
+		if (!imports) { imports = parseImports(src, current); edgeCache.set(current, imports); }
 		for (const edge of imports) {
 			if (cycles.length >= MAX_PATHS) return;
 			walkEdge(current, trail, edge);

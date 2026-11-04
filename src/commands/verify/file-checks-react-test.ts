@@ -70,154 +70,154 @@ export function runReactAndTasteChecks(ctx: FileCheckContext): void {
 
 	// --- 13 additional agent safety checks ---
 	r.excessiveUseState.push(
-		...toIssues("excessive_use_state", relPath, checkExcessiveUseState(content, file)),
+		...toIssues("excessive_use_state", relPath, checkExcessiveUseState, content, file),
 	);
 	r.dangerouslySetInnerHtml.push(
 		...toIssues(
 			"dangerously_set_inner_html",
 			relPath,
-			checkDangerouslySetInnerHTML(content, file),
+			checkDangerouslySetInnerHTML, content, file,
 		),
 	);
 	r.directDomAccess.push(
-		...toIssues("direct_dom_access", relPath, checkDirectDomAccess(content, file)),
+		...toIssues("direct_dom_access", relPath, checkDirectDomAccess, content, file),
 	);
 	r.inlineObjectProps.push(
-		...toIssues("inline_object_props", relPath, checkInlineObjectProps(content, file)),
+		...toIssues("inline_object_props", relPath, checkInlineObjectProps, content, file),
 	);
 	r.asyncEventHandler.push(
-		...toIssues("async_event_handler", relPath, checkAsyncEventHandler(content, file)),
+		...toIssues("async_event_handler", relPath, checkAsyncEventHandler, content, file),
 	);
 	r.nestedTernaries.push(
-		...toIssues("nested_ternaries", relPath, checkNestedTernaries(content, file)),
+		...toIssues("nested_ternaries", relPath, checkNestedTernaries, content, file),
 	);
-	r.catchAndLog.push(...toIssues("catch_and_log", relPath, checkCatchAndLog(content, file)));
+	r.catchAndLog.push(...toIssues("catch_and_log", relPath, checkCatchAndLog, content, file));
 	r.jsonParseUnsafe.push(
-		...toIssues("json_parse_unsafe", relPath, checkJsonParseUnsafe(content, file)),
+		...toIssues("json_parse_unsafe", relPath, checkJsonParseUnsafe, content, file),
 	);
 	r.unvalidatedJsonBoundary.push(
 		...toIssues(
 			"unvalidated_json_boundary",
 			relPath,
-			checkUnvalidatedJsonBoundary(content, file),
+			checkUnvalidatedJsonBoundary, content, file,
 		),
 	);
 	r.hardcodedTimeout.push(
-		...toIssues("hardcoded_timeout", relPath, checkHardcodedTimeout(content, file)),
+		...toIssues("hardcoded_timeout", relPath, checkHardcodedTimeout, content, file),
 	);
-	r.disabledTests.push(...toIssues("disabled_tests", relPath, checkDisabledTests(content, file)));
+	r.disabledTests.push(...toIssues("disabled_tests", relPath, checkDisabledTests, content, file));
 	r.placeholderTest.push(
-		...toIssues("placeholder_test", relPath, checkPlaceholderTests(content, file)),
+		...toIssues("placeholder_test", relPath, checkPlaceholderTests, content, file),
 	);
 	r.targetBlankNoRel.push(
-		...toIssues("target_blank_no_rel", relPath, checkTargetBlankNoRel(content, file)),
+		...toIssues("target_blank_no_rel", relPath, checkTargetBlankNoRel, content, file),
 	);
 	r.snapshotOveruse.push(
-		...toIssues("snapshot_overuse", relPath, checkSnapshotOveruse(content, file)),
+		...toIssues("snapshot_overuse", relPath, checkSnapshotOveruse, content, file),
 	);
 	r.testImportingTest.push(
-		...toIssues("test_importing_test", relPath, checkTestImportingTest(content, file)),
+		...toIssues("test_importing_test", relPath, checkTestImportingTest, content, file),
 	);
 
 	// --- 5 additional agent safety checks ---
 	r.excessiveUseEffect.push(
-		...toIssues("excessive_use_effect", relPath, checkExcessiveUseEffect(content, file)),
+		...toIssues("excessive_use_effect", relPath, checkExcessiveUseEffect, content, file),
 	);
 	r.sequentialAwaits.push(
-		...toIssues("sequential_awaits", relPath, checkSequentialAwaits(content, file)),
+		...toIssues("sequential_awaits", relPath, checkSequentialAwaits, content, file),
 	);
-	r.indexAsKey.push(...toIssues("index_as_key", relPath, checkIndexAsKey(content, file)));
+	r.indexAsKey.push(...toIssues("index_as_key", relPath, checkIndexAsKey, content, file));
 	r.missingEffectCleanup.push(
-		...toIssues("missing_effect_cleanup", relPath, checkMissingEffectCleanup(content, file)),
+		...toIssues("missing_effect_cleanup", relPath, checkMissingEffectCleanup, content, file),
 	);
-	r.overMocking.push(...toIssues("over_mocking", relPath, checkOverMocking(content, file)));
+	r.overMocking.push(...toIssues("over_mocking", relPath, checkOverMocking, content, file));
 
 	// --- Coding-agent feedback checks ---
-	r.focusedTests.push(...toIssues("focused_tests", relPath, checkFocusedTests(content, file)));
+	r.focusedTests.push(...toIssues("focused_tests", relPath, checkFocusedTests, content, file));
 	r.migrationOrdering.push(
-		...toIssues("migration_ordering", relPath, checkMigrationOrdering(content, file)),
+		...toIssues("migration_ordering", relPath, checkMigrationOrdering, content, file),
 	);
 	r.sqlSchemaConsistency.push(
-		...toIssues("sql_schema_consistency", relPath, checkSqlSchemaConsistency(content, file)),
+		...toIssues("sql_schema_consistency", relPath, checkSqlSchemaConsistency, content, file),
 	);
 	r.visibilityFilterMissing.push(
 		...toIssues(
 			"visibility_filter_missing",
 			relPath,
-			checkVisibilityFilterMissing(content, file),
+			checkVisibilityFilterMissing, content, file,
 		),
 	);
 
 	// PII detection
 	r.piiDetection.push(
-		...toIssues("pii_detection", relPath, checkPiiInSource(content, file, piiOpts)),
+		...toIssues("pii_detection", relPath, checkPiiInSource, content, file, piiOpts),
 	);
 
 	// --- Taste checks ---
 	r.assertionFreeTest.push(
-		...toIssues("assertion_free_test", relPath, checkAssertionFreeTest(content, file)),
+		...toIssues("assertion_free_test", relPath, checkAssertionFreeTest, content, file),
 	);
 	r.tautologicalAssertion.push(
-		...toIssues("tautological_assertion", relPath, checkTautologicalAssertion(content, file)),
+		...toIssues("tautological_assertion", relPath, checkTautologicalAssertion, content, file),
 	);
 	r.mockingTheSut.push(
-		...toIssues("mocking_the_sut", relPath, checkMockingTheSUT(content, file)),
+		...toIssues("mocking_the_sut", relPath, checkMockingTheSUT, content, file),
 	);
 	r.privateMemberTestAccess.push(
 		...toIssues(
 			"private_member_test_access",
 			relPath,
-			checkPrivateMemberTestAccess(content, file),
+			checkPrivateMemberTestAccess, content, file,
 		),
 	);
 	r.loopNestingDepth.push(
-		...toIssues("loop_nesting_depth", relPath, checkLoopNestingDepth(content, file)),
+		...toIssues("loop_nesting_depth", relPath, checkLoopNestingDepth, content, file),
 	);
-	r.elseIfChain.push(...toIssues("else_if_chain", relPath, checkElseIfChain(content, file)));
+	r.elseIfChain.push(...toIssues("else_if_chain", relPath, checkElseIfChain, content, file));
 	r.duplicateSwitchDiscriminant.push(
 		...toIssues(
 			"duplicate_switch_discriminant",
 			relPath,
-			checkDuplicateSwitchDiscriminant(content, file),
+			checkDuplicateSwitchDiscriminant, content, file,
 		),
 	);
-	r.hybridClass.push(...toIssues("hybrid_class", relPath, checkHybridClass(content, file)));
+	r.hybridClass.push(...toIssues("hybrid_class", relPath, checkHybridClass, content, file));
 	r.fuzzyResponsibilityName.push(
 		...toIssues(
 			"fuzzy_responsibility_name",
 			relPath,
-			checkFuzzyResponsibilityName(content, file),
+			checkFuzzyResponsibilityName, content, file,
 		),
 	);
-	r.lawOfDemeter.push(...toIssues("law_of_demeter", relPath, checkLawOfDemeter(content, file)));
-	r.flagArgument.push(...toIssues("flag_argument", relPath, checkFlagArgument(content, file)));
+	r.lawOfDemeter.push(...toIssues("law_of_demeter", relPath, checkLawOfDemeter, content, file));
+	r.flagArgument.push(...toIssues("flag_argument", relPath, checkFlagArgument, content, file));
 	r.commentedOutCode.push(
-		...toIssues("commented_out_code", relPath, checkCommentedOutCode(content, file)),
+		...toIssues("commented_out_code", relPath, checkCommentedOutCode, content, file),
 	);
 	r.conditionalInTest.push(
-		...toIssues("conditional_in_test", relPath, checkConditionalInTest(content, file)),
+		...toIssues("conditional_in_test", relPath, checkConditionalInTest, content, file),
 	);
 	r.nonDeterministicTest.push(
-		...toIssues("non_deterministic_test", relPath, checkNonDeterministicTest(content, file)),
+		...toIssues("non_deterministic_test", relPath, checkNonDeterministicTest, content, file),
 	);
-	r.timingFlake.push(...toIssues("timing_flake", relPath, checkTimingFlake(content, file)));
-	r.emptyCatch.push(...toIssues("empty_catch", relPath, checkEmptyCatch(content, file)));
+	r.timingFlake.push(...toIssues("timing_flake", relPath, checkTimingFlake, content, file));
+	r.emptyCatch.push(...toIssues("empty_catch", relPath, checkEmptyCatch, content, file));
 	r.testWithoutDescription.push(
 		...toIssues(
 			"test_without_description",
 			relPath,
-			checkTestWithoutDescription(content, file),
+			checkTestWithoutDescription, content, file,
 		),
 	);
 	r.assertionRoulette.push(
-		...toIssues("assertion_roulette", relPath, checkAssertionRoulette(content, file)),
+		...toIssues("assertion_roulette", relPath, checkAssertionRoulette, content, file),
 	);
-	r.magicNumber.push(...toIssues("magic_number", relPath, checkMagicNumber(content, file)));
+	r.magicNumber.push(...toIssues("magic_number", relPath, checkMagicNumber, content, file));
 	r.functionArgCount.push(
-		...toIssues("function_arg_count", relPath, checkFunctionArgCount(content, file)),
+		...toIssues("function_arg_count", relPath, checkFunctionArgCount, content, file),
 	);
-	r.dataClump.push(...toIssues("data_clump", relPath, checkDataClump(content, file)));
+	r.dataClump.push(...toIssues("data_clump", relPath, checkDataClump, content, file));
 	r.duplicateDescribe.push(
-		...toIssues("duplicate_describe", relPath, checkDuplicateDescribe(content, file)),
+		...toIssues("duplicate_describe", relPath, checkDuplicateDescribe, content, file),
 	);
 }

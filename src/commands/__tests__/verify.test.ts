@@ -203,6 +203,9 @@ describe("DEFAULT_ADVISORY_SKIPS", () => {
 				"code_clones",
 				"repeated_implementation",
 				"persistent_warning_escalation",
+                "readme_command_drift",
+                "unread_config_key",
+                "summary_file_coverage",
 				// cognitive-complexity metric (history-relational-metrics Phase 1, 2026-07-24)
 				"cognitive_complexity",
 				"complexity",
