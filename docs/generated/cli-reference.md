@@ -2402,6 +2402,16 @@ Commands:
   faults                          Requirement faults: recorded violations of
                                   stated requirements, run against the tests
                                   that must notice them
+  prove-kill [options]            Prove that the named tests pass on the live
+                                  tree and fail under ONE mutant (a manifest
+                                  survivor by id, or an explicit
+                                  --find/--replace fault); writes a receipt
+                                  bound to source, test and runtime bytes. Exit
+                                  0 killed; 1 survived or not passing now; 2
+                                  undecided
+  kill-proofs [options]           List recorded kill proofs; --verify re-checks
+                                  each against the bytes and runtime on disk
+                                  (exit 1 when any is stale)
   readiness [options] <language>  Inspect test prerequisites without
                                   installing; Python also reports approved
                                   provisioning argv

@@ -14,6 +14,7 @@ import { nonNull } from "../../lib/non-null.js";
 import { checkPhantomDependencies, checkTyposquatDependencies } from "../generic-checks.js";
 import { countLines, isCappableFile, maxLinesFor } from "../large-file-policy.js";
 import type { HarnessEvent } from "../types.js";
+import { collectKillProofWriteWarning } from "./post-tool-kill-proof.js";
 import { isFileWrite } from "./tool-classifiers.js";
 
 /** File-level quality feedback after writes: size, JSON validity, supply-chain
@@ -36,6 +37,7 @@ export function collectPostWriteFileWarnings(event: HarnessEvent): string[] {
 	}
 	if (ext === ".yaml" || ext === ".yml") warnings.push(...collectYamlValidityWarning(filePath));
 	warnings.push(...collectSuppressionFileWarnings(filePath));
+	warnings.push(...collectKillProofWriteWarning(event));
 	return warnings;
 }
 

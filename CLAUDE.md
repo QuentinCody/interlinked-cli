@@ -1783,6 +1783,38 @@ Evidence Contract dimension (no `EVIDENCE_DIMENSIONS` entry, no pin). Fault
 authors must be blind to the tests and to project instructions (this file names
 the test that pins each review fix).
 
+## Mutation-grounded test proof (`tests prove-kill`, added 2026-11-04)
+
+`interlinked tests prove-kill --test <file>… (--mutant <stableId> | --file <src>
+--find <text> --replace <text>) [--timeout ms] [--json]` and `interlinked tests
+kill-proofs [--verify]` (`src/harness/kill-proof/`, command
+`src/commands/tests-prove-kill.ts`). One mutant — a manifest survivor re-located in
+the CURRENT source by identity (`differential-fuzz-locate.ts locateMutantOffset`),
+or an explicit fault whose anchor occurs exactly once — the named tests run on the
+live tree (all must pass, else `not-passing-now`), then once more in a git-visible
+copy (`fail-before-fix/snapshot.ts`) holding only the mutated file. A case is
+`killed` only when it fails BY ITS OWN CHECK (`fail-before-fix/classify.ts
+failedByOwnCheck`); a product-code crash, a load error, a runner timeout or a
+missing result is `inconclusive`; an unresolvable mutant or missing test file is
+`unavailable`. Exit 0 killed; 1 survived / not-passing-now; 2 undecided. The
+receipt (`.interlinked/test-runs/kill-proofs/<id>.json`, `index.json` read model)
+binds source sha256, mutant identity + offset, each test file's sha256, node,
+vitest and config sha; `--verify` re-hashes, re-resolves and compares the
+runtime, and reports STALE with reasons. A `survived`/`inconclusive` receipt is
+kept but never counts as evidence. Surfaces: PostToolUse `[interlinked:kill-proof]`
+(`evaluator/post-tool-kill-proof.ts`, scoped to `MUTATION_DIRECTED_PATH` files,
+index read + two hashes) — the ONLY model-visible channel, because Stop warnings
+are stderr-only on every runner (measured 2026-11-04,
+`scratch/2026-11-04-mutation-proof/adapter-matrix.md`); the Stop check
+`mutation-kill-evidence-stop-check.ts` accepts a fresh killed receipt as
+measurement evidence; `mutation survivors --file` names the command. Measured
+2026-11-04: this repo's survivor 575ddae6cc2946f9 SURVIVED its existing tests in
+8.5 s; on two foreign vitest repos 24/26 author-labelled faults matched (the 2
+misses are product crashes → inconclusive by rule). vitest only; the receipt
+does not bind imported helpers; one run cannot see flakiness; the copy is not an
+OS sandbox; no model anywhere, and the in-process differential-fuzz engine stays
+OFF this path. Guide: `docs/mutation-grounded-test-proof.md`.
+
 ## E2E lane
 
 `npm run build:e2e && npm run test:e2e` exercises real hook processes and

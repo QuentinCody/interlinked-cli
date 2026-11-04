@@ -1391,6 +1391,24 @@ The command is advisory: a surviving fault does not itself set a failure exit co
 unmeasured. These outcomes lack current source-digest authentication: rerun after code,
 tests, clauses or fault recipes change. A perfect fraction covers only recorded faults.
 
+## Proving one kill (`tests prove-kill`)
+
+When you add a test that claims to catch a specific mutant or fault, prove it:
+`interlinked tests prove-kill --test <file> --mutant <id>` (a survivor id from
+`interlinked mutation survivors --file <src>`), or with an explicit fault in any vitest
+repository: `--file <src> --find '<text occurring once>' --replace '<text>'`. The named
+tests run on the live tree (all must pass), then once more in a git-visible copy with the
+one mutant applied. `killed` (exit 0) means a named case failed by its own check; `survived`
+(exit 1) means the tests do not detect the mutant — strengthen the assertion on the value
+the mutant changes; `not-passing-now` (exit 1) means fix the test first; `inconclusive` or
+`unavailable` (exit 2) means nothing was proven (a product crash, a load error, a timeout,
+an unresolvable mutant). The receipt under `.interlinked/test-runs/kill-proofs/` binds
+source and test sha256, mutant identity and offset, node/vitest/config; `interlinked tests
+kill-proofs --verify` reports STALE after any of them change. A `[interlinked:kill-proof]`
+PostToolUse line on a `*.mutation-kill.*` / `*.survivors.*` file means no fresh killed
+receipt covers it. Coverage, a `test-contract` marker, a green run or an old receipt is not
+proof. Guide: `docs/mutation-grounded-test-proof.md`.
+
 Use paired examples that distinguish a real violation from similar valid code. In
 `test_legitimacy`, import-shaped text inside multiline fixture strings is not a real
 private import; an actual import after that fixture still reports its own line.

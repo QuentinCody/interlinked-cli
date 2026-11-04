@@ -234,6 +234,7 @@ function nextSteps(s: SurvivorSummary, opts: RenderOptions): string[] {
 			c.dim(
 				"  ground each new case: // test-contract: <public-api|invariant|bug|security|boundary> — <specific rationale>",
 			),
+			c.dim(`  prove the kill (executed, receipted): interlinked tests prove-kill --mutant <id> --test <test file>`),
 			c.dim(`  re-measure with: interlinked mutation measure ${opts.file} --record`),
 		];
 	}

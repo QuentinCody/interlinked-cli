@@ -72,6 +72,7 @@ import { join, relative, resolve } from "node:path";
 import { countTestCaseOpeners } from "./check-evidence/case-parser.js";
 import { getExtension, JS_TS_EXTS } from "./checks/shared.js";
 import { checkTestLegitimacy, MUTATION_DIRECTED_PATH } from "./checks/test-legitimacy.js";
+import { freshKillsForTest } from "./kill-proof/receipt.js";
 import { loadSurvivorsIndex } from "./mutation/survivors-index.js";
 import { splitIntroduced } from "./pre-block-gate.js";
 import type { ServerRuntime } from "./server/runtime-context.js";
@@ -192,6 +193,11 @@ interface DetectMutationKillEvidenceGapsOpts {
 	 *  Returns null when no measurement record exists, which the detector reads
 	 *  as "never measured". */
 	loadMutationManifest?: (interlinkedDir: string) => { authoritativeAt?: string } | null;
+	/** Injected for testing. Defaults to `freshKillsForTest(...).length`: the number
+	 *  of `killed` kill-proof receipts naming this test file whose source and test
+	 *  bytes match the files on disk now (kill-proof/receipt.ts; index read + two
+	 *  hashes, never the manifest). */
+	freshKillProofs?: (cwd: string, relPath: string) => number;
 }
 
 /**
@@ -211,6 +217,7 @@ export function detectMutationKillEvidenceGaps(
 		gitShow = defaultGitShow,
 		readFile = defaultReadFile,
 		loadMutationManifest = defaultLoadMeasurement,
+		freshKillProofs = (root, relPath) => freshKillsForTest(root, relPath).length,
 	} = opts;
 	if (!gitHeadSha) return [];
 
@@ -232,6 +239,7 @@ export function detectMutationKillEvidenceGaps(
 			fileWriteTimes,
 			loadMutationManifest,
 			measurementCache,
+			freshKillProofs,
 		});
 		if (hit !== null) hits.push(hit);
 	}
@@ -289,6 +297,7 @@ function evaluateMutationKillEvidence(
 		fileWriteTimes: ReadonlyMap<string, string>;
 		loadMutationManifest: NonNullable<DetectMutationKillEvidenceGapsOpts["loadMutationManifest"]>;
 		measurementCache: { value: number | null | undefined };
+		freshKillProofs: NonNullable<DetectMutationKillEvidenceGapsOpts["freshKillProofs"]>;
 	},
 ): MutationKillEvidenceHit | null {
 	const currentContent = ctx.readFile(abs);
@@ -306,9 +315,13 @@ function evaluateMutationKillEvidence(
 	const measurementMs = resolveMeasurementMs(ctx.cwd, ctx.loadMutationManifest, ctx.measurementCache);
 	const writeTimeRaw = ctx.fileWriteTimes.get(entry) ?? ctx.fileWriteTimes.get(abs);
 	const writeMs = writeTimeRaw ? Date.parse(writeTimeRaw) : NaN;
-	const staleMeasurement = Number.isNaN(writeMs)
+	const staleByManifest = Number.isNaN(writeMs)
 		? false // can't determine write time — don't claim staleness
 		: measurementMs === null || measurementMs < writeMs;
+	// A kill proof (`interlinked tests prove-kill`) whose source AND test bytes are
+	// the ones on disk now is per-file executed evidence, newer by construction
+	// than any write it hashes; it discharges the manifest-timestamp proxy.
+	const staleMeasurement = staleByManifest && ctx.freshKillProofs(ctx.cwd, relPath) === 0;
 
 	const missingContractCount = newMissingContractCount(currentContent, baselineContent, abs);
 

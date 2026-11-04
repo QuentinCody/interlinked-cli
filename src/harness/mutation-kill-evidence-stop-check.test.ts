@@ -45,6 +45,8 @@ interface DetectFixtureOpts {
 	writeTimes?: Record<string, string>;
 	gitHeadSha: string | undefined;
 	manifestAuthoritativeAt?: string;
+	/** Fresh `killed` kill-proof receipts naming the file (kill-proof/receipt.ts); default none. */
+	freshKillProofs?: number;
 }
 
 /** Drives `detectMutationKillEvidenceGaps` with fully in-memory fakes — no
@@ -68,8 +70,44 @@ function detect(opts: DetectFixtureOpts): MutationKillEvidenceHit[] {
 			opts.manifestAuthoritativeAt === undefined
 				? null
 				: { authoritativeAt: opts.manifestAuthoritativeAt },
+		freshKillProofs: () => opts.freshKillProofs ?? 0,
 	});
 }
+
+describe("detectMutationKillEvidenceGaps — kill-proof receipts", () => {
+	it("P1: a stale manifest still fires when no fresh kill proof names the file", () => {
+		const hits = detect({
+			current: { [KILL_FILE]: markedCase("kills mutant A") },
+			baseline: { [KILL_FILE_REL]: "" },
+			writeTimes: { [KILL_FILE]: "2026-08-14T10:00:00.000Z" },
+			gitHeadSha: SHA,
+			freshKillProofs: 0,
+		});
+		expect(hits[0]?.staleMeasurement).toBe(true);
+	});
+	it("N1: a fresh killed receipt (source + test bytes match disk) discharges the stale-manifest gap", () => {
+		const hits = detect({
+			current: { [KILL_FILE]: markedCase("kills mutant A") },
+			baseline: { [KILL_FILE_REL]: "" },
+			writeTimes: { [KILL_FILE]: "2026-08-14T10:00:00.000Z" },
+			gitHeadSha: SHA,
+			freshKillProofs: 1,
+		});
+		expect(hits).toEqual([]);
+	});
+	it("N2: a fresh kill proof never excuses a missing test-contract marker", () => {
+		const hits = detect({
+			current: { [KILL_FILE]: unmarkedCase("kills mutant A") },
+			baseline: { [KILL_FILE_REL]: "" },
+			writeTimes: { [KILL_FILE]: "2026-08-14T10:00:00.000Z" },
+			gitHeadSha: SHA,
+			freshKillProofs: 1,
+		});
+		expect(hits).toHaveLength(1);
+		expect(hits[0]?.staleMeasurement).toBe(false);
+		expect(hits[0]?.missingContractCount).toBe(1);
+	});
+});
 
 // ─── detector: positive (must fire) ────────────────────────────────────────
 

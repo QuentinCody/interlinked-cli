@@ -138,6 +138,32 @@ function registerFaults(tests: Command): void {
             await testsFaultsRunCommand(options);
         });
 }
+/** Mutation-grounded test proof: one mutant, the tests that claim to catch it, local execution, a receipt. */
+function registerKillProof(tests: Command): void {
+    tests.command("prove-kill")
+        .description("Prove that the named tests pass on the live tree and fail under ONE mutant (a manifest survivor by id, or an explicit --find/--replace fault); writes a receipt bound to source, test and runtime bytes. Exit 0 killed; 1 survived or not passing now; 2 undecided")
+        .option("--cwd <path>", "Project root")
+        .option("--test <file>", "Test file that must notice the mutant (repeatable)", (value: string, previous: string[] = []) => [...previous, value])
+        .option("--mutant <id>", "Stable mutant id from .interlinked/mutation-manifest.json (see `interlinked mutation survivors --file <path>`)")
+        .option("--file <path>", "Source file: narrows --mutant, required for an explicit fault")
+        .option("--find <text>", "Explicit fault: source text that occurs exactly once in --file")
+        .option("--replace <text>", "Explicit fault: the replacement text")
+        .option("--timeout <ms>", "Budget for each test run", "300000")
+        .option("--json", "Machine-readable result")
+        .action(async (options: OptionValues) => {
+            const { testsProveKillCommand } = await import("../commands/tests-prove-kill.js");
+            await testsProveKillCommand(options);
+        });
+    tests.command("kill-proofs")
+        .description("List recorded kill proofs; --verify re-checks each against the bytes and runtime on disk (exit 1 when any is stale)")
+        .option("--cwd <path>", "Project root")
+        .option("--verify", "Re-hash source and tests, re-resolve the mutant, compare the runtime")
+        .option("--json", "Machine-readable list")
+        .action(async (options: OptionValues) => {
+            const { testsKillProofsCommand } = await import("../commands/tests-prove-kill.js");
+            testsKillProofsCommand(options);
+        });
+}
 /** Plan 32 item 6: the session's tests against its pre-change code, rebuilt from the harness edit log. */
 function registerFailBeforeFix(tests: Command): void {
     tests.command("fail-before-fix")
@@ -167,6 +193,7 @@ export function registerTestsCommands(program: Command): void {
         });
     registerFailBeforeFix(tests);
     registerFaults(tests);
+    registerKillProof(tests);
     tests.command("readiness <language>")
         .description("Inspect test prerequisites without installing; Python also reports approved provisioning argv")
         .option("--cwd <path>", "Project root")
