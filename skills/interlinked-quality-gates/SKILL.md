@@ -5,6 +5,13 @@ description: "Configure and respond to Interlinked's metric ratchets: line-count
 
 # interlinked-quality-gates — the metric ratchets
 
+The source-only mutation research helpers support differential fuzzing, test-side
+mutant enumeration and test-double candidates. They do not enable a new automatic
+gate. Differential fuzzing calls original and mutated functions in-process; use it
+only for suitable side-effect-free targets. A minimized divergence is a candidate
+regression input, while no divergence is bounded search evidence, not equivalence.
+Missing optional dependencies and unsupported targets remain explicitly unavailable.
+
 ## Experimental decision-model measurements
 
 For the internal public-GitHub semantic collection and Jev/Luna research workflow,
@@ -495,6 +502,15 @@ unchanged symbol must also remain in that census. The record function repeats
 these checks itself, so callers cannot bypass them by invoking the writer
 directly. Missing, malformed, red, stale, truncated, timeout, and indeterminate
 evidence remains visible but cannot establish or replace a baseline.
+
+A request that outlives the per-request timeout (default 300 s) is not run
+again blindly. The client asks the runner for the retained report by job id
+(`GET <endpoint>/job/<id>`) on every later round and takes it when it lands;
+the outcome then carries `request.resumed: true` and the command prints a NOTE.
+Only when the runner holds nothing for that id does the client POST again, and
+an accepted repeat is counted: `request.attempts: 2` and a WARNING that the file
+was measured twice. Treat `attempts: 2` as two separate runs when comparing
+survivor counts.
 
 Protocol v3 now has a digest-pinned evidence contract, authenticated local
 adapter, SQLite leases/journal-before-ack primitives, and strict cloud HTTP

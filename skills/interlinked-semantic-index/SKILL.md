@@ -5,6 +5,12 @@ description: "Install and operate Interlinked's optional local semantic function
 
 # interlinked-semantic-index — local function retrieval
 
+The local embedding runtime binds its explicit version/build identity and effective
+embedding arguments into its fingerprint. Context, batch and physical batch sizes
+cover the model's declared input limit; smaller configured batches fail explicitly.
+Empty output and vectors that overflow float32 are unavailable results. A changed
+runtime fingerprint requires rebuilding the index before using its vectors.
+
 ## Separate decision-metrics research index
 
 `metrics decisions embed|geometry|retrieve|candidates` uses a separate Ollama pipeline

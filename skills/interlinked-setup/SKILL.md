@@ -376,8 +376,10 @@ allocations can overshoot between samples, descendants that escape the process g
 contained, and unsupported `ps` telemetry interrupts the run. Public `verify` and `tests`
 CLI entry points additionally run under a separate supervising process, so a busy CLI event
 loop does not prevent sampling. The child retains its normal project/host admission and
-consumes the private parent marker before dispatch and evidence capture. If only the light
-budget fits, the CLI must stay within its 1 GiB ceiling; interruption exits 75 without a verdict.
+consumes the private parent marker before dispatch and evidence capture. These heavy CLI
+commands wait within their command deadline, for at most ten minutes of admission, for a
+heavy budget; they do not silently substitute a 1 GiB light budget. Admission and execution
+share the deadline. Interrupted or unavailable runs exit 75 without a verdict.
 These controls do not change the daemon's limits below or govern commands
 launched independently by the user. `INTERLINKED_DISABLE_SESSION_END_JOBS=1` still opts out.
 
@@ -398,6 +400,15 @@ It cannot run an oversized check successfully: the same monitor interrupts it. P
 keeps the heavy profile and its full exact-revision test/coverage contract.
 
 The default daemon V8 heap cap is 1536MB and the hard RSS recycle ceiling is 2048MB.
+Repeated Gitleaks recovery scans are bounded to two Go execution threads (or one
+when `GOMAXPROCS=1`). Interrupted scans remain NOT CHECKED and are not retried for
+each receipt batch within the same daemon-owned recovery job. The idle drain does
+not relaunch an unchanged completed plan, even after restart. Inspect
+`interlinked harness coverage status --progress --json`; after resolving a tool or
+capacity failure, explicitly retry with `interlinked harness coverage verify --json`.
+New observed file versions can trigger another automatic plan. No pending evidence
+is discarded by these limits.
+
 `INTERLINKED_HARNESS_HEAP_MB` is accepted only when it is finite and at least 1; fractional
 values are floored, and every invalid value falls back to 1536. The CLI, hook self-heal path,
 and generated runtimes use that same parser. At the RSS

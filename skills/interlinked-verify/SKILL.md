@@ -30,6 +30,19 @@ from repetition. Project-wide Gitleaks runs in explicit verify/background recove
 not the interactive ChangeSet batch. Inline secret checks remain active. A deferred
 Gitleaks scan is NOT CHECKED, never a passing security verdict.
 
+Gitleaks subprocesses use at most two Go execution threads (`GOMAXPROCS`); an
+existing value of `1` is preserved. Interrupted or truncated asynchronous scans
+produce unavailable evidence. Recovery retains a failed scan per project for the
+rest of that job in the current daemon, instead of repeating it for every receipt
+batch. Successful scans are not cached across different inputs. A fresh explicit
+recovery job or daemon replacement permits another attempt.
+
+The idle drain does not restart a completed recovery plan while all pending
+versions were already in that plan, including after daemon restart. New observed
+versions permit automatic recovery again. After repairing a tool or capacity issue,
+run `interlinked harness coverage verify --json` to retry unchanged pending work.
+Pending evidence is retained; stopping automatic repetition does not certify it.
+
 Final compiler errors arrive as batch context so Claude can repair them; a native batch
 `block` would cancel its loop. Unresolved errors and unavailable compiler work remain
 in `.interlinked/compiler-batches/` and are checked before Stop and commit, including
@@ -678,6 +691,9 @@ does not acquire a second host lease; the actual command keeps its existing admi
 Memory interruption exits 75 without a verification verdict, even if partial output was printed.
 Interrupted outer runs print peak RSS (or unavailable), budget and reserve bytes and
 retain a deferred `cli:<command>` verification-stage row without a passing identity.
+This includes a null child exit status from an external signal even when the local
+supervisor did not initiate cancellation. A child's own numeric exit 75 remains a
+completed child exit and does not acquire that interruption diagnostic or fallback row.
 The fallback ledger follows `tests --cwd`; an explicit stage-ledger override still wins.
 Exit 75 alone cannot say what happened — admission that never happened, a child killed
 mid-run and a child that itself exits 75 all surface as 75 — so the bounded runner
@@ -700,8 +716,11 @@ the runner tree and host reserve, set a 768 MiB Node heap limit, and pass
 Vitest adapter honors that variable; other runners still use their own worker controls
 and remain subject to the memory monitor. Capacity loss is an explicit deferral.
 Repository pre-push heavy commands wait at most ten minutes for that shared lane;
-light diagnostic commands wait five seconds. This serializes an existing daemon push
-check with the exact-revision repository gate without skipping either check.
+light diagnostic commands wait five seconds. The same admission deadline includes
+temporary memory shortages. Interactive scheduled tests may wait for a worker within
+their existing request deadline; edit callers that decline waiting still defer promptly.
+Waiting supplies no verdict. The bounded wrapper preserves smaller absolute
+`NODE_OPTIONS` heap limits and refuses ambiguous or percentage overrides.
 
 ## Select, explain and resume tests
 

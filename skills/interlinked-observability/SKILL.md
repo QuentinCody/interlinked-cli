@@ -481,8 +481,8 @@ counts a merge once; measured 2026-09-29 the convert phase was 165 s of a
 `wait_capacity_ms`, `validate_ms` (runtime snapshot + hash that decides
 reuse; paid on hits, misses and early stale returns), `lookup_ms`, `exec_ms`,
 `post_ms`, `peak_rss_bytes` (peak sampled RSS of the bounded child tree, taken
-every 500 ms; present only on rows for commands that ran under a memory budget
-and had at least one sample), `rss_budget_bytes` (the budget the command was
+every 500 ms; numeric only when at least one sample exists, otherwise absent or
+explicitly null), `rss_budget_bytes` (the budget the command was
 admitted under; `peak_rss_bytes / rss_budget_bytes` is the headroom, and
 `scripts/run-resource-bounded.ts` prints a `[resources] HEADROOM:` stderr line
 above 85%), `heap_limit_mb` (the `--max-old-space-size` the command started

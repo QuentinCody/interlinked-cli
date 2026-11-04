@@ -5,6 +5,10 @@ description: "Understand and respond to the Interlinked PreToolUse guard — the
 
 # interlinked-harness — the guard: what blocks you & how to respond
 
+Remote-pipe detection permits interpreter inline programs preceded by bare flags
+(for example, `curl URL | python3 -I -c '...'`), where stdin is data. Shell sinks
+retain their existing remote-execution block.
+
 `[interlinked:decision-metrics]` is opt-in PostToolUse semantic advice. It can report
 an adverse judgment, uncertainty, failure or missing evidence, but it never sets a
 pre-execution block or authorizes an action. Both flags in
