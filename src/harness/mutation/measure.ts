@@ -59,7 +59,7 @@ import {
 } from "./manifest.js";
 import type { MeasureOverlay } from "./measure-overlays.js";
 import { requestWholeFileReport } from "./measure-request.js";
-import type { FetchLike } from "./measure-request.js";
+import type { ClaimFetchLike, FetchLike } from "./measure-request.js";
 import { strykerToAdapted } from "./stryker-adapter.js";
 import type { AdaptedFile } from "./stryker-adapter.js";
 import type { MeasurementProvenance, MutantIdentity, MutantStatus, MutationManifest } from "./types.js";
@@ -75,7 +75,7 @@ export {
 } from "./measure-overlays.js";
 export type { MeasureOverlay, ScopedOverlayResult } from "./measure-overlays.js";
 export { requestWholeFileReport } from "./measure-request.js";
-export type { FetchLike, FetchResponseLike, RequestArgs, RequestOutcome } from "./measure-request.js";
+export type { ClaimFetchLike, FetchLike, FetchResponseLike, RequestArgs, RequestOutcome } from "./measure-request.js";
 export { type ConfiguredEndpoints, configuredRunnerEndpoints } from "./runner-endpoints.js";
 
 // ============================================================
@@ -186,6 +186,9 @@ export interface MeasureFileArgs {
 	endpoints: string[];
 	token?: string;
 	fetchImpl: FetchLike;
+	/** See `RequestArgs.claimFetch`: lets a timed-out request be observed again
+	 *  instead of run again. The CLI always supplies it. */
+	claimFetch?: ClaimFetchLike;
 	jobId?: string;
 	deadlineMs?: number;
 	requestTimeoutMs?: number;
@@ -193,6 +196,15 @@ export interface MeasureFileArgs {
 	sleep?: (ms: number) => Promise<void>;
 	/** See `RequestArgs.testScope` — forwarded verbatim, untouched here. */
 	testScope?: string[];
+}
+
+/** How the report was obtained — recorded so a measurement that ran twice, or
+ *  was resumed after a timeout, is never indistinguishable from a plain one. */
+export interface MeasureRequestRecord {
+	/** POSTs the runner accepted for this job id; 2 = the file was measured twice. */
+	attempts: number;
+	/** The report was claimed from `/job/<id>` after the POST timed out — same execution. */
+	resumed: boolean;
 }
 
 export interface MeasureOutcome {
@@ -214,6 +226,8 @@ export interface MeasureOutcome {
 	/** The untouched runner response — present ONLY on "measured", and the ONLY
 	 *  thing a caller may pass on to `recordMeasurement`. */
 	rawReport?: unknown;
+	/** Present whenever a report arrived (measured / partial / not_measurable). */
+	request?: MeasureRequestRecord;
 }
 
 /** Measure one file end to end (request → classify → summarize). Never
@@ -229,6 +243,7 @@ export async function measureFile(args: MeasureFileArgs): Promise<MeasureOutcome
 		jobId: args.jobId ?? `measure-${args.file.replace(/\W/g, "-")}-${Date.now().toString(36)}`,
 		deadlineMs: args.deadlineMs ?? DEFAULT_MEASURE_DEADLINE_MS,
 		requestTimeoutMs: args.requestTimeoutMs ?? DEFAULT_MEASURE_REQUEST_TIMEOUT_MS,
+		...(args.claimFetch !== undefined ? { claimFetch: args.claimFetch } : {}),
 		...(args.token !== undefined ? { token: args.token } : {}),
 		...(args.now !== undefined ? { now: args.now } : {}),
 		...(args.sleep !== undefined ? { sleep: args.sleep } : {}),
@@ -238,6 +253,7 @@ export async function measureFile(args: MeasureFileArgs): Promise<MeasureOutcome
 		const status = result.busy ? "busy" : "error";
 		return { status, reason: result.reason, mutantCount: 0, survivorCount: 0, survivors: [] };
 	}
+	const request: MeasureRequestRecord = { attempts: result.attempts, resumed: result.resumed === true };
 	const notMeasurable = readNotMeasurable(result.body);
 	if (notMeasurable) {
 		return {
@@ -246,6 +262,7 @@ export async function measureFile(args: MeasureFileArgs): Promise<MeasureOutcome
 			mutantCount: 0,
 			survivorCount: 0,
 			survivors: [],
+			request,
 		};
 	}
 	const inspection = inspectReport({ body: result.body, file: args.file, content: args.content });
@@ -257,9 +274,10 @@ export async function measureFile(args: MeasureFileArgs): Promise<MeasureOutcome
 			mutantCount,
 			survivorCount: survivors.length,
 			survivors,
+			request,
 		};
 	}
-	return { status: "measured", mutantCount, survivorCount: survivors.length, survivors, rawReport: result.body };
+	return { status: "measured", mutantCount, survivorCount: survivors.length, survivors, rawReport: result.body, request };
 }
 
 // ============================================================

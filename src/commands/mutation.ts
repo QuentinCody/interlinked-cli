@@ -376,6 +376,7 @@ export async function mutationMeasureCommand(file: string, opts: MutationMeasure
 		mutantCount: result.mutants,
 		survivorCount: result.survivors,
 		survivors: result.survivorList,
+		...(result.request !== undefined ? { request: result.request } : {}),
 	};
 	const payload = {
 		file: result.file,
@@ -385,6 +386,9 @@ export async function mutationMeasureCommand(file: string, opts: MutationMeasure
 		survivors: result.survivors,
 		survivorList: result.survivorList,
 		record: result.record,
+		// `attempts: 2` = the file was measured twice (a timed-out run could not
+		// be claimed); `resumed: true` = the same execution, observed again.
+		request: result.request ?? null,
 	};
 
 	output(mode, payload, {

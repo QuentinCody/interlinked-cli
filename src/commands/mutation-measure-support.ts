@@ -230,6 +230,8 @@ export interface MeasureOneResult {
 	survivors: number;
 	survivorList: SurvivorEntry[];
 	record: MeasureRecordSummary | null;
+	/** How the report was obtained (attempts, resumed) — see `MeasureOutcome.request`. */
+	request?: NonNullable<MeasureOutcome["request"]>;
 	/** Human-readable notes (scope size, dropped overlays) for a verbose caller. */
 	notes: string[];
 }
@@ -345,6 +347,15 @@ export async function measureOneFile(args: MeasureOneArgs): Promise<MeasureOneRe
 		},
 	});
 
+	// Say HOW the report arrived when it was not the plain one-POST case: a
+	// resumed run is the same execution observed again; a second attempt means
+	// the file was measured twice and the two runs are not the same evidence.
+	if (outcome.request?.resumed) {
+		notes.push("NOTE: the runner's HTTP window closed before the engine finished; the report was claimed back by job id (the same execution, observed again).");
+	}
+	if ((outcome.request?.attempts ?? 1) > 1) {
+		notes.push(`WARNING: the measurement ran ${outcome.request?.attempts} times — a timed-out run could not be claimed back, so the runner executed it again; this report is the later run's.`);
+	}
 	return {
 		file: key,
 		status: outcome.status,
@@ -353,6 +364,7 @@ export async function measureOneFile(args: MeasureOneArgs): Promise<MeasureOneRe
 		survivors: outcome.survivorCount,
 		survivorList: outcome.survivors,
 		record,
+		...(outcome.request !== undefined ? { request: outcome.request } : {}),
 		notes,
 	};
 }

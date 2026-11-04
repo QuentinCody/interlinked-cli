@@ -334,7 +334,7 @@ describe("requestWholeFileReport", () => {
 			endpoints: ["http://runner/"],
 			fetchImpl: async () => fakeResponse(200, body),
 		});
-		expect(outcome).toEqual({ ok: true, body });
+		expect(outcome).toEqual({ ok: true, body, attempts: 1 });
 	});
 
 	it("P2: falls over to the second endpoint when the first is unreachable", async () => {
@@ -349,7 +349,7 @@ describe("requestWholeFileReport", () => {
 				return fakeResponse(200, body);
 			},
 		});
-		expect(outcome).toEqual({ ok: true, body });
+		expect(outcome).toEqual({ ok: true, body, attempts: 1 });
 		expect(calls).toBe(2);
 	});
 
@@ -475,6 +475,110 @@ describe("requestWholeFileReport", () => {
 		expect("range" in sent).toBe(false);
 	});
 
+	// --- resume after a timed-out request (row 6m): the SAME execution is observed again, never re-run silently
+	const timeoutError = (): Error => Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+	const virtualClock = () => {
+		let clock = 0;
+		return { now: () => clock, sleep: async (ms: number) => { clock += ms; } };
+	};
+
+	it("P7: after a POST times out, the next round claims GET /job/<id> and returns that body as resumed, with ONE attempt", async () => {
+		const body = { files: {}, job_id: "job-1" };
+		const posts: string[] = []; const gets: string[] = [];
+		let postCalls = 0;
+		const outcome = await requestWholeFileReport({
+			...baseArgs,
+			...virtualClock(),
+			endpoints: ["http://runner/"],
+			fetchImpl: async (url) => {
+				posts.push(url); postCalls++;
+				if (postCalls === 1) throw timeoutError();
+				throw new Error("a second POST must not happen once the claim succeeds");
+			},
+			claimFetch: async (url, init) => {
+				gets.push(url);
+				expect(init.method).toBe("GET");
+				return fakeResponse(200, body);
+			},
+		});
+		expect(outcome).toEqual({ ok: true, body, attempts: 1, resumed: true });
+		expect(posts).toEqual(["http://runner/"]);
+		expect(gets).toEqual(["http://runner/job/job-1"]);
+	});
+
+	it("P8: while the runner is still executing the timed-out job (claim 404, POST 503), the client keeps claiming and takes the result when it lands — still one attempt", async () => {
+		const body = { files: {} };
+		let claims = 0; let postCalls = 0;
+		const outcome = await requestWholeFileReport({
+			...baseArgs,
+			...virtualClock(),
+			deadlineMs: 60_000,
+			endpoints: ["http://runner/"],
+			fetchImpl: async () => {
+				postCalls++;
+				if (postCalls === 1) throw timeoutError();
+				return fakeResponse(503, {});
+			},
+			claimFetch: async () => {
+				claims++;
+				return claims < 3 ? fakeResponse(404, { error: "no such finished job" }) : fakeResponse(200, body);
+			},
+		});
+		expect(outcome).toEqual({ ok: true, body, attempts: 1, resumed: true });
+		expect(claims).toBe(3);
+	});
+
+	it("N6: a runner that holds nothing for the job (claim 404) and then ACCEPTS the repeated POST yields attempts: 2 — a recorded second execution, not a resumed one", async () => {
+		const body = { files: {} };
+		let postCalls = 0;
+		const outcome = await requestWholeFileReport({
+			...baseArgs,
+			...virtualClock(),
+			endpoints: ["http://runner/"],
+			fetchImpl: async () => {
+				postCalls++;
+				if (postCalls === 1) throw timeoutError();
+				return fakeResponse(200, body);
+			},
+			claimFetch: async () => fakeResponse(404, { error: "no such finished job" }),
+		});
+		expect(outcome).toEqual({ ok: true, body, attempts: 2 });
+	});
+
+	it("N7: a refused connection is NOT a timeout — no claim is attempted and a later success is a single attempt", async () => {
+		const body = { files: {} };
+		let postCalls = 0; let claims = 0;
+		const outcome = await requestWholeFileReport({
+			...baseArgs,
+			...virtualClock(),
+			endpoints: ["http://runner/"],
+			fetchImpl: async () => {
+				postCalls++;
+				if (postCalls === 1) throw new Error("ECONNREFUSED");
+				return fakeResponse(200, body);
+			},
+			claimFetch: async () => { claims++; return fakeResponse(404, {}); },
+		});
+		expect(outcome).toEqual({ ok: true, body, attempts: 1 });
+		expect(claims).toBe(0);
+	});
+
+	it("N8: without a claimFetch the old behaviour stands — the repeated POST runs again and is counted as the second attempt", async () => {
+		const body = { files: {} };
+		let postCalls = 0;
+		const outcome = await requestWholeFileReport({
+			...baseArgs,
+			...virtualClock(),
+			endpoints: ["http://runner/"],
+			fetchImpl: async () => {
+				postCalls++;
+				if (postCalls === 1) throw timeoutError();
+				return fakeResponse(200, body);
+			},
+		});
+		expect(outcome).toEqual({ ok: true, body, attempts: 2 });
+	});
+
 	it("N5: gives up after exactly three unreachable rounds and names all endpoints", async () => {
 		let calls = 0;
 		const out = await requestWholeFileReport({
@@ -561,7 +665,7 @@ describe("requestWholeFileReport", () => {
 			clock += 20_000;
 			await vi.advanceTimersByTimeAsync(20_000);
 			const outcome = await promise;
-			expect(outcome).toEqual({ ok: true, body: { files: {} } });
+			expect(outcome).toEqual({ ok: true, body: { files: {} }, attempts: 1 });
 			expect(calls).toBe(2);
 		} finally {
 			vi.useRealTimers();

@@ -70,6 +70,9 @@ export function networkMeasure(
 			overlays: args.overlays,
 			endpoints: args.endpoints,
 			fetchImpl: (url, init) => fetch(url, { ...init, signal: init.signal }),
+			// A POST that outlives the request timeout is claimed back by job id
+			// (`GET <endpoint>/job/<id>`) instead of being run a second time.
+			claimFetch: (url, init) => fetch(url, init),
 			...(args.token !== undefined ? { token: args.token } : {}),
 			...(args.deadlineMs !== undefined ? { deadlineMs: args.deadlineMs } : {}),
 			...(args.testScope !== undefined ? { testScope: args.testScope } : {}),

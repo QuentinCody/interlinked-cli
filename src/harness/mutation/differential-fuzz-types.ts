@@ -39,6 +39,13 @@ export interface FuzzMutantTarget {
 	 *  ascending — identity.ts's own ordinal derivation. Used to re-locate the
 	 *  exact character span inside the CURRENT source text. */
 	ordinalWithinSymbol: number;
+	/** 0-based UTF-16 offset of the mutated lexeme in the source. When present
+	 *  the engine uses it directly; when absent it re-locates the site from
+	 *  `mutantId` / `ordinalWithinSymbol` (see `differential-fuzz-locate.ts`). */
+	startOffset?: number;
+	/** The source text the offset / ordinal refer to. Absent ⇒ the engine reads
+	 *  `absPath` from disk. */
+	source?: string;
 }
 
 /** One parameter's type-derived arbitrary, with provenance for the report. */
@@ -52,6 +59,9 @@ export interface ParamArbitrarySpec {
 	 *  a no-divergence result is real evidence, but weaker evidence. */
 	weak: boolean;
 	note: string;
+	/** True when this parameter was drawn partly from the corpus (companion-test
+	 *  literals, repo files, edits of both) rather than from the type alone. */
+	corpusSeeded?: boolean;
 }
 
 /** One call's fully-observed outcome, safe to compare and to render as a
@@ -64,17 +74,42 @@ export interface CallOutcomeSummary {
 	valueJson: string;
 	errorName?: string;
 	errorMessage?: string;
+	/** Rendering of the argument list AFTER the call — a function that mutates
+	 *  its inputs is observable through them. Compared like the return value. */
+	argsAfterJson?: string;
 }
 
 export const DEFAULT_FUZZ_RUNS = 300;
+/** Wall-clock cap for the whole search, shrinking included. */
+export const DEFAULT_FUZZ_TIME_BUDGET_MS = 10_000;
+/** Per-call cap. A mutant that loops forever is observed as a timeout, not a hang. */
+export const DEFAULT_FUZZ_CALL_TIMEOUT_MS = 250;
+
+/** Corpus-seeded generation for string parameters that look like source text
+ *  (see differential-fuzz-corpus.ts). Absent ⇒ type-driven generation only. */
+export interface FuzzCorpusConfig {
+	/** Repo source files (absolute or cwd-relative) whose text seeds the search.
+	 *  May be empty: the function's own companion-test literals still apply. */
+	files: string[];
+	/** Cap, in characters, on any one seed text. */
+	maxBytes: number;
+	/** Extra literal seed texts (mostly for tests). */
+	seeds?: string[];
+}
 
 export interface FuzzRunConfig {
+	/** Corpus-seeded generation for source-text string parameters. */
+	corpus?: FuzzCorpusConfig;
 	/** Generated inputs to try. Default {@link DEFAULT_FUZZ_RUNS}. */
 	runs?: number;
 	/** Fixed seed for a reproducible replay; omitted ⇒ fast-check picks one
 	 *  (and reports it back — always recorded, since a seed nobody wrote down
 	 *  makes a "no divergence" run unreplayable). */
 	seed?: number;
+	/** Wall-clock budget for the whole search. Default {@link DEFAULT_FUZZ_TIME_BUDGET_MS}. */
+	timeBudgetMs?: number;
+	/** Per-call timeout. Default {@link DEFAULT_FUZZ_CALL_TIMEOUT_MS}. */
+	callTimeoutMs?: number;
 }
 
 export type FuzzOutcomeKind = "kill" | "no_divergence" | "unavailable" | "unsupported_target";
@@ -99,6 +134,10 @@ export interface FuzzKillOutcome extends FuzzOutcomeBase {
 	 *  this module. */
 	regressionFixture: string;
 	params: ParamArbitrarySpec[];
+	/** False when the function is not exported by its module and the engine called
+	 *  it through a synthetic export; the proposed fixture then needs the function
+	 *  exported (or a public caller) before it can be adopted. */
+	targetExported: boolean;
 }
 
 /** N inputs produced no divergence. Evidence of a failed counterexample search
@@ -110,6 +149,8 @@ export interface FuzzNoDivergenceOutcome extends FuzzOutcomeBase {
 	numRuns: number;
 	seed: number;
 	params: ParamArbitrarySpec[];
+	/** See {@link FuzzKillOutcome.targetExported}. */
+	targetExported: boolean;
 	/** True iff ANY parameter fell back to a broad/generic arbitrary — the
 	 *  search covered less of the real input space than a type-faithful
 	 *  generator would, so this evidence is weaker than it looks. Surfaced
