@@ -57,6 +57,26 @@ describe("checkMisusedPromises", () => {
 		expect(checkMisusedPromises("xs.forEach(async (x) => x);", "src/foo.py")).toEqual([]);
 	});
 
+	// Census fault (docs/reviews/kill-proof-census-harness.md, "Product defect
+	// found"): the chain scanner walked back across a ternary `?`, so the `await`
+	// on the CONDITION suppressed the finding on the forEach in the branch.
+	// test-contract: bug — `await c ? xs.forEach(async …) : …` awaits `c`, not the forEach; the finding must fire
+	it("P5: flags .forEach(async ...) in a ternary branch whose condition is awaited", () => {
+		const src = "const r = await ready ? items.forEach(async (x) => { await save(x); }) : null;";
+		expect(checkMisusedPromises(src, "src/foo.ts")).toEqual([{ line: 1, text: src }]);
+	});
+
+	it("P6: flags .forEach(async ...) on a negated receiver after await", () => {
+		const src = "await !flag.forEach(async (x) => { await save(x); });";
+		expect(checkMisusedPromises(src, "src/foo.ts")).toEqual([{ line: 1, text: src }]);
+	});
+
+	it("N4: does not flag an awaited optional-chain / non-null receiver's forEach", () => {
+		expect(
+			checkMisusedPromises("await stream?.pipe(t)!.forEach(async (x) => { await save(x); });", "src/foo.ts"),
+		).toEqual([]);
+	});
+
 	it("boundary: caps at 10 matches even when more exist, preserving the first 10 in order", () => {
 		const lines = Array.from({ length: 12 }, (_, i) => `xs${i}.forEach(async (x) => x);`);
 		const out = checkMisusedPromises(lines.join("\n"), "src/foo.ts");

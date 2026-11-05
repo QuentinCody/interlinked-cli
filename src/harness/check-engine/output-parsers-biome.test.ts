@@ -80,6 +80,39 @@ describe("parseBiomeOutput", () => {
 		expect(nonNull(out[0]).message).toContain("does not parse");
 	});
 
+	// Census gap (docs/reviews/kill-proof-census-harness.md, "Three worst gaps" 3): only `parse`
+	// headers were pinned as errors.
+	// test-contract: bug — a bare `syntax` header is the parse family; it must be an error, never a warning
+	it("parses bare SYNTAX diagnostics as errors, exactly like parse", () => {
+		const out = parseBiomeOutput("poison.ts:1:7 syntax ━━━━━━━━━━━\n  × Expected a semicolon.\n");
+		expect(out).toHaveLength(1);
+		expect(out[0]).toMatchObject({ severity: "error", ruleId: "syntax", line: 1, column: 7 });
+		expect(nonNull(out[0]).message).toBe("syntax: file does not parse");
+	});
+
+	// test-contract: bug — biome 2 prints the syntax rule group as `syntax/<group>/<rule>`; the bare-word
+	// alternation dropped it, so a file biome rejects produced zero findings (the fail-open the header describes)
+	it("parses syntax/<group>/<rule> diagnostics as errors (biome 2.4.13 header, verified against the binary)", () => {
+		const out = parseBiomeOutput(
+			[
+				"dup.ts:3:3 syntax/correctness/noDuplicatePrivateClassMembers ━━━━━━━━━━━",
+				"  × Duplicate private class member \"#x\"",
+				"attr.ts:1:30 syntax/correctness/noTypeOnlyImportAttributes ━━━━━━━━━━━",
+			].join("\n"),
+		);
+		expect(out).toHaveLength(2);
+		expect(out[0]).toMatchObject({
+			tool: "biome",
+			severity: "error",
+			file: "dup.ts",
+			line: 3,
+			column: 3,
+			ruleId: "syntax/correctness/noDuplicatePrivateClassMembers",
+			message: "syntax/correctness/noDuplicatePrivateClassMembers: syntax error",
+		});
+		expect(out[1]).toMatchObject({ severity: "error", file: "attr.ts", line: 1, column: 30 });
+	});
+
 	it("ignores non-diagnostic lines (summaries, diff bodies)", () => {
 		const out = parseBiomeOutput(
 			["Checked 1 file in 1083µs. No fixes applied.", "Found 6 errors.", "  > 1 │ const = {{{"].join(

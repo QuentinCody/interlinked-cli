@@ -108,4 +108,12 @@ describe("passesTemporalGating — negative (must return false)", () => {
 		const session = makeSession({ tool_sequence: [] });
 		expect(passesTemporalGating(rule, session)).toBe(false);
 	});
+
+	// Census gap (docs/reviews/kill-proof-census-harness.md, "Three worst gaps" 2): N1 only
+	// covered requires_prior, so a forbids_after rule could turn live on every session-less call.
+	// test-contract: bug — a forbids_after rule cannot see the forbidden state without a session, so it must stay dormant, never block
+	it("N4: forbids_after declared but no session is in scope", () => {
+		const rule = makeRule({ forbids_after: { tool: "Write" } });
+		expect(passesTemporalGating(rule, undefined)).toBe(false);
+	});
 });

@@ -9,16 +9,30 @@
 // diagnostic the parser returned [] while biome still exited non-zero, so the
 // runner reported "no diagnostics parsed — lint NOT validated" and waved the
 // edit through (it never caught unsorted imports, which CI `biome check` fails).
+// Biome 2 also prints the syntax RULE group as `syntax/<group>/<rule>` (verified
+// against 2.4.13: `syntax/correctness/noDuplicatePrivateClassMembers`); the
+// alternation accepted only the bare word, so those headers were dropped the
+// same silent way (found by the kill-proof census, 2026-11-05). They are
+// non-configurable errors in biome, so they are errors here.
 // Re-exported through output-parsers.ts — import from there.
 
 import { nonNull } from "../../lib/non-null.js";
 import type { CheckResult } from "./types.js";
 
+/** Severity + message for one header category: the parse family (`parse`,
+ *  bare `syntax`) and the `syntax/*` rule group are errors; everything else is
+ *  a warning carrying the category as its message. */
+function classifyRule(rule: string): Pick<CheckResult, "severity" | "message"> {
+	if (rule === "parse" || rule === "syntax") return { severity: "error", message: `${rule}: file does not parse` };
+	if (rule.startsWith("syntax/")) return { severity: "error", message: `${rule}: syntax error` };
+	return { severity: "warning", message: rule };
+}
+
 export function parseBiomeOutput(output: string): CheckResult[] {
 	const results: CheckResult[] = [];
 	for (const line of output.split("\n")) {
 		const match = line.match(
-			/^(.+?):(\d+):(\d+)\s+(lint\S+|assist\S+|suppressions\S+|format|parse|syntax)\s/,
+			/^(.+?):(\d+):(\d+)\s+(lint\S+|assist\S+|suppressions\S+|format|parse|syntax\S*)\s/,
 		);
 		if (match) {
 			// Every capture group in the header regex is mandatory (no `?`
@@ -30,14 +44,14 @@ export function parseBiomeOutput(output: string): CheckResult[] {
 			const lineNo = nonNull(match[2]);
 			const col = nonNull(match[3]);
 			const rule = nonNull(match[4]);
-			const isParse = rule === "parse" || rule === "syntax";
+			const { severity, message } = classifyRule(rule);
 			results.push({
 				tool: "biome",
-				severity: isParse ? "error" : "warning",
+				severity,
 				file,
 				line: Number.parseInt(lineNo, 10),
 				column: Number.parseInt(col, 10),
-				message: isParse ? `${rule}: file does not parse` : rule,
+				message,
 				ruleId: rule,
 			});
 		}
