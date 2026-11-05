@@ -177,6 +177,13 @@ vi.mock("./verify/project-e2e-section.js", () => ({
 	}),
 }));
 
+// --- verify/kill-proofs-section -------------------------------------------------
+const absentKillProofs = { present: false, failed: false, rows: [], findings: [], lines: [], json: undefined };
+vi.mock("./verify/kill-proofs-section.js", () => ({
+	killProofsSection: vi.fn(() => absentKillProofs),
+	streamKillProofsSection: vi.fn(() => false),
+}));
+
 // --- verify/tool-results -----------------------------------------------------
 const checkProjectSetupMock = vi.fn<(cwd: string) => unknown[]>(() => []);
 const clearCodeQualityResultsMock = vi.fn<(r: unknown) => void>();

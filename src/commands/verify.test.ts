@@ -189,6 +189,14 @@ vi.mock("./verify/project-e2e-section.js", () => ({
 	}),
 }));
 
+// --- verify/kill-proofs-section -----------------------------------------------
+// Same reason: the real section would read receipts through the mocked fs.
+const absentKillProofs = { present: false, failed: false, rows: [], findings: [], lines: [], json: undefined };
+vi.mock("./verify/kill-proofs-section.js", () => ({
+	killProofsSection: vi.fn(() => absentKillProofs),
+	streamKillProofsSection: vi.fn(() => false),
+}));
+
 // --- verify/tool-results ---------------------------------------------------
 const checkProjectSetupMock = vi.fn<(cwd: string) => unknown[]>(() => []);
 const clearCodeQualityResultsMock = vi.fn<(r: unknown) => void>();
@@ -801,6 +809,24 @@ describe("runVerifyBatchJson — json output path", () => {
         expect(process.exitCode).toBe(1);
         expect(projectE2eSection).toHaveBeenCalledWith("/repo");
         expect(outputJsonMock).toHaveBeenCalledTimes(1);
+    });
+    it("fails JSON verification when a KILLED kill proof is stale, and passes the section's JSON through as `killProofs`", async () => {
+        const { verifyCommand } = await importVerify();
+        const { killProofsSection } = await import("./verify/kill-proofs-section.js");
+        const json = { issues: 1, files: ["src/a.test.ts"], details: [], receipts: [], skipped: false };
+        vi.mocked(killProofsSection).mockReturnValueOnce({ present: true, failed: true, rows: [], findings: [], lines: [], json });
+        await verifyCommand({ cwd: "/repo", json: true });
+        expect(process.exitCode).toBe(1);
+        expect(killProofsSection).toHaveBeenCalledWith("/repo", expect.any(Set));
+        expect(outputJsonMock).toHaveBeenCalledTimes(1);
+        expect(nonNull(outputJsonMock.mock.calls.at(-1)?.[0]).killProofs).toEqual(json);
+    });
+    it("passes JSON verification when every kill proof is fresh or only uncommitted (present, not failed)", async () => {
+        const { verifyCommand } = await importVerify();
+        const { killProofsSection } = await import("./verify/kill-proofs-section.js");
+        vi.mocked(killProofsSection).mockReturnValueOnce({ present: true, failed: false, rows: [], findings: [], lines: [], json: { issues: 0, files: [], details: [], receipts: [], skipped: false } });
+        await verifyCommand({ cwd: "/repo", json: true });
+        expect(process.exitCode).not.toBe(1);
     });
 	it("includes imported lint findings and runs all configured cadences for --all-checks", async () => {
 		const { verifyCommand } = await importVerify();

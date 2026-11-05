@@ -107,7 +107,25 @@ export async function testsProveKillCommand(options: ProveKillCliOptions): Promi
 
 export interface KillProofsCliOptions { cwd?: string; verify?: boolean; json?: boolean; }
 
-export interface KillProofRow { id: string; verdict: KillProofReceipt["verdict"]; provedAt: string; mutant: string; tests: string[]; killedTests: string[]; freshness?: "fresh" | "uncommitted" | "stale" | "unreadable"; reasons?: string[]; }
+export type KillProofFreshness = "fresh" | "uncommitted" | "stale" | "unreadable";
+
+export interface KillProofRow {
+	id: string;
+	verdict: KillProofReceipt["verdict"];
+	provedAt: string;
+	mutant: string;
+	/** Manifest mutant id, when the receipt resolved one (absent for an explicit fault or an unreadable receipt). */
+	mutantId?: string;
+	tests: string[];
+	killedTests: string[];
+	freshness?: KillProofFreshness;
+	reasons?: string[];
+}
+
+/** The command that renews a proof: the nudge's wording (`post-tool-kill-proof.ts`), with the receipt's own id and test files filled in. */
+export function renewCommand(row: Pick<KillProofRow, "mutantId" | "tests">): string {
+	return `interlinked tests prove-kill --mutant ${row.mutantId ?? "<id>"}${row.tests.map(test => ` --test ${test}`).join("") || " --test <file>"}`;
+}
 
 export function listKillProofs(root: string, verify: boolean): KillProofRow[] {
 	const index = new Map(readKillProofIndex(root).receipts.map(row => [row.id, row]));
@@ -115,7 +133,7 @@ export function listKillProofs(root: string, verify: boolean): KillProofRow[] {
 		// The receipt FILE is the record; the index row is only a locator (review K2).
 		const indexed = index.get(id), receipt = readKillProof(root, id);
 		const base: KillProofRow = receipt
-			? { id, verdict: receipt.verdict, provedAt: receipt.provedAt, mutant: mutantLabel(receipt.mutant), tests: receipt.tests.map(test => test.path), killedTests: receipt.killedTests }
+			? { id, verdict: receipt.verdict, provedAt: receipt.provedAt, mutant: mutantLabel(receipt.mutant), ...(receipt.mutant.mutantId !== undefined ? { mutantId: receipt.mutant.mutantId } : {}), tests: receipt.tests.map(test => test.path), killedTests: receipt.killedTests }
 			: indexed
 				? { id, verdict: indexed.verdict, provedAt: indexed.provedAt, mutant: indexed.mutant, tests: indexed.tests.map(test => test.path), killedTests: [], freshness: "unreadable" }
 				: { id, verdict: "inconclusive", provedAt: "", mutant: "unreadable receipt", tests: [], killedTests: [], freshness: "unreadable" };
@@ -139,12 +157,12 @@ export function renderKillProofs(rows: readonly KillProofRow[]): string {
 		const fresh = row.freshness ? `  ${row.freshness.toUpperCase()}${row.reasons ? `: ${row.reasons.join("; ")}` : ""}` : null;
 		return [head, tests, ...(fresh ? [fresh] : [])].join("\n");
 	}).join("\n");
-	const summary = verifySummary(rows);
+	const summary = killProofsTally(rows);
 	return summary === null ? listed : `${listed}\n${summary}`;
 }
 
-/** After --verify: count the KILLED receipts by freshness and say how to renew a stale one. */
-function verifySummary(rows: readonly KillProofRow[]): string | null {
+/** After --verify: count the KILLED receipts by freshness and say how to renew a stale one. Shared with verify's `kill_proofs` section. */
+export function killProofsTally(rows: readonly KillProofRow[]): string | null {
 	if (!rows.some(row => row.freshness !== undefined)) return null;
 	const killed = rows.filter(row => row.verdict === "killed");
 	const count = (state: KillProofRow["freshness"]): number => killed.filter(row => row.freshness === state).length;

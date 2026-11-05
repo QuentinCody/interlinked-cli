@@ -44,6 +44,7 @@ import {
 	type RegistryDriftFinding,
 	runRegistryParityCheck,
 } from "../harness/registry-parity.js";
+import { killProofsSection } from "./verify/kill-proofs-section.js";
 import { projectE2eSection, streamTailSections } from "./verify/project-e2e-section.js";
 import type { Finding } from "../harness/suggestion-scorer.js";
 import {
@@ -466,8 +467,8 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 	const setupIssues = checkProjectSetup(cwd);
 	const registryDrift = safeRegistryParity(cwd);
 	const suggestions = batchSuggestions({ opts, files, cwd });
-	const projectE2e = projectE2eSection(cwd);
-	if (projectE2e.failed) process.exitCode = 1;
+	const projectE2e = projectE2eSection(cwd), killProofs = killProofsSection(cwd, skipChecks);
+	if (projectE2e.failed || killProofs.failed) process.exitCode = 1;
 
 	outputJson({
 		tscResults,
@@ -485,18 +486,16 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 		lockfileMultiplicity: detectLockfileMultiplicity(cwd),
 		decisionSurfaceRatchet: computeDecisionSurfaceRatchet(cwd),
 		structureSection: opts.structure ? buildStructureJsonSection(cwd, opts) : undefined,
-		projectE2e: projectE2e.json,
+		projectE2e: projectE2e.json, killProofs: killProofs.json,
 		rules: computeRulesFingerprint(cwd),
 		fpFilter: fpFilterJsonFor(cq, cwd, opts.fpFilter),
 		catalogue: opts.allChecks && !opts.only ? await runCatalogueAdvisories(cwd, skipChecks) : undefined,
 	});
 }
 
-// Keep `DEFAULT_ADVISORY_SKIPS` in the exported namespace via import below
-// so the regression test's import path keeps working even after the refactor.
-// (The `export { DEFAULT_ADVISORY_SKIPS } from "./verify/advisory.js"` above
-// handles runtime; this reference keeps the name bundled in any build output
-// that tree-shakes aggressively.)
+// Keep `DEFAULT_ADVISORY_SKIPS` in the exported namespace so the regression test's
+// import path keeps working after the refactor. (The `export { DEFAULT_ADVISORY_SKIPS }`
+// above handles runtime; this reference keeps the name bundled under aggressive tree-shaking.)
 void DEFAULT_ADVISORY_SKIPS;
 
 function groupBatchToolResults(cwd: string, report: Awaited<ReturnType<CheckEngine["runChecksAsync"]>>) {

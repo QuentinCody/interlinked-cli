@@ -85,6 +85,8 @@ interface OutputJsonArgs {
 	rules?: RulesFingerprint;
 	/** E18 fp_filter would-suppress counts (`verify/fp-filter-section.ts`); absent → no key. */
 	fpFilter?: JsonObject | undefined;
+	/** Kill-proof receipts (`verify/kill-proofs-section.ts`); absent (no receipt on disk) → no key. */
+	killProofs?: JsonObject | undefined;
 }
 
 /**
@@ -370,7 +372,7 @@ export function outputJson(args: OutputJsonArgs): void {
  * keys a consumer sees. `rules` is null (never absent) when no fingerprint was
  * computed, so "not computed" stays distinguishable from a pre-schema report.
  */
-function serializeVerifyJson(result: JsonObject, { rules, projectE2e, fpFilter, catalogue }: Pick<OutputJsonArgs, "rules" | "projectE2e" | "fpFilter" | "catalogue">): string {
+function serializeVerifyJson(result: JsonObject, { rules, projectE2e, fpFilter, catalogue, killProofs }: Pick<OutputJsonArgs, "rules" | "projectE2e" | "fpFilter" | "catalogue" | "killProofs">): string {
 	const tagged: JsonObject = {
 		schema_version: VERIFY_JSON_SCHEMA,
 		rules: rules ? { schema: rules.schema, rules_hash: rules.rules_hash, inputs: rules.inputs } : null,
@@ -379,6 +381,8 @@ function serializeVerifyJson(result: JsonObject, { rules, projectE2e, fpFilter, 
 		...(catalogue ? { catalogue_advisories: JSON.parse(JSON.stringify(catalogue)) as JsonObject } : {}),
 		// F6: the project e2e verdict (`verify/project-e2e-section.ts`); absent policy ⇒ unconfigured.
 		project_e2e: projectE2e ?? { status: "unconfigured" },
+		// Kill-proof receipts (`verify/kill-proofs-section.ts`); no receipt on disk ⇒ no key, zero cost.
+		...(killProofs ? { kill_proofs: killProofs } : {}),
 	};
 	return `${JSON.stringify(tagged, null, 2)}\n`;
 }

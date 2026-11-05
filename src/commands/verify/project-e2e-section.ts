@@ -9,6 +9,8 @@
 
 import { evaluateE2e, formatEvaluation, type E2eEvaluation } from "../../harness/project-e2e/evaluate.js";
 import { hasProjectE2ePolicy } from "../../harness/project-e2e/hooks.js";
+import { streamKillProofsSection } from "./kill-proofs-section.js";
+import { getActiveSkipChecks } from "./streaming-output.js";
 import { runStructureVerify } from "./structure.js";
 
 type StructureOpts = Parameters<typeof runStructureVerify>[1];
@@ -40,12 +42,15 @@ export function projectE2eSection(cwd: string): ProjectE2eSection {
     }
     return { status: evaluation.status, failed: evaluation.exitCode !== 0, lines, json };
 }
-/** verify's tail: the opt-in structure section (when requested), then the e2e section under verify's exit convention. */
+/** verify's tail: the opt-in structure section (when requested), then the e2e and kill-proof sections under verify's exit convention. */
 export async function streamTailSections(cwd: string, opts: StructureOpts): Promise<void> {
     if (opts.structure) {
         await runStructureVerify(cwd, opts);
     }
     if (streamProjectE2eSection(cwd)) {
+        process.exitCode = 1;
+    }
+    if (streamKillProofsSection(cwd, getActiveSkipChecks())) {
         process.exitCode = 1;
     }
 }
