@@ -1786,34 +1786,43 @@ the test that pins each review fix).
 ## Mutation-grounded test proof (`tests prove-kill`, added 2026-11-04)
 
 `interlinked tests prove-kill --test <file>… (--mutant <stableId> | --file <src>
---find <text> --replace <text>) [--timeout ms] [--json]` and `interlinked tests
-kill-proofs [--verify]` (`src/harness/kill-proof/`, command
-`src/commands/tests-prove-kill.ts`). One mutant — a manifest survivor re-located in
-the CURRENT source by identity (`differential-fuzz-locate.ts locateMutantOffset`),
-or an explicit fault whose anchor occurs exactly once — the named tests run on the
-live tree (all must pass, else `not-passing-now`), then once more in a git-visible
-copy (`fail-before-fix/snapshot.ts`) holding only the mutated file. A case is
+--find <text> --replace <text>) [--run-timeout ms] [--json]` and `interlinked
+tests kill-proofs [--verify]` (`src/harness/kill-proof/`, command
+`src/commands/tests-prove-kill.ts`). One mutant — a manifest survivor re-located
+in the CURRENT source by identity (`differential-fuzz-locate.ts
+locateMutantOffset`), or an explicit fault whose anchor occurs exactly once — the
+named tests run unmutated in a fresh git-visible copy (`fail-before-fix/snapshot.ts`;
+a copy-only failure is re-checked on the live tree and reported `unavailable`,
+a live failure `not-passing-now`), then once more in a SECOND fresh copy holding
+the mutated file (nothing the baseline left behind can fail the mutant run); a
+replacement that does not parse is `inconclusive` without running. A case is
 `killed` only when it fails BY ITS OWN CHECK (`fail-before-fix/classify.ts
-failedByOwnCheck`); a product-code crash, a load error, a runner timeout or a
-missing result is `inconclusive`; an unresolvable mutant or missing test file is
-`unavailable`. Exit 0 killed; 1 survived / not-passing-now; 2 undecided. The
-receipt (`.interlinked/test-runs/kill-proofs/<id>.json`, `index.json` read model)
-binds source sha256, mutant identity + offset, each test file's sha256, node,
-vitest and config sha; `--verify` re-hashes, re-resolves and compares the
-runtime, and reports STALE with reasons. A `survived`/`inconclusive` receipt is
-kept but never counts as evidence. Surfaces: PostToolUse `[interlinked:kill-proof]`
-(`evaluator/post-tool-kill-proof.ts`, scoped to `MUTATION_DIRECTED_PATH` files,
-index read + two hashes) — the ONLY model-visible channel, because Stop warnings
-are stderr-only on every runner (measured 2026-11-04,
-`scratch/2026-11-04-mutation-proof/adapter-matrix.md`); the Stop check
-`mutation-kill-evidence-stop-check.ts` accepts a fresh killed receipt as
-measurement evidence; `mutation survivors --file` names the command. Measured
-2026-11-04: this repo's survivor 575ddae6cc2946f9 SURVIVED its existing tests in
-8.5 s; on two foreign vitest repos 24/26 author-labelled faults matched (the 2
-misses are product crashes → inconclusive by rule). vitest only; the receipt
-does not bind imported helpers; one run cannot see flakiness; the copy is not an
-OS sandbox; no model anywhere, and the in-process differential-fuzz engine stays
-OFF this path. Guide: `docs/mutation-grounded-test-proof.md`.
+failedByOwnCheck`, minus a `node:assert` raised from product code); a product
+crash, a load error, a runner timeout or a missing result is `inconclusive`; an
+unresolvable mutant, a missing or out-of-project test file, a non-JS/TS target or
+a project without vitest is `unavailable`. Exit 0 killed; 1 survived /
+not-passing-now; 2 undecided. `--run-timeout` bounds each vitest run; `--timeout`
+is the CLI supervisor's whole-command deadline (exit 75). The receipt
+(`.interlinked/test-runs/kill-proofs/<id>.json`; `index.json` is only a locator,
+every decision reads the file) binds source sha256, mutant identity + offset +
+line text, each test file's sha256, node/vitest/platform/config, `killedTests`
+(the only files it certifies) and a `digest` over its contents (tamper-evident,
+not tamper-proof: unkeyed). `--verify` re-checks the digest, the bytes, the
+runtime and the mutant location. Surfaces: PostToolUse `[interlinked:kill-proof]`
+(`evaluator/post-tool-kill-proof.ts`, `MUTATION_DIRECTED_PATH` files only) reaches
+the model on Claude Code and Codex (`src/harness/adapters/kill-proof-nudge-encoding.test.ts`,
+`docs/reviews/kill-proof-adapter-matrix.md`); Stop warnings are stderr-only on
+every runner, and the Stop check (`mutation-kill-evidence-stop-check.ts`) accepts
+a receipt only when one of the session's NEWLY added case titles is among its
+killed cases; `mutation survivors --file` names the command. Measured 2026-11-04:
+two review rounds (`docs/reviews/kill-proof-review-round2.md`, 13 findings, 7
+reproduced → fixed and pinned by `review-regressions-round2.test.ts`); real kills
+on this repo (`docs/reviews/kill-proof-real-kills.md`: 6/8 explicit faults
+survived existing tests, 5 new mutation-kill files each proven); foreign vitest
+repos defu/ufo/antfu-utils/tinyexec 49/52 author-predicted (2 product crashes →
+inconclusive by rule, 1 wrong prediction); one proof ≈ 3.6 s here (copy-on-write
+clones). No model anywhere; the in-process differential-fuzz engine stays OFF this
+path. Guide: `docs/mutation-grounded-test-proof.md`.
 
 ## E2E lane
 
