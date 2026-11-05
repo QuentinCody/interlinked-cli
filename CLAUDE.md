@@ -1736,7 +1736,11 @@ each changed test also runs its pre-session twin there, so "new" means "the old
 file did not report this name". Verdicts: `fails-before-fix` (the test's own
 check failed on the old code: an assertion, or a plain error whose FIRST stack
 frame is the test file — a wait-until or "should have thrown" helper,
-`classify.ts failedByOwnCheck`; it pins the change), `passes-before-fix`,
+`classify.ts failedByOwnCheck` — the ONE own-check rule, which also credits a
+property-test report (fast-check) by the error it wraps: the report's `cause`,
+recorded by the `cause-reporter.ts` sidecar the runner loads beside vitest's
+JSON reporter, so an assertion inside the property counts and a product
+`TypeError` inside it does not; it pins the change), `passes-before-fix`,
 `inconclusive` (a crash, an error thrown by product code or vitest's own
 timeout, or a load failure on the old code — a missing new export proves
 nothing), `not-passing-now`. Advisory: exit 0, `--strict` exits 1 only

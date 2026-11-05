@@ -128,7 +128,7 @@ below a few seconds stops the CLI before any verdict (exit 75).
 
 | Verdict | Meaning | Exit |
 |---|---|---|
-| `killed` | at least one named case failed **by its own check** (an assertion, a snapshot mismatch, or a plain error thrown from the test file) | 0 |
+| `killed` | at least one named case failed **by its own check** (an assertion, a snapshot mismatch, a plain error thrown from the test file, or a property-test report wrapping one of those) | 0 |
 | `survived` | every case still passed with the mutant applied; these tests do not detect it | 1 |
 | `not-passing-now` | a named case fails on the live tree; the proof cannot start | 1 |
 | `inconclusive` | no case failed by its own check, and at least one crashed, failed to load, or the runner timed out — nothing is proven | 2 |
@@ -137,7 +137,13 @@ below a few seconds stops the CLI before any verdict (exit 75).
 A crash in product code under the mutant (`TypeError`, a stack overflow) is
 `inconclusive`, not a kill. The tests noticed *something*, but no assertion
 about the intended behaviour fired; this is the same rule `tests
-fail-before-fix` and `tests faults run` apply. Measured on two foreign
+fail-before-fix` and `tests faults run` apply. A property-based test
+(fast-check) is judged by the error its counterexample report wraps — the
+report's `cause`, captured by a sidecar reporter beside the JSON report, since
+the report itself is thrown from `node_modules` whatever the predicate did —
+so an `expect` or a predicate that returned false inside the property is the
+test's own check while a product `TypeError` inside it stays `inconclusive`
+(2026-11-05; before that no property test could earn a kill). Measured on two foreign
 repositories (2026-11-04): 2 of 16 author-labelled "killed" faults fell into
 this class; over ten repositories and 130 authored faults, 100 verdicts matched
 the author's prediction, 11 predictions were wrong, 3 were library crashes, and

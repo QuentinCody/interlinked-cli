@@ -120,6 +120,12 @@ describe("proveKill — positive (must fire)", () => {
 	it("P3: a `node:assert` failure thrown FROM the test file is still the test's check", () => {
 		expect(killedByOwnCheck(failing("x", "AssertionError [ERR_ASSERTION]: out >= 0", { thrownInTest: true }))).toBe(true);
 	});
+	it("P7: a property-test report (fast-check) wrapping the test's own assertion, or a predicate that returned false, is a kill", () => {
+		const report = "Error: Property failed after 37 tests";
+		expect(killedByOwnCheck(failing("x", report, { property: { reportedInTest: true, wrapped: { message: "AssertionError: expected [] to deeply equal [ 1 ]", thrownInTest: true } } }))).toBe(true);
+		expect(killedByOwnCheck(failing("x", report, { property: { reportedInTest: true, returnedFalse: true } }))).toBe(true);
+		expect(killedByOwnCheck(failing("x", report, { property: { reportedInTest: false, wrapped: { message: "AssertionError [ERR_ASSERTION]: out >= 0", thrownInTest: true } } }))).toBe(true);
+	});
 	it("P6: `--vitest-config` (vitestConfig) is passed to every vitest run as --config and bound into the receipt; the one `scripts.test` names is the default", async () => {
 		write("vitest.unit.config.ts", "export default {};\n");
 		write("package.json", '{"name":"x","type":"module","scripts":{"test":"vitest run --config vitest.unit.config.ts"}}\n');
@@ -243,6 +249,16 @@ describe("proveKill — negative (must not fire)", () => {
 		const { runner } = fakeRunner(okRun([passing("caps")]), okRun([failing("caps", "AssertionError [ERR_ASSERTION]: out >= 0")]));
 		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner, persist: false });
 		expect(result.ok && result.receipt.verdict).toBe("inconclusive");
+	});
+	it("N8b: a property-test report wrapping a product TypeError, a product `node:assert`, or nothing captured is not a kill", async () => {
+		const report = "Error: Property failed after 37 tests";
+		expect(killedByOwnCheck(failing("x", report, { property: { reportedInTest: true, wrapped: { message: "TypeError: Cannot read properties of undefined (reading 'x')", thrownInTest: false } } }))).toBe(false);
+		expect(killedByOwnCheck(failing("x", report, { property: { reportedInTest: true, wrapped: { message: "AssertionError [ERR_ASSERTION]: out >= 0", thrownInTest: false } } }))).toBe(false);
+		expect(killedByOwnCheck(failing("x", report, { property: { reportedInTest: true } }))).toBe(false);
+		const { runner } = fakeRunner(okRun([passing("caps")]), okRun([failing("caps", report, { property: { reportedInTest: true, wrapped: { message: "TypeError: Cannot read properties of undefined (reading 'x')", thrownInTest: false } } })]));
+		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner, persist: false });
+		expect(result.ok && result.receipt.verdict).toBe("inconclusive");
+		expect(result.ok && result.receipt.reasons.join("\n")).toContain("(wrapping TypeError: Cannot read properties of undefined (reading 'x'))");
 	});
 	it("N9: a skipped case in the baseline is neither passing nor failing (review R14)", async () => {
 		const { runner } = fakeRunner(okRun([passing("caps"), { ...passing("later"), status: "skipped" }]), KILLED);

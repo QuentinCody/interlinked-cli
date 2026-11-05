@@ -139,7 +139,9 @@ other process ran during the census or the re-proofs; `npm run typecheck` ran on
    test file and a genuine detection (#37, `ltl/rules.test.ts` P5) is `inconclusive`. Property-based tests
    cannot earn a kill today. Not fixed here (out of scope); the rule should recognise fast-check's
    `Property failed after N tests` error (or any error whose cause chain reaches the test file) as the
-   test's own check.
+   test's own check. **Fixed 2026-11-05** (`cloud/own-check-property-tests`): the rule judges the error
+   the report wraps (its `cause`, captured by `fail-before-fix/cause-reporter.ts`); #37 re-proved
+   `killed`, receipt `b75a627f67081283`.
 2. `src/harness/structure/adoption.ts:59`: dead condition, see the equivalence review. Not a behavioural
    bug; it hides a mutation and should be removed or made to mean something.
 

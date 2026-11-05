@@ -4,13 +4,14 @@
 // One git-visible copy for the whole run (`fail-before-fix/snapshot.ts`); each fault rewrites one file there
 // (its anchor must occur exactly once, the plan 31 rule), its test files run with vitest's JSON reporter, and the
 // original bytes come back before the next fault. A kill is a test that passes on the live tree and fails BY ITS
-// OWN CHECK under the fault (an assertion, or a plain error thrown from the test file: `failedByOwnCheck`); a crash,
+// OWN CHECK under the fault (an assertion, a plain error thrown from the test file, or a property report wrapping one:
+// `failedByOwnCheck`, the one rule); a crash,
 // an error from product code or a file that no longer loads is inconclusive, never a kill (E66: partial code
 // crashes for reasons unrelated to the requirement), and the report keeps each such test's first failure line.
 // The live tree is only read.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { failedByOwnCheck, type VitestCase } from "../fail-before-fix/classify.js";
+import { describeFailure, failedByOwnCheck, type VitestCase } from "../fail-before-fix/classify.js";
 import { runVitest } from "../fail-before-fix/index.js";
 import { copyWriteTarget, createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { summarizeKills, type FaultOutcome, type RequirementFault, type RequirementKills } from "./corpus.js";
@@ -29,7 +30,7 @@ function judge(fault: RequirementFault, passing: ReadonlySet<string>, under: rea
         if (row?.status === "passed") continue;
         if (row !== undefined && failedByOwnCheck(row)) { killedBy.push(test); continue; }
         inconclusive.push(test);
-        reasons[test] = row?.message ?? (row ? row.status : "no result");
+        reasons[test] = row?.message !== undefined ? describeFailure(row) : (row ? row.status : "no result");
     }
     const status = killedBy.length ? "killed" : inconclusive.length ? "inconclusive" : "survived";
     const outcome: FaultOutcome = { fault: fault.id, requirement: fault.requirement.id, status, killedBy, inconclusive };
