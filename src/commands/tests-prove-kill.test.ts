@@ -1,0 +1,123 @@
+// Pins the human-facing wording and the pure option/exit helpers of
+// `interlinked tests prove-kill` / `interlinked tests kill-proofs`. The proof
+// engine itself is pinned in `src/harness/kill-proof/*.test.ts`.
+import { describe, expect, it } from "vitest";
+import type { KillProofReceipt, ProveKillResult, ResolvedMutant } from "../harness/kill-proof/types.js";
+import { exitCodeFor, type KillProofRow, PROVE_KILL_EXIT, renderKillProofs, renderProveKill, specFromOptions } from "./tests-prove-kill.js";
+
+const MUTANT: ResolvedMutant = { file: "src/math.ts", offset: 10, originalLexeme: "return max;", replacement: "return value;", line: 3, source: "explicit" };
+
+function receipt(verdict: KillProofReceipt["verdict"], cases: KillProofReceipt["underMutant"]["cases"]): KillProofReceipt {
+	return {
+		version: 1, id: "7113042096864a76", verdict, reasons: [], provedAt: "2026-11-04T00:00:00.000Z", root: "/repo",
+		source: { path: "src/math.ts", sha256: "a" }, mutant: MUTANT, tests: [{ path: "test/clamp.test.ts", sha256: "b" }], killedTests: [],
+		baseline: { cases: cases.length, durationMs: 800 }, underMutant: { durationMs: 700, timedOut: false, cases },
+		environment: { node: "v22.0.0", vitest: "4.0.0", platform: "linux", config: null },
+	};
+}
+
+const ok = (verdict: KillProofReceipt["verdict"], cases: KillProofReceipt["underMutant"]["cases"]): ProveKillResult =>
+	({ ok: true, receipt: receipt(verdict, cases), receiptPath: "/repo/.interlinked/test-runs/kill-proofs/7113042096864a76.json" });
+
+const ROW: KillProofRow = { id: "7113042096864a76", verdict: "killed", provedAt: "2026-11-04T00:00:00.000Z", mutant: "explicit fault @ src/math.ts:3", tests: ["test/clamp.test.ts"] };
+
+describe("specFromOptions — positive (must accept)", () => {
+	it("P1: an explicit fault with all three flags", () => {
+		expect(specFromOptions({ file: "src/a.ts", find: "x", replace: "y" })).toEqual({ kind: "explicit", file: "src/a.ts", find: "x", replace: "y" });
+	});
+	it("P2: a manifest id, narrowed by --file", () => {
+		expect(specFromOptions({ mutant: "575ddae6cc2946f9", file: "src/a.ts" })).toEqual({ kind: "manifest", mutantId: "575ddae6cc2946f9", file: "src/a.ts" });
+	});
+});
+
+describe("specFromOptions — negative (must refuse)", () => {
+	it("N1: a malformed --mutant names the id shape and where to find ids", () => {
+		expect(specFromOptions({ mutant: "xyz" })).toBe("--mutant takes a 16-character hex mutant id; list them with `interlinked mutation survivors --file <path>`");
+	});
+	it("N2: no mutant at all points at --help", () => {
+		expect(specFromOptions({})).toBe("name the mutant: --mutant <id>, or --file <src> --find <text> --replace <text>; see --help");
+	});
+	it("N3: --mutant together with --find is refused", () => {
+		expect(specFromOptions({ mutant: "575ddae6cc2946f9", find: "x", replace: "y" })).toBe("pass either --mutant <id> or --file/--find/--replace, not both");
+	});
+	it("N4: an explicit fault missing --replace is refused", () => {
+		expect(specFromOptions({ file: "src/a.ts", find: "x" })).toBe("an explicit fault needs all three of --file, --find and --replace");
+	});
+});
+
+describe("exitCodeFor — positive (exit 0)", () => {
+	it("P1: killed exits 0", () => {
+		expect(exitCodeFor(ok("killed", [{ test: "t › a", verdict: "killed" }]))).toBe(PROVE_KILL_EXIT.proven);
+	});
+});
+
+describe("exitCodeFor — negative (nonzero exit)", () => {
+	it("N1: survived exits 1", () => {
+		expect(exitCodeFor(ok("survived", [{ test: "t › a", verdict: "survived" }]))).toBe(1);
+	});
+	it("N2: not-passing-now exits 1", () => {
+		expect(exitCodeFor({ ok: false, verdict: "not-passing-now", reasons: ["x"] })).toBe(1);
+	});
+	it("N3: inconclusive exits 2", () => {
+		expect(exitCodeFor(ok("inconclusive", [{ test: "t › a", verdict: "inconclusive", reason: "TypeError" }]))).toBe(2);
+	});
+	it("N4: unavailable exits 2", () => {
+		expect(exitCodeFor({ ok: false, verdict: "unavailable", reasons: ["x"] })).toBe(2);
+	});
+});
+
+describe("renderProveKill — positive (decided verdicts)", () => {
+	it("P1: killed lists cases, the receipt and how to keep it fresh", () => {
+		const text = renderProveKill(ok("killed", [{ test: "test/clamp.test.ts › above", verdict: "killed" }]));
+		expect(text).toContain("verdict: KILLED (700 ms under the mutant)");
+		expect(text).toContain("  killed       test/clamp.test.ts › above");
+		expect(text).toContain("receipt: /repo/.interlinked/test-runs/kill-proofs/7113042096864a76.json");
+		expect(text.split("\n").at(-1)).toBe("Proof recorded. It holds while source, tests and runtime are unchanged; check with `interlinked tests kill-proofs --verify`.");
+	});
+	it("P2: survived says the tests still pass and what to assert", () => {
+		const text = renderProveKill(ok("survived", [{ test: "test/weak.test.ts › number", verdict: "survived" }]));
+		expect(text).toContain("verdict: SURVIVED");
+		expect(text.split("\n").at(-1)).toBe("These tests still pass with the mutant applied. Strengthen the assertion: check the value the mutant changes, then re-run.");
+	});
+	it("P3: inconclusive says nothing is proven and mentions --timeout", () => {
+		const text = renderProveKill(ok("inconclusive", [{ test: "test/crash.test.ts › counts", verdict: "inconclusive", reason: "TypeError: x" }]));
+		expect(text).toContain("  inconclusive test/crash.test.ts › counts — TypeError: x");
+		expect(text.split("\n").at(-1)).toBe("Nothing is proven: a crash, load error or timeout is not a kill. Assert on the mutated code's result, or raise --timeout.");
+	});
+});
+
+describe("renderProveKill — negative (no receipt)", () => {
+	it("N1: not-passing-now asks to fix the test first", () => {
+		const text = renderProveKill({ ok: false, verdict: "not-passing-now", reasons: ["t › a: failed"], mutant: MUTANT });
+		expect(text).toBe([
+			'mutant: explicit fault @ src/math.ts:3 "return max;" → "return value;"',
+			"verdict: NOT-PASSING-NOW",
+			"  - t › a: failed",
+			"Make the test pass on the current code first. A test that already fails proves nothing about the mutant.",
+		].join("\n"));
+	});
+	it("N2: unavailable names the reason and says no receipt was written", () => {
+		const text = renderProveKill({ ok: false, verdict: "unavailable", reasons: ["test/nope.test.ts does not exist"] });
+		expect(text).toBe(["verdict: UNAVAILABLE", "  - test/nope.test.ts does not exist", "Fix the reason above and re-run. No receipt was written."].join("\n"));
+	});
+});
+
+describe("renderKillProofs — positive (rows)", () => {
+	it("P1: a verified stale row names its reasons", () => {
+		const text = renderKillProofs([{ ...ROW, freshness: "stale", reasons: ["test test/clamp.test.ts changed since the proof"] }]);
+		expect(text).toBe([
+			"7113042096864a76 KILLED       2026-11-04T00:00:00.000Z explicit fault @ src/math.ts:3",
+			"  tests: test/clamp.test.ts",
+			"  STALE: test test/clamp.test.ts changed since the proof",
+		].join("\n"));
+	});
+	it("P2: an unverified row has no freshness line", () => {
+		expect(renderKillProofs([ROW]).split("\n")).toHaveLength(2);
+	});
+});
+
+describe("renderKillProofs — negative (nothing recorded)", () => {
+	it("N1: the empty state says how to make a proof", () => {
+		expect(renderKillProofs([])).toBe("No kill proofs recorded yet. Make one with `interlinked tests prove-kill --help`.");
+	});
+});

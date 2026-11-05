@@ -67,7 +67,7 @@ describe("resolveMutant — positive (must fire)", () => {
 describe("resolveMutant — negative (must not fire)", () => {
 	it("N1: an anchor that occurs twice is refused with the count", () => {
 		write("src/clamp.ts", `${SOURCE}// n > max\n`);
-		expect(resolveMutant(root, SPEC)).toEqual({ ok: false, reason: "anchor occurs 2 times in src/clamp.ts (exactly one is required)" });
+		expect(resolveMutant(root, SPEC)).toEqual({ ok: false, reason: "the --find text occurs 2 times in src/clamp.ts; it must occur exactly once" });
 	});
 	it("N2: a manifest id without a manifest names the measure command", () => {
 		const resolved = resolveMutant(root, { kind: "manifest", mutantId: "0123456789abcdef" });

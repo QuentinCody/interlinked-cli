@@ -71,9 +71,15 @@ export function captureEnvironment(root: string): ProofEnvironment {
 	return { node: process.version, vitest, platform: `${process.platform}-${process.arch}`, config: configName ? hashFile(root, configName) : null };
 }
 
+/** A quoted snippet cut to `max` characters, with an ellipsis when cut so a clipped label never reads as the full text. */
+const clipQuoted = (text: string, max: number): string => {
+	const quoted = JSON.stringify(text);
+	return quoted.length <= max ? quoted : `${quoted.slice(0, max - 1)}…`;
+};
+
 export function mutantLabel(mutant: ResolvedMutant): string {
 	const head = mutant.source === "manifest" ? `${mutant.mutantId} ${mutant.mutator} in ${mutant.qualifiedName}` : "explicit fault";
-	return `${head} @ ${mutant.file}:${mutant.line} ${JSON.stringify(mutant.originalLexeme).slice(0, 60)} → ${JSON.stringify(mutant.replacement).slice(0, 40)}`;
+	return `${head} @ ${mutant.file}:${mutant.line} ${clipQuoted(mutant.originalLexeme, 60)} → ${clipQuoted(mutant.replacement, 40)}`;
 }
 
 /** Same bytes, same mutant, same runtime ⇒ same id; a re-run overwrites rather than duplicates. */
