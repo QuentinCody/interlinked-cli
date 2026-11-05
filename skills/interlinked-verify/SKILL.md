@@ -828,6 +828,9 @@ integration lanes upload their vitest JSON reports, and `select-compare-report` 
 row per run: `SELECTION_MISS` when a file failed in the full lanes but was in the plan's
 omitted set; `widened` when the plan omitted nothing; `incomplete` when a lane, the
 selection or the selected run left no report (a miss already seen still reports as a miss).
+The serial comparison job has a 40-minute total budget because broad selections can
+include most unit and integration files. Cancellation still produces incomplete evidence;
+the extra time does not change selection, assertions, worker limits, or coverage policy.
 Neither job is a required check and neither fails on a miss. Promotion needs zero misses over
 at least 30 rows that are SELECTIVE and complete; a widened row proves nothing. Measured
 2026-10-02 in a clean clone after the per-operation rule: the setup and config are

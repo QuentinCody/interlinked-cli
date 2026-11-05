@@ -187,7 +187,9 @@ jobs:
   select-compare:
     name: select-compare (Linux / Node 22)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Broad selections serialize unit and integration files in one worker.
+    # Keep enough headroom for slower runners to finish and publish the report.
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v6
