@@ -281,14 +281,13 @@ function createSessionRpcRuntime(args: {
 	const clients = new Set<Socket>();
 	let inflight = 0;
 	let lastActivity = Date.now();
-	const disconnects = new WeakMap<Socket, AbortController>();
 	const state: DispatcherState = {
 		started_at: args.startedAt,
 		rpc_inflight: 0,
 		...args.state,
 		shutdown: args.shutdown,
 	};
-	const handleFrame = async (frame: string, socket: Socket): Promise<void> => {
+	const handleFrame = async (frame: string, socket: Socket, signal: AbortSignal): Promise<void> => {
 		let message: RpcEnvelope;
 		try {
 			message = decodeFrame(frame);
@@ -302,8 +301,7 @@ function createSessionRpcRuntime(args: {
 		let response: RpcMessage;
 		try {
 			// The client's departure cancels request-scoped work still running for it (server/request-cancellation.ts).
-			const disconnect = disconnects.get(socket);
-			response = disconnect ? await withRequestCancellation(disconnect.signal, () => dispatchRpc(message, state)) : await dispatchRpc(message, state);
+			response = await withRequestCancellation(signal, () => dispatchRpc(message, state));
 		} catch (err) {
 			response = makeError(message.id, "internal", errorMessage(err));
 		}
@@ -314,7 +312,7 @@ function createSessionRpcRuntime(args: {
 	return {
 		onConnection(socket) {
 			clients.add(socket);
-			disconnects.set(socket, new AbortController());
+			const disconnect = new AbortController();
 			lastActivity = Date.now();
 			let pending = "";
 			socket.on("data", async (chunk: Buffer) => {
@@ -322,13 +320,12 @@ function createSessionRpcRuntime(args: {
 				pending = split.remainder;
 				for (const frame of split.frames) {
 					lastActivity = Date.now();
-					await handleFrame(frame, socket);
+					await handleFrame(frame, socket, disconnect.signal);
 				}
 			});
 			socket.on("error", () => socket.destroy());
-			// Queued frames still hold this socket after close. Keep their aborted signal;
-			// the WeakMap releases it when those frames and the socket are collected.
-			socket.on("close", () => { clients.delete(socket); disconnects.get(socket)?.abort(); });
+			// Queued frames retain this connection's aborted signal after close.
+			socket.on("close", () => { clients.delete(socket); disconnect.abort(); });
 		},
 		destroyClients() {
 			for (const client of clients) client.destroy();

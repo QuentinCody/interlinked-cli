@@ -555,6 +555,16 @@ describe("checkProjectTypecheckClean", () => {
 });
 
 describe("checkProjectTypecheckCleanAsync", () => {
+    it("never certifies a disconnected request and releases its compiler admission for the next check", async () => {
+        writeFileSync(join(tmp, "package.json"), JSON.stringify({ scripts: { "typecheck:stable": 'node -e "process.exit(0)"' } }));
+        const disconnect = new AbortController();
+        disconnect.abort();
+        await expect(checkProjectTypecheckCleanAsync(tmp, { signal: disconnect.signal })).resolves.toEqual([
+            expect.objectContaining({ name: "project_typecheck_timed_out", severity: "warning", message: expect.stringContaining("was terminated") }),
+        ]);
+        await expect(checkProjectTypecheckCleanAsync(tmp)).resolves.toEqual([]);
+    });
+
     it("observes one bounded compiler execution and preserves its diagnostics", async () => {
         writeFileSync(join(tmp, "package.json"), JSON.stringify({ scripts: { "typecheck:stable": 'node -e "console.error(\\"src/a.ts(1,1): error TS2322: bad type.\\");process.exit(1)"' } }));
         const observations: ProjectProcessObservation[] = [];

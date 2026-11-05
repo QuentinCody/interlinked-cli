@@ -147,6 +147,13 @@ it("N1: still rejects a dangling link that points outside the census", async () 
     await expect(captureCoverageRuntime(root, { originalRoot: root, deadline: Date.now() + 10_000 })).rejects.toThrow("Dangling coverage symlink outside the census");
 });
 
+// test-contract: invariant — an unresolvable symlink cycle is an I/O failure, never an accepted absent target.
+it("rejects a self-referential symlink instead of treating it as dangling", async () => {
+    const root = fixture();
+    symlinkSync("cyclic-input.json", join(root, "cyclic-input.json"));
+    await expect(captureCoverageRuntime(root, { originalRoot: root, deadline: Date.now() + 10_000 })).rejects.toMatchObject({ code: "ELOOP" });
+});
+
 it("rejects a file removed after enumeration while the streamed census yields", async () => {
     const root = fixture();
     for (let index = 0; index < 70; index++) writeFileSync(join(root, `input-${index}.json`), "{}");
