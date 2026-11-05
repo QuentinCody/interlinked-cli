@@ -129,6 +129,16 @@ the small read model. A receipt binds:
   mutant its `mutantId`, `siteId`, `symbolId`, `qualifiedName`, `mutator`,
   `ordinalWithinSymbol`, manifest generation and recorded status;
 - every named test file's path and sha256;
+- `boundImports`: every file in the named tests' local STATIC import closure
+  (helpers, shared fixture modules, re-export barrels), each with its sha256
+  and `importedBy`, the named tests whose closure reaches it. The walk follows
+  `import … from`, side-effect `import "…"` and `export … from` with relative
+  specifiers, transitively, inside the project; it skips type-only imports,
+  bare specifiers (packages and tsconfig aliases), anything under
+  `node_modules` or outside the root, and the mutated source itself (bound as
+  the source; its imports are not walked). A changed helper stales the
+  certification of every test that imports it, and only those; `--verify` names
+  it as `helper <path> changed since the proof`;
 - node version, vitest version, platform, the sha256 of the vitest config in
   use, and the sha256 of every `setupFiles` / `globalSetup` file that config
   declares;
@@ -137,13 +147,16 @@ the small read model. A receipt binds:
   files the receipt certifies;
 - a `digest` over every other field, so an edited outcome no longer matches.
 
-The id is a hash of the inputs (bytes, mutant, runtime), so re-running the same
+The id is a hash of the inputs (bytes, bound helpers, mutant, runtime), so re-running the same
 proof on the same bytes overwrites rather than duplicates. `kill-proofs --verify`
 re-checks the digest, re-hashes the files, compares the runtime, and re-resolves
 the mutant; any difference is `STALE` with the reasons named. A `survived` or
 `inconclusive` receipt is kept (it records what was tried) but never counts as
 evidence of a kill. Every decision (the Stop check, the nudge, the list) reads
-the receipt FILE; `index.json` is only a locator. The harness refuses Write and
+the receipt FILE; `index.json` is only a locator. It is rebuilt from the receipt
+files under a short exclusive lock, so concurrent writers cannot drop each
+other's rows; a writer that cannot take the lock still writes its receipt and
+leaves the index to the next writer's rebuild. The harness refuses Write and
 Edit tool calls under `.interlinked/test-runs/kill-proofs/` (a `protected_files`
 rule): only the command writes there. `--verify` lists a receipt as
 `UNCOMMITTED` (exit 0) when the bound source or test bytes differ from HEAD or
@@ -160,7 +173,7 @@ not a security boundary.
   `[interlinked:kill-proof] <file>: no executed kill proof covers this
   mutation-directed test file … prove it: interlinked tests prove-kill …`.
   A receipt certifies a file when it killed THROUGH that file and the source,
-  that test file and the runtime are unchanged. Cost: one index read plus the
+  that test file, the helpers it imports and the runtime are unchanged. Cost: one index read plus the
   hashes of the matching receipts.
 - **Stop** (human-visible stderr): `[interlinked:mutation-kill-evidence]`
   accepts a receipt as measurement evidence only when EVERY newly added case
@@ -180,10 +193,13 @@ sees the PostToolUse line; the human sees the Stop line.
 
 - vitest only. A jest or ava project gets `unavailable` with the reason
   `vitest is not installed in this project (this project declares jest) …`.
-- The receipt binds the named test files and the mutated source, not the
-  helpers, setup files or fixtures a test imports; an edited helper does not
-  stale a receipt. (A helper cannot be named as a `--test` file: it reports no
-  cases and the run is `unavailable`.)
+- Helper binding follows static relative imports only, and stops after 200
+  files (the closure beyond the cap is not bound). Dynamic `import()`,
+  `require()` and `vi.mock` targets are not followed, nor are aliased (bare)
+  specifiers; an edit to a module reached only that way does not stale a
+  receipt. Data files a test reads (JSON fixtures, snapshots) are not bound.
+  (A helper still cannot be named as a `--test` file: it reports no cases and
+  the run is `unavailable`.)
 - The two copies link the live `node_modules`, so tool caches under it (for
   example vitest's) are shared with the live tree; a test that writes into
   `node_modules` writes into the live tree.

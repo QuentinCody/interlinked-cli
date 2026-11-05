@@ -115,7 +115,7 @@ export function listKillProofs(root: string, verify: boolean): KillProofRow[] {
 		const freshness = verifyKillProof(root, receipt);
 		if (!freshness.fresh) return { ...base, freshness: "stale", reasons: freshness.reasons };
 		// The proof certifies WORK-TREE bytes; a commit-time reader must know when those are not the committed ones (review N8).
-		const uncommitted = uncommittedPaths(root, [receipt.source.path, ...receipt.tests.map(test => test.path)]);
+		const uncommitted = uncommittedPaths(root, [receipt.source.path, ...receipt.tests.map(test => test.path), ...receipt.boundImports.map(file => file.path)]);
 		return uncommitted.length ? { ...base, freshness: "uncommitted", reasons: uncommitted.map(path => `${path}: work tree differs from HEAD or the index (the proven bytes are not committed)`) } : { ...base, freshness: "fresh" };
 	});
 }

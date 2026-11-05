@@ -9,7 +9,9 @@
 // fields, so an edited outcome no longer matches (review K3); `id` stays the
 // idempotence key over the inputs. A receipt certifies ONLY the test files in
 // `killedTests` (review R2), per file: the source bytes, THAT test file's bytes
-// and the runtime (review K13). It is tamper-EVIDENT, not tamper-PROOF: the
+// and the runtime (review K13), plus every helper in that file's local import
+// closure (`boundImports`, review K11: a changed helper stales the tests that
+// import it, and only those). It is tamper-EVIDENT, not tamper-PROOF: the
 // digest is unkeyed, so a receipt rewritten from scratch with recomputed hashes
 // passes; receipts are evidence of execution on this machine, not a security
 // boundary (CLAUDE.md: local checks are not a trust boundary).
@@ -19,9 +21,10 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
+import { withFileMutationLock } from "../../lib/file-mutation-lock.js";
 import { isJsonObject } from "../../lib/json-types.js";
 import { lineTextAt, relocate } from "./resolve.js";
-import type { CaseOutcome, Freshness, HashedFile, KillProofReceipt, ProofEnvironment, ResolvedMutant } from "./types.js";
+import type { BoundImport, CaseOutcome, Freshness, HashedFile, KillProofReceipt, ProofEnvironment, ResolvedMutant } from "./types.js";
 
 export const KILL_PROOFS_DIR = ".interlinked/test-runs/kill-proofs";
 const INDEX_FILE = "index.json";
@@ -121,11 +124,12 @@ export function mutantLabel(mutant: ResolvedMutant): string {
 }
 
 /** Same bytes, same mutant, same runtime ⇒ same id; a re-run overwrites rather than duplicates. */
-export function receiptId(parts: { source: HashedFile; mutant: ResolvedMutant; tests: HashedFile[]; environment: ProofEnvironment }): string {
+export function receiptId(parts: { source: HashedFile; mutant: ResolvedMutant; tests: HashedFile[]; boundImports: readonly BoundImport[]; environment: ProofEnvironment }): string {
 	const binding = [
 		parts.source.path, parts.source.sha256,
 		parts.mutant.file, String(parts.mutant.offset), parts.mutant.originalLexeme, parts.mutant.replacement, parts.mutant.mutantId ?? "",
 		...parts.tests.map(test => `${test.path}=${test.sha256}`),
+		...parts.boundImports.map(file => `helper:${file.path}=${file.sha256}<${file.importedBy.join(",")}`),
 		parts.environment.node, parts.environment.vitest ?? "", parts.environment.platform, parts.environment.config?.sha256 ?? "",
 		...parts.environment.setupFiles.map(file => `${file.path}=${file.sha256}`),
 	].join("\u0000");
@@ -168,6 +172,18 @@ function parseHashedList(value: unknown): HashedFile[] | null {
 		const parsed = parseHashed(item);
 		if (parsed === null) return null;
 		out.push(parsed);
+	}
+	return out;
+}
+
+function parseBoundImports(value: unknown): BoundImport[] | null {
+	if (!Array.isArray(value)) return null;
+	const out: BoundImport[] = [];
+	for (const item of value) {
+		const hashed = parseHashed(item);
+		const importedBy = isJsonObject(item) ? parseStringList(item.importedBy) : null;
+		if (hashed === null || importedBy === null) return null;
+		out.push({ ...hashed, importedBy });
 	}
 	return out;
 }
@@ -216,7 +232,9 @@ export function parseKillProof(value: unknown): KillProofReceipt | null {
 	if (typeof value.verdict !== "string" || !VERDICTS.has(value.verdict as KillProofReceipt["verdict"])) return null;
 	const reasons = parseStringList(value.reasons), killedTests = parseStringList(value.killedTests);
 	const source = parseHashed(value.source), mutant = parseMutant(value.mutant), tests = parseHashedList(value.tests), environment = parseEnvironment(value.environment);
-	if (reasons === null || killedTests === null || source === null || mutant === null || tests === null || environment === null) return null;
+	// No default for an absent `boundImports`: a receipt that does not bind its helpers is not a receipt (unreleased field).
+	const boundImports = parseBoundImports(value.boundImports);
+	if (reasons === null || killedTests === null || source === null || mutant === null || tests === null || boundImports === null || environment === null) return null;
 	const { baseline, underMutant } = value;
 	if (!isJsonObject(baseline) || typeof baseline.cases !== "number" || typeof baseline.durationMs !== "number") return null;
 	if (!isJsonObject(underMutant) || typeof underMutant.durationMs !== "number" || typeof underMutant.timedOut !== "boolean") return null;
@@ -224,7 +242,7 @@ export function parseKillProof(value: unknown): KillProofReceipt | null {
 	if (cases === null) return null;
 	return {
 		version: 1, id: value.id, digest: value.digest, verdict: value.verdict as KillProofReceipt["verdict"], reasons, provedAt: value.provedAt, root: value.root,
-		source, mutant, tests, killedTests, baseline: { cases: baseline.cases, durationMs: baseline.durationMs },
+		source, mutant, tests, boundImports, killedTests, baseline: { cases: baseline.cases, durationMs: baseline.durationMs },
 		underMutant: { durationMs: underMutant.durationMs, timedOut: underMutant.timedOut, cases, ...(typeof underMutant.error === "string" ? { error: underMutant.error } : {}) },
 		environment,
 	};
@@ -282,13 +300,27 @@ export function readKillProofIndex(root: string): KillProofIndex {
 	}
 }
 
-/** Write the receipt, then rebuild the index from the files on disk (temp → rename, both). Returns the receipt path. */
+/** Index rebuild lock budget: short, a few retries; contention leaves the index to the next writer. */
+const INDEX_LOCK = { waitMs: 250, retryMs: 25 } as const;
+
+/**
+ * Write the receipt, then rebuild the index from the files on disk (temp → rename, both).
+ * The list-and-rename runs under an exclusive lock (review K12: without it, a writer that
+ * listed before another's receipt landed could rename its older index over the newer one).
+ * On lock failure the receipt is written and the index is left for the next writer — it is
+ * only a locator, so nothing throws. Returns the receipt path.
+ */
 export function writeKillProof(root: string, receipt: KillProofReceipt): string {
 	const dir = killProofsDir(root);
 	mkdirSync(dir, { recursive: true });
 	const path = join(dir, `${receipt.id}.json`);
 	writeAtomic(path, `${JSON.stringify(receipt, null, 1)}\n`);
-	writeAtomic(join(dir, INDEX_FILE), `${JSON.stringify(rebuildKillProofIndex(root), null, 1)}\n`);
+	const indexPath = join(dir, INDEX_FILE);
+	try {
+		withFileMutationLock(indexPath, () => writeAtomic(indexPath, `${JSON.stringify(rebuildKillProofIndex(root), null, 1)}\n`), INDEX_LOCK);
+	} catch {
+		// Contended or unlockable: the next writer rebuilds the index from every receipt file, this one included.
+	}
 	return path;
 }
 
@@ -302,9 +334,9 @@ function hashMismatches(root: string, files: readonly HashedFile[], role: string
 	});
 }
 
-/** Bytes-only freshness: the source and every named test file. */
-export function bytesFresh(root: string, row: Pick<KillProofIndexRow, "source" | "tests">): string[] {
-	return [...hashMismatches(root, [row.source], "source"), ...hashMismatches(root, row.tests, "test")];
+/** Bytes-only freshness: the source, every named test file and (from a receipt) every bound helper. */
+export function bytesFresh(root: string, row: Pick<KillProofIndexRow, "source" | "tests"> & { boundImports?: readonly HashedFile[] }): string[] {
+	return [...hashMismatches(root, [row.source], "source"), ...hashMismatches(root, row.tests, "test"), ...hashMismatches(root, row.boundImports ?? [], "helper")];
 }
 
 function environmentReasons(root: string, recorded: ProofEnvironment): string[] {
@@ -381,7 +413,7 @@ export function caseNameMatches(name: string, title: string): boolean {
 /**
  * Does receipt `id` certify `testPath` NOW? Read from the receipt FILE: integrity,
  * verdict `killed` through this file, the source and THIS test file's bytes, the
- * runtime (review K2, K13). With `requireCases` (the newly added case titles), EVERY
+ * helpers THIS test file imports, the runtime (review K2, K11, K13). With `requireCases` (the newly added case titles), EVERY
  * one of them must be a killed case — an old strong case, or one strong new case,
  * never certifies another new case that killed nothing (reviews K4, L3).
  */
@@ -392,7 +424,8 @@ export function receiptCertifies(root: string, id: string, testPath: string, req
 	if (receipt.verdict !== "killed" || !receipt.killedTests.includes(testPath)) reasons.push(`receipt did not kill through ${testPath}`);
 	const own = receipt.tests.filter(test => test.path === testPath);
 	if (own.length === 0) reasons.push(`receipt does not name ${testPath}`);
-	reasons.push(...hashMismatches(root, [receipt.source], "source"), ...hashMismatches(root, own, "test"), ...environmentReasons(root, receipt.environment));
+	const helpers = receipt.boundImports.filter(file => file.importedBy.includes(testPath));
+	reasons.push(...hashMismatches(root, [receipt.source], "source"), ...hashMismatches(root, own, "test"), ...hashMismatches(root, helpers, "helper"), ...environmentReasons(root, receipt.environment));
 	let uncovered: string[] = [];
 	if (requireCases !== undefined && requireCases.length > 0) {
 		const killed = killedCaseNames(receipt, testPath);

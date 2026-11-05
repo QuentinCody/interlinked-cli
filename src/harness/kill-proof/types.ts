@@ -63,6 +63,12 @@ export interface HashedFile {
 	sha256: string;
 }
 
+/** A file a named test reaches through static local imports (review K11), with the named tests that reach it. */
+export interface BoundImport extends HashedFile {
+	/** The named test files whose import closure reaches this file; a change stales only their certification (K13). */
+	importedBy: string[];
+}
+
 export interface ProofEnvironment {
 	node: string;
 	/** `vitest` version resolved from the project root; null when not resolvable. */
@@ -89,6 +95,8 @@ export interface KillProofReceipt {
 	source: HashedFile;
 	mutant: ResolvedMutant;
 	tests: HashedFile[];
+	/** The named tests' local static import closure (helpers, fixtures modules), hashed; capped (see bound-imports.ts). */
+	boundImports: BoundImport[];
 	/** The named test files with at least one killed case — the only files this receipt certifies. */
 	killedTests: string[];
 	baseline: { cases: number; durationMs: number };
