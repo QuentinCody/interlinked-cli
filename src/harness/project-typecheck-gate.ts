@@ -236,7 +236,7 @@ export function checkProjectTypecheckClean(cwd: string): CheckResultEntry[] {
  */
 export async function checkProjectTypecheckCleanAsync(
 	cwd: string,
-	options: { timeoutMs?: number; observe?: ProjectProcessObserver } = {},
+	options: { timeoutMs?: number; observe?: ProjectProcessObserver; signal?: AbortSignal } = {},
 ): Promise<CheckResultEntry[]> {
 	if (process.env.INTERLINKED_SKIP_PROJECT_TYPECHECK === "1") {
 		return [
@@ -258,7 +258,7 @@ export async function checkProjectTypecheckCleanAsync(
 	const started = Date.now();
 	try {
 		return await runWithProjectCompilerLease(cwd, async () => {
-			const result = await runObservedCompiler(cwd, cmd, timeoutMs, started, options.observe);
+			const result = await runObservedCompiler(cwd, cmd, timeoutMs, started, options.observe, options.signal);
 			if (result.timedOut || result.killed) {
 				return [
 					{
@@ -321,7 +321,7 @@ export async function checkProjectTypecheckCleanAsync(
 }
 
 /** Compiler admission alone does not bound host memory; supervise the complete child tree too. */
-async function runObservedCompiler(cwd: string, command: ResolvedTypecheckCommand, timeout: number, started: number, observer?: ProjectProcessObserver): Promise<RunProcessResult> {
+async function runObservedCompiler(cwd: string, command: ResolvedTypecheckCommand, timeout: number, started: number, observer?: ProjectProcessObserver, signal?: AbortSignal): Promise<RunProcessResult> {
     const observation: ProjectProcessObservation = { waitMs: 0, execMs: 0 };
     const capacity = tryAcquireForegroundCapacity();
     let execStarted: number | undefined;
@@ -332,7 +332,7 @@ async function runObservedCompiler(cwd: string, command: ResolvedTypecheckComman
         const heapLimitMb = Math.floor(resourceBudget.maxRssBytes / 1024 ** 2 * 0.8);
         execStarted = Date.now();
         Object.assign(observation, { waitMs: Math.max(0, execStarted - started), resourceBudget, heapLimitMb });
-        const result = await runProcessAsync(command.bin, command.args, { cwd, timeout, resourceBudget,
+        const result = await runProcessAsync(command.bin, command.args, { cwd, timeout, resourceBudget, ...(signal ? { signal } : {}),
             env: { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=${heapLimitMb}`.trim(), GOMAXPROCS: "2", UV_THREADPOOL_SIZE: "2" } });
         if (result.peakRssBytes !== undefined) observation.peakRssBytes = result.peakRssBytes;
         if (result.resourceReason !== undefined) observation.resourceReason = result.resourceReason;

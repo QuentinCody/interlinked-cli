@@ -33,7 +33,8 @@ describe("immutable managed push runtime", () => {
     it("refuses modified source and symlink substitutions before making a handoff", () => {
         const { root, manifest } = fixture();
         writeFileSync(join(root, "scripts/git-hooks/pre-push"), "modified");
-        expect(() => createManagedPushSnapshot(root, manifest)).toThrow(/changed/);
+        // Bytes that differ from the trust map name the map as stale, distinct from a file moving while it is read.
+        expect(() => createManagedPushSnapshot(root, manifest)).toThrow(/trust map does not match scripts\/git-hooks\/pre-push/);
         rmSync(join(root, "scripts/git-hooks/pre-push"));
         const outside = join(root, "outside"); writeFileSync(outside, "#!/bin/sh\nexit 0\n");
         symlinkSync(outside, join(root, "scripts/git-hooks/pre-push"));

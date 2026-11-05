@@ -36,6 +36,8 @@ import {
 	ensureDirectory,
 } from "./server/socket-lifecycle.js";
 import { pidFileNames, removePidFileIfOwned } from "./daemon-pid-ownership.js";
+import { currentRequestSignal } from "./server/request-cancellation.js";
+import type { HarnessDecision } from "./types.js";
 import {
 	createSocketLifecycle,
 	type SocketLifecycleDeps,
@@ -426,6 +428,37 @@ describe("startRawServer + createRawSocketServer connection handling", () => {
 		expect(sock.write).toHaveBeenCalledWith(
 			`${JSON.stringify({ decision: "block", reason: "no" })}\n`,
 		);
+	});
+
+	// test-contract: public-api — a client that leaves mid-evaluation aborts that request's signal (the pre-tool git gate kills its child on it); a client that stays does not
+	it("P1: aborts the request signal when the client closes while its line is still evaluating", async () => {
+		const { deps, evaluateEventLine } = makeDeps();
+		let seen: AbortSignal | undefined;
+		let settle: () => void = () => {};
+		evaluateEventLine.mockImplementationOnce(() => new Promise<HarnessDecision>(resolve => {
+			seen = currentRequestSignal();
+			settle = () => resolve({ decision: "allow" });
+		}));
+		const lc = createSocketLifecycle(deps);
+		lc.startRawServer();
+		const sock = new FakeSocket();
+		lastServer?.__handler(sock);
+		sock.emit("data", Buffer.from('{"hook_event":"PreToolUse"}\n'));
+		await new Promise(resolve => setImmediate(resolve));
+		expect(seen).toBeInstanceOf(AbortSignal);
+		expect(seen?.aborted).toBe(false);
+		sock.emit("close");
+		expect(seen?.aborted).toBe(true);
+		settle();
+		await new Promise(resolve => setImmediate(resolve));
+		// A later connection gets its own, live signal.
+		let second: AbortSignal | undefined;
+		evaluateEventLine.mockImplementationOnce(async () => { second = currentRequestSignal(); return { decision: "allow" }; });
+		const other = new FakeSocket();
+		lastServer?.__handler(other);
+		await emitData(other, '{"hook_event":"PreToolUse"}\n');
+		expect(second?.aborted).toBe(false);
+		expect(second).not.toBe(seen);
 	});
 
 	it("processes multiple lines in one chunk in arrival order", async () => {

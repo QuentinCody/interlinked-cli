@@ -30,7 +30,7 @@ function checkExecutable(identity) {
 function checkEnvironment(nodeOptions, nodePath) {
     if (nodePath || (nodeOptions && !/^\s*(?:--max-old-space-size(?:=|\s+)\d+\s*)+$/.test(nodeOptions))) throw new Error("managed push loader override is unsupported");
     for (const [key, value] of Object.entries(process.env)) {
-        if (value && ((/^GIT_/.test(key) && key !== "GIT_PAGER") || ["NODE_PATH", "BASH_ENV", "ENV", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"].includes(key))) throw new Error("managed push environment override is unsupported");
+        if (value && ((/^GIT_/.test(key) && !["GIT_PAGER", "GIT_ASKPASS", "GIT_EDITOR"].includes(key)) || ["NODE_PATH", "BASH_ENV", "ENV", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"].includes(key))) throw new Error("managed push environment override is unsupported: " + key);
     }
 }
 function checkSnapshot(plan) {

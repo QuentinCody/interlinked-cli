@@ -26,6 +26,7 @@ import { BIND_ATTEMPTS, BIND_BACKOFF_MS, bindSessionSocket } from "./session-dae
 import type { DaemonPaths } from "./session-paths.js";
 import type { TsgoRunner } from "./tsgo-runner.js";
 import type { HarnessDecision } from "./types.js";
+import { currentRequestSignal } from "./server/request-cancellation.js";
 
 // Partial mock: keep every real helper (daemonPathsFor, sanitizeSessionId, ...)
 // except `classifyDaemonSocket`, which the anti-stomp zombie-reap tests below
@@ -1127,6 +1128,41 @@ describe("startSessionDaemon", () => {
 		await daemon.stop();
 		daemon = null;
 		expect(existsSync(paths.pid)).toBe(false);
+	});
+
+	it("keeps the aborted request signal on frames queued before a client disconnects", async () => {
+		const paths = makePaths("queued-disconnect");
+		const tsgo = makeTsgo();
+		let releaseFirst = (): void => {};
+		let entered = (_signal: AbortSignal | undefined): void => {};
+		let next = (_signal: AbortSignal | undefined): void => {};
+		const firstEntered = new Promise<AbortSignal | undefined>(resolve => { entered = resolve; });
+		const secondEntered = new Promise<AbortSignal | undefined>(resolve => { next = resolve; });
+		vi.mocked(tsgo.checkFile).mockImplementationOnce(async () => {
+			entered(currentRequestSignal());
+			await new Promise<void>(resolve => { releaseFirst = resolve; });
+			return { diagnostics: [], cached: false, elapsed_ms: 1 };
+		}).mockImplementationOnce(async () => {
+			next(currentRequestSignal());
+			return { diagnostics: [], cached: false, elapsed_ms: 1 };
+		});
+		daemon = await startSessionDaemon({ paths, session_id: "queued-disconnect", state: { tsgo, getEvaluatorContext: makeEvaluatorContext } });
+		const socket = createConnection(paths.socket);
+		socket.on("error", () => {});
+		socket.on("connect", () => {
+			const request = (id: string) => encodeFrame({ schema_version: "1", id, method: "tsgo.check_file", params: { path: "a.ts" } });
+			socket.write(request("first") + request("second"));
+		});
+		try {
+			const firstSignal = nonNull(await firstEntered);
+			const aborted = new Promise<void>(resolve => firstSignal.addEventListener("abort", () => resolve(), { once: true }));
+			socket.destroy();
+			await aborted;
+			releaseFirst();
+			const secondSignal = await secondEntered;
+			expect(secondSignal).toBe(firstSignal);
+			expect(secondSignal?.aborted).toBe(true);
+		} finally { socket.destroy(); releaseFirst(); }
 	});
 
 	it("the idle poller's inflight guard defers shutdown while a slow RPC is still in flight (branch 202 true side)", async () => {

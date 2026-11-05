@@ -117,7 +117,7 @@ export function checkProjectTestsClean(cwd: string): CheckResultEntry[] {
 /** Daemon-safe push test gate with bounded, shared test-process admission. */
 export async function checkProjectTestsCleanAsync(
 	cwd: string,
-	options: { admissionAlreadyHeld?: boolean; observe?: ProjectProcessObserver } = {},
+	options: { admissionAlreadyHeld?: boolean; observe?: ProjectProcessObserver; signal?: AbortSignal } = {},
 ): Promise<CheckResultEntry[]> {
 	if (process.env.INTERLINKED_SKIP_PROJECT_TESTS === "1") {
 		return [
@@ -141,6 +141,7 @@ export async function checkProjectTestsCleanAsync(
 		timeoutMs: TESTS_TIMEOUT_MS,
 		...(options.admissionAlreadyHeld ? { admissionAlreadyHeld: true } : {}),
         ...(options.observe ? { observe: options.observe } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
 	});
 	if (run.kind === "deferred") {
 		return [

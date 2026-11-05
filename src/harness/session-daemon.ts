@@ -23,6 +23,7 @@ import { dirname } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
 import { readHarnessProcessIdentity } from "./daemon-process-identity.js";
 import { type DispatcherState, dispatchRpc } from "./daemon-dispatcher.js";
+import { withRequestCancellation } from "./server/request-cancellation.js";
 import { pidFileNames, removePidFileIfOwned } from "./daemon-pid-ownership.js";
 import {
 	decodeFrame,
@@ -280,6 +281,7 @@ function createSessionRpcRuntime(args: {
 	const clients = new Set<Socket>();
 	let inflight = 0;
 	let lastActivity = Date.now();
+	const disconnects = new WeakMap<Socket, AbortController>();
 	const state: DispatcherState = {
 		started_at: args.startedAt,
 		rpc_inflight: 0,
@@ -299,7 +301,9 @@ function createSessionRpcRuntime(args: {
 		state.rpc_inflight = inflight;
 		let response: RpcMessage;
 		try {
-			response = await dispatchRpc(message, state);
+			// The client's departure cancels request-scoped work still running for it (server/request-cancellation.ts).
+			const disconnect = disconnects.get(socket);
+			response = disconnect ? await withRequestCancellation(disconnect.signal, () => dispatchRpc(message, state)) : await dispatchRpc(message, state);
 		} catch (err) {
 			response = makeError(message.id, "internal", errorMessage(err));
 		}
@@ -310,6 +314,7 @@ function createSessionRpcRuntime(args: {
 	return {
 		onConnection(socket) {
 			clients.add(socket);
+			disconnects.set(socket, new AbortController());
 			lastActivity = Date.now();
 			let pending = "";
 			socket.on("data", async (chunk: Buffer) => {
@@ -321,7 +326,9 @@ function createSessionRpcRuntime(args: {
 				}
 			});
 			socket.on("error", () => socket.destroy());
-			socket.on("close", () => clients.delete(socket));
+			// Queued frames still hold this socket after close. Keep their aborted signal;
+			// the WeakMap releases it when those frames and the socket are collected.
+			socket.on("close", () => { clients.delete(socket); disconnects.get(socket)?.abort(); });
 		},
 		destroyClients() {
 			for (const client of clients) client.destroy();

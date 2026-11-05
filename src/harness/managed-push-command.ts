@@ -18,12 +18,40 @@ export function parseManagedPush(command: string): ManagedPushCommand | null {
     return { remote, refspec, suffix };
 }
 
+/**
+ * `GIT_*` variables a push may inherit: prompting and editing helpers an IDE shell exports (VS Code sets
+ * `GIT_ASKPASS` and `GIT_EDITOR` in every terminal). None selects a repository, a configuration source, a hook
+ * path, an exec path, a transport command or a loader, and the legacy push runs under the same values. The
+ * frozen launcher (`managed-push-launcher.ts`) carries the same list; its test pins the two together.
+ */
+export const MANAGED_PUSH_ALLOWED_GIT_VARIABLES: readonly string[] = ["GIT_PAGER", "GIT_ASKPASS", "GIT_EDITOR"];
+const LOADER_OVERRIDE_VARIABLES: readonly string[] = ["NODE_PATH", "BASH_ENV", "ENV", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"];
+const MAX_REPORTED_VARIABLES = 8;
+
+/**
+ * The names (never the values) of inherited variables that would inject a loader, a shell startup file or an
+ * alternate Git repository/configuration into the push; empty when the environment is safe. Sorted and bounded
+ * so a fallback reason stays short and private.
+ */
+export function unsafeManagedPushEnvironmentKeys(env: NodeJS.ProcessEnv): string[] {
+    const keys = Object.entries(env)
+        .filter(([key, value]) => value && ((/^GIT_/.test(key) && !MANAGED_PUSH_ALLOWED_GIT_VARIABLES.includes(key)) || LOADER_OVERRIDE_VARIABLES.includes(key)))
+        .map(([key]) => key);
+    if (env.NODE_OPTIONS && !/^\s*(?:--max-old-space-size(?:=|\s+)\d+\s*)+$/.test(env.NODE_OPTIONS)) keys.push("NODE_OPTIONS");
+    return [...new Set(keys)].sort().slice(0, MAX_REPORTED_VARIABLES);
+}
+
 /** No loader, shell startup, or alternate Git repository/configuration injection. */
 export function safeManagedPushEnvironment(env: NodeJS.ProcessEnv): boolean {
-    if (Object.entries(env).some(([key, value]) => value && ((/^GIT_/.test(key) && key !== "GIT_PAGER") || ["NODE_PATH", "BASH_ENV", "ENV", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"].includes(key)))) return false;
-    return !env.NODE_OPTIONS || /^\s*(?:--max-old-space-size(?:=|\s+)\d+\s*)+$/.test(env.NODE_OPTIONS);
+    return unsafeManagedPushEnvironmentKeys(env).length === 0;
 }
 
 export function shellQuote(value: string): string {
     return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/** Correlate a delivered fallback without changing its Git arguments, hooks, or inherited overrides. */
+export function traceManagedPushCommand(command: string, trace: string): string | null {
+    if (!/^[A-Za-z0-9-]{8,64}$/.test(trace) || !parseManagedPush(command)) return null;
+    return `INTERLINKED_VERIFICATION_TRACE=${shellQuote(trace)} ${command}`;
 }

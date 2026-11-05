@@ -5,7 +5,7 @@ export const MANAGED_PUSH_TRUST: ManagedPushTrust = {
     files: {
         "package-lock.json": "8b8377ec698fcbf19f916fd6e7f62438d4776b085632284af10c4f35bfcff024",
         "package.json": "5d37c743bdbf466a41bd7eeeb102f8150360100ba44456598fcbbb586f990045",
-        "scripts/git-hooks/pre-push": "460fedc3b3b4c38a75c02aaad79ad979ed5b64dda743bebfff2cf90064cc0000",
+        "scripts/git-hooks/pre-push": "631ad18c00b91cf76d0b8a6bd4b160dfaee07b129e0158e4206867ea8f3389e6",
         "scripts/pre-push-coverage.mjs": "af2420c73800ba6c8175e9547bab420a5a4c36e2be552d1b53960dd428db1886",
         "scripts/run-resource-bounded.ts": "6acc8d64435977e7cb3c0698369eb4a45292d1d6710285dbedf3121628a4decb",
         "src/harness/check-engine/process-cancellation.ts": "9815d737df78267b3426bd2cfeac6dfe044a6dc717fa52738366b7ec1f161bf9",
@@ -20,7 +20,7 @@ export const MANAGED_PUSH_TRUST: ManagedPushTrust = {
         "src/harness/resource-wait.ts": "da13f3c165a81511c14ff697ba67f9efa106b4a64d8ad5d95e1c59977bde7989",
         "src/harness/resource-watch.ts": "f29256500804838bd525cb3e5e48874e1eba3ab6de679a2892f2c608ddbd8713",
         "src/harness/test-capacity.ts": "94f93b28d374a5251a91e30da05af911f3211e7f6556270ef8764f98f7c16c60",
-        "src/harness/verification-stages.ts": "4804604b3825a818ae773f83465bae4fb83d66bb62996ec1a0699c5283ee0419",
+        "src/harness/verification-stages.ts": "cc3f87b15e3748ae132d8cf9660a5c9da3a962b5660424700f4127bfb1cdaa3a",
         "src/lib/file-mutation-lock-identity.ts": "baa5560a6f1863a575b89f85d38dc37aa93223622d019b6b19ac86bdb60062f3",
         "src/lib/file-mutation-lock.ts": "39d26c7884161ca3a2f0b33a636eb768321b468a047345a5c8a876eb114bf7ee",
         "src/lib/json-types.ts": "314a23d10f6ab796bd4a69295daf8de4a3c8261099a5ec7f3d4b214142da7996"

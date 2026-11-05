@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { prepareManagedPush } from "./managed-push.js";
+import { prepareManagedPush, prepareManagedPushHandoff } from "./managed-push.js";
 import { digest, type ManagedPushTrust } from "./managed-push-snapshot.js";
 import { shellSplit } from "./shell-structure.js";
+import { traceManagedPushCommand } from "./managed-push-command.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -49,7 +50,7 @@ function fixture(): { root: string; remote: string; trust: ManagedPushTrust } {
     mkdirSync(join(root, "scripts/git-hooks"), { recursive: true });
     // This frozen gate consumes Git's actual update SHA, checks syntax and a coverage floor,
     // and records each invocation. A local bare receiver proves Git honors its verdict.
-    const hook = "#!/bin/sh\nset -eu\nprintf 'gate\\n' >> gate-count\nwhile read local_ref sha remote_ref old; do\n git show \"$sha:module.js\" | node --check\n git show \"$sha:coverage.json\" | node -e 'let s=\"\";process.stdin.on(\"data\",x=>s+=x);process.stdin.on(\"end\",()=>{if(JSON.parse(s).lines<80)process.exitCode=1;});'\ndone\n";
+    const hook = "#!/bin/sh\nset -eu\nprintf 'gate\\n' >> gate-count\nprintf '%s\\n' \"${INTERLINKED_VERIFICATION_TRACE:-}\" > trace-seen\nwhile read local_ref sha remote_ref old; do\n git show \"$sha:module.js\" | node --check\n git show \"$sha:coverage.json\" | node -e 'let s=\"\";process.stdin.on(\"data\",x=>s+=x);process.stdin.on(\"end\",()=>{if(JSON.parse(s).lines<80)process.exitCode=1;});'\ndone\n";
     writeFileSync(join(root, "scripts/git-hooks/pre-push"), hook, { mode: 0o755 });
     git(root, "config", "core.hooksPath", "scripts/git-hooks");
     writeFileSync(join(root, "module.js"), "const value = 1;\n"); writeFileSync(join(root, "coverage.json"), '{"lines":90}\n');
@@ -90,6 +91,7 @@ describe("managed native push handoff", () => {
         try {
             process.execPath = node;
             expect(prepareManagedPush(root, "git push origin main", "codex", trust)).toBeNull();
+            expect(prepareManagedPushHandoff(root, "git push origin main", "codex", trust)).toMatchObject({ kind: "fallback", cause: "executable-identity" });
         } finally { process.execPath = previous; }
     });
     it.each([
@@ -137,6 +139,93 @@ describe("managed native push handoff", () => {
         git(root, "config", "core.hooksPath", "custom");
         expect(prepareManagedPush(root, "git push origin main", "codex", trust)).toBeNull();
         expect(existsSync(join(root, "gate-count"))).toBe(false);
+    });
+
+    // test-contract: public-api — every fallback names one boundary (client, command, environment, repository, hook, trust map, executable) and no environment value
+    it("P1: explains each fallback with a typed cause and a value-free detail", () => {
+        const { root, trust } = fixture();
+        const hookPath = join(root, "scripts/git-hooks/pre-push");
+        expect(prepareManagedPushHandoff(root, "git push origin main", "unknown", trust)).toEqual({ kind: "fallback", cause: "unsupported-client", detail: expect.stringContaining("unknown") });
+        expect(prepareManagedPushHandoff(root, "git push --no-verify origin main", "codex", trust)).toMatchObject({ kind: "fallback", cause: "unsupported-command" });
+        expect(prepareManagedPushHandoff(root, "git push origin main && echo done", "codex", trust, { env: { GIT_CONFIG_COUNT: "1" } })).toMatchObject({ kind: "fallback", cause: "unsupported-command" });
+        const overridden = prepareManagedPushHandoff(root, "git push origin main", "codex", trust, { env: { PATH: process.env.PATH, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "private-value-marker" } });
+        expect(overridden).toMatchObject({ kind: "fallback", cause: "environment-override" });
+        if (overridden.kind !== "fallback") throw new Error("Expected fallback");
+        expect(overridden.detail).toContain("GIT_CONFIG_COUNT");
+        expect(overridden.detail).toContain("GIT_CONFIG_KEY_0");
+        expect(overridden.detail).not.toContain("private-value-marker");
+        expect(prepareManagedPushHandoff(root, "git push nowhere main", "codex", trust)).toMatchObject({ kind: "fallback", cause: "repository-mismatch" });
+        expect(prepareManagedPushHandoff(root, "git push origin main", "codex", { ...trust, files: { ...trust.files, "module.js": "0".repeat(64) } }))
+            .toMatchObject({ kind: "fallback", cause: "stale-trust-map", detail: expect.stringContaining("module.js") });
+        writeFileSync(hookPath, "#!/bin/sh\nexit 0\n");
+        expect(prepareManagedPushHandoff(root, "git push origin main", "codex", trust)).toMatchObject({ kind: "fallback", cause: "stale-trust-map", detail: expect.stringContaining("scripts/git-hooks/pre-push") });
+        rmSync(hookPath);
+        expect(prepareManagedPushHandoff(root, "git push origin main", "codex", trust)).toMatchObject({ kind: "fallback", cause: "hook-mismatch", detail: expect.stringContaining("missing") });
+        mkdirSync(join(root, "custom")); writeFileSync(join(root, "custom/pre-push"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+        git(root, "config", "core.hooksPath", "custom");
+        expect(prepareManagedPushHandoff(root, "git push origin main", "codex", trust)).toMatchObject({ kind: "fallback", cause: "hook-mismatch" });
+        expect(existsSync(join(root, "gate-count"))).toBe(false);
+    });
+
+    it("reports a filesystem refusal by operation and code without repeating the raw exception", () => {
+        const { root, trust } = fixture();
+        const result = prepareManagedPushHandoff(join(root, "missing-private-path"), "git push origin main", "codex", trust);
+        expect(result).toEqual({ kind: "fallback", cause: "executable-identity", detail: "Managed push executable-identity check failed (ENOENT)" });
+    });
+
+    it.each(["private-value-marker", "trust map private-value-marker"])("reports malformed package metadata without echoing input: %s", content => {
+        const { root, trust } = fixture();
+        const packageRoot = join(root, "node_modules/private-fixture");
+        mkdirSync(packageRoot, { recursive: true });
+        writeFileSync(join(packageRoot, "package.json"), content);
+        const result = prepareManagedPushHandoff(root, "git push origin main", "codex", { ...trust, packages: ["private-fixture"] });
+        expect(result).toMatchObject({ kind: "fallback", cause: "snapshot-failure" });
+        if (result.kind !== "fallback") throw new Error("Expected fallback");
+        expect(result.detail).toContain("invalid JSON");
+        expect(result.detail).not.toContain("private-value");
+        expect(result.detail).not.toContain("trust map");
+    });
+
+    it("carries fallback trace metadata through the original hook while retaining its rejection", () => {
+        const { root, remote, trust } = fixture();
+        const trace = "fallback-12345678";
+        const fallback = prepareManagedPushHandoff(root, "git push origin main", "codex", { ...trust, files: { ...trust.files, "scripts/git-hooks/pre-push": "0".repeat(64) } });
+        expect(fallback).toMatchObject({ kind: "fallback", cause: "stale-trust-map" });
+        const command = traceManagedPushCommand("git push origin main > push.log 2>&1", trace);
+        if (!command) throw new Error("Expected trace-only replacement");
+        writeFileSync(join(root, "coverage.json"), '{"lines":20}\n');
+        git(root, "add", "coverage.json"); git(root, "commit", "-qm", "red coverage");
+        expect(execute(root, command).status).not.toBe(0);
+        expect(readFileSync(join(root, "trace-seen"), "utf8").trim()).toBe(trace);
+        expect(git(remote, "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("");
+        // A timed-out client that never receives the replacement runs the original command:
+        // its hook has no daemon correlation id, while its verification still rejects the push.
+        const coldEnvironment = { ...process.env };
+        delete coldEnvironment.INTERLINKED_VERIFICATION_TRACE;
+        expect(execute(root, "git push origin main", coldEnvironment).status).not.toBe(0);
+        expect(readFileSync(join(root, "trace-seen"), "utf8").trim()).toBe("");
+        expect(readFileSync(join(root, "gate-count"), "utf8").trim().split("\n")).toHaveLength(2);
+    });
+
+    // test-contract: public-api — an IDE shell's GIT_ASKPASS/GIT_EDITOR neither refuse preparation nor execution, and the daemon's trace reaches the hook
+    it("P2: pushes under IDE prompt helpers and hands the correlation id to the pinned hook", () => {
+        const { root, remote, trust } = fixture();
+        const trace = "3f2a9c1e-7b4d-4e8a-9c21-0d5e6f7a8b9c";
+        const helpers = { GIT_ASKPASS: "/Applications/Visual Studio Code.app/askpass.sh", GIT_EDITOR: "code --wait" };
+        const prepared = prepareManagedPushHandoff(root, "git push origin main", "claude-code", trust, { env: { ...process.env, ...helpers }, trace });
+        expect(prepared.kind).toBe("prepared");
+        if (prepared.kind !== "prepared") throw new Error("Expected native rewrite");
+        expect(prepared.command).toContain(`INTERLINKED_VERIFICATION_TRACE=${trace}`);
+        const result = execute(root, prepared.command, { ...process.env, ...helpers });
+        expect(result.status).toBe(0);
+        expect(git(remote, "rev-parse", "refs/heads/main")).toBe(git(root, "rev-parse", "HEAD"));
+        expect(readFileSync(join(root, "trace-seen"), "utf8")).toBe(`${trace}\n`);
+        // A malformed trace is dropped rather than quoted into the command; the hook then sees none.
+        const unlabeled = prepareManagedPushHandoff(root, "git push origin main", "codex", trust, { trace: "not a trace" });
+        if (unlabeled.kind !== "prepared") throw new Error("Expected native rewrite");
+        expect(unlabeled.command).not.toContain("INTERLINKED_VERIFICATION_TRACE");
+        expect(execute(root, unlabeled.command).status).toBe(0);
+        expect(readFileSync(join(root, "trace-seen"), "utf8")).toBe("\n");
     });
 
     it("waits for the owned hook controller to reap its detached child after interruption", async () => {

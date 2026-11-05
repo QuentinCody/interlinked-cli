@@ -28,6 +28,7 @@ import {
 	ensureDirectory,
 } from "./server/socket-lifecycle.js";
 import type { ServerBridge } from "./server-bridge.js";
+import { withRequestCancellation } from "./server/request-cancellation.js";
 import type { SessionDaemonHandle } from "./session-daemon.js";
 import type { HarnessDecision } from "./types.js";
 
@@ -276,10 +277,12 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 			// buffer; each complete line is evaluated sequentially in arrival
 			// order and answered with its own write — same as the prior inline loop.
 			const framer = new LineFramer();
+			// The client's departure cancels request-scoped work still running for it (request-cancellation.ts).
+			const disconnect = new AbortController();
 
 			sock.on("data", async (data: Buffer) => {
 				for (const line of framer.push(data.toString("utf-8"))) {
-					const decision = await evaluateEventLine(line, "raw");
+					const decision = await withRequestCancellation(disconnect.signal, () => evaluateEventLine(line, "raw"));
 					try {
 						sock.write(`${JSON.stringify(decision)}\n`);
 					} catch (e) {
@@ -291,6 +294,7 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 			sock.on("close", () => {
 				connectionCount--;
 				openRawClients.delete(sock);
+				disconnect.abort();
 				log(`Connection closed (remaining: ${connectionCount})`);
 			});
 

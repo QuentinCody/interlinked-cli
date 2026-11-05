@@ -37,6 +37,15 @@ hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # the source checkout; `interlinked query stages` reads it.
 export INTERLINKED_STAGE=push
 export INTERLINKED_STAGES_LEDGER="$source_root/.interlinked/verification-stages.jsonl"
+# One correlation id joins this hook's rows with the daemon's rows for the same push: the managed handoff
+# passes the daemon's id in the environment; a plain `git push` from a shell mints its own here. Every step
+# below (bounded commands, `tests run`, the e2e scripts) inherits both variables.
+export INTERLINKED_VERIFICATION_OWNER=git-hook
+if ! printf '%s' "${INTERLINKED_VERIFICATION_TRACE:-}" | grep -Eq '^[A-Za-z0-9-]{8,64}$'; then
+    INTERLINKED_VERIFICATION_TRACE="$(node -e 'console.log(require("node:crypto").randomUUID())' 2>/dev/null || echo "hook-$$-$(date +%s)")"
+fi
+export INTERLINKED_VERIFICATION_TRACE
+echo "[pre-push] verification trace $INTERLINKED_VERIFICATION_TRACE (interlinked tests trace --trace $INTERLINKED_VERIFICATION_TRACE)"
 zero=$(git hash-object --stdin </dev/null | tr '0-9a-f' '0')
 protected_branch_re='^(main|master)$'
 push_shas=()

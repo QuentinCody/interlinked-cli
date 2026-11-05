@@ -20,6 +20,15 @@ export const VERIFICATION_STAGES_FILE = "verification-stages.jsonl";
 export const VERIFICATION_STAGES_SCHEMA = "verification-stages.v1";
 export const STAGE_ENV = "INTERLINKED_STAGE";
 export const STAGES_LEDGER_ENV = "INTERLINKED_STAGES_LEDGER";
+/**
+ * One correlation identifier for one verification request: the daemon mints it when it judges a push and
+ * carries it into the native command's environment, the Git hook exports it (or mints its own when none is
+ * inherited), and every writer below inherits it from the environment. `interlinked tests trace` joins on it.
+ */
+export const TRACE_ENV = "INTERLINKED_VERIFICATION_TRACE";
+/** Which process owns the check a row describes: `daemon` (pre-tool gate), `git-hook` (the pinned pre-push gate), `cli`, `scheduler`. */
+export const OWNER_ENV = "INTERLINKED_VERIFICATION_OWNER";
+const TRACE_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
 
 const VERIFICATION_STAGES = ["edit", "commit", "push", "ci", "cli"] as const;
 export type VerificationStage = (typeof VERIFICATION_STAGES)[number];
@@ -34,7 +43,9 @@ export type ReuseDeniedReason =
     | "memory-budget-unavailable"
     | "worker-budget-unavailable"
     | "interrupted"
-    | "empty-selection";
+    | "empty-selection"
+    /** A recognized push stayed on the legacy checks; the suffix is a `ManagedPushFallbackCause` (`managed-push.ts`). */
+    | `handoff-fallback:${string}`;
 
 export interface VerificationStageInput {
     stage: VerificationStage;
@@ -60,6 +71,13 @@ export interface VerificationStageInput {
     heap_limit_mb?: number;
     run_id?: string;
     session?: string;
+    /** Correlation identifier (see `TRACE_ENV`); defaults to the environment's when the writer passes none. */
+    trace?: string;
+    /** Executing owner of the check (see `OWNER_ENV`); defaults to the environment's. */
+    owner?: string;
+    /** Test files the attempt executed and reused; absent for checks that are not test runs. */
+    tests_executed?: number;
+    tests_reused?: number;
 }
 
 export interface VerificationStageRow extends VerificationStageInput {
@@ -93,14 +111,27 @@ export function platformIdentity(): string {
     return `${process.platform}-${process.arch}-${release()}`;
 }
 
-export function buildVerificationStageRow(input: VerificationStageInput, dryRun: boolean, clock: () => Date = () => new Date()): VerificationStageRow {
-    return { schema: VERIFICATION_STAGES_SCHEMA, ts: clock().toISOString(), ...input, platform: platformIdentity(), node: process.versions.node, pid: process.pid, dry_run: dryRun };
+/** The inherited correlation identifier, when the environment carries a well-formed one. */
+export function traceFromEnvironment(env: NodeJS.ProcessEnv = process.env): string | undefined {
+    const declared = env[TRACE_ENV];
+    return declared && TRACE_PATTERN.test(declared) ? declared : undefined;
+}
+
+/** `trace` and `owner` from the input, else from the environment; absent when neither names one. */
+function correlation(input: VerificationStageInput, env: NodeJS.ProcessEnv): Pick<VerificationStageInput, "trace" | "owner"> {
+    const trace = input.trace ?? traceFromEnvironment(env);
+    const owner = input.owner ?? (env[OWNER_ENV] && /^[a-z-]{1,32}$/.test(env[OWNER_ENV]) ? env[OWNER_ENV] : undefined);
+    return { ...(trace === undefined ? {} : { trace }), ...(owner === undefined ? {} : { owner }) };
+}
+
+export function buildVerificationStageRow(input: VerificationStageInput, dryRun: boolean, clock: () => Date = () => new Date(), env: NodeJS.ProcessEnv = process.env): VerificationStageRow {
+    return { schema: VERIFICATION_STAGES_SCHEMA, ts: clock().toISOString(), ...input, ...correlation(input, env), platform: platformIdentity(), node: process.versions.node, pid: process.pid, dry_run: dryRun };
 }
 
 /** Appends one row. Returns true when a row was written; false for a dry run or any I/O failure. */
 export function recordVerificationStage(root: string, input: VerificationStageInput, options: { dryRun?: boolean; env?: NodeJS.ProcessEnv } = {}): boolean {
     if (options.dryRun) return false;
-    const row = buildVerificationStageRow(input, false);
+    const row = buildVerificationStageRow(input, false, undefined, options.env ?? process.env);
     try {
         const path = verificationStagesPath(root, options.env ?? process.env);
         mkdirSync(dirname(path), { recursive: true });

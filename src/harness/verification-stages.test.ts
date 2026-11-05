@@ -3,8 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+    OWNER_ENV,
     STAGES_LEDGER_ENV,
     STAGE_ENV,
+    TRACE_ENV,
+    traceFromEnvironment,
     VERIFICATION_STAGES_FILE,
     VERIFICATION_STAGES_SCHEMA,
     buildVerificationStageRow,
@@ -55,6 +58,22 @@ describe("recordVerificationStage — positive (must fire)", () => {
         expect(legacy).toMatchObject({ schema: VERIFICATION_STAGES_SCHEMA, check: input.check });
         expect(legacy).not.toHaveProperty("peak_rss_bytes");
         expect(unsampled?.peak_rss_bytes).toBeNull();
+    });
+
+    // test-contract: public-api — the correlation id and owner come from the input first, else from the environment the hook exported
+    it("P4: carries trace and owner from the input or the environment, and the test counts unchanged", () => {
+        const root = fixture(), ledger = join(root, "stages.jsonl");
+        const env = { [STAGES_LEDGER_ENV]: ledger, [TRACE_ENV]: "3f2a9c1e-7b4d-4e8a-9c21-0d5e6f7a8b9c", [OWNER_ENV]: "git-hook" };
+        expect(recordVerificationStage(root, { ...input, tests_executed: 3002, tests_reused: 0 }, { env })).toBe(true);
+        expect(recordVerificationStage(root, { ...input, trace: "daemon-trace-0001", owner: "daemon" }, { env })).toBe(true);
+        expect(recordVerificationStage(root, input, { env: { [STAGES_LEDGER_ENV]: ledger, [TRACE_ENV]: "bad trace!", [OWNER_ENV]: "Not Valid" } })).toBe(true);
+        const [inherited, explicit, invalid] = rows(ledger);
+        expect(inherited).toMatchObject({ trace: "3f2a9c1e-7b4d-4e8a-9c21-0d5e6f7a8b9c", owner: "git-hook", tests_executed: 3002, tests_reused: 0 });
+        expect(explicit).toMatchObject({ trace: "daemon-trace-0001", owner: "daemon" });
+        expect(invalid).not.toHaveProperty("trace");
+        expect(invalid).not.toHaveProperty("owner");
+        expect(traceFromEnvironment({ [TRACE_ENV]: "short" })).toBeUndefined();
+        expect(traceFromEnvironment(env)).toBe("3f2a9c1e-7b4d-4e8a-9c21-0d5e6f7a8b9c");
     });
 
     // test-contract: public-api — INTERLINKED_STAGES_LEDGER redirects rows (the pre-push export writes into the source checkout)

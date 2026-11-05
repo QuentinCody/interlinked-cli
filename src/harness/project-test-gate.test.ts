@@ -41,6 +41,20 @@ it("forwards observation and existing admission to the test runner", async () =>
     expect(runBoundedTestProcessMock).toHaveBeenCalledWith(expect.objectContaining({ cwd: dir, admissionAlreadyHeld: true, observe }));
 });
 
+// test-contract: public-api — the hook client's disconnect signal reaches the bounded runner, so a departed client's test process is killed instead of keeping the host slot
+it("P1: forwards the caller's cancellation signal to the test runner", async () => {
+    writePkg({ test: "vitest run" });
+    const controller = new AbortController();
+    runBoundedTestProcessMock.mockResolvedValue({ kind: "deferred", reason: "interrupted" });
+    await expect(checkProjectTestsCleanAsync(dir, { signal: controller.signal })).resolves.toEqual([
+        expect.objectContaining({ name: "project_tests_deferred", message: expect.stringContaining("(interrupted)") }),
+    ]);
+    expect(runBoundedTestProcessMock).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }));
+    runBoundedTestProcessMock.mockResolvedValue({ kind: "completed", code: 0, stdout: "", stderr: "" });
+    await checkProjectTestsCleanAsync(dir, {});
+    expect(runBoundedTestProcessMock.mock.calls.at(-1)?.[0]).not.toHaveProperty("signal");
+});
+
 describe("checkProjectTestsCleanAsync — env-var skip", () => {
 	it("returns the skip warning without ever invoking a test process", async () => {
 		writePkg({ test: "vitest run" });

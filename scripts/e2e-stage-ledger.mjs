@@ -20,10 +20,19 @@ export function stagesLedgerPath(root, env = process.env) {
     return override && override.length > 0 ? override : join(root, ".interlinked", "verification-stages.jsonl");
 }
 
+/** The inherited correlation id and owner (INTERLINKED_VERIFICATION_TRACE / _OWNER), as the harness module reads them. */
+export function correlationFromEnvironment(env = process.env) {
+    const trace = env.INTERLINKED_VERIFICATION_TRACE, owner = env.INTERLINKED_VERIFICATION_OWNER;
+    return {
+        ...(trace && /^[A-Za-z0-9-]{8,64}$/.test(trace) ? { trace } : {}),
+        ...(owner && /^[a-z-]{1,32}$/.test(owner) ? { owner } : {}),
+    };
+}
+
 /** Appends one row `{check, status, exec_ms?, post_ms?, ...}`; returns false on any I/O failure. */
 export function recordStage(root, input, { env = process.env } = {}) {
     const row = {
-        schema: STAGES_SCHEMA, ts: new Date().toISOString(), stage: stageFromEnvironment("cli", env), identity: null, reused: false, ...input,
+        schema: STAGES_SCHEMA, ts: new Date().toISOString(), stage: stageFromEnvironment("cli", env), identity: null, reused: false, ...correlationFromEnvironment(env), ...input,
         platform: `${process.platform}-${process.arch}-${release()}`, node: process.versions.node, pid: process.pid, dry_run: false,
     };
     try {

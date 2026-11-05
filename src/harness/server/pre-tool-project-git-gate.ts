@@ -8,15 +8,18 @@ import {
 	checkProjectTypecheckCleanAsync,
 } from "../project-typecheck-gate.js";
 import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
-import { prepareManagedPush } from "../managed-push.js";
+import { prepareManagedPushHandoff } from "../managed-push.js";
+import { traceManagedPushCommand } from "../managed-push-command.js";
 import type { ProjectProcessObservation, ProjectProcessObserver } from "../project-process-observation.js";
-import { elapsedMs, recordVerificationStage, type VerificationStage } from "../verification-stages.js";
+import { randomUUID } from "node:crypto";
+import { elapsedMs, recordVerificationStage, type ReuseDeniedReason, type VerificationStage } from "../verification-stages.js";
 import type {
 	CheckResultEntry,
 	HarnessDecision,
 	HarnessEvent,
 	SessionTrajectory,
 } from "../types.js";
+import { currentRequestSignal } from "./request-cancellation.js";
 import { type ServerRuntime, summarizeToolInput } from "./runtime-context.js";
 
 /**
@@ -123,7 +126,7 @@ async function applyProjectTypecheckGateAsync(
 		event,
 		session,
 		preDecision,
-		await observeGitCheck(ctx.cwd, event, isCommit ? "commit" : "push", "typecheck", observe => checkProjectTypecheckCleanAsync(ctx.cwd, { observe })),
+		await observeGitCheck(ctx.cwd, event, isCommit ? "commit" : "push", "typecheck", observe => checkProjectTypecheckCleanAsync(ctx.cwd, { observe, ...requestSignal() })),
 		isCommit,
 	);
 }
@@ -191,8 +194,34 @@ async function applyProjectTestGateAsync(
 		session,
 		preDecision,
 		await observeGitCheck(ctx.cwd, event, "push", "tests", observe => checkProjectTestsCleanAsync(ctx.cwd,
-            { ...(admissionAlreadyHeld ? { admissionAlreadyHeld: true } : {}), observe })),
+            { ...(admissionAlreadyHeld ? { admissionAlreadyHeld: true } : {}), observe, ...requestSignal() })),
 	);
+}
+
+/**
+ * One correlation id per judged git command, shared by every ledger row the daemon writes for it and handed to
+ * the native push so the hook's rows join them. Keyed by event so the sync and async gates agree.
+ */
+const traces = new WeakMap<HarnessEvent, string>();
+function traceOf(event: HarnessEvent): string {
+    let trace = traces.get(event);
+    if (!trace) { trace = randomUUID(); traces.set(event, trace); }
+    return trace;
+}
+
+/**
+ * The hook client's disconnect signal for this request, as an options fragment. A client that timed out has no
+ * use for the verdict, and its heavyweight child must not keep the host slot the Git hook it started now waits for.
+ */
+function requestSignal(): { signal?: AbortSignal } {
+    const signal = currentRequestSignal();
+    return signal ? { signal } : {};
+}
+
+/** Why a deferred legacy check produced no verdict: the client left, or the observed resource reason / first message. */
+function deferredReason(observation: ProjectProcessObservation | undefined, results: CheckResultEntry[] | undefined): ReuseDeniedReason {
+    if (currentRequestSignal()?.aborted) return "interrupted";
+    return `plan-not-reusable:${observation?.resourceReason ?? results?.[0]?.message ?? "Project check unavailable"}`;
 }
 
 /** One ledger row per legacy check; lower process layers only supply observations. */
@@ -205,12 +234,12 @@ async function observeGitCheck(root: string, event: HarnessEvent, stage: Verific
         return results;
     } finally {
         const status = legacyCheckStatus(results, observation);
-        recordVerificationStage(root, { stage, check: `pre-tool:project-${check}`, identity: null, status, reused: false,
+        recordVerificationStage(root, { stage, check: `pre-tool:project-${check}`, identity: null, status, reused: false, trace: traceOf(event), owner: "daemon",
             session: event.session_id, wait_capacity_ms: observation?.waitMs ?? elapsedMs(started), exec_ms: observation?.execMs ?? 0,
             peak_rss_bytes: observation?.peakRssBytes ?? null,
             ...(observation?.resourceBudget ? { rss_budget_bytes: observation.resourceBudget.maxRssBytes } : {}),
             ...(observation?.heapLimitMb !== undefined ? { heap_limit_mb: observation.heapLimitMb } : {}),
-            ...(status === "deferred" ? { reuse_denied_reason: `plan-not-reusable:${observation?.resourceReason ?? results?.[0]?.message ?? "Project check unavailable"}` as const } : {}),
+            ...(status === "deferred" ? { reuse_denied_reason: deferredReason(observation, results) } : {}),
         });
     }
 }
@@ -262,7 +291,7 @@ export async function runProjectWideGitGateAsync(
 
 	const releaseHeavyProcess = tryAcquireProjectHeavyProcessLease(ctx.cwd);
 	if (!releaseHeavyProcess) {
-		recordVerificationStage(ctx.cwd, { stage: isCommit ? "commit" : "push", check: "pre-tool:project-git", identity: null, status: "deferred", reused: false, session: event.session_id, wait_capacity_ms: 0, exec_ms: 0, peak_rss_bytes: null, reuse_denied_reason: "capacity-timeout" });
+		recordVerificationStage(ctx.cwd, { stage: isCommit ? "commit" : "push", check: "pre-tool:project-git", identity: null, status: "deferred", reused: false, trace: traceOf(event), owner: "daemon", session: event.session_id, wait_capacity_ms: 0, exec_ms: 0, peak_rss_bytes: null, reuse_denied_reason: "capacity-timeout" });
 		const warnings = preDecision.warnings || [];
 		warnings.push(
 			"[interlinked:project_git_gate_deferred] Project-wide typecheck/tests were NOT CHECKED because another heavyweight project check is active. Retry before committing or pushing.",
@@ -281,12 +310,28 @@ export async function runProjectWideGitGateAsync(
 	}
 }
 
+/**
+ * Hand a recognized push to its pinned Git hook, or record why the legacy checks keep it. Both outcomes leave
+ * one ledger row, and a fallback also tells the agent its cause (names only; no environment values).
+ */
 function applyManagedPush(ctx: ServerRuntime, event: HarnessEvent, decision: HarnessDecision, command: string): boolean {
     const started = Date.now();
-    const replacement = prepareManagedPush(ctx.cwd, command, event.agent_source);
-    if (!replacement) return false;
-    decision.updated_input = { ...event.tool_input, command: replacement };
-    recordVerificationStage(ctx.cwd, { stage: "push", check: "pre-tool:managed-push", identity: null, status: "delegated", reused: false,
+    const trace = traceOf(event);
+    const prepared = prepareManagedPushHandoff(ctx.cwd, command, event.agent_source, undefined, { trace });
+    if (prepared.kind === "fallback") {
+        // A command or client the handoff never covers is not a fallback worth a row: the legacy rows are its record.
+        if (prepared.cause.startsWith("unsupported-")) return false;
+        recordVerificationStage(ctx.cwd, { stage: "push", check: "pre-tool:managed-push", identity: null, status: "fallback", reused: false, trace, owner: "daemon",
+            session: event.session_id, validate_ms: elapsedMs(started), exec_ms: 0, peak_rss_bytes: null, reuse_denied_reason: `handoff-fallback:${prepared.cause}` });
+        const warnings = decision.warnings || [];
+        warnings.push(`[interlinked:managed_push_fallback] Native push handoff not used (${prepared.cause}: ${prepared.detail}); the daemon's legacy typecheck/test checks run instead.`);
+        decision.warnings = warnings;
+        const correlated = traceManagedPushCommand(command, trace);
+        if (correlated) decision.updated_input = { ...event.tool_input, command: correlated };
+        return false;
+    }
+    decision.updated_input = { ...event.tool_input, command: prepared.command };
+    recordVerificationStage(ctx.cwd, { stage: "push", check: "pre-tool:managed-push", identity: null, status: "delegated", reused: false, trace, owner: "git-hook",
         session: event.session_id, validate_ms: elapsedMs(started), exec_ms: 0, peak_rss_bytes: null });
     return true;
 }

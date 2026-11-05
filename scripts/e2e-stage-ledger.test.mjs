@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { release, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { STAGES_SCHEMA, recordStage, stageFromEnvironment, stagesLedgerPath } from "./e2e-stage-ledger.mjs";
+import { STAGES_SCHEMA, correlationFromEnvironment, recordStage, stageFromEnvironment, stagesLedgerPath } from "./e2e-stage-ledger.mjs";
 
 const temps = [];
 afterEach(() => { for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -40,6 +40,21 @@ describe("recordStage — positive (must fire)", () => {
         expect(recordStage(root, { check: "e2e-tests", status: "failed", exec_ms: 5 }, { env })).toBe(true);
         expect(rows(path)).toMatchObject([{ stage: "push", check: "e2e-tests", status: "failed", exec_ms: 5 }]);
         expect(existsSync(join(root, ".interlinked"))).toBe(false);
+    });
+});
+
+describe("recordStage — correlation (mirrors the harness module)", () => {
+    // test-contract: public-api — the hook's exported trace and owner land on e2e rows exactly as the TS writer records them
+    it("P3: inherits INTERLINKED_VERIFICATION_TRACE and _OWNER and ignores malformed values", () => {
+        const root = fixture(), path = join(root, "stages.jsonl");
+        const env = { INTERLINKED_STAGES_LEDGER: path, INTERLINKED_VERIFICATION_TRACE: "3f2a9c1e-7b4d-4e8a-9c21-0d5e6f7a8b9c", INTERLINKED_VERIFICATION_OWNER: "git-hook" };
+        expect(recordStage(root, { check: "e2e-tests", status: "passed", exec_ms: 5 }, { env })).toBe(true);
+        expect(recordStage(root, { check: "e2e-tests", status: "passed" }, { env: { INTERLINKED_STAGES_LEDGER: path, INTERLINKED_VERIFICATION_TRACE: "bad trace!", INTERLINKED_VERIFICATION_OWNER: "Not Valid" } })).toBe(true);
+        const [inherited, invalid] = rows(path);
+        expect(inherited).toMatchObject({ trace: "3f2a9c1e-7b4d-4e8a-9c21-0d5e6f7a8b9c", owner: "git-hook" });
+        expect(invalid).not.toHaveProperty("trace");
+        expect(invalid).not.toHaveProperty("owner");
+        expect(correlationFromEnvironment({})).toEqual({});
     });
 });
 

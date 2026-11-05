@@ -79,8 +79,8 @@ vi.mock("../verification-stages.js", async importOriginal => ({
     ...await importOriginal<typeof import("../verification-stages.js")>(), recordVerificationStage: vi.fn(),
 }));
 import { recordVerificationStage } from "../verification-stages.js";
-vi.mock("../managed-push.js", () => ({ prepareManagedPush: vi.fn((): string | null => null) }));
-import { prepareManagedPush } from "../managed-push.js";
+vi.mock("../managed-push.js", () => ({ prepareManagedPushHandoff: vi.fn((): ManagedPushPreparation => ({ kind: "fallback", cause: "unsupported-command", detail: "mock" })) }));
+import { prepareManagedPushHandoff, type ManagedPushPreparation } from "../managed-push.js";
 vi.mock("../project-heavy-process-lock.js", () => ({
 	tryAcquireProjectHeavyProcessLease: vi.fn(() => releaseHeavyProcess),
 }));
@@ -148,6 +148,7 @@ import {
 	runProjectWideGitGateAsync,
 	runTddCommitGate,
 } from "./pre-tool-pipeline-stages.js";
+import { withRequestCancellation } from "./request-cancellation.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
 const mExists = vi.mocked(existsSync);
@@ -238,7 +239,7 @@ beforeEach(() => {
 	vi.mocked(checkProjectTypecheckCleanAsync).mockResolvedValue([]);
 	vi.mocked(checkProjectTestsClean).mockReturnValue([]);
 	vi.mocked(checkProjectTestsCleanAsync).mockResolvedValue([]);
-	vi.mocked(prepareManagedPush).mockReturnValue(null);
+	vi.mocked(prepareManagedPushHandoff).mockReturnValue({ kind: "fallback", cause: "unsupported-command", detail: "mock" });
 	vi.mocked(tryAcquireProjectHeavyProcessLease).mockReturnValue(releaseHeavyProcess);
 	vi.mocked(loadCoverageFinal).mockReturnValue(null);
 	vi.mocked(snapshotCrap).mockReturnValue(new Map());
@@ -904,7 +905,7 @@ describe("runProjectWideGitGate", () => {
     });
 
     it("hands a recognized native push to its pinned hook without duplicate compiler or test runs", async () => {
-        vi.mocked(prepareManagedPush).mockReturnValue("pinned-native-command");
+        vi.mocked(prepareManagedPushHandoff).mockReturnValue({ kind: "prepared", command: "pinned-native-command" });
         const pre = allow();
         await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre);
         expect(pre.updated_input).toEqual({ command: "pinned-native-command" });
@@ -913,17 +914,87 @@ describe("runProjectWideGitGate", () => {
         expect(checkProjectTestsCleanAsync).not.toHaveBeenCalled();
         expect(tryAcquireProjectHeavyProcessLease).not.toHaveBeenCalled();
         expect(vi.mocked(recordVerificationStage).mock.calls.map(call => call[1])).toEqual([
-            expect.objectContaining({ check: "pre-tool:managed-push", status: "delegated", reused: false, exec_ms: 0, peak_rss_bytes: null }),
+            expect.objectContaining({ check: "pre-tool:managed-push", status: "delegated", reused: false, exec_ms: 0, peak_rss_bytes: null, owner: "git-hook", trace: expect.stringMatching(/^[0-9a-f-]{36}$/) }),
         ]);
+        // The hook receives the same correlation id the row carries.
+        const trace = vi.mocked(recordVerificationStage).mock.calls[0]?.[1].trace;
+        expect(vi.mocked(prepareManagedPushHandoff).mock.calls[0]?.[4]).toEqual({ trace });
+    });
+
+    // test-contract: public-api — a recognized push the environment refuses keeps every legacy check, records why, and tells the agent (names only)
+    it("P1: records and reports a handoff fallback while the legacy checks still run under one trace", async () => {
+        vi.mocked(prepareManagedPushHandoff).mockReturnValue({ kind: "fallback", cause: "environment-override", detail: "Inherited environment overrides: GIT_CONFIG_COUNT" });
+        const pre = allow();
+        await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre);
+        expect(pre.decision).toBe("allow");
+        expect(checkProjectTypecheckCleanAsync).toHaveBeenCalledOnce();
+        expect(checkProjectTestsCleanAsync).toHaveBeenCalledOnce();
+        const rows = vi.mocked(recordVerificationStage).mock.calls.map(call => call[1]);
+        // The mocked checks report no observation, which the ledger records as not-applicable rather than passed.
+        expect(rows.map(row => [row.check, row.status, row.owner])).toEqual([
+            ["pre-tool:managed-push", "fallback", "daemon"], ["pre-tool:project-typecheck", "not-applicable", "daemon"], ["pre-tool:project-tests", "not-applicable", "daemon"],
+        ]);
+        expect(rows[0]).toMatchObject({ reuse_denied_reason: "handoff-fallback:environment-override", exec_ms: 0, peak_rss_bytes: null });
+        expect(new Set(rows.map(row => row.trace)).size).toBe(1);
+        expect(rows[0]?.trace).toMatch(/^[0-9a-f-]{36}$/);
+        expect(pre.updated_input).toEqual({ command: `INTERLINKED_VERIFICATION_TRACE='${rows[0]?.trace}' git push origin main` });
+        expect(pre.warnings).toEqual([expect.stringMatching(/^\[interlinked:managed_push_fallback\] .*environment-override: Inherited environment overrides: GIT_CONFIG_COUNT/)]);
+    });
+
+    it.each(["typecheck", "tests"] as const)("retains the legacy %s block after a trace-only fallback replacement", async failing => {
+        vi.mocked(prepareManagedPushHandoff).mockReturnValue({ kind: "fallback", cause: "stale-trust-map", detail: "Managed hook trust map differs" });
+        const failure = [check({ name: `project_${failing}_clean`, severity: "error", message: "verification failed" })];
+        if (failing === "typecheck") vi.mocked(checkProjectTypecheckCleanAsync).mockResolvedValueOnce(failure);
+        else vi.mocked(checkProjectTestsCleanAsync).mockResolvedValueOnce(failure);
+        const pre = allow();
+        await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre);
+        expect(pre.decision).toBe("block");
+        expect(pre.reason).toContain("verification failed");
+        expect(pre.updated_input?.command).toMatch(/^INTERLINKED_VERIFICATION_TRACE='[0-9a-f-]+' git push origin main$/);
+        expect(checkProjectTypecheckCleanAsync).toHaveBeenCalledOnce();
+        expect(checkProjectTestsCleanAsync).toHaveBeenCalledTimes(failing === "tests" ? 1 : 0);
+    });
+
+    // test-contract: public-api — the hook client's disconnect signal reaches both legacy checks, and a check cut short by it is recorded as interrupted, with the lease released
+    it("P2: threads the client's disconnect signal into the legacy checks and records an interrupted gate", async () => {
+        const controller = new AbortController();
+        vi.mocked(checkProjectTestsCleanAsync).mockImplementationOnce(async (_cwd, options) => {
+            controller.abort();
+            options?.observe?.({ waitMs: 1, execMs: 2 });
+            return [check({ name: "project_tests_deferred", message: "Project tests (npm-test) were NOT CHECKED (interrupted). Retry before pushing." })];
+        });
+        const pre = allow();
+        await withRequestCancellation(controller.signal, () => runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre));
+        expect(vi.mocked(checkProjectTypecheckCleanAsync).mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+        expect(vi.mocked(checkProjectTestsCleanAsync).mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+        expect(vi.mocked(recordVerificationStage).mock.calls.at(-1)?.[1]).toMatchObject({ check: "pre-tool:project-tests", status: "deferred", reuse_denied_reason: "interrupted", exec_ms: 2 });
+        expect(releaseHeavyProcess).toHaveBeenCalledOnce();
+        // Outside a transport-owned request no signal is passed, so durable work cannot be cancelled by accident.
+        vi.clearAllMocks();
+        await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), allow());
+        expect(vi.mocked(checkProjectTypecheckCleanAsync).mock.calls[0]?.[1]).not.toHaveProperty("signal");
+    });
+
+    // test-contract: invariant — a command or client the handoff never covers leaves no fallback row or warning; the legacy rows are its record
+    it("N1: writes no fallback row for an unsupported command or client", async () => {
+        for (const cause of ["unsupported-command", "unsupported-client", "unsupported-platform"] as const) {
+            vi.mocked(recordVerificationStage).mockClear();
+            vi.mocked(prepareManagedPushHandoff).mockReturnValue({ kind: "fallback", cause, detail: "mock" });
+            const pre = allow();
+            await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre);
+            expect(pre.warnings).toBeUndefined();
+            expect(pre.updated_input).toBeUndefined();
+            expect(vi.mocked(recordVerificationStage).mock.calls.map(call => call[1].check)).toEqual(["pre-tool:project-typecheck", "pre-tool:project-tests"]);
+        }
     });
 
     it("retains earlier guard decisions and existing native rewrites", async () => {
         const blocked: HarnessDecision = { decision: "block", reason: "protected policy" };
         await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), blocked);
-        expect(prepareManagedPush).not.toHaveBeenCalled();
+        expect(prepareManagedPushHandoff).not.toHaveBeenCalled();
         const pre = allow(); pre.updated_input = { command: "earlier-rewrite" };
         await runProjectWideGitGateAsync(makeCtx(), push(), makeSession(), pre);
-        expect(prepareManagedPush).not.toHaveBeenCalled();
+        expect(prepareManagedPushHandoff).not.toHaveBeenCalled();
         expect(checkProjectTypecheckCleanAsync).toHaveBeenCalledTimes(1);
         expect(checkProjectTestsCleanAsync).toHaveBeenCalledTimes(1);
         expect(pre.updated_input.command).toBe("earlier-rewrite");

@@ -5,6 +5,10 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 export interface ManagedPushTrust { files: Readonly<Record<string, string>>; packages: readonly string[]; }
 export interface FrozenFile { path: string; sha256: string; mode: number; size: number; }
 export interface ManagedPushSnapshot { root: string; files: FrozenFile[]; bytes: number; }
+/** Only a verified source/hash comparison establishes this refusal; arbitrary error text cannot. */
+export class ManagedPushTrustMismatch extends Error {
+    constructor(path: string) { super(`Managed push trust map does not match ${path}`); }
+}
 const MAX_FILES = 4096;
 const MAX_BYTES = 64 * 1024 * 1024;
 
@@ -27,7 +31,9 @@ function copyFrozenFile(source: string, path: string, state: ManagedPushSnapshot
     const bytes = readFileSync(source);
     const after = lstatSync(source);
     const sha256 = digest(bytes);
-    if (before.ino !== after.ino || before.dev !== after.dev || before.size !== bytes.length || before.mtimeMs !== after.mtimeMs || (expected && sha256 !== expected)) throw new Error(`Managed push input changed: ${path}`);
+    if (before.ino !== after.ino || before.dev !== after.dev || before.size !== bytes.length || before.mtimeMs !== after.mtimeMs) throw new Error(`Managed push input changed: ${path}`);
+    // The trust map pins these bytes; a difference means the map is stale for this checkout, not that the file moved.
+    if (expected && sha256 !== expected) throw new ManagedPushTrustMismatch(path);
     const target = join(state.root, path);
     mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
     const mode = before.mode & 0o111 ? 0o555 : 0o444;
