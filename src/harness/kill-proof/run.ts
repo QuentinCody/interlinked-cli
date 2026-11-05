@@ -163,7 +163,35 @@ function judgeCases(passing: readonly VitestCase[], under: VitestRun): CaseOutco
 	});
 }
 
+/** How many unmutated copies must pass again after a kill (round-4 M1). */
+export const KILL_REPEATS = 2;
+
+/**
+ * A kill must be REPEATABLE (review L1; round-4 M1). State a run leaves outside its copy — $HOME, /var, a path
+ * beside the project — can fail the next run of a test whatever the mutant did. Two unmutated copies run AFTER the
+ * kill, so the sequence a kill needs is pass, FAIL, pass, pass: state that flips on every run (period 2: a counter
+ * that forbids its second reading, a marker the next run deletes) fails the second repeat and the case is "not
+ * repeatable", never a kill. One repeat accepted exactly that pattern (round-4 N1/N2). Residual, stated in the
+ * guide's Limits: state with period 3 or longer, and probabilistic flakiness — repeats lower the odds, they do not
+ * end them. The copies' own tmpdir and vitest cache are private per run (M2), so this covers what is left.
+ */
+async function confirmKills(cases: readonly CaseOutcome[], runIn: (overrides: ReadonlyMap<string, string>) => Promise<VitestRun>): Promise<CaseOutcome[]> {
+	let out = [...cases];
+	for (let repeat = 1; repeat <= KILL_REPEATS && out.some(row => row.verdict === "killed"); repeat++) {
+		const again = await runIn(new Map());
+		out = out.map(row => {
+			if (row.verdict !== "killed") return row;
+			const result = again.cases.find(c => caseKey(c) === row.test);
+			if (again.error === undefined && !again.timedOut && result?.status === "passed") return row;
+			const why = result?.message ?? again.error ?? result?.status ?? "no result";
+			return { test: row.test, verdict: "inconclusive", reason: `not repeatable: it also fails on a fresh unmutated copy (repeat ${repeat} of ${KILL_REPEATS}: ${why}). A run left state outside the copy` };
+		});
+	}
+	return out;
+}
+
 function overallVerdict(cases: readonly CaseOutcome[]): { verdict: KillProofReceipt["verdict"]; reasons: string[] } {
+
 	const killed = cases.filter(row => row.verdict === "killed"), inconclusive = cases.filter(row => row.verdict === "inconclusive");
 	if (killed.length) return { verdict: "killed", reasons: killed.map(row => `${row.test} failed by its own check under the mutant`) };
 	if (inconclusive.length) return { verdict: "inconclusive", reasons: inconclusive.map(row => `${row.test}: ${row.reason ?? "no result"}`) };
@@ -288,19 +316,9 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 		? { cases: [], timedOut: false, error: parse.reason, exitCode: null, durationMs: 0 }
 		: await runIn(new Map([[mutant.file, mutated]]));
 	let cases = judgeCases(passing, under);
-	if (cases.some(row => row.verdict === "killed")) {
-		// Repeat baseline (review L1): a kill must be REPEATABLE. State a run leaves outside the copy (the shared
-		// node_modules link, os.tmpdir()) can fail the second run of a test whatever the mutant did; an unmutated
-		// third copy must pass again, or the case is "not repeatable", never a kill.
-		const again = await runIn(new Map());
-		cases = cases.map(row => {
-			if (row.verdict !== "killed") return row;
-			const repeat = again.cases.find(c => caseKey(c) === row.test);
-			if (again.error === undefined && !again.timedOut && repeat?.status === "passed") return row;
-			return { test: row.test, verdict: "inconclusive", reason: `not repeatable: it also fails on a fresh unmutated copy (${repeat?.message ?? again.error ?? repeat?.status ?? "no result"}). A run left state outside the copy` };
-		});
-	}
+	if (cases.some(row => row.verdict === "killed")) cases = await confirmKills(cases, runIn);
 	const { verdict, reasons } = overallVerdict(cases);
+
 	if (verdict === "survived") {
 		// Reachability canary (review N6/N7): a survivor only means something if the tests loaded the COPY's file.
 		const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]));

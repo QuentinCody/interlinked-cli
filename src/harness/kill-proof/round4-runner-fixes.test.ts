@@ -11,6 +11,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { PRIVATE_VITEST_ARGS, runVitestDetailed } from "../fail-before-fix/index.js";
+import { KILL_REPEATS, proveKill } from "./run.js";
+
+const COMMENT_FAULT = { kind: "explicit", file: "src/math.ts", find: "// helper: add two numbers", replace: "// helper: add 2 numbers" } as const;
+const MINUS_FAULT = { kind: "explicit", file: "src/math.ts", find: "return a + b;", replace: "return a - b;" } as const;
+
 
 const CHECKOUT = fileURLToPath(new URL("../../..", import.meta.url));
 const NODE_MODULES = join(CHECKOUT, "node_modules");
@@ -66,5 +71,37 @@ describe("M2 — every vitest run is private: no results cache, a fresh tmpdir p
 		const lines = readFileSync(join(root, "tmpdirs.txt"), "utf8").trim().split("\n");
 		expect(lines).toHaveLength(2);
 		expect(lines[0]).not.toBe(lines[1]);
+	}, REAL_RUN_MS);
+});
+
+describe("M1 — a kill must survive TWO unmutated repeats (pass, FAIL, pass, pass)", () => {
+	it("N1: period-2 state kept OUTSIDE tmpdir and the copies (an ignored path in the live tree) does not turn a comment-only mutant into a kill", async () => {
+		// baseline n=0 pass, mutant n=1 FAIL (looks like a kill), repeat 1 n=2 pass, repeat 2 n=3 FAIL → not repeatable
+		const test = [
+			'import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";',
+			'import { expect, it } from "vitest";',
+			'import { add } from "../src/math";',
+			'const STATE = "<ROOT>/.interlinked/kp-counter"; // .interlinked is ignored: never copied, so it crosses every run',
+			'it("adds", () => {',
+			'\tmkdirSync("<ROOT>/.interlinked", { recursive: true });',
+			'\tconst n = existsSync(STATE) ? Number(readFileSync(STATE, "utf8")) : 0;',
+			'\twriteFileSync(STATE, String(n + 1));',
+			'\texpect(add(1, 2)).toBe(3);',
+			'\texpect(n % 2).toBe(0);',
+			'});',
+			'',
+		].join("\n");
+		const root = makeRepo({ "test/odd.test.ts": test });
+		const result = await proveKill({ root, spec: COMMENT_FAULT, tests: ["test/odd.test.ts"], budgetMs: 60_000, persist: false });
+		expect(result.ok && result.receipt.verdict).toBe("inconclusive");
+		expect(result.ok && result.receipt.underMutant.cases[0]?.reason).toMatch(/^not repeatable: .*repeat 2 of 2/);
+		expect(readFileSync(join(root, ".interlinked/kp-counter"), "utf8")).toBe("4"); // baseline, mutant, repeat, repeat — four runs, none on the live tree's tests
+	}, REAL_RUN_MS);
+
+	it("P1: a real kill passes both repeats and is still KILLED after four runs", async () => {
+		const root = makeRepo({ "test/adds.test.ts": 'import { expect, it } from "vitest";\nimport { add } from "../src/math";\nit("adds", () => { expect(add(1, 2)).toBe(3); });\n' });
+		const result = await proveKill({ root, spec: MINUS_FAULT, tests: ["test/adds.test.ts"], budgetMs: 60_000, persist: false });
+		expect(result.ok && result.receipt.verdict).toBe("killed");
+		expect(KILL_REPEATS).toBe(2);
 	}, REAL_RUN_MS);
 });
