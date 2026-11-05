@@ -10,8 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { PRIVATE_VITEST_ARGS, runVitestDetailed } from "../fail-before-fix/index.js";
+import { PRIVATE_VITEST_ARGS, runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
+import { testsReachingByRelativeImport } from "./bound-imports.js";
 import { KILL_REPEATS, proveKill } from "./run.js";
+
 
 const COMMENT_FAULT = { kind: "explicit", file: "src/math.ts", find: "// helper: add two numbers", replace: "// helper: add 2 numbers" } as const;
 const MINUS_FAULT = { kind: "explicit", file: "src/math.ts", find: "return a + b;", replace: "return a - b;" } as const;
@@ -104,4 +106,90 @@ describe("M1 — a kill must survive TWO unmutated repeats (pass, FAIL, pass, pa
 		expect(result.ok && result.receipt.verdict).toBe("killed");
 		expect(KILL_REPEATS).toBe(2);
 	}, REAL_RUN_MS);
+});
+
+// ---- M3/M4: the canary must show the TESTS load the copy's file ------------------------------------------
+// Scripted runners answer by what the copy holds (the same convention as kill-proof.test.ts): the unmutated
+// source → baseline, the mutated source → mutant, the canary source → `canary`, a canary copy whose test files
+// are the CONTROL stand-ins → `control`.
+type Case = VitestRun["cases"][number];
+const ADDS_TEST = "test/adds.test.ts";
+const pass = (file: string, name: string): Case => ({ file, name, title: name, status: "passed" });
+const fail = (file: string, name: string, message = "Error: kill-proof canary (prove-kill): the tests must load this file from the copy"): Case => ({ file, name, title: name, status: "failed", message });
+const okRun = (cases: Case[]): VitestRun => ({ cases, timedOut: false, exitCode: 0, durationMs: 10 });
+const TIMED_OUT: VitestRun = { cases: [], timedOut: true, error: "timed out after 10 ms", exitCode: null, durationMs: 10 };
+const SOURCE = "// helper: add two numbers\nexport function add(a: number, b: number): number {\n\treturn a + b;\n}\n";
+
+function scripted(baseline: VitestRun, mutated: VitestRun, canary: VitestRun, control: VitestRun) {
+	const calls: { source: string; tests: string[] }[] = [];
+	const runner = async (dir: string): Promise<VitestRun> => {
+		const source = readFileSync(join(dir, "src/math.ts"), "utf8");
+		const tests = readdirSync(join(dir, "test")).map(name => readFileSync(join(dir, "test", name), "utf8"));
+		calls.push({ source, tests });
+		if (!source.includes("kill-proof canary")) return source === SOURCE ? baseline : mutated;
+		return tests.every(text => text.includes("kill-proof control")) ? control : canary;
+	};
+	return { runner, calls };
+}
+const RELATIVE = 'import { expect, it } from "vitest";\nimport { add } from "../src/math";\nit("adds", () => { expect(add(1, 2)).toBe(3); });\nit("typed", () => { expect(typeof add).toBe("function"); });\n';
+const ABSOLUTE = 'import { expect, it } from "vitest";\nimport { add } from "<ROOT>/src/math";\nit("adds", () => { expect(add(1, 2)).toBe(3); });\nit("typed", () => { expect(typeof add).toBe("function"); });\n';
+const BOTH_PASS = okRun([pass(ADDS_TEST, "adds"), pass(ADDS_TEST, "typed")]);
+const BOTH_BROKEN = okRun([fail(ADDS_TEST, "adds"), fail(ADDS_TEST, "typed")]);
+const CONTROL_OK = okRun([pass(ADDS_TEST, "kill-proof control (prove-kill): the environment alone must not fail this case")]);
+
+describe("M3/M4 — canary per file, canary completion, and attribution to the tests", () => {
+	it("N1: a canary run that times out is UNAVAILABLE with the did-not-complete reason, never survived (M4)", async () => {
+		const root = makeRepo({ [ADDS_TEST]: RELATIVE });
+		const { runner, calls } = scripted(BOTH_PASS, BOTH_PASS, TIMED_OUT, CONTROL_OK);
+		const result = await proveKill({ root, spec: MINUS_FAULT, tests: [ADDS_TEST], budgetMs: 1000, runner, persist: false });
+		expect(!result.ok && result.verdict).toBe("unavailable");
+		expect(!result.ok && result.reasons[0]).toMatch(/^canary run did not complete; cannot show the tests load the copy/);
+		expect(calls).toHaveLength(3);
+	});
+	it("N2: a canary that leaves ONE of a file's cases passing names it and is unavailable, not survived (M3, M11)", async () => {
+		const root = makeRepo({ [ADDS_TEST]: RELATIVE });
+		const { runner } = scripted(BOTH_PASS, BOTH_PASS, okRun([fail(ADDS_TEST, "adds"), pass(ADDS_TEST, "typed")]), CONTROL_OK);
+		const result = await proveKill({ root, spec: MINUS_FAULT, tests: [ADDS_TEST], budgetMs: 1000, runner, persist: false });
+		expect(!result.ok && result.verdict).toBe("unavailable");
+		expect(!result.ok && result.reasons[0]).toContain("left 1 case(s) passing — test/adds.test.ts › typed");
+	});
+	it("N3: a test with no relative import whose canary break is ALSO produced by the control (a setup file loads the copy) is unavailable (M3)", async () => {
+		const root = makeRepo({ [ADDS_TEST]: ABSOLUTE });
+		const { runner, calls } = scripted(BOTH_PASS, BOTH_PASS, BOTH_BROKEN, okRun([])); // control: no rows — the setup file threw first
+		const result = await proveKill({ root, spec: MINUS_FAULT, tests: [ADDS_TEST], budgetMs: 1000, runner, persist: false });
+		expect(!result.ok && result.verdict).toBe("unavailable");
+		expect(!result.ok && result.reasons[0]).toMatch(/through a setup file or the config, not through test\/adds\.test\.ts/);
+		expect(calls).toHaveLength(4);
+		expect(calls[3]?.tests.every(text => text.includes("kill-proof control"))).toBe(true);
+	});
+	it("N4: a control run that does not complete is unavailable, never survived (M4)", async () => {
+		const root = makeRepo({ [ADDS_TEST]: ABSOLUTE });
+		const { runner } = scripted(BOTH_PASS, BOTH_PASS, BOTH_BROKEN, TIMED_OUT);
+		const result = await proveKill({ root, spec: MINUS_FAULT, tests: [ADDS_TEST], budgetMs: 1000, runner, persist: false });
+		expect(!result.ok && result.verdict).toBe("unavailable");
+		expect(!result.ok && result.reasons[0]).toMatch(/^canary run did not complete.*control run/);
+	});
+	it("P1: a test that reaches the file by a relative import needs no control run — three runs, SURVIVED", async () => {
+		const root = makeRepo({ [ADDS_TEST]: RELATIVE });
+		const { runner, calls } = scripted(BOTH_PASS, BOTH_PASS, BOTH_BROKEN, okRun([]));
+		const result = await proveKill({ root, spec: MINUS_FAULT, tests: [ADDS_TEST], budgetMs: 1000, runner, persist: false });
+		expect(result.ok && result.receipt.verdict).toBe("survived");
+		expect(calls).toHaveLength(3);
+	});
+	it("P2: a test with a dynamic (non-relative-static) route whose control passes is SURVIVED after the fourth run", async () => {
+		const root = makeRepo({ [ADDS_TEST]: ABSOLUTE });
+		const { runner, calls } = scripted(BOTH_PASS, BOTH_PASS, BOTH_BROKEN, CONTROL_OK);
+		const result = await proveKill({ root, spec: MINUS_FAULT, tests: [ADDS_TEST], budgetMs: 1000, runner, persist: false });
+		expect(result.ok && result.receipt.verdict).toBe("survived");
+		expect(calls).toHaveLength(4);
+	});
+	it("P3: testsReachingByRelativeImport follows relative static imports through helpers and ignores absolute ones", () => {
+		const root = makeRepo({
+			"test/via-helper.test.ts": 'import { helper } from "./helper";\nit("x", () => helper());\n',
+			"test/helper.ts": 'import { add } from "../src/math";\nexport const helper = () => add(1, 2);\n',
+			"test/abs.test.ts": ABSOLUTE,
+		});
+		const reaching = testsReachingByRelativeImport(root, ["test/via-helper.test.ts", "test/abs.test.ts"], "src/math.ts");
+		expect([...reaching]).toEqual(["test/via-helper.test.ts"]);
+	});
 });

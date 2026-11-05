@@ -62,9 +62,12 @@ const UNIT_SOURCE = "export function clamp(n: number, max: number): number {\n\t
 const UNIT_SPEC = { kind: "explicit", file: "src/clamp.ts", find: "n > max", replace: "n >= max" } as const;
 const WEAK = "src/clamp.mutation-kill.test.ts";
 
-/** A real SURVIVED receipt on disk for WEAK (the test asserts nothing the mutant changes). */
+/** A real SURVIVED receipt on disk for WEAK (the test asserts nothing the mutant changes). The test imports the
+ *  source by a relative path: since round 4 (M3) a survivor is attributable only when the tests themselves load the
+ *  copy's file, and a scripted canary break with no import at all reads as a setup-file break. */
 async function survivedReceipt(): Promise<{ root: string; id: string }> {
-	const root = makeRepo({ "src/clamp.ts": UNIT_SOURCE, [WEAK]: "it('weak', () => { expect(clamp).toBeDefined(); });\n" });
+	const root = makeRepo({ "src/clamp.ts": UNIT_SOURCE, [WEAK]: "import { clamp } from './clamp.js';\nit('weak', () => { expect(clamp).toBeDefined(); });\n" });
+
 	const runner = scripted(okRun([pass(WEAK, "weak")]), okRun([pass(WEAK, "weak")]));
 	const result = await proveKill({ root, spec: UNIT_SPEC, tests: [WEAK], budgetMs: 1000, runner });
 	if (!result.ok || result.receipt.verdict !== "survived") throw new Error("fixture: expected a survived receipt");

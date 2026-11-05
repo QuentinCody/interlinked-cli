@@ -32,7 +32,8 @@ import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
 import { createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
-import { boundImportClosure } from "./bound-imports.js";
+import { boundImportClosure, testsReachingByRelativeImport } from "./bound-imports.js";
+
 import { captureEnvironment, hashFile, receiptId, resolveVitestConfig, sealReceipt, writeKillProof } from "./receipt.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
 import type { CaseOutcome, HashedFile, KillProofReceipt, MutantSpec, ProveKillResult, ResolvedMutant } from "./types.js";
@@ -55,6 +56,10 @@ export interface ProveKillOptions {
 /** Written into the mutated file's place for the reachability canary (review N6/N7): a test that still passes never loaded the copy's file. */
 // (The message must not read like an `interlinked <command>` line: cli-program.test.ts scans source strings for printed commands.)
 const CANARY_SOURCE = 'throw new Error("kill-proof canary (prove-kill): the tests must load this file from the copy");\nexport {};\n';
+/** Stands in for every named test in the canary CONTROL run (round-4 M3): it imports nothing of the project. */
+const CONTROL_TEST = 'import { it } from "vitest";\nit("kill-proof control (prove-kill): the environment alone must not fail this case", () => {});\n';
+const CANARY_INCOMPLETE = "canary run did not complete; cannot show the tests load the copy";
+
 
 /** Cases vitest reports but does not run: not evidence either way (review R14). */
 const NOT_RUN = new Set(["skipped", "todo", "pending", "disabled"]);
@@ -190,7 +195,44 @@ async function confirmKills(cases: readonly CaseOutcome[], runIn: (overrides: Re
 	return out;
 }
 
+type RunIn = (overrides: ReadonlyMap<string, string>) => Promise<VitestRun>;
+
+/**
+ * Reachability (reviews N6/N7; round-4 M3/M4). A survivor means something only if the named tests loaded the
+ * COPY's file. A canary copy holds a module-level throw in the file's place; the survivor stands only when:
+ *  1. the canary run completed — a timeout or launch failure is no evidence (M4), never "survived";
+ *  2. PER FILE, every baseline-passing case stopped passing (M3): a case still passing never reached the file,
+ *     or caught its import error (M11);
+ *  3. the break is the TESTS' doing: a test whose static relative imports reach the file is evidence by itself
+ *     (a relative import resolves inside the copy); for any other named test a CONTROL copy — canary plus every
+ *     named test replaced by one trivial case — must pass. If the control breaks too, a setup file or the config
+ *     loads the file (the setup-file hole, M3): nothing shows the tests themselves did.
+ * Returns the `unavailable` reasons, or null when the survivor is attributable to the copy's file.
+ */
+async function canaryProblem(root: string, mutant: ResolvedMutant, tests: readonly string[], passing: readonly VitestCase[], runIn: RunIn): Promise<string[] | null> {
+	const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]));
+	if (canary.error !== undefined || canary.timedOut) return [`${CANARY_INCOMPLETE} (${canary.timedOut ? `timed out after ${canary.durationMs} ms` : canary.error})`];
+	const stillPassing = passing.filter(row => canary.cases.find(c => caseKey(c) === caseKey(row))?.status === "passed");
+	if (stillPassing.length) {
+		return [
+			`the named tests never load ${mutant.file} from the copy, or catch its import error: a module-level throw in its place left ${stillPassing.length} case(s) passing — ${stillPassing.map(caseKey).join(", ")}.`,
+			"A mock, an alias, an absolute path or a link into the live tree bypasses the copy.",
+		];
+	}
+	const reaching = testsReachingByRelativeImport(root, tests, mutant.file);
+	if (tests.every(test => reaching.has(test))) return null;
+	const control = await runIn(new Map([[mutant.file, CANARY_SOURCE], ...tests.map(test => [test, CONTROL_TEST] as const)]));
+	if (control.error !== undefined || control.timedOut) return [`${CANARY_INCOMPLETE} (control run: ${control.timedOut ? `timed out after ${control.durationMs} ms` : control.error})`];
+	const unattributed = tests.filter(test => !reaching.has(test) && !control.cases.some(c => c.file === test && c.status === "passed"));
+	if (unattributed.length === 0) return null;
+	return [
+		`the canary breaks the run through a setup file or the config, not through ${unattributed.join(", ")}: no static relative import there reaches ${mutant.file}, so a survivor cannot be attributed to the copy's file.`,
+		"Import the source from the test by a relative path, or name a test that does.",
+	];
+}
+
 function overallVerdict(cases: readonly CaseOutcome[]): { verdict: KillProofReceipt["verdict"]; reasons: string[] } {
+
 
 	const killed = cases.filter(row => row.verdict === "killed"), inconclusive = cases.filter(row => row.verdict === "inconclusive");
 	if (killed.length) return { verdict: "killed", reasons: killed.map(row => `${row.test} failed by its own check under the mutant`) };
@@ -320,16 +362,10 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	const { verdict, reasons } = overallVerdict(cases);
 
 	if (verdict === "survived") {
-		// Reachability canary (review N6/N7): a survivor only means something if the tests loaded the COPY's file.
-		const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]));
-		const stillPassing = passing.every(row => canary.cases.find(c => caseKey(c) === caseKey(row))?.status === "passed");
-		if (canary.error === undefined && !canary.timedOut && stillPassing) {
-			return unavailable([
-				`the named tests never load ${mutant.file} from the copy: a module-level throw in its place left every case passing.`,
-				"A mock, an alias, an absolute path or a link into the live tree bypasses the copy.",
-			], mutant);
-		}
+		const problem = await canaryProblem(root, mutant, tests, passing, runIn);
+		if (problem !== null) return unavailable(problem, mutant);
 	}
+
 	const environment = captureEnvironment(root, configPath ?? undefined);
 	const boundMutant: ResolvedMutant = { ...mutant, lineText: lineTextAt(content, mutant.offset) };
 	const boundImports = boundImportClosure(root, tests, mutant.file);
