@@ -92,6 +92,8 @@ The renewed receipt retires the stale one (see *Receipt retirement*), so the
 check is green again as soon as the newest proof of that source × mutant × test
 set holds.
 
+Review history (every finding, its resolution and its pinning test): `docs/reviews/kill-proof-decision-record.md`.
+
 ## When to use it
 
 - An agent or a developer says "I added a regression test for this bug" or
