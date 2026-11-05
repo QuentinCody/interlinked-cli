@@ -1809,8 +1809,10 @@ a project without vitest is `unavailable`. Exit 0 killed; 1 survived /
 not-passing-now; 2 undecided. `--run-timeout` bounds each vitest run; `--timeout`
 is the CLI supervisor's whole-command deadline (exit 75). The receipt
 (`.interlinked/test-runs/kill-proofs/<id>.json`; `index.json` is only a locator,
-every decision reads the file) binds source sha256, mutant identity + offset +
-line text, each test file's sha256, node/vitest/platform/config, `killedTests`
+every decision reads the file; rebuilt under a short file-mutation lock) binds source sha256, mutant identity + offset +
+line text, each test file's sha256, `boundImports` (the tests' static local
+import closure, ≤200 files, with `importedBy`: a changed helper stales only the
+tests that reach it; `bound-imports.ts`), node/vitest/platform/config, `killedTests`
 (the only files it certifies) and a `digest` over its contents (tamper-evident,
 not tamper-proof: unkeyed). `--verify` re-checks the digest, the bytes, the
 runtime and the mutant location. Surfaces: PostToolUse `[interlinked:kill-proof]`

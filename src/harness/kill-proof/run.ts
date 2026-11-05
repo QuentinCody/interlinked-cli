@@ -28,6 +28,7 @@ import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
 import { createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
+import { boundImportClosure } from "./bound-imports.js";
 import { captureEnvironment, hashFile, receiptId, resolveVitestConfig, sealReceipt, writeKillProof } from "./receipt.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
 import type { CaseOutcome, HashedFile, KillProofReceipt, MutantSpec, ProveKillResult, ResolvedMutant } from "./types.js";
@@ -301,11 +302,12 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	}
 	const environment = captureEnvironment(root, configPath ?? undefined);
 	const boundMutant: ResolvedMutant = { ...mutant, lineText: lineTextAt(content, mutant.offset) };
+	const boundImports = boundImportClosure(root, tests, mutant.file);
 	const receipt = sealReceipt({
 		version: 1,
-		id: receiptId({ source, mutant: boundMutant, tests: testHashes, environment }),
+		id: receiptId({ source, mutant: boundMutant, tests: testHashes, boundImports, environment }),
 		digest: "",
-		verdict, reasons, provedAt: now().toISOString(), root, source, mutant: boundMutant, tests: testHashes, killedTests: killedTestFiles(cases),
+		verdict, reasons, provedAt: now().toISOString(), root, source, mutant: boundMutant, tests: testHashes, boundImports, killedTests: killedTestFiles(cases),
 		baseline: { cases: passing.length, durationMs: baseline.durationMs },
 		underMutant: { durationMs: under.durationMs, timedOut: under.timedOut, cases, ...(under.error !== undefined ? { error: under.error } : {}) },
 		environment,
