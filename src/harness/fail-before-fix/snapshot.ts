@@ -51,6 +51,13 @@ function copiedLinkTarget(rootReal: string, dir: string, source: string, target:
 }
 
 /** Copies one entry; returns the regular-file bytes copied (0 for a link, a directory or a vanished file). */
+/** Bytes a file actually occupies: the allocated blocks, not the apparent size (kill-proof review round 5, R5-12: a
+ *  sparse file `truncate`d to 300 MiB holds no data and copies in no time; it must not warn). Windows reports no
+ *  block count, so the apparent size stands in there. */
+export function allocatedBytes(stat: { size: number; blocks?: number }): number {
+    return typeof stat.blocks === "number" && Number.isFinite(stat.blocks) ? stat.blocks * 512 : stat.size;
+}
+
 function copyEntry(root: string, dir: string, rel: string): number {
     const source = join(root, rel), target = join(dir, rel), link = isLink(source);
     if (!link && !existsSync(source)) return 0; // a tracked file deleted in the working tree
@@ -61,7 +68,7 @@ function copyEntry(root: string, dir: string, rel: string): number {
     // COPYFILE_FICLONE: a copy-on-write clone where the file system offers one (APFS, btrfs, XFS reflink);
     // elsewhere Node falls back to a byte copy. A proof copies the whole git-visible tree several times per run.
     copyFileSync(source, target, constants.COPYFILE_FICLONE);
-    return stat.size;
+    return allocatedBytes(stat);
 }
 
 /** Writes each override into an existing copy (null removes the file); every target goes through `copyWriteTarget`. */
@@ -118,7 +125,7 @@ export async function createProjectCopyAsync(root: string, files: readonly strin
             if (link) symlinkSync(copiedLinkTarget(rootReal, dir, source, target), target);
             else {
                 const stat = lstatSync(source);
-                if (stat.isFile()) { pending.push(rel); bytes += stat.size; }
+                if (stat.isFile()) { pending.push(rel); bytes += allocatedBytes(stat); }
             }
         }
         let next = 0;

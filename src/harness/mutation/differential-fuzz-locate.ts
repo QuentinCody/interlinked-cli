@@ -77,21 +77,37 @@ function driftReason(target: FuzzMutantTarget, detail: string): string {
  *  re-keys the symbol while its body may still hold the site. `undefined` when
  *  no symbol of that name exists any more (renamed / deleted); `null` when the
  *  TypeScript API is unavailable. */
-function currentSymbol(target: FuzzMutantTarget, content: string): SymbolHashEntry | null | undefined {
+function currentSymbol(target: FuzzMutantTarget, content: string): { symbol: SymbolHashEntry; declared: number } | null | undefined {
 	const hashes = computeSymbolHashes(target.file, content);
 	if (hashes === null) return null;
+	const declared = declaredTimes(target, hashes);
 	const byId = hashes.get(target.symbolId);
-	if (byId !== undefined) return byId;
-	for (const entry of hashes.values()) if (entry.qualifiedName === target.qualifiedName) return entry;
+	if (byId !== undefined) return { symbol: byId, declared };
+	for (const entry of hashes.values()) if (entry.qualifiedName === target.qualifiedName) return { symbol: entry, declared };
 	return undefined;
+}
+
+/** How many hashed declarations in `hashes` carry the target's qualified name, every arity included: the symbol-id
+ *  map collapses same-name same-arity duplicates into one entry (`SymbolHashEntry.declarations` counts them), and
+ *  an arity change re-keys a duplicate without making it less ambiguous. */
+function declaredTimes(target: FuzzMutantTarget, hashes: ReadonlyMap<string, SymbolHashEntry>): number {
+	let count = 0;
+	for (const entry of hashes.values()) if (entry.qualifiedName === target.qualifiedName) count += entry.declarations ?? 1;
+	return count;
 }
 
 /** The ambiguity refusal (header note). `null` ⇒ the ordinal rule still ranks
  *  the population it was measured against (same body, or a body edit that left
  *  the lexeme's site count alone — an unrelated statement, a comment), or the
  *  target carries nothing to compare. A count of 0 is not ambiguity: the site is
- *  gone, and the ordinal lookup below reports that as drift. */
-function ambiguousRelocation(target: FuzzMutantTarget, symbol: SymbolHashEntry, sitesNow: number): string | null {
+ *  gone, and the ordinal lookup below reports that as drift. A qualified name
+ *  declared MORE THAN ONCE in the current file is refused before any hash is
+ *  compared (kill-proof review round 5, R5-2): a verbatim duplicate method, or a
+ *  nested function duplicated in its enclosing body, keeps the symbol hash equal
+ *  (the map holds the last declaration) while the earlier copy takes ordinal 0 —
+ *  and the mutant id — so the proof would mutate dead code. */
+function ambiguousRelocation(target: FuzzMutantTarget, symbol: SymbolHashEntry, sitesNow: number, declared: number): string | null {
+	if (declared > 1) return `ambiguous re-location: ${target.qualifiedName} is declared ${declared} times in ${target.file}; re-measure the file`;
 	const was = target.measuredSites;
 	if (target.symbolHash === undefined || was === undefined) return null;
 	if (target.symbolHash === symbol.symbolHash || sitesNow === 0 || sitesNow === was) return null;
@@ -113,9 +129,9 @@ export function locateMutantOffset(
 		}
 		return { ok: true, offset: explicit };
 	}
-	const symbol = currentSymbol(target, content);
-	if (symbol === null) return { ok: false, reason: "typescript unavailable for identity derivation" };
-	if (symbol === undefined) return { ok: false, reason: `source drift: symbol ${target.qualifiedName} not found (mutant ${target.mutantId})` };
+	const current = currentSymbol(target, content);
+	if (current === null) return { ok: false, reason: "typescript unavailable for identity derivation" };
+	if (current === undefined) return { ok: false, reason: `source drift: symbol ${target.qualifiedName} not found (mutant ${target.mutantId})` };
 	const candidates = lexemeCandidates(parseSource(ts, target.file, content), content, lexeme);
 	const raws = candidates.map((startOffset) => ({
 		file: target.file,
@@ -127,7 +143,7 @@ export function locateMutantOffset(
 	const identities = deriveIdentities(target.file, content, raws);
 	if (identities === null) return { ok: false, reason: "typescript unavailable for identity derivation" };
 	const sitesNow = identities.filter((id) => id.qualifiedName === target.qualifiedName).length;
-	const ambiguous = ambiguousRelocation(target, symbol, sitesNow);
+	const ambiguous = ambiguousRelocation(target, current.symbol, sitesNow, current.declared);
 	if (ambiguous !== null) return { ok: false, reason: ambiguous };
 	const byId = identities.findIndex((id) => id.mutantId === target.mutantId);
 	const byOrdinal = identities.findIndex(

@@ -12,6 +12,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { MAX_BOUND_IMPORTS } from "./bound-imports.js";
 import { captureEnvironment, hashFile, type KillProofIndexRow, readKillProof, readKillProofIndex, receiptDigest, receiptId } from "./receipt.js";
 import { lineTextAt, relocate } from "./resolve.js";
 import { type CaseRequirement, requirementCovered, requirementLabel } from "./source-cases.js";
@@ -55,9 +56,15 @@ function environmentReasons(root: string, recorded: ProofEnvironment, cache?: En
 	return reasons;
 }
 
-/** The receipt's own consistency: digest and id re-derive, root matches, verdict agrees with its cases. */
+/** A receipt whose helper closure was cut at the cap binds less than its tests load (round 5, R5-3): the edit that
+ *  changes the proof may sit in an unbound file, so the receipt certifies nothing and `--verify` says why. */
+export const CLOSURE_TRUNCATED_REASON = `bound-import closure truncated at ${MAX_BOUND_IMPORTS} files; helpers beyond the cap are unbound, so the receipt cannot certify these tests`;
+
+/** The receipt's own consistency: digest and id re-derive, root matches, verdict agrees with its cases, and the
+ *  helper closure is complete (a cut closure is a receipt that does not describe its tests). */
 export function integrityReasons(root: string, receipt: KillProofReceipt): string[] {
 	const reasons: string[] = [];
+	if (receipt.boundImportsTruncated === true) reasons.push(CLOSURE_TRUNCATED_REASON);
 	if (receiptDigest(receipt) !== receipt.digest) reasons.push("receipt digest does not match its contents (edited receipt)");
 	if (receiptId(receipt) !== receipt.id) reasons.push("receipt id does not re-derive from its contents (edited or copied receipt)");
 	if (receipt.root !== root) reasons.push(`receipt was produced for ${receipt.root}, not this project`);

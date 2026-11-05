@@ -10,7 +10,7 @@
 // bytes on disk.
 
 import { realpathSync } from "node:fs";
-import { proveKill } from "../harness/kill-proof/run.js";
+import { ProofInterrupted, proveKill } from "../harness/kill-proof/run.js";
 import { listKillProofIds, mutantLabel, newestPerProofKey, proofKey, readKillProof, readKillProofIndex } from "../harness/kill-proof/receipt.js";
 import { uncommittedPaths, verifyKillProof } from "../harness/kill-proof/receipt-freshness.js";
 import type { KillProofReceipt, MutantSpec, ProveKillResult } from "../harness/kill-proof/types.js";
@@ -40,7 +40,11 @@ export function timeoutProblem(options: ProveKillCliOptions): string | null {
 }
 
 
-export const PROVE_KILL_EXIT = { proven: 0, failed: 1, undecided: 2 } as const;
+/** 75 is the CLI supervisor's "interrupted, no verdict" code (`harness/resource-cli.ts`); the child reports the same. */
+export const PROVE_KILL_EXIT = { proven: 0, failed: 1, undecided: 2, interrupted: 75 } as const;
+
+/** What the child prints when SIGTERM (the supervisor's `--timeout`, or an operator) stopped the proof (round 5, R5-7). */
+export const INTERRUPTED_NOTICE = "[interlinked:kill-proof] interrupted by SIGTERM: copies removed, no verdict, no receipt written";
 
 export function specFromOptions(options: ProveKillCliOptions): MutantSpec | string {
 	const explicit = options.find !== undefined || options.replace !== undefined;
@@ -118,14 +122,27 @@ export async function testsProveKillCommand(options: ProveKillCliOptions & { all
 	if (badTimeout !== null) { outputError(mode, badTimeout); process.exitCode = PROVE_KILL_EXIT.undecided; return; }
 	const budgetMs = Number(options.runTimeout ?? "300000");
 
+	// Round 5, R5-7: the supervisor's `--timeout` SIGTERMs this process. Handled, the signal aborts the proof instead
+	// of killing it mid-copy: the overlay runner's own guard has already SIGKILLed the vitest group (it re-raises only
+	// when no other listener owns the signal), every copy's `finally` removes it, and the command exits 75.
+	const controller = new AbortController();
+	const onTerm = (): void => controller.abort();
+	process.on("SIGTERM", onTerm); // `on`, not `once`: the overlay runner re-raises the signal when no other listener remains
 	try {
 		const root = realpathSync(options.cwd ?? process.cwd());
-		const result = await proveKill({ root, spec, tests: options.test ?? [], budgetMs, ...(options.vitestConfig !== undefined ? { vitestConfig: options.vitestConfig } : {}) });
+		const result = await proveKill({ root, spec, tests: options.test ?? [], budgetMs, signal: controller.signal, ...(options.vitestConfig !== undefined ? { vitestConfig: options.vitestConfig } : {}) });
 		process.exitCode = exitCodeFor(result);
 		output(mode, result, { normal: () => renderProveKill(result) });
 	} catch (error) {
+		if (error instanceof ProofInterrupted || controller.signal.aborted) {
+			process.stderr.write(`${INTERRUPTED_NOTICE}\n`);
+			process.exitCode = PROVE_KILL_EXIT.interrupted;
+			return;
+		}
 		outputError(mode, error instanceof Error ? error.message : "kill proof unavailable");
 		process.exitCode = PROVE_KILL_EXIT.undecided;
+	} finally {
+		process.removeListener("SIGTERM", onTerm);
 	}
 }
 
@@ -210,13 +227,18 @@ export function renderKillProofs(rows: readonly KillProofRow[]): string {
 	return summary === null ? listed : `${listed}\n${summary}`;
 }
 
-/** After --verify: count the KILLED receipts by freshness and say how to renew a stale one. Shared with verify's `kill_proofs` section. */
+/**
+ * After --verify: count the KILLED receipts by freshness and say how to renew a stale one. Shared with verify's
+ * `kill_proofs` section. A superseded receipt is history (review M8): it is counted as `superseded`, never in the
+ * freshness buckets, so the tally and the exit decision agree (verification af8b93d3 §6).
+ */
 export function killProofsTally(rows: readonly KillProofRow[]): string | null {
 	if (!rows.some(row => row.freshness !== undefined)) return null;
 	const killed = rows.filter(row => row.verdict === "killed");
-	const count = (state: KillProofRow["freshness"]): number => killed.filter(row => row.freshness === state).length;
+	const current = killed.filter(row => row.supersededBy === undefined), superseded = killed.length - current.length;
+	const count = (state: KillProofRow["freshness"]): number => current.filter(row => row.freshness === state).length;
 	const stale = count("stale") + count("unreadable");
-	const tally = `${killed.length} KILLED proof(s): ${count("fresh")} fresh, ${count("uncommitted")} uncommitted, ${stale} stale.`;
+	const tally = `${killed.length} KILLED proof(s): ${count("fresh")} fresh, ${count("uncommitted")} uncommitted, ${stale} stale${superseded > 0 ? `, ${superseded} superseded` : ""}.`;
 	return stale > 0 ? `${tally} Re-run the prove-kill command of each stale proof to renew it.` : `${tally} Only KILLED proofs count as evidence.`;
 }
 

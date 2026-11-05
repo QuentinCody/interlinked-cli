@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { PRIVATE_VITEST_ARGS, runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
-import { createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
+import { allocatedBytes, createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { testsReachingByRelativeImport } from "./bound-imports.js";
 import { COPY_BUDGET_BYTES, copySizeWarning, KILL_REPEATS, proveKill } from "./run.js";
 
@@ -203,10 +203,10 @@ describe("M10 — the git-visible copy has a size budget; over it the proof WARN
 		expect(copySizeWarning(COPY_BUDGET_BYTES + 1)).toBe("[interlinked:kill-proof] copy is 256 MiB; large tracked files slow every proof");
 		expect(copySizeWarning(400 * 1024 * 1024)).toBe("[interlinked:kill-proof] copy is 400 MiB; large tracked files slow every proof");
 	});
-	it("P2: createProjectCopy reports the regular-file bytes it copied (links and overrides excluded)", () => {
+	it("P2: createProjectCopy reports the regular-file bytes it copied (links and overrides excluded) — allocated blocks since round 5 (R5-12)", () => {
 		const root = makeRepo({ "data/big.bin": "x".repeat(10_000) });
 		const files = gitVisibleFiles(root) ?? [];
-		const expected = files.reduce((sum, rel) => sum + statSync(join(root, rel)).size, 0);
+		const expected = files.reduce((sum, rel) => sum + allocatedBytes(statSync(join(root, rel))), 0);
 		const copy = createProjectCopy(root, files, new Map([["src/math.ts", "replaced\n"]]));
 		try {
 			expect(copy.bytes).toBe(expected);

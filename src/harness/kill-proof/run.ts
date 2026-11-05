@@ -36,7 +36,7 @@ import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
 import { applyOverrides, createProjectCopyAsync, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
-import { boundImportClosure, testsReachingByRelativeImport } from "./bound-imports.js";
+import { boundImportClosureDetailed, testsReachingByRelativeImport } from "./bound-imports.js";
 
 import { captureEnvironment, hashFile, receiptId, resolveVitestConfig, sealReceipt, writeKillProof } from "./receipt.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
@@ -55,6 +55,18 @@ export interface ProveKillOptions {
 	runner?: (dir: string, files: readonly string[], budgetMs: number, vitestArgs: readonly string[]) => Promise<VitestRun>;
 	/** When false the receipt is returned but not written. Default true. */
 	persist?: boolean;
+	/** Interruption (round 5, R5-7): once aborted, no further copy is made and the proof REJECTS with `ProofInterrupted`
+	 *  after its copies are removed — the running vitest group is already killed by the overlay runner's own signal
+	 *  guard. The CLI maps it to exit 75 with no verdict; no receipt is written for an interrupted run. */
+	signal?: AbortSignal;
+}
+
+/** Thrown out of a proof whose `signal` aborted; every copy made so far has been removed when it reaches the caller. */
+export class ProofInterrupted extends Error {
+	constructor() {
+		super("kill proof interrupted before a verdict (SIGTERM or the --timeout deadline); copies removed, no receipt written");
+		this.name = "ProofInterrupted";
+	}
 }
 
 /** Written into the mutated file's place for the reachability canary (review N6/N7): a test that still passes never loaded the copy's file. */
@@ -267,6 +279,16 @@ async function canaryProblem(root: string, mutant: ResolvedMutant, tests: readon
 	if (control.error !== undefined || control.timedOut) return [`${CANARY_INCOMPLETE} (control run: ${control.timedOut ? `timed out after ${control.durationMs} ms` : control.error})`];
 	const unattributed = tests.filter(test => !reaching.has(test) && !control.cases.some(c => c.file === test && c.status === "passed"));
 	if (unattributed.length === 0) return null;
+	// Round 5, R5-10: a stand-in case REPORTED but not run (vitest's testNamePattern, in the config or on the command
+	// line, reports it `skipped`) is not a setup-file break; the reason must name the filter, not a setup file that may
+	// not exist. A control with NO row for the file is the setup-file break (the file threw before any case existed).
+	const notRun = unattributed.filter(test => control.cases.some(c => c.file === test) && !control.cases.some(c => c.file === test && !NOT_RUN.has(c.status)));
+	if (notRun.length) {
+		return [
+			`the control copy's stand-in case for ${notRun.join(", ")} did not run (a test-name filter — vitest's testNamePattern in the config or on the command line — excludes it), so the canary's break cannot be attributed to the tests.`,
+			"Run the proof without the name filter, or import the source from the test by a relative path.",
+		];
+	}
 	return [
 		`the canary breaks the run through a setup file or the config, not through ${unattributed.join(", ")}: no static relative import there reaches ${mutant.file}, so a survivor cannot be attributed to the copy's file.`,
 		"Import the source from the test by a relative path, or name a test that does.",
@@ -402,7 +424,10 @@ export function openProofContext(options: ProofContextOptions): OpenedProofConte
 	const configPath = resolveVitestConfig(root, options.vitestConfig);
 	const vitestArgs = configPath !== null ? ["--config", configPath] : [];
 	const warnings: string[] = [];
+	// Read through a call each time: the signal flips during the awaits below (TypeScript would narrow a field read).
+	const interrupted = (): boolean => options.signal?.aborted === true;
 	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun & { dir: string }> => {
+		if (interrupted()) throw new ProofInterrupted();
 		// Speed (docs/reviews/kill-proof-performance.md): the regular-file copies are issued 64 at a time; the tree is
 		// identical to the synchronous copy. Each copy is removed before the next stage starts.
 		const copy = await createProjectCopyAsync(root, files, new Map());
@@ -410,7 +435,10 @@ export function openProofContext(options: ProofContextOptions): OpenedProofConte
 			const sizeWarning = copySizeWarning(copy.bytes);
 			if (sizeWarning !== null && !warnings.includes(sizeWarning)) warnings.push(sizeWarning);
 			applyOverrides(copy.dir, overrides);
-			return { ...(await runner(copy.dir, tests, options.budgetMs, vitestArgs)), dir: copy.dir };
+			const run = await runner(copy.dir, tests, options.budgetMs, vitestArgs);
+			// A run cut short by the signal is no evidence (R5-7): the `finally` removes the copy, the caller gets no verdict.
+			if (interrupted()) throw new ProofInterrupted();
+			return { ...run, dir: copy.dir };
 		} finally {
 			await copy.cleanup();
 		}
@@ -476,12 +504,15 @@ export async function proveResolved(context: ProofContext, mutant: ResolvedMutan
 
 	const environment = context.environment();
 	const boundMutant: ResolvedMutant = { ...mutant, lineText: lineTextAt(site.content, mutant.offset) };
-	const boundImports = boundImportClosure(root, tests, mutant.file);
+	// The setup files the config declares run before every named test, so their closure is bound for every test (R5-5);
+	// a closure cut at the cap is recorded on the receipt and never certifies (R5-3).
+	const closure = boundImportClosureDetailed(root, tests, mutant.file, { globalRoots: environment.setupFiles.map(file => file.path) });
+	const binding = { boundImports: closure.files, ...(closure.truncated ? { boundImportsTruncated: true as const } : {}) };
 	const receipt = sealReceipt({
 		version: 1,
-		id: receiptId({ source: site.source, mutant: boundMutant, tests: context.testHashes, boundImports, environment }),
+		id: receiptId({ source: site.source, mutant: boundMutant, tests: context.testHashes, ...binding, environment }),
 		digest: "",
-		verdict, reasons, provedAt: context.now().toISOString(), root, source: site.source, mutant: boundMutant, tests: context.testHashes, boundImports, killedTests: killedTestFiles(cases),
+		verdict, reasons, provedAt: context.now().toISOString(), root, source: site.source, mutant: boundMutant, tests: context.testHashes, ...binding, killedTests: killedTestFiles(cases),
 		baseline: { cases: passing.length, durationMs: baseline.durationMs },
 		underMutant: { durationMs: under.durationMs, timedOut: under.timedOut, cases, ...(under.error !== undefined ? { error: under.error } : {}) },
 		environment,

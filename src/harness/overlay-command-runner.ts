@@ -78,7 +78,10 @@ export function resolveOverlayBin(overlayRoot: string, rawBin: string): string {
  *  into os.tmpdir() and the shared node_modules — after the proof had returned. Windows has no process groups. */
 const OWN_PROCESS_GROUP = process.platform !== "win32";
 
-const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms).unref());
+/** A REFERENCED delay: the only caller is the group reap, which must keep the event loop alive (round 5, R5-1).
+ *  Once the direct child has closed nothing else holds the loop; an unref'd poll let Node exit 13 ("unsettled
+ *  top-level await") before `close` could settle the run, so no verdict was printed and the copies leaked. */
+const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
 /** Signal the whole group (`-pid`), falling back to the direct child when the group is gone or unsupported. */
 function signalGroup(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
@@ -104,7 +107,9 @@ function groupAlive(pid: number): boolean {
 	}
 }
 
-/** SIGTERM the group, SIGKILL whatever survives the grace, and return only once no member is left. */
+/** SIGTERM the group, SIGKILL whatever survives the grace, and return only once no member is left. Every wait in
+ *  here is referenced: the promise this returns is what `close` awaits after a timeout, so it must outlive the child
+ *  handle (R5-1). */
 async function terminateGroup(child: ReturnType<typeof spawn>): Promise<void> {
 	signalGroup(child, "SIGTERM");
 	const pid = child.pid;
@@ -194,6 +199,7 @@ const defaultSpawn: OverlaySpawnFn = (command, args, options) =>
 				return;
 			}
 			// Wait for the whole group: a worker that outlives the wrapper must be gone before the caller continues.
+			// `groupGone` is driven by referenced timers (see `sleep`), so this wait keeps the process alive (R5-1).
 			void groupGone.then(() =>
 				settle({
 					stdout,
