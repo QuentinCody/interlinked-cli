@@ -55,6 +55,11 @@ const ANNOTATION_OVERLAY: Record<
  *   (`evaluator/lockfile-install-check.ts`): it diffs a lockfile against its
  *   PreToolUse snapshot, so it has no file content to register against. Its
  *   `[proven]` tag comes from `PROVEN_TOOL_CHECKS`.
+ * - `kill_proof_stale` — the `interlinked verify` kill-proof section
+ *   (`commands/verify/kill-proofs-section.ts`): a KILLED kill-proof receipt
+ *   whose freshness lapsed. It judges receipts under `.interlinked/`, not a
+ *   file's content, so it has nothing to register against; `[proven]` because
+ *   hashes and a constructing parser decide it.
  * - `c_strcmp_boolean_misuse`, `c_unchecked_malloc` — documented C/C++ shapes
  *   with no shipped detector yet.
  */
@@ -83,6 +88,13 @@ const UNREGISTERED_CHECK_META: Record<string, CheckMeta> = {
 		name: "Lockfile Transitive Dependencies",
 		description:
 			"PostToolUse, Bash only: after an npm/pnpm/yarn/bun install, diffs the lockfile's package set (package-lock.json / npm-shrinkwrap.json / pnpm-lock.yaml / yarn.lock / bun.lock) against its PreToolUse snapshot and warns for every NEW package absent from the allowlist — native ones (install script, platform os/cpu package, .node binary, binding.gyp) called out. The install gate screens only command-line specs; the lockfile is the first artifact naming the transitive closure. Warn-only and fail-open; the diff is exact, so the finding is [proven].",
+		tier: 1,
+		determinism: "fully_deterministic",
+	},
+	kill_proof_stale: {
+		name: "Kill Proof Stale",
+		description:
+			"verify only: a KILLED kill-proof receipt (`interlinked tests prove-kill`) that no longer certifies anything — stale (the source, a named test, a bound helper, the runtime or the mutant's location changed since the proof) or unreadable (the receipt file no longer parses). The same freshness `interlinked tests kill-proofs --verify` reports; renew with the receipt's prove-kill command. `uncommitted`, `survived` and `inconclusive` receipts are listed, never findings.",
 		tier: 1,
 		determinism: "fully_deterministic",
 	},

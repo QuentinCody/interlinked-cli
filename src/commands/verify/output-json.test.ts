@@ -761,3 +761,17 @@ describe("outputJson", () => {
 		expect(parsed).not.toHaveProperty("biome");
 	});
 });
+
+describe("outputJson — kill_proofs key", () => {
+	const base = () => ({ tscResults: [], linterResults: [], linterName: "biome", semgrepResults: [], gitleaksResults: [], auditResult: null, cq: emptyCq(), suggestions: null, totalFiles: 0 });
+	it("P1: emits `kill_proofs` verbatim when the section is present", () => {
+		const killProofs = { issues: 1, files: ["src/a.test.ts"], details: [{ check: "kill_proof_stale", id: "0123456789abcdef" }], receipts: [{ id: "0123456789abcdef", verdict: "killed", freshness: "stale" }], skipped: false };
+		const parsed = JSON.parse(captureStdout(() => outputJson({ ...base(), killProofs }))) as Record<string, unknown>;
+		expect(parsed.kill_proofs).toEqual(killProofs);
+	});
+	it("N1: omits the key when no receipt exists (the section is absent, not empty)", () => {
+		const parsed = JSON.parse(captureStdout(() => outputJson({ ...base(), killProofs: undefined }))) as Record<string, unknown>;
+		expect("kill_proofs" in parsed).toBe(false);
+		expect(parsed.project_e2e).toEqual({ status: "unconfigured" });
+	});
+});
