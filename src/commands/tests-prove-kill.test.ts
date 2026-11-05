@@ -9,7 +9,7 @@ const MUTANT: ResolvedMutant = { file: "src/math.ts", offset: 10, originalLexeme
 
 function receipt(verdict: KillProofReceipt["verdict"], cases: KillProofReceipt["underMutant"]["cases"]): KillProofReceipt {
 	return {
-		version: 1, id: "7113042096864a76", verdict, reasons: [], provedAt: "2026-11-04T00:00:00.000Z", root: "/repo",
+		version: 1, id: "7113042096864a76", digest: "0".repeat(64), verdict, reasons: [], provedAt: "2026-11-04T00:00:00.000Z", root: "/repo",
 		source: { path: "src/math.ts", sha256: "a" }, mutant: MUTANT, tests: [{ path: "test/clamp.test.ts", sha256: "b" }], killedTests: [],
 		baseline: { cases: cases.length, durationMs: 800 }, underMutant: { durationMs: 700, timedOut: false, cases },
 		environment: { node: "v22.0.0", vitest: "4.0.0", platform: "linux", config: null },
@@ -19,7 +19,7 @@ function receipt(verdict: KillProofReceipt["verdict"], cases: KillProofReceipt["
 const ok = (verdict: KillProofReceipt["verdict"], cases: KillProofReceipt["underMutant"]["cases"]): ProveKillResult =>
 	({ ok: true, receipt: receipt(verdict, cases), receiptPath: "/repo/.interlinked/test-runs/kill-proofs/7113042096864a76.json" });
 
-const ROW: KillProofRow = { id: "7113042096864a76", verdict: "killed", provedAt: "2026-11-04T00:00:00.000Z", mutant: "explicit fault @ src/math.ts:3", tests: ["test/clamp.test.ts"] };
+const ROW: KillProofRow = { id: "7113042096864a76", verdict: "killed", provedAt: "2026-11-04T00:00:00.000Z", mutant: "explicit fault @ src/math.ts:3", tests: ["test/clamp.test.ts"], killedTests: ["test/clamp.test.ts"] };
 
 describe("specFromOptions — positive (must accept)", () => {
 	it("P1: an explicit fault with all three flags", () => {

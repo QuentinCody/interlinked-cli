@@ -120,7 +120,9 @@ export function renderKillProofs(rows: readonly KillProofRow[]): string {
 	if (rows.length === 0) return "No kill proofs recorded yet. Make one with `interlinked tests prove-kill --help`.";
 	return rows.map(row => {
 		const head = `${row.id} ${row.verdict.toUpperCase().padEnd(12)} ${row.provedAt} ${row.mutant}`;
-		const tests = `  tests: ${row.tests.join(", ")}${row.killedTests.length ? ` — killed through: ${row.killedTests.join(", ")}` : ""}`;
+		// Name the killing files only when a multi-file receipt did not kill through every named file (review K10).
+		const partial = row.tests.length > 1 && row.killedTests.length !== row.tests.length;
+		const tests = `  tests: ${row.tests.join(", ")}${partial ? ` — killed through: ${row.killedTests.join(", ") || "none"}` : ""}`;
 		const fresh = row.freshness ? `  ${row.freshness.toUpperCase()}${row.reasons ? `: ${row.reasons.join("; ")}` : ""}` : null;
 		return [head, tests, ...(fresh ? [fresh] : [])].join("\n");
 	}).join("\n");
