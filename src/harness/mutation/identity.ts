@@ -350,6 +350,11 @@ export function derivePortableIdentities(
 export interface SymbolHashEntry {
 	qualifiedName: string;
 	symbolHash: string;
+	/** How many hashed function-like nodes share this symbolId in the file (kill-proof review round 5, R5-2). The map
+	 *  keeps ONE entry per id — the LAST declaration's hash — so a verbatim duplicate method or nested function with
+	 *  the same qualified name and arity leaves the hash unchanged; this count is what lets a re-location refuse it.
+	 *  Absent (a hand-built entry) or 1 for every symbol a sane file declares once; the manifest does not record it. */
+	declarations?: number;
 }
 
 /** The function-like nodes hashed as their own symbol — i.e. exactly the subtrees
@@ -416,9 +421,11 @@ export function computeSymbolHashes(
 	const walk = (node: TS.Node): void => {
 		if (isHashedFunction(ts, node)) {
 			const qn = qualifiedName(ts, sf, node);
-			out.set(symbolIdFor(file, qn, arityOf(node)), {
+			const id = symbolIdFor(file, qn, arityOf(node));
+			out.set(id, {
 				qualifiedName: qn,
 				symbolHash: sha16([normalizeTokens(ts, node.getText(sf))]),
+				declarations: (out.get(id)?.declarations ?? 0) + 1,
 			});
 		}
 		ts.forEachChild(node, walk);
@@ -429,6 +436,7 @@ export function computeSymbolHashes(
 		out.set(symbolIdFor(file, MODULE_QUALIFIED_NAME, 0), {
 			qualifiedName: MODULE_QUALIFIED_NAME,
 			symbolHash: sha16([moduleTokens]),
+			declarations: 1,
 		});
 	}
 	return out;
