@@ -1,29 +1,33 @@
 // ===========================================
 // Kill proof — baseline run, isolated mutant run, verdict, receipt
 // ===========================================
-// 1. ONE git-visible copy of the project (`fail-before-fix/snapshot.ts`) is made.
-//    The named test files run there UNMUTATED first; every case must pass. Running
-//    the baseline in the copy — not the live tree — means an ignored fixture, a
-//    cache or an environment difference cannot masquerade as a kill (review R3).
-// 2. The one mutated source file is written into the same copy and the same tests
-//    run again with vitest's JSON reporter.
+// 1. The named test files run UNMUTATED in a fresh git-visible copy of the project
+//    (`fail-before-fix/snapshot.ts`); every case must pass. A baseline that fails in
+//    the copy is re-run on the live tree (read only): passing live means the copy
+//    lacks something the test needs (an ignored fixture) → `unavailable`, not the
+//    test's fault; failing live is `not-passing-now` (review K6).
+// 2. The mutant runs in a SECOND fresh copy holding the mutated file, so nothing
+//    the baseline left behind (a marker, a snapshot, a log) can fail the second
+//    run (review K1). A replacement that does not parse is `inconclusive` — a
+//    compile error, as mutation tools classify it, never a kill (review K5).
 // 3. Only cases from the NAMED files count (vitest positional filters are
 //    substrings, review R1). A case is `killed` when it fails by its own check
 //    (`fail-before-fix/classify.ts failedByOwnCheck`) and the failure is not a
 //    `node:assert` raised from product code (review R4); `survived` when it still
 //    passes; else `inconclusive` with its first failure line. A runner that times
 //    out or fails to launch makes every case inconclusive — never a kill.
-// The live tree is only read. The copy is removed before this returns.
+// The live tree is only read. Both copies are removed before this returns.
 
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { isTestPath } from "../coverage-test-selector.js";
 import { failedByOwnCheck, type VitestCase } from "../fail-before-fix/classify.js";
 import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
-import { copyWriteTarget, createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
+import { createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
+import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
-import { captureEnvironment, hashFile, receiptId, writeKillProof } from "./receipt.js";
+import { captureEnvironment, hashFile, receiptId, sealReceipt, writeKillProof } from "./receipt.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
 import type { CaseOutcome, HashedFile, KillProofReceipt, MutantSpec, ProveKillResult, ResolvedMutant } from "./types.js";
 
@@ -62,23 +66,46 @@ export function normalizeTestPaths(root: string, tests: readonly string[]): stri
 	return out;
 }
 
+/** A named test must be a regular file whose real location is inside the root (review K8b, K9). */
+function testFileProblem(root: string, test: string): string | null {
+	const abs = join(root, test);
+	if (!existsSync(abs)) return `${test} does not exist`;
+	if (lstatSync(abs).isDirectory()) return `${test} is a directory; name test files`;
+	const real = realpathSync(abs);
+	if (real !== root && !real.startsWith(root + sep)) return `${test} resolves outside the project (${real}); a test outside the copy would run against the live source`;
+	return null;
+}
+
 /** The test's own check fired: an assertion or a plain error thrown from the test file; a product `node:assert` is not. */
 export function killedByOwnCheck(row: VitestCase): boolean {
 	if (!failedByOwnCheck(row)) return false;
 	return !((row.message ?? "").startsWith(NODE_ASSERT_PREFIX) && row.thrownInTest !== true);
 }
 
+/** The mutated source must still parse: a syntax error is a compile error, not behaviour (review K5). */
+export function mutantParses(file: string, mutated: string): { ok: true } | { ok: false; reason: string } | null {
+	const ts = loadTsModule();
+	if (ts === null) return null;
+	const out = ts.transpileModule(mutated, { fileName: file, reportDiagnostics: true, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
+	const syntax = (out.diagnostics ?? []).find(d => d.category === ts.DiagnosticCategory.Error);
+	if (syntax === undefined) return { ok: true };
+	const text = ts.flattenDiagnosticMessageText(syntax.messageText, " ");
+	return { ok: false, reason: `the mutated ${file} does not parse (${text}); a compile error is not a kill` };
+}
+
+type BaselineProblem = { kind: "unavailable" | "not-passing-now"; reasons: string[]; failing: VitestCase[] };
+
 /** Baseline problems: a runner failure, a named file with no run case, or a case that does not pass. */
-function baselineProblems(tests: readonly string[], run: VitestRun): { kind: "unavailable" | "not-passing-now"; reasons: string[] } | null {
+function baselineProblems(tests: readonly string[], run: VitestRun): BaselineProblem | null {
 	if (run.error !== undefined || run.timedOut) {
-		return { kind: "unavailable", reasons: [`baseline run failed: ${run.timedOut ? `timed out after ${run.durationMs} ms` : run.error}`] };
+		return { kind: "unavailable", reasons: [`baseline run failed: ${run.timedOut ? `timed out after ${run.durationMs} ms` : run.error}`], failing: [] };
 	}
 	const named = run.cases.filter(row => tests.includes(row.file) && !NOT_RUN.has(row.status));
 	const silent = tests.filter(file => !named.some(row => row.file === file));
-	if (silent.length) return { kind: "unavailable", reasons: silent.map(file => `${file} reported no executed test case in the baseline copy`) };
+	if (silent.length) return { kind: "unavailable", reasons: silent.map(file => `${file} reported no executed test case in the baseline copy`), failing: [] };
 	const failing = named.filter(row => row.status !== "passed");
 	if (failing.length) {
-		return { kind: "not-passing-now", reasons: failing.map(row => `${caseKey(row)}: ${row.status}${row.message ? ` — ${row.message}` : ""}`) };
+		return { kind: "not-passing-now", reasons: failing.map(row => `${caseKey(row)}: ${row.status}${row.message ? ` — ${row.message}` : ""}`), failing };
 	}
 	return null;
 }
@@ -147,6 +174,20 @@ function targetProblem(mutant: ResolvedMutant, tests: readonly string[]): string
 	return null;
 }
 
+/** A copy-only baseline failure (ignored fixture, environment) is not the test's fault: check the live tree, read only (review K6). */
+async function explainBaselineFailure(root: string, problem: BaselineProblem, tests: readonly string[], runner: NonNullable<ProveKillOptions["runner"]>, budgetMs: number, mutant: ResolvedMutant): Promise<ProveKillResult> {
+	if (problem.kind === "unavailable") return unavailable(problem.reasons, mutant);
+	const live = await runner(root, tests, budgetMs);
+	const liveFailing = problem.failing.filter(row => live.cases.find(c => caseKey(c) === caseKey(row))?.status !== "passed");
+	if (live.error === undefined && !live.timedOut && liveFailing.length === 0) {
+		return unavailable([
+			`${problem.failing.length} case(s) pass on the live tree but fail in the isolated git-visible copy (ignored or untracked files are not copied):`,
+			...problem.reasons,
+		], mutant);
+	}
+	return { ok: false, verdict: "not-passing-now", reasons: problem.reasons, mutant };
+}
+
 /** Run the proof. Reads the live tree, writes only under `.interlinked/test-runs/kill-proofs/` (when `persist`). */
 export async function proveKill(options: ProveKillOptions): Promise<ProveKillResult> {
 	const root = realpathSync(options.root), runner = options.runner ?? runVitestDetailed, now = options.now ?? (() => new Date());
@@ -158,6 +199,8 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	const mutant = resolved.mutant;
 	const problem = targetProblem(mutant, tests);
 	if (problem !== null) return unavailable([problem], mutant);
+	const testProblems = tests.map(test => testFileProblem(root, test)).filter((p): p is string => p !== null);
+	if (testProblems.length) return unavailable(testProblems, mutant);
 	const testHashes = hashAll(root, tests);
 	if (typeof testHashes === "string") return unavailable([testHashes], mutant);
 	const source = hashFile(root, mutant.file);
@@ -166,36 +209,47 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	if (runnerProblem !== null) return unavailable([runnerProblem], mutant);
 	const files = gitVisibleFiles(root);
 	if (files === null) return unavailable([`${root} is not a git work tree; the mutant cannot be isolated in a copy`], mutant);
+	if (!files.includes(mutant.file)) return unavailable([`${mutant.file} is not visible to git (ignored or outside the work tree), so it cannot be mutated in a copy`], mutant);
 	const content = readFileSync(join(root, mutant.file), "utf8");
 	if (!content.startsWith(mutant.originalLexeme, mutant.offset)) return unavailable([`${mutant.file} changed between resolution and the run`], mutant);
+	const mutated = applyMutant(content, mutant.offset, mutant.originalLexeme, mutant.replacement);
+	const parse = mutantParses(mutant.file, mutated);
 
-	const copy = createProjectCopy(root, files, new Map());
-	let baseline: VitestRun, under: VitestRun;
+	const baselineCopy = createProjectCopy(root, files, new Map());
+	let baseline: VitestRun;
 	try {
-		if (!existsSync(join(copy.dir, mutant.file))) return unavailable([`${mutant.file} is not visible to git (ignored or outside the work tree), so it cannot be mutated in a copy`], mutant);
-		baseline = await runner(copy.dir, tests, options.budgetMs);
-		const baseProblem = baselineProblems(tests, baseline);
-		if (baseProblem !== null) {
-			return baseProblem.kind === "unavailable" ? unavailable(baseProblem.reasons, mutant) : { ok: false, verdict: "not-passing-now", reasons: baseProblem.reasons, mutant };
-		}
-		writeFileSync(copyWriteTarget(copy.dir, mutant.file), applyMutant(content, mutant.offset, mutant.originalLexeme, mutant.replacement));
-		under = await runner(copy.dir, tests, options.budgetMs);
+		baseline = await runner(baselineCopy.dir, tests, options.budgetMs);
 	} finally {
-		copy.cleanup();
+		baselineCopy.cleanup();
 	}
+	const baseProblem = baselineProblems(tests, baseline);
+	if (baseProblem !== null) return explainBaselineFailure(root, baseProblem, tests, runner, options.budgetMs, mutant);
 	const passing = baseline.cases.filter(row => tests.includes(row.file) && row.status === "passed");
+
+	let under: VitestRun;
+	if (parse !== null && !parse.ok) {
+		under = { cases: [], timedOut: false, error: parse.reason, exitCode: null, durationMs: 0 };
+	} else {
+		const mutantCopy = createProjectCopy(root, files, new Map([[mutant.file, mutated]]));
+		try {
+			under = await runner(mutantCopy.dir, tests, options.budgetMs);
+		} finally {
+			mutantCopy.cleanup();
+		}
+	}
 	const cases = judgeCases(passing, under);
 	const { verdict, reasons } = overallVerdict(cases);
 	const environment = captureEnvironment(root);
 	const boundMutant: ResolvedMutant = { ...mutant, lineText: lineTextAt(content, mutant.offset) };
-	const receipt: KillProofReceipt = {
+	const receipt = sealReceipt({
 		version: 1,
 		id: receiptId({ source, mutant: boundMutant, tests: testHashes, environment }),
+		digest: "",
 		verdict, reasons, provedAt: now().toISOString(), root, source, mutant: boundMutant, tests: testHashes, killedTests: killedTestFiles(cases),
 		baseline: { cases: passing.length, durationMs: baseline.durationMs },
 		underMutant: { durationMs: under.durationMs, timedOut: under.timedOut, cases, ...(under.error !== undefined ? { error: under.error } : {}) },
 		environment,
-	};
+	});
 	const receiptPath = options.persist === false ? "" : writeKillProof(root, receipt);
 	return { ok: true, receipt, receiptPath };
 }

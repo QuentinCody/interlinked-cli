@@ -148,7 +148,7 @@ function registerKillProof(tests: Command): void {
         .option("--file <path>", "Source file: narrows --mutant, required for an explicit fault")
         .option("--find <text>", "Explicit fault: source text that occurs exactly once in --file")
         .option("--replace <text>", "Explicit fault: the replacement text")
-        .option("--timeout <ms>", "Budget for each test run", "300000")
+        .option("--run-timeout <ms>", "Budget for EACH vitest run (the baseline copy, then the mutant copy); `--timeout` is the whole-command deadline", "300000")
         .option("--json", "Machine-readable result")
         .action(async (options: OptionValues) => {
             const { testsProveKillCommand } = await import("../commands/tests-prove-kill.js");

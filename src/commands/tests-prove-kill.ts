@@ -21,7 +21,7 @@ export interface ProveKillCliOptions {
 	file?: string;
 	find?: string;
 	replace?: string;
-	timeout?: string;
+	runTimeout?: string;
 	json?: boolean;
 }
 
@@ -48,7 +48,7 @@ export function exitCodeFor(result: ProveKillResult): number {
 function nextStep(result: ProveKillResult): string {
 	if (!result.ok) {
 		return result.verdict === "not-passing-now"
-			? "Fix the test so it passes on the current code first; a test that fails live proves nothing about the mutant."
+			? "Fix the test so it passes on the current code first; a test that fails before any mutation proves nothing about the mutant."
 			: "Resolve the reasons above and re-run; no receipt was written.";
 	}
 	switch (result.receipt.verdict) {
@@ -70,7 +70,7 @@ export function renderProveKill(result: ProveKillResult): string {
 		return lines.join("\n");
 	}
 	const { receipt } = result;
-	lines.push(`tests: ${receipt.tests.map(test => test.path).join(", ")} (${receipt.baseline.cases} case(s) pass on the live tree, ${receipt.baseline.durationMs} ms)`);
+	lines.push(`tests: ${receipt.tests.map(test => test.path).join(", ")} (${receipt.baseline.cases} case(s) pass in the isolated copy, ${receipt.baseline.durationMs} ms)`);
 	lines.push(`verdict: ${receipt.verdict.toUpperCase()} (${receipt.underMutant.durationMs} ms under the mutant)`);
 	for (const row of receipt.underMutant.cases) lines.push(`  ${row.verdict.padEnd(12)} ${row.test}${row.reason ? ` — ${row.reason}` : ""}`);
 	if (result.receiptPath) lines.push(`receipt: ${result.receiptPath}`);
@@ -82,8 +82,8 @@ export async function testsProveKillCommand(options: ProveKillCliOptions): Promi
 	const mode = getOutputMode(options);
 	const spec = specFromOptions(options);
 	if (typeof spec === "string") { outputError(mode, spec); process.exitCode = PROVE_KILL_EXIT.undecided; return; }
-	const budgetMs = Number(options.timeout ?? "300000");
-	if (!Number.isFinite(budgetMs) || budgetMs <= 0) { outputError(mode, "--timeout must be a positive number of milliseconds"); process.exitCode = PROVE_KILL_EXIT.undecided; return; }
+	const budgetMs = Number(options.runTimeout ?? "300000");
+	if (!Number.isFinite(budgetMs) || budgetMs <= 0) { outputError(mode, "--run-timeout must be a positive number of milliseconds"); process.exitCode = PROVE_KILL_EXIT.undecided; return; }
 	try {
 		const root = realpathSync(options.cwd ?? process.cwd());
 		const result = await proveKill({ root, spec, tests: options.test ?? [], budgetMs });
@@ -97,17 +97,18 @@ export async function testsProveKillCommand(options: ProveKillCliOptions): Promi
 
 export interface KillProofsCliOptions { cwd?: string; verify?: boolean; json?: boolean; }
 
-export interface KillProofRow { id: string; verdict: KillProofReceipt["verdict"]; provedAt: string; mutant: string; tests: string[]; freshness?: "fresh" | "stale" | "unreadable"; reasons?: string[]; }
+export interface KillProofRow { id: string; verdict: KillProofReceipt["verdict"]; provedAt: string; mutant: string; tests: string[]; killedTests: string[]; freshness?: "fresh" | "stale" | "unreadable"; reasons?: string[]; }
 
 export function listKillProofs(root: string, verify: boolean): KillProofRow[] {
 	const index = new Map(readKillProofIndex(root).receipts.map(row => [row.id, row]));
 	return listKillProofIds(root).map(id => {
-		const indexed = index.get(id), receipt = verify || !indexed ? readKillProof(root, id) : null;
-		const base: KillProofRow = indexed
-			? { id, verdict: indexed.verdict, provedAt: indexed.provedAt, mutant: indexed.mutant, tests: indexed.tests.map(test => test.path) }
-			: receipt
-				? { id, verdict: receipt.verdict, provedAt: receipt.provedAt, mutant: mutantLabel(receipt.mutant), tests: receipt.tests.map(test => test.path) }
-				: { id, verdict: "inconclusive", provedAt: "", mutant: "unreadable receipt", tests: [], freshness: "unreadable" };
+		// The receipt FILE is the record; the index row is only a locator (review K2).
+		const indexed = index.get(id), receipt = readKillProof(root, id);
+		const base: KillProofRow = receipt
+			? { id, verdict: receipt.verdict, provedAt: receipt.provedAt, mutant: mutantLabel(receipt.mutant), tests: receipt.tests.map(test => test.path), killedTests: receipt.killedTests }
+			: indexed
+				? { id, verdict: indexed.verdict, provedAt: indexed.provedAt, mutant: indexed.mutant, tests: indexed.tests.map(test => test.path), killedTests: [], freshness: "unreadable" }
+				: { id, verdict: "inconclusive", provedAt: "", mutant: "unreadable receipt", tests: [], killedTests: [], freshness: "unreadable" };
 		if (!verify || base.freshness === "unreadable") return base;
 		if (receipt === null) return { ...base, freshness: "unreadable" };
 		const freshness = verifyKillProof(root, receipt);
@@ -119,7 +120,7 @@ export function renderKillProofs(rows: readonly KillProofRow[]): string {
 	if (rows.length === 0) return "no kill proofs recorded (run `interlinked tests prove-kill`)";
 	return rows.map(row => {
 		const head = `${row.id} ${row.verdict.toUpperCase().padEnd(12)} ${row.provedAt} ${row.mutant}`;
-		const tests = `  tests: ${row.tests.join(", ")}`;
+		const tests = `  tests: ${row.tests.join(", ")}${row.killedTests.length ? ` — killed through: ${row.killedTests.join(", ")}` : ""}`;
 		const fresh = row.freshness ? `  ${row.freshness.toUpperCase()}${row.reasons ? `: ${row.reasons.join("; ")}` : ""}` : null;
 		return [head, tests, ...(fresh ? [fresh] : [])].join("\n");
 	}).join("\n");

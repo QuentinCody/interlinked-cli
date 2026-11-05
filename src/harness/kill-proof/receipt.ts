@@ -3,14 +3,16 @@
 // ===========================================
 // A receipt lives at `.interlinked/test-runs/kill-proofs/<id>.json`; `index.json`
 // beside it is REBUILT from the receipt files on every write (never read-modify-
-// write, review R12) and is the read model for the Stop check and the nudge.
-// A receipt certifies ONLY the test files in `killedTests` (review R2). It is
-// FRESH only while: its id re-derives from its own fields and matches its
-// filename (R7), its root is this root (R7), its verdict agrees with its cases
-// (R7), the source and every named test's bytes are unchanged, the runtime
-// (node, vitest, config) is unchanged (R9), and — on the full check — the mutant
-// still resolves at the recorded offset on the recorded line (R10). Anything else
-// is `stale` with the reasons spelled out.
+// write, review R12) and is only a LOCATOR: every decision (Stop check, nudge,
+// `--verify`) reads the receipt FILE and never trusts an index row's verdict or
+// `killedTests` (review K2). A receipt carries a `digest` over all its other
+// fields, so an edited outcome no longer matches (review K3); `id` stays the
+// idempotence key over the inputs. A receipt certifies ONLY the test files in
+// `killedTests` (review R2), per file: the source bytes, THAT test file's bytes
+// and the runtime (review K13). It is tamper-EVIDENT, not tamper-PROOF: the
+// digest is unkeyed, so a receipt rewritten from scratch with recomputed hashes
+// passes; receipts are evidence of execution on this machine, not a security
+// boundary (CLAUDE.md: local checks are not a trust boundary).
 
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -28,7 +30,7 @@ const CASE_VERDICTS = new Set<CaseOutcome["verdict"]>(["killed", "survived", "in
 const MUTANT_SOURCES = new Set<ResolvedMutant["source"]>(["manifest", "explicit"]);
 const CONFIG_NAMES = ["vitest.config.ts", "vitest.config.mts", "vitest.config.js", "vitest.config.mjs", "vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"];
 
-/** One index row: enough to decide bytes freshness without opening the receipt. */
+/** One index row: a locator plus display fields. Decisions never read `verdict` or `killedTests` from here. */
 export interface KillProofIndexRow {
 	id: string;
 	verdict: KillProofReceipt["verdict"];
@@ -83,6 +85,22 @@ export function receiptId(parts: { source: HashedFile; mutant: ResolvedMutant; t
 		parts.environment.node, parts.environment.vitest ?? "", parts.environment.platform, parts.environment.config?.sha256 ?? "",
 	].join("\u0000");
 	return sha256Text(binding).slice(0, 16);
+}
+
+function canonical(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+	if (isJsonObject(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
+	return JSON.stringify(value);
+}
+
+/** The digest over every field but `digest` itself (canonical JSON, sorted keys). */
+export function receiptDigest(receipt: KillProofReceipt): string {
+	const { digest: _digest, ...rest } = receipt;
+	return sha256Text(canonical(rest));
+}
+
+export function sealReceipt(receipt: KillProofReceipt): KillProofReceipt {
+	return { ...receipt, digest: receiptDigest(receipt) };
 }
 
 function writeAtomic(path: string, text: string): void {
@@ -147,7 +165,7 @@ function parseEnvironment(value: unknown): ProofEnvironment | null {
 
 export function parseKillProof(value: unknown): KillProofReceipt | null {
 	if (!isJsonObject(value) || value.version !== 1 || typeof value.id !== "string" || !ID_RE.test(value.id)) return null;
-	if (typeof value.provedAt !== "string" || typeof value.root !== "string") return null;
+	if (typeof value.digest !== "string" || typeof value.provedAt !== "string" || typeof value.root !== "string") return null;
 	if (typeof value.verdict !== "string" || !VERDICTS.has(value.verdict as KillProofReceipt["verdict"])) return null;
 	const reasons = parseStringList(value.reasons), killedTests = parseStringList(value.killedTests);
 	const source = parseHashed(value.source), mutant = parseMutant(value.mutant), tests = parseHashedList(value.tests), environment = parseEnvironment(value.environment);
@@ -158,7 +176,7 @@ export function parseKillProof(value: unknown): KillProofReceipt | null {
 	const cases = parseCases(underMutant.cases);
 	if (cases === null) return null;
 	return {
-		version: 1, id: value.id, verdict: value.verdict as KillProofReceipt["verdict"], reasons, provedAt: value.provedAt, root: value.root,
+		version: 1, id: value.id, digest: value.digest, verdict: value.verdict as KillProofReceipt["verdict"], reasons, provedAt: value.provedAt, root: value.root,
 		source, mutant, tests, killedTests, baseline: { cases: baseline.cases, durationMs: baseline.durationMs },
 		underMutant: { durationMs: underMutant.durationMs, timedOut: underMutant.timedOut, cases, ...(typeof underMutant.error === "string" ? { error: underMutant.error } : {}) },
 		environment,
@@ -251,9 +269,10 @@ function environmentReasons(root: string, recorded: ProofEnvironment): string[] 
 	return reasons;
 }
 
-/** The receipt's own consistency: id re-derives, root matches, verdict agrees with its cases. */
+/** The receipt's own consistency: digest and id re-derive, root matches, verdict agrees with its cases. */
 export function integrityReasons(root: string, receipt: KillProofReceipt): string[] {
 	const reasons: string[] = [];
+	if (receiptDigest(receipt) !== receipt.digest) reasons.push("receipt digest does not match its contents (edited receipt)");
 	if (receiptId(receipt) !== receipt.id) reasons.push("receipt id does not re-derive from its contents (edited or copied receipt)");
 	if (receipt.root !== root) reasons.push(`receipt was produced for ${receipt.root}, not this project`);
 	const killed = receipt.underMutant.cases.filter(row => row.verdict === "killed");
@@ -288,15 +307,39 @@ export function verifyKillProof(root: string, receipt: KillProofReceipt): Freshn
 	return reasons.length === 0 ? { fresh: true } : { fresh: false, reasons };
 }
 
+/** The case titles (after ` › `) a receipt records as killed for one test file. */
+export function killedCaseNames(receipt: KillProofReceipt, testPath: string): string[] {
+	return receipt.underMutant.cases.filter(row => row.verdict === "killed" && row.test.startsWith(`${testPath} › `)).map(row => row.test.slice(testPath.length + 3));
+}
+
+export type Certification = { certified: true; receipt: KillProofReceipt } | { certified: false; receipt: KillProofReceipt | null; reasons: string[] };
+
 /**
- * Receipts whose verdict is `killed`, whose `killedTests` names `testPath`, and that
- * pass the cheap freshness check (integrity, bytes, runtime). The Stop check's and
- * the nudge's whole question.
+ * Does receipt `id` certify `testPath` NOW? Read from the receipt FILE: integrity,
+ * verdict `killed` through this file, the source and THIS test file's bytes, the
+ * runtime (review K2, K13). With `requireCases` (the Stop check's newly added case
+ * titles), at least one of them must be a killed case — an old strong case does not
+ * certify a new weak one (review K4).
  */
-export function freshKillsForTest(root: string, testPath: string): KillProofIndexRow[] {
-	return readKillProofIndex(root).receipts.filter(row => {
-		if (row.verdict !== "killed" || !row.killedTests.includes(testPath)) return false;
-		const checked = receiptFreshCheap(root, row.id);
-		return checked !== null && checked.reasons.length === 0;
+export function receiptCertifies(root: string, id: string, testPath: string, requireCases?: readonly string[]): Certification {
+	const receipt = readKillProof(root, id);
+	if (receipt === null) return { certified: false, receipt: null, reasons: ["receipt file missing or unreadable"] };
+	const reasons = [...integrityReasons(root, receipt)];
+	if (receipt.verdict !== "killed" || !receipt.killedTests.includes(testPath)) reasons.push(`receipt did not kill through ${testPath}`);
+	const own = receipt.tests.filter(test => test.path === testPath);
+	if (own.length === 0) reasons.push(`receipt does not name ${testPath}`);
+	reasons.push(...hashMismatches(root, [receipt.source], "source"), ...hashMismatches(root, own, "test"), ...environmentReasons(root, receipt.environment));
+	if (requireCases !== undefined && requireCases.length > 0) {
+		const killed = killedCaseNames(receipt, testPath);
+		if (!requireCases.some(title => killed.some(name => name.includes(title)))) reasons.push("none of the newly added cases is a killed case in this receipt");
+	}
+	return reasons.length === 0 ? { certified: true, receipt } : { certified: false, receipt, reasons };
+}
+
+/** Receipts that certify `testPath` now (see `receiptCertifies`). The Stop check's and the nudge's whole question. */
+export function freshKillsForTest(root: string, testPath: string, requireCases?: readonly string[]): KillProofReceipt[] {
+	return readKillProofIndex(root).receipts.flatMap(row => {
+		const result = receiptCertifies(root, row.id, testPath, requireCases);
+		return result.certified ? [result.receipt] : [];
 	});
 }

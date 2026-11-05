@@ -77,6 +77,8 @@ export interface KillProofReceipt {
 	version: 1;
 	/** sha256 (16 hex) over the binding: source bytes, mutant, test bytes, environment. */
 	id: string;
+	/** sha256 over every other field of this receipt (canonical JSON); an edited outcome no longer matches (review K3). */
+	digest: string;
 	verdict: Exclude<ProofVerdict, "not-passing-now" | "unavailable">;
 	reasons: string[];
 	provedAt: string;

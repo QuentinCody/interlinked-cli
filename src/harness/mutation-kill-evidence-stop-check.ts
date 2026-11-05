@@ -197,7 +197,16 @@ interface DetectMutationKillEvidenceGapsOpts {
 	 *  of `killed` kill-proof receipts naming this test file whose source and test
 	 *  bytes match the files on disk now (kill-proof/receipt.ts; index read + two
 	 *  hashes, never the manifest). */
-	freshKillProofs?: (cwd: string, relPath: string) => number;
+	freshKillProofs?: (cwd: string, relPath: string, newCases: readonly string[]) => number;
+}
+
+/** Titles of `it`/`test` cases present now but not in the baseline bytes (review K4: an old strong case must not
+ *  certify a new weak one). A regex over quoted first arguments; generated titles (loops, `it.each`) are not literal
+ *  and simply do not constrain the receipt. */
+export function newCaseTitles(current: string, baseline: string): string[] {
+	const titles = (text: string): string[] => [...text.matchAll(/\b(?:it|test)(?:\.(?:only|skip|todo|concurrent))*\s*\(\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/g)].map(m => m[2] ?? "");
+	const before = new Set(titles(baseline));
+	return [...new Set(titles(current).filter(title => title.length > 0 && !before.has(title)))];
 }
 
 /**
@@ -217,7 +226,7 @@ export function detectMutationKillEvidenceGaps(
 		gitShow = defaultGitShow,
 		readFile = defaultReadFile,
 		loadMutationManifest = defaultLoadMeasurement,
-		freshKillProofs = (root, relPath) => freshKillsForTest(root, relPath).length,
+		freshKillProofs = (root, relPath, newCases) => freshKillsForTest(root, relPath, newCases).length,
 	} = opts;
 	if (!gitHeadSha) return [];
 
@@ -321,7 +330,7 @@ function evaluateMutationKillEvidence(
 	// A kill proof (`interlinked tests prove-kill`) whose source AND test bytes are
 	// the ones on disk now is per-file executed evidence, newer by construction
 	// than any write it hashes; it discharges the manifest-timestamp proxy.
-	const staleMeasurement = staleByManifest && ctx.freshKillProofs(ctx.cwd, relPath) === 0;
+	const staleMeasurement = staleByManifest && ctx.freshKillProofs(ctx.cwd, relPath, newCaseTitles(currentContent, baselineContent)) === 0;
 
 	const missingContractCount = newMissingContractCount(currentContent, baselineContent, abs);
 

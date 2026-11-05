@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -93,10 +93,11 @@ describe("proveKill — positive (must fire)", () => {
 		expect(result.receipt.environment.node).toBe(process.version);
 		expect(readKillProof(root, result.receipt.id)).toEqual(result.receipt);
 		expect(readKillProofIndex(root).receipts.map(row => row.id)).toEqual([result.receipt.id]);
-		// both runs happen in ONE copy, never the live tree: baseline sees the original bytes, the mutant run the replacement
+		// two FRESH copies, never the live tree: baseline sees the original bytes, the mutant copy the replacement (review K1)
 		expect(calls).toHaveLength(2);
 		expect(calls.every(call => call.dir !== root)).toBe(true);
-		expect(calls[0]?.dir).toBe(calls[1]?.dir);
+		expect(calls[0]?.dir).not.toBe(calls[1]?.dir);
+		expect(result.receipt.digest).toHaveLength(64);
 		expect(calls[0]?.source).toBe(SOURCE);
 		expect(calls[1]?.source).toBe(SOURCE.replace("n > max", "n >= max"));
 		expect(readFileSync(join(root, "src/clamp.ts"), "utf8")).toBe(SOURCE);
@@ -133,12 +134,39 @@ describe("proveKill — negative (must not fire)", () => {
 		expect(result.ok && result.receipt.verdict).toBe("inconclusive");
 		expect(result.ok && result.receipt.underMutant.cases[0]?.reason).toBe("runner timed out after 1000 ms");
 	});
-	it("N4: a case that does not pass in the baseline stops the proof before any mutant run", async () => {
-		const { runner, calls } = fakeRunner(okRun([failing("caps", "AssertionError: x")]), okRun([]));
+	it("N4: a case that fails in the copy AND on the live tree is not-passing-now; no mutant run, no receipt", async () => {
+		const red = okRun([failing("caps", "AssertionError: x")]);
+		const { runner, calls } = fakeRunner(red, red);
 		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner });
 		expect(result).toMatchObject({ ok: false, verdict: "not-passing-now", reasons: [`${TEST_FILE} › caps: failed — AssertionError: x`] });
-		expect(calls).toHaveLength(1);
+		expect(calls).toHaveLength(2);
+		expect(calls[1]?.dir).toBe(root);
 		expect(readKillProofIndex(root).receipts).toEqual([]);
+	});
+	it("N13: a case that fails in the copy but passes on the live tree is unavailable (an ignored fixture), not the test's fault (review K6)", async () => {
+		const { runner, calls } = fakeRunner(okRun([failing("caps", "Error: ENOENT fixtures/case.json")]), okRun([passing("caps")]));
+		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner });
+		expect(!result.ok && result.verdict).toBe("unavailable");
+		expect(!result.ok && result.reasons[0]).toMatch(/pass on the live tree but fail in the isolated git-visible copy/);
+		expect(calls).toHaveLength(2);
+	});
+	it("N14: a replacement that does not parse is inconclusive, never a kill (review K5)", async () => {
+		const { runner, calls } = fakeRunner(okRun([passing("caps")]), KILLED);
+		const result = await proveKill({ root, spec: { ...SPEC, replace: "n > ;" }, tests: [TEST_FILE], budgetMs: 1000, runner, persist: false });
+		expect(result.ok && result.receipt.verdict).toBe("inconclusive");
+		expect(result.ok && result.receipt.underMutant.error).toMatch(/does not parse/);
+		expect(calls).toHaveLength(1);
+	});
+	it("N15: a --test directory or a test that resolves outside the project is unavailable (review K8b, K9)", async () => {
+		const { runner } = fakeRunner(okRun([]), okRun([]));
+		const dir = await proveKill({ root, spec: SPEC, tests: ["src"], budgetMs: 1000, runner });
+		expect(!dir.ok && dir.reasons[0]).toBe("src is a directory; name test files");
+		const outside = mkdtempSync(join(tmpdir(), "kill-proof-outside-"));
+		writeFileSync(join(outside, "far.test.ts"), TEST);
+		symlinkSync(join(outside, "far.test.ts"), join(root, "src/far.test.ts"));
+		const linked = await proveKill({ root, spec: SPEC, tests: ["src/far.test.ts"], budgetMs: 1000, runner });
+		expect(!linked.ok && linked.reasons[0]).toMatch(/resolves outside the project/);
+		rmSync(outside, { recursive: true, force: true });
 	});
 	it("N5: a named test file that reports no executed case is unavailable, not a pass", async () => {
 		const { runner } = fakeRunner(okRun([{ ...passing("caps"), status: "skipped" }]), okRun([]));
@@ -232,7 +260,23 @@ describe("receipt freshness — negative (must not fire)", () => {
 		const verdict = verifyKillProof(root, forged);
 		expect(verdict.fresh).toBe(false);
 		expect(!verdict.fresh && verdict.reasons).toContain("verdict disagrees with the recorded cases");
+		expect(!verdict.fresh && verdict.reasons).toContain("receipt digest does not match its contents (edited receipt)");
 		expect(freshKillsForTest(root, TEST_FILE)).toEqual([]);
+	});
+	it("N9: a SURVIVED receipt edited consistently (cases, verdict, killedTests) is caught by the digest (review K3)", async () => {
+		const { runner } = fakeRunner(okRun([passing("caps")]), okRun([passing("caps")]));
+		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner });
+		if (!result.ok) throw new Error("expected a receipt");
+		const forged = { ...result.receipt, verdict: "killed" as const, killedTests: [TEST_FILE], underMutant: { ...result.receipt.underMutant, cases: [{ test: `${TEST_FILE} › caps`, verdict: "killed" as const }] } };
+		writeFileSync(join(root, ".interlinked/test-runs/kill-proofs", `${result.receipt.id}.json`), JSON.stringify(forged));
+		expect(freshKillsForTest(root, TEST_FILE)).toEqual([]);
+		const verdict = verifyKillProof(root, forged);
+		expect(!verdict.fresh && verdict.reasons[0]).toMatch(/digest does not match/);
+	});
+	it("N10: an old strong case does not certify a NEW case that kills nothing (review K4)", async () => {
+		const receipt = await provenKill();
+		expect(freshKillsForTest(root, TEST_FILE, ["caps"]).map(r => r.id)).toEqual([receipt.id]);
+		expect(freshKillsForTest(root, TEST_FILE, ["kills boundary"])).toEqual([]);
 	});
 	it("N6: a receipt copied from another checkout is stale (review R7)", async () => {
 		const receipt = await provenKill();
