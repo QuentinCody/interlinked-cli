@@ -19,6 +19,10 @@ function repo(): string {
     writeFileSync(join(root, "src/real.ts"), "export const real = 1;\n");
     return root;
 }
+/** False for a missing path too: a copy that silently dropped the link must fail the assertion, not crash it. */
+function isLink(path: string): boolean {
+    try { return lstatSync(path).isSymbolicLink(); } catch { return false; }
+}
 function copyOf(root: string, overrides = new Map<string, string | null>()): string {
     execFileSync("git", ["-C", root, "add", "."]);
     const files = gitVisibleFiles(root);
@@ -43,7 +47,7 @@ describe("createProjectCopy — links", () => {
         const root = repo();
         symlinkSync("missing.ts", join(root, "src/dangling.ts"));
         const dir = copyOf(root);
-        expect(lstatSync(join(dir, "src/dangling.ts")).isSymbolicLink()).toBe(true);
+        expect(isLink(join(dir, "src/dangling.ts"))).toBe(true);
         expect(readlinkSync(join(dir, "src/dangling.ts"))).toBe("missing.ts");
     });
 });
