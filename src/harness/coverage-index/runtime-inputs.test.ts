@@ -94,10 +94,57 @@ it("hashes linked dependency mounts but refuses external source aliases and dire
     await expect(captureCoverageRuntime(root, options)).rejects.toThrow("Cyclic coverage directory link");
 });
 
-it("rejects dangling runtime links instead of treating their inputs as absent", async () => {
+// test-contract: public-api — a dangling link inside the census is an input (its link text), never an absent file, and its target appearing changes the identity
+it("P1: records a dangling link inside the census and invalidates when its target appears", async () => {
     const root = fixture();
+    const options = { originalRoot: root, deadline: Date.now() + 10_000 };
     symlinkSync("missing-input.json", join(root, "runtime-input.json"));
-    await expect(captureCoverageRuntime(root, { originalRoot: root, deadline: Date.now() + 10_000 })).rejects.toThrow();
+    const dangling = await captureCoverageRuntime(root, options);
+    expect(dangling.inputs.find(input => input.path === "runtime-input.json")).toMatchObject({ kind: "dangling-link", mode: 0 });
+    writeFileSync(join(root, "missing-input.json"), "{}\n");
+    expect((await captureCoverageRuntime(root, options)).hash).not.toBe(dangling.hash);
+    rmSync(join(root, "runtime-input.json"));
+    symlinkSync("other-input.json", join(root, "runtime-input.json"));
+    const retargeted = await captureCoverageRuntime(root, options);
+    expect(retargeted.hash).not.toBe(dangling.hash);
+    expect(retargeted.inputs.find(input => input.path === "runtime-input.json")?.hash).not.toBe(dangling.inputs.find(input => input.path === "runtime-input.json")?.hash);
+});
+
+// test-contract: public-api — the stale `node_modules/node_modules -> toString/node_modules` install artifact (2026-11-04) no longer fails the census of an export whose node_modules is a link
+it("P2: tolerates a dangling link inside a linked dependency mount", async () => {
+    const root = fixture(), outside = fixture();
+    const options = { originalRoot: root, deadline: Date.now() + 10_000 };
+    rmSync(join(root, "node_modules"), { recursive: true });
+    symlinkSync(join(outside, "node_modules"), join(root, "node_modules"), "dir");
+    symlinkSync("toString/node_modules", join(outside, "node_modules", "node_modules"), "dir");
+    const snapshot = await captureCoverageRuntime(root, options);
+    expect(snapshot.inputs.find(input => input.path === join("node_modules", "node_modules"))).toMatchObject({ kind: "dangling-link" });
+});
+
+// test-contract: invariant — accepting an absent in-project symlink target must preserve the same runtime inputs in the actual overlay.
+it("preserves root and nested dangling links through the actual coverage overlay", async () => {
+    const root = fixture(), options = { originalRoot: root, deadline: Date.now() + 10_000 };
+    mkdirSync(join(root, "nested"));
+    symlinkSync("missing.json", join(root, "runtime-input.json"));
+    symlinkSync("../missing.json", join(root, "nested", "runtime-input.json"));
+    symlinkSync(join(root, "absent.json"), join(root, "absolute-input.json"));
+    symlinkSync("source.ts", join(root, "existing-input.ts"));
+    const before = await captureCoverageRuntime(root, options);
+    const overlay = createCoverageOverlay(root, "source.ts", "export const value = 1;\n");
+    try {
+        const mirrored = await captureCoverageRuntime(overlay.overlayRoot, options);
+        expect(mirrored.hash).toBe(before.hash);
+        expect(mirrored.inputs.filter(input => input.kind === "dangling-link")).toHaveLength(3);
+        writeFileSync(join(root, "missing.json"), "{}");
+        expect((await captureCoverageRuntime(root, options)).hash).not.toBe(before.hash);
+    } finally { overlay.cleanup(); }
+});
+
+// test-contract: invariant — a dangling link whose target lies outside the census stays refused: its target could appear unseen
+it("N1: still rejects a dangling link that points outside the census", async () => {
+    const root = fixture(), outside = fixture();
+    symlinkSync(join(outside, "absent.json"), join(root, "runtime-input.json"));
+    await expect(captureCoverageRuntime(root, { originalRoot: root, deadline: Date.now() + 10_000 })).rejects.toThrow("Dangling coverage symlink outside the census");
 });
 
 it("rejects a file removed after enumeration while the streamed census yields", async () => {

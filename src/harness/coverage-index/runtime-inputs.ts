@@ -13,7 +13,7 @@ export interface CoverageRuntimeOptions { deadline: number; originalRoot: string
 const MAX_ENTRIES = 200_000;
 const MAX_BYTES = 4 * 1024 * 1024 * 1024;
 interface Census { options: CoverageRuntimeOptions; entries: number; bytes: number; buffer: Buffer; inputs: CoverageRuntimeInput[]; }
-interface InputLocation { path: string; logical: string; canonical: string; entry: BigIntStats; stat: BigIntStats; link: string | undefined; mount: string | undefined; mounted: boolean; }
+interface InputLocation { path: string; logical: string; canonical: string; entry: BigIntStats; stat: BigIntStats; link: string | undefined; mount: string | undefined; mounted: boolean; dangling: boolean; }
 
 export function remainingCoverageTime(deadline: number): number {
     currentProcessSignal()?.throwIfAborted();
@@ -61,14 +61,34 @@ function fileHash(path: string, before: BigIntStats, census: Census): string {
         return hash.digest("hex");
     } finally { closeSync(descriptor); }
 }
+/**
+ * A symlink whose target does not exist. Its bytes (the link text) are the input: nothing can load through it,
+ * and if its target later appears inside the census the enumerating directory changes the identity. A dangling
+ * link pointing OUTSIDE the census is refused as before: the target could appear without the census noticing.
+ * Found 2026-11-04: `node_modules/node_modules -> toString/node_modules` (a stale install artifact) made every
+ * pre-push run non-reusable with `ENOENT … stat node_modules/node_modules`.
+ */
+function locateDangling(path: string, logical: string, entry: BigIntStats, census: Census, dependencyRoot: string | undefined): InputLocation {
+    const link = readlinkSync(path);
+    const target = resolve(realpathSync(resolve(path, "..")), link);
+    const allowed = within(census.options.originalRoot, target) || (dependencyRoot !== undefined && within(dependencyRoot, target));
+    if (!allowed) throw new Error(`Dangling coverage symlink outside the census cannot be verified: ${logical}`);
+    return { path, logical, canonical: target, entry, stat: entry, link, mount: dependencyRoot, mounted: false, dangling: true };
+}
 function locate(path: string, logical: string, census: Census, dependencyRoot: string | undefined): InputLocation {
-    const entry = lstatSync(path, { bigint: true }), canonical = realpathSync(path);
+    const entry = lstatSync(path, { bigint: true });
+    let canonical: string;
+    try { canonical = realpathSync(path); }
+    catch (error) {
+        if (entry.isSymbolicLink() && error instanceof Error && "code" in error && error.code === "ENOENT") return locateDangling(path, logical, entry, census, dependencyRoot);
+        throw error;
+    }
     const mounted = logical.split(/[\\/]/).at(-1) === "node_modules";
     const mount = mounted ? canonical : dependencyRoot;
     const link = entry.isSymbolicLink() ? readlinkSync(path) : undefined;
     const allowed = within(census.options.originalRoot, canonical) || (mount !== undefined && within(mount, canonical));
     if (link !== undefined && !mounted && !allowed) throw new Error(`External coverage symlink cannot be verified: ${logical}`);
-    return { path, logical, canonical, entry, stat: link === undefined ? entry : statSync(path, { bigint: true }), link, mount, mounted };
+    return { path, logical, canonical, entry, stat: link === undefined ? entry : statSync(path, { bigint: true }), link, mount, mounted, dangling: false };
 }
 function unchanged(location: InputLocation): void {
     if (state(lstatSync(location.path, { bigint: true })) !== state(location.entry) ||
@@ -113,7 +133,9 @@ async function visit(path: string, logical: string, census: Census, ancestors: R
     if (++census.entries > MAX_ENTRIES) throw new Error("Coverage inputs exceed 200000-entry validation bound");
     if (census.entries % 64 === 0) await setImmediate();
     const location = locate(path, logical, census, dependencyRoot);
-    if (location.link !== undefined && !location.mounted) census.inputs.push({ path: logical, kind: "link", mode: 0, hash: hashBytes(location.canonical) });
+    if (location.dangling && location.link !== undefined) census.inputs.push({ path: logical, kind: "dangling-link", mode: 0, hash: hashBytes(location.link) });
+    else if (location.link !== undefined && !location.mounted) census.inputs.push({ path: logical, kind: "link", mode: 0, hash: hashBytes(location.canonical) });
+    if (location.dangling) { unchanged(location); return; }
     if (location.stat.isDirectory()) await visitDirectory(location, census, ancestors);
     else if (location.stat.isFile()) census.inputs.push({ path: logical, kind: "file", mode: Number(location.stat.mode & 0o777n), hash: fileHash(path, location.stat, census) });
     else throw new Error(`Unsupported coverage runtime input: ${logical}`);

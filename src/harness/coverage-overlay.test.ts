@@ -7,6 +7,7 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -36,6 +37,17 @@ afterEach(() => {
 });
 
 describe("createCoverageOverlay", () => {
+    // test-contract: invariant — a cyclic symlink remains an unsuccessful copy, not an accepted dangling input or a changed source link.
+    it("leaves a cyclic source link untouched when mirroring cannot resolve it", () => {
+        symlinkSync("cycle", join(root, "cycle"));
+        const overlay = createCoverageOverlay(root, "src/a.ts", "export const a = 2;\n");
+        try {
+            expect(lstatSync(join(root, "cycle")).isSymbolicLink()).toBe(true);
+            expect(() => lstatSync(join(overlay.overlayRoot, "cycle"))).toThrow();
+            expect(readFileSync(join(overlay.overlayRoot, "src/a.ts"), "utf8")).toContain("a = 2");
+        } finally { overlay.cleanup(); }
+    });
+
 	it("roots the overlay UNDER projectRoot (not os.tmpdir)", () => {
 		const overlay = createCoverageOverlay(root, "src/a.ts", "export const a = 2;\n");
 		expect(relative(root, overlay.overlayRoot).startsWith("..")).toBe(false);

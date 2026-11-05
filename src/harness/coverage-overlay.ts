@@ -36,18 +36,21 @@
 
 import {
 	cpSync,
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readlinkSync,
 	realpathSync,
 	rmSync,
 	statSync,
 	symlinkSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { isPythonVirtualEnvironment } from "./python-test-runtime.js";
 import { INTERLINKED_DIR, interlinkedPath } from "../lib/interlinked-path.js";
 import { removeInTree, writeFileInTree } from "./overlay-safe-write.js";
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 
 /** mkdtemp prefix for one overlay tree. */
 const COV_OVERLAY_PREFIX = ".cov-overlay-";
@@ -212,8 +215,21 @@ function makeMirrorFilter(
 			nestedNodeModules.push([src, dst]);
 			return false;
 		}
-		return !skipsCoverageOverlayEntry(base, 1);
+		if (skipsCoverageOverlayEntry(base, 1)) return false;
+		return !copyDanglingLink(src, dst);
 	};
+}
+
+/** cpSync resolves symlink targets; preserve absent targets and their link text without following them. */
+function copyDanglingLink(src: string, dst: string): boolean {
+    if (!lstatSync(src).isSymbolicLink()) return false;
+    try { realpathSync(src); return false; }
+    catch (error) {
+        if (!hasErrorCode(error, "ENOENT")) throw error;
+    }
+    mkdirSync(dirname(dst), { recursive: true });
+    symlinkSync(readlinkSync(src), dst);
+    return true;
 }
 
 /** Symlink each diverted nested `node_modules` back to the real one. Runs
