@@ -279,9 +279,10 @@ async function canaryProblem(root: string, mutant: ResolvedMutant, tests: readon
 	if (control.error !== undefined || control.timedOut) return [`${CANARY_INCOMPLETE} (control run: ${control.timedOut ? `timed out after ${control.durationMs} ms` : control.error})`];
 	const unattributed = tests.filter(test => !reaching.has(test) && !control.cases.some(c => c.file === test && c.status === "passed"));
 	if (unattributed.length === 0) return null;
-	// Round 5, R5-10: a stand-in case that was never RUN (filtered by vitest's testNamePattern, in the config or on the
-	// command line) is not a setup-file break; the reason must name the filter, not a setup file that may not exist.
-	const notRun = unattributed.filter(test => !control.cases.some(c => c.file === test && !NOT_RUN.has(c.status)));
+	// Round 5, R5-10: a stand-in case REPORTED but not run (vitest's testNamePattern, in the config or on the command
+	// line, reports it `skipped`) is not a setup-file break; the reason must name the filter, not a setup file that may
+	// not exist. A control with NO row for the file is the setup-file break (the file threw before any case existed).
+	const notRun = unattributed.filter(test => control.cases.some(c => c.file === test) && !control.cases.some(c => c.file === test && !NOT_RUN.has(c.status)));
 	if (notRun.length) {
 		return [
 			`the control copy's stand-in case for ${notRun.join(", ")} did not run (a test-name filter — vitest's testNamePattern in the config or on the command line — excludes it), so the canary's break cannot be attributed to the tests.`,
