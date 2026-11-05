@@ -152,7 +152,7 @@ function syntheticReceipt(root: string, n: number, testPath: string): KillProofR
 		source: { path: "src/clamp.ts", sha256: "0".repeat(64) }, mutant: { file: "src/clamp.ts", offset: n, originalLexeme: "a", replacement: "b", line: 1, source: "explicit" },
 		tests: [{ path: testPath, sha256: "1".repeat(64) }], boundImports: [], killedTests: [testPath],
 		baseline: { cases: 1, durationMs: 1 }, underMutant: { durationMs: 1, timedOut: false, cases: [{ test: `${testPath} › caps`, verdict: "killed" }] },
-		environment: { node: process.version, vitest: null, platform: `${process.platform}-${process.arch}`, config: null, setupFiles: [] },
+		environment: { node: process.version, vitest: null, platform: `${process.platform}-${process.arch}`, config: null, setupFiles: [], configFiles: [], unresolvable: [] },
 	});
 }
 

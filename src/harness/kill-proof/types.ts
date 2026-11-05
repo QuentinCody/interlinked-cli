@@ -78,6 +78,10 @@ export interface ProofEnvironment {
 	config: HashedFile | null;
 	/** Files the config declares as `setupFiles` / `globalSetup`, hashed (review N9); empty when none. */
 	setupFiles: HashedFile[];
+	/** Every OTHER file vitest loads to configure the run (round-4 layouts M2/M3): `test.projects` configs and the configs' static local import closure, hashed. */
+	configFiles: HashedFile[];
+	/** Config declarations the receipt could not bind statically (a computed `setupFiles`, a missing path): a limit `--verify` reports, never a drop. */
+	unresolvable: string[];
 }
 
 /** The receipt: everything a later reader needs to decide whether the proof still applies. */

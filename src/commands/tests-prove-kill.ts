@@ -144,6 +144,8 @@ export interface KillProofRow {
 	killedTests: string[];
 	freshness?: KillProofFreshness;
 	reasons?: string[];
+	/** Config declarations the receipt could not bind (round-4 layouts M3): a limit of the proof, shown with --verify, never a staleness. */
+	limits?: string[];
 	/** Review M8: the newer receipt that proves the same source × mutant × test set. History; never fails `--verify`. */
 	supersededBy?: string;
 }
@@ -187,7 +189,7 @@ export function listKillProofs(root: string, verify: boolean): KillProofRow[] {
 		}
 		if (!verify || base.freshness === "unreadable") return base;
 		if (receipt === null) return { ...base, freshness: "unreadable" };
-		return { ...base, ...freshnessOf(root, receipt) };
+		return { ...base, ...freshnessOf(root, receipt), ...(receipt.environment.unresolvable.length ? { limits: receipt.environment.unresolvable } : {}) };
 	});
 	return rows.sort((a, b) => (a.provedAt === b.provedAt ? a.id.localeCompare(b.id) : a.provedAt > b.provedAt ? -1 : 1));
 }
@@ -202,7 +204,8 @@ export function renderKillProofs(rows: readonly KillProofRow[]): string {
 		const tests = `  tests: ${row.tests.join(", ")}${partial ? ` — killed through: ${row.killedTests.join(", ") || "none"}` : ""}`;
 		const superseded = row.supersededBy === undefined ? null : `  SUPERSEDED by ${row.supersededBy}`;
 		const fresh = row.freshness ? `  ${row.freshness.toUpperCase()}${row.reasons ? `: ${row.reasons.join("; ")}` : ""}` : null;
-		return [head, tests, ...(superseded ? [superseded] : []), ...(fresh ? [fresh] : [])].join("\n");
+		const limits = row.limits ? `  LIMIT (not bound): ${row.limits.join("; ")}` : null;
+		return [head, tests, ...(superseded ? [superseded] : []), ...(fresh ? [fresh] : []), ...(limits ? [limits] : [])].join("\n");
 	});
 	if (rows.length > shown.length) lines.push(`… and ${rows.length - shown.length} more (--json lists every receipt)`);
 	const listed = lines.join("\n");
