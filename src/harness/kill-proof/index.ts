@@ -1,9 +1,7 @@
 // Kill proof — public surface. See types.ts for the contract.
 export { proveKill, type ProveKillOptions } from "./run.js";
 export {
-	bytesFresh,
 	captureEnvironment,
-	freshKillsForTest,
 	hashFile,
 	KILL_PROOFS_DIR,
 	killProofsDir,
@@ -16,9 +14,9 @@ export {
 	readKillProof,
 	readKillProofIndex,
 	receiptId,
-	verifyKillProof,
 	writeKillProof,
 } from "./receipt.js";
+export { bytesFresh, freshKillsForTest, verifyKillProof } from "./receipt-freshness.js";
 export { relocate, type Resolved, resolveMutant } from "./resolve.js";
 export type {
 	CaseOutcome,

@@ -10,7 +10,8 @@
 
 import { realpathSync } from "node:fs";
 import { proveKill } from "../harness/kill-proof/run.js";
-import { listKillProofIds, mutantLabel, newestPerProofKey, proofKey, readKillProof, readKillProofIndex, uncommittedPaths, verifyKillProof } from "../harness/kill-proof/receipt.js";
+import { listKillProofIds, mutantLabel, newestPerProofKey, proofKey, readKillProof, readKillProofIndex } from "../harness/kill-proof/receipt.js";
+import { uncommittedPaths, verifyKillProof } from "../harness/kill-proof/receipt-freshness.js";
 import type { KillProofReceipt, MutantSpec, ProveKillResult } from "../harness/kill-proof/types.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 

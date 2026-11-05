@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../rules/default-config.js";
-import { evaluateProtectedFilesGuard, protectedFileCandidates } from "./pre-tool-guards.js";
+import { evaluateProtectedFilesGuard } from "./pre-tool-guards.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -54,8 +54,8 @@ describe("protected_files — kill-proof receipts — negative (must not block)"
 		expect(decision).toBeNull();
 	});
 
-	it("N2: candidates for a path with no existing ancestor keep the written path and never throw", () => {
-		expect(protectedFileCandidates("/nonexistent-root-xyz/a/b.json")).toContain("/nonexistent-root-xyz/a/b.json");
-		expect(protectedFileCandidates("rel/b.json")).toEqual(["rel/b.json"]);
+	it("N2: a path with no existing ancestor never throws and is still judged as written", () => {
+		expect(evaluateProtectedFilesGuard("Write", { file_path: "/nonexistent-root-xyz/a/b.json", content: "{}" }, DEFAULT_CONFIG, [])).toBeNull();
+		expect(evaluateProtectedFilesGuard("Write", { file_path: "/nonexistent-root-xyz/a/secret.pem", content: "{}" }, DEFAULT_CONFIG, [], "/nonexistent-root-xyz")?.decision).toBe("block");
 	});
 });

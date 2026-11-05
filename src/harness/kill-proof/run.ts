@@ -303,12 +303,11 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 		// node_modules link, os.tmpdir()) can fail the second run of a test whatever the mutant did; an unmutated
 		// third copy must pass again, or the case is "not repeatable", never a kill.
 		const again = await runIn(new Map());
-		const repeats = keyedRows(again.cases);
+		const repeats = keyedRows(again.cases), keys = withOrdinals(passing).map(entry => entry.key);
 		// `cases` is in `passing` order, so the ordinals re-derive from the same rows.
-		cases = withOrdinals(passing).map(({ key }, index) => {
-			const row = cases[index] as CaseOutcome;
+		cases = cases.map((row, index) => {
 			if (row.verdict !== "killed") return row;
-			const repeat = repeats.get(key);
+			const repeat = repeats.get(keys[index] ?? "");
 			if (again.error === undefined && !again.timedOut && repeat?.status === "passed") return row;
 			return { test: row.test, verdict: "inconclusive", reason: `not repeatable: the case also fails on an unmutated copy after the mutant run (${repeat?.message ?? again.error ?? repeat?.status ?? "no result"}); a run left state outside the copy` };
 		});

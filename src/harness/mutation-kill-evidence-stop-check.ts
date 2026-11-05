@@ -70,7 +70,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { getExtension, JS_TS_EXTS } from "./checks/shared.js";
 import { checkTestLegitimacy, MUTATION_DIRECTED_PATH } from "./checks/test-legitimacy.js";
-import { freshKillsForTest } from "./kill-proof/receipt.js";
+import { freshKillsForTest } from "./kill-proof/receipt-freshness.js";
 import { type CaseRequirement, newCases } from "./kill-proof/source-cases.js";
 import { loadSurvivorsIndex } from "./mutation/survivors-index.js";
 import { splitIntroduced } from "./pre-block-gate.js";

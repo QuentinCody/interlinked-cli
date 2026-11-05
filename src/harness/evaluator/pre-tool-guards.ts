@@ -198,7 +198,7 @@ export function evaluateGitScopeGate(
  * rule that names the real path (kill-proof review M1). Backslashes are
  * normalized so the glob's `/` segments match on every platform.
  */
-export function protectedFileCandidates(filePath: string, cwd?: string): string[] {
+function protectedFileCandidates(filePath: string, cwd?: string): string[] {
 	const out = new Set<string>([filePath.replace(/\\/g, "/")]);
 	const abs = isAbsolute(filePath) ? filePath : cwd ? resolve(cwd, filePath) : null;
 	if (abs !== null) {

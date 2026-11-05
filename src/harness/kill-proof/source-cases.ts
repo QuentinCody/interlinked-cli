@@ -249,10 +249,6 @@ export function sourceCases(text: string, filePath: string): SourceCase[] {
 	return walkCases(ts, sf);
 }
 
-export function countSourceCases(text: string, filePath: string): number {
-	return sourceCases(text, filePath).length;
-}
-
 export interface NewCases {
 	/** Cases present now that make a NEW claim (not in the baseline by identity, and not a rename). */
 	added: SourceCase[];

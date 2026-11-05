@@ -15,7 +15,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { killProofNudge } from "../evaluator/post-tool-kill-proof.js";
 import type { VitestRun } from "../fail-before-fix/index.js";
 import { detectMutationKillEvidenceGaps } from "../mutation-kill-evidence-stop-check.js";
-import { freshKillsForTest, killProofsDir, readKillProof, rebuildKillProofIndex, sealReceipt, verifyKillProof } from "./receipt.js";
+import { killProofsDir, readKillProof, rebuildKillProofIndex, sealReceipt } from "./receipt.js";
+import { freshKillsForTest, verifyKillProof } from "./receipt-freshness.js";
 import { proveKill } from "./run.js";
 
 const NODE_MODULES = fileURLToPath(new URL("../../../node_modules", import.meta.url));

@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { KILL_PROOFS_LIST_CAP, listKillProofs, renderKillProofs } from "../../commands/tests-prove-kill.js";
 import type { VitestRun } from "../fail-before-fix/index.js";
 import { killProofNudge } from "../evaluator/post-tool-kill-proof.js";
-import { freshKillsForTest, killProofsDir, listKillProofIds, proofKey, readKillProof, readKillProofIndex, rebuildKillProofIndex, sealReceipt, uncommittedPaths, writeKillProof } from "./receipt.js";
+import { killProofsDir, listKillProofIds, proofKey, readKillProof, readKillProofIndex, rebuildKillProofIndex, sealReceipt, writeKillProof } from "./receipt.js";
+import { freshKillsForTest, uncommittedPaths } from "./receipt-freshness.js";
 import { proveKill } from "./run.js";
 import type { KillProofReceipt } from "./types.js";
 
