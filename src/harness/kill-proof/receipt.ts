@@ -314,7 +314,7 @@ function environmentReasons(root: string, recorded: ProofEnvironment): string[] 
 	if (env.node !== recorded.node) reasons.push(`node ${recorded.node} → ${env.node}`);
 	if (env.vitest !== recorded.vitest) reasons.push(`vitest ${recorded.vitest ?? "unresolved"} → ${env.vitest ?? "unresolved"}`);
 	if (env.platform !== recorded.platform) reasons.push(`platform ${recorded.platform} → ${env.platform}`);
-	if ((env.config?.sha256 ?? null) !== (recorded.config?.sha256 ?? null)) reasons.push("vitest/vite config changed since the proof");
+	if ((env.config?.sha256 ?? null) !== (recorded.config?.sha256 ?? null)) reasons.push(`vitest config ${(recorded.config ?? env.config)?.path ?? ""} changed since the proof`);
 	return reasons;
 }
 

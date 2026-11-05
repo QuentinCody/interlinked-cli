@@ -134,7 +134,7 @@ describe("proveKill — positive (must fire)", () => {
 		expect(calls2[0]?.args).toEqual(["--config", "vitest.other.config.ts"]);
 		expect(explicit.ok && explicit.receipt.environment.config?.path).toBe("vitest.other.config.ts");
 		const missing = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner: runner2, persist: false, vitestConfig: "nope.config.ts" });
-		expect(!missing.ok && missing.reasons[0]).toBe("nope.config.ts does not exist");
+		expect(!missing.ok && missing.reasons[0]).toBe("--vitest-config nope.config.ts does not exist");
 	});
 	it("P4: `./`-prefixed and absolute test paths normalize to repo-relative", () => {
 		expect(normalizeTestPaths(root, [`./${TEST_FILE}`, join(root, TEST_FILE)])).toEqual([TEST_FILE]);
@@ -173,7 +173,7 @@ describe("proveKill — negative (must not fire)", () => {
 		const { runner, calls } = fakeRunner(okRun([passing("caps")]), okRun([passing("caps")]), okRun([passing("caps")]));
 		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner });
 		expect(!result.ok && result.verdict).toBe("unavailable");
-		expect(!result.ok && result.reasons[0]).toMatch(/do not load src\/clamp\.ts from the copy/);
+		expect(!result.ok && result.reasons[0]).toMatch(/never load src\/clamp\.ts from the copy/);
 		expect(calls).toHaveLength(3);
 		expect(calls[2]?.source).toMatch(/kill-proof canary/);
 	});
@@ -187,7 +187,7 @@ describe("proveKill — negative (must not fire)", () => {
 		};
 		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner });
 		expect(!result.ok && result.verdict).toBe("unavailable");
-		expect(!result.ok && result.reasons[0]).toMatch(/the isolated git-visible copy lacks fixtures\/case\.json/);
+		expect(!result.ok && result.reasons[0]).toMatch(/the isolated copy lacks fixtures\/case\.json: ignored files are not copied/);
 		expect(calls).toHaveLength(1);
 		expect(calls[0]).not.toBe(root);
 	});
@@ -213,7 +213,7 @@ describe("proveKill — negative (must not fire)", () => {
 	it("N15: a --test directory or a test that resolves outside the project is unavailable (review K8b, K9)", async () => {
 		const { runner } = fakeRunner(okRun([]), okRun([]));
 		const dir = await proveKill({ root, spec: SPEC, tests: ["src"], budgetMs: 1000, runner });
-		expect(!dir.ok && dir.reasons[0]).toBe("src is a directory; name test files");
+		expect(!dir.ok && dir.reasons[0]).toBe("src is a directory; pass each test file with its own --test");
 		const outside = mkdtempSync(join(tmpdir(), "kill-proof-outside-"));
 		writeFileSync(join(outside, "far.test.ts"), TEST);
 		symlinkSync(join(outside, "far.test.ts"), join(root, "src/far.test.ts"));
@@ -224,7 +224,7 @@ describe("proveKill — negative (must not fire)", () => {
 	it("N5: a named test file that reports no executed case is unavailable, not a pass", async () => {
 		const { runner } = fakeRunner(okRun([{ ...passing("caps"), status: "skipped" }]), okRun([]));
 		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner });
-		expect(result).toMatchObject({ ok: false, verdict: "unavailable", reasons: [`${TEST_FILE} reported no executed test case in the baseline copy`] });
+		expect(result).toMatchObject({ ok: false, verdict: "unavailable", reasons: [`${TEST_FILE} ran no test case in the isolated copy`, "Check that the vitest config includes it (or pass --vitest-config <file>) and that it loads without ignored files."] });
 	});
 	it("N6: an unresolvable mutant is unavailable and nothing runs", async () => {
 		const { runner, calls } = fakeRunner(okRun([]), okRun([]));
@@ -261,6 +261,10 @@ describe("proveKill — negative (must not fire)", () => {
 	it("N11: a project without vitest is unavailable and names the runner it declares", () => {
 		write("package.json", '{"name":"x","devDependencies":{"jest":"^30.0.0"}}\n');
 		expect(missingVitest(root)).toBe("vitest is not installed in this project (this project declares jest); v1 of prove-kill runs vitest only");
+	});
+	it("N11b: a workspace root without vitest points at --cwd <package>", () => {
+		write("package.json", '{"name":"x","workspaces":["packages/*"],"scripts":{"test":"npm test --workspaces"}}\n');
+		expect(missingVitest(root)).toBe("vitest is not installed at this workspace root; pass --cwd <package> for a package that has vitest");
 	});
 	it("N12: killedTestFiles lists only files with a killed case", () => {
 		expect(killedTestFiles([{ test: "a.test.ts › x", verdict: "killed" }, { test: "b.test.ts › y", verdict: "survived" }, { test: "a.test.ts › z", verdict: "killed" }])).toEqual(["a.test.ts"]);

@@ -210,10 +210,11 @@ for `setup` or `init` only when you need the login and workspace steps they add.
   import resolution, cycles, blast radius) are eligible after mutating events;
   capacity-bounded external work can explicitly defer with `NOT CHECKED`.
 - **Mutation-grounded test proof.** `interlinked tests prove-kill` checks a
-  claim like "this test catches that bug" by running it: the named tests must
-  pass on the live tree and fail, by their own assertion, with one fault applied.
-  A `killed` verdict writes a receipt bound to the source, test and runtime
-  bytes; `interlinked tests kill-proofs --verify` says when it went stale.
+  claim like "this test catches that bug" by running it. In disposable copies of
+  the project, the named tests must pass unmutated and fail, by their own
+  assertion, with one fault applied. A `killed` verdict writes a receipt bound
+  to the source, test, config and runtime bytes. `interlinked tests kill-proofs
+  --verify` reports each receipt as fresh, uncommitted or stale.
   vitest only; see `docs/mutation-grounded-test-proof.md`.
 - **Offline activity log.** Delivered events handled by the running harness
   append to `.interlinked/activity.jsonl`; this is local evidence, not proof

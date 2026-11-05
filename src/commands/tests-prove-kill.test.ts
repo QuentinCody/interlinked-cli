@@ -79,10 +79,24 @@ describe("renderProveKill — positive (decided verdicts)", () => {
 		expect(text).toContain("verdict: SURVIVED");
 		expect(text.split("\n").at(-1)).toBe("These tests still pass with the mutant applied. Strengthen the assertion: check the value the mutant changes, then re-run.");
 	});
-	it("P3: inconclusive says nothing is proven and mentions --timeout", () => {
+	it("P3: an inconclusive crash says nothing is proven and asks for an assertion", () => {
 		const text = renderProveKill(ok("inconclusive", [{ test: "test/crash.test.ts › counts", verdict: "inconclusive", reason: "TypeError: x" }]));
 		expect(text).toContain("  inconclusive test/crash.test.ts › counts — TypeError: x");
-		expect(text.split("\n").at(-1)).toBe("Nothing is proven: a crash, load error or timeout is not a kill. Assert on the mutated code's result, or raise --timeout.");
+		expect(text.split("\n").at(-1)).toBe("Nothing is proven: a crash or load error is not a kill. Assert on the mutated code's result instead.");
+	});
+	it("P4: an inconclusive timeout names --run-timeout", () => {
+		const result = ok("inconclusive", [{ test: "t › a", verdict: "inconclusive", reason: "runner timed out after 9 ms" }]);
+		if (result.ok) result.receipt.underMutant.timedOut = true;
+		expect(renderProveKill(result).split("\n").at(-1)).toBe("Nothing is proven: the mutant run timed out. Raise --run-timeout (default 300000), then re-run.");
+	});
+	it("P5: an inconclusive parse error asks for a replacement that compiles", () => {
+		const result = ok("inconclusive", [{ test: "t › a", verdict: "inconclusive", reason: "the mutated src/math.ts does not parse (')' expected.); a compile error is not a kill" }]);
+		if (result.ok) result.receipt.underMutant.error = "the mutated src/math.ts does not parse (')' expected.); a compile error is not a kill";
+		expect(renderProveKill(result).split("\n").at(-1)).toBe("Nothing is proven: the mutated file does not parse. Pick a replacement that compiles, then re-run.");
+	});
+	it("P6: a non-repeatable kill asks the test to clean up its state", () => {
+		const result = ok("inconclusive", [{ test: "t › a", verdict: "inconclusive", reason: "not repeatable: it also fails on a fresh unmutated copy (x). A run left state outside the copy" }]);
+		expect(renderProveKill(result).split("\n").at(-1)).toBe("Nothing is proven: the test fails on a second clean run. Make it clean up the state it leaves.");
 	});
 });
 
@@ -109,7 +123,12 @@ describe("renderKillProofs — positive (rows)", () => {
 			"7113042096864a76 KILLED       2026-11-04T00:00:00.000Z explicit fault @ src/math.ts:3",
 			"  tests: test/clamp.test.ts",
 			"  STALE: test test/clamp.test.ts changed since the proof",
+			"1 KILLED proof(s): 0 fresh, 0 uncommitted, 1 stale. Re-run the prove-kill command of each stale proof to renew it.",
 		].join("\n"));
+	});
+	it("P1b: a verified fresh list ends with the tally", () => {
+		const text = renderKillProofs([{ ...ROW, freshness: "fresh" }, { ...ROW, id: "b", verdict: "survived", killedTests: [], freshness: "fresh" }]);
+		expect(text.split("\n").at(-1)).toBe("1 KILLED proof(s): 1 fresh, 0 uncommitted, 0 stale. Only KILLED proofs count as evidence.");
 	});
 	it("P2: an unverified row has no freshness line", () => {
 		expect(renderKillProofs([ROW]).split("\n")).toHaveLength(2);
