@@ -17,7 +17,7 @@ import { computeSymbolHashes, deriveIdentities } from "../mutation/identity.js";
 import { applyMeasuredRun, emptyManifest, saveManifest } from "../mutation/manifest.js";
 import type { RawMutant } from "../mutation/types.js";
 import { MAX_BOUND_IMPORTS } from "./bound-imports.js";
-import { receiptCertifies, verifyKillProof } from "./receipt.js";
+import { receiptCertifies, verifyKillProof } from "./receipt-freshness.js";
 import { resolveMutant } from "./resolve.js";
 import { proveKill } from "./run.js";
 
