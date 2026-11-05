@@ -18,7 +18,7 @@ import { runArgvInOverlay } from "../overlay-command-runner.js";
 import { parseImports } from "../project-graph/parser-imports.js";
 import { resolveImportPath } from "../project-graph/resolve.js";
 import { CAUSE_REPORTER, CAUSE_SIDECAR, causeReporterSource, parseCauseSidecar } from "./cause-reporter.js";
-import { classifyTest, isNewTest, parseVitestReport, type TestVerdict, type VitestCase } from "./classify.js";
+import { classifyTest, isNewTest, parseVitestReport, parseVitestSuiteFailures, type TestVerdict, type VitestCase } from "./classify.js";
 import { readEditEvents } from "./edit-log.js";
 import { replayFile, type FileReplay, type FileState } from "./replay.js";
 import { createProjectCopyAsync, gitVisibleFiles } from "./snapshot.js";
@@ -66,8 +66,19 @@ async function replays(root: string, session: string, paths: Set<string>): Promi
 /** Runs `files` with vitest's JSON reporter in `dir` (a project root or a copy); no report = no rows, never a pass. The
  *  cause sidecar (`cause-reporter.ts`, a second reporter loaded by absolute path from the report's temp dir) records what
  *  each failure wrapped; a missing sidecar leaves every property report "not captured", never a kill. */
-/** One vitest run with the reasons a run produced no rows kept apart from "the tests reported nothing". */
-export interface VitestRun { cases: VitestCase[]; timedOut: boolean; error?: string; exitCode: number | null; durationMs: number; }
+/** One vitest run with the reasons a run produced no rows kept apart from "the tests reported nothing".
+ *  `stderrHead`: the first `STDERR_HEAD_BYTES` of vitest's stderr, kept only when the run produced no report (a
+ *  startup failure: "failed to load config …"); `suiteFailures`: per file that reported NO case, vitest's own
+ *  file-level message (a load error) — kill-proof review round 4 layouts, M6. */
+export interface VitestRun { cases: VitestCase[]; timedOut: boolean; error?: string; exitCode: number | null; durationMs: number; stderrHead?: string; suiteFailures?: Record<string, string>; }
+
+/** How much of vitest's stderr a no-report run keeps: the startup error is at the top; a long stack is noise. */
+export const STDERR_HEAD_BYTES = 2048;
+export function stderrHead(stderr: string): string | undefined {
+    const text = stderr.replace(/\u001b\[[0-9;]*m/g, "").trim();
+    if (text === "") return undefined;
+    return text.length <= STDERR_HEAD_BYTES ? text : `${text.slice(0, STDERR_HEAD_BYTES - 1)}…`;
+}
 
 /**
  * Every run is PRIVATE (kill-proof review round 4, M1/M2/M8): `--no-cache` so vitest never writes its results
@@ -94,10 +105,14 @@ export async function runVitestDetailed(dir: string, files: readonly string[], b
         writeFileSync(reporter, causeReporterSource(sidecar));
         const result = await runArgvInOverlay(["vitest", "run", ...files, ...vitestArgs, ...PRIVATE_VITEST_ARGS, "--reporter=json", `--outputFile=${report}`, `--reporter=${reporter}`], dir, budgetMs, undefined, privateRunEnv(tmp));
         const base = { timedOut: result.timedOut, exitCode: result.exitCode, durationMs: result.durationMs };
-        if (result.timedOut || result.error || result.exitCode === null) return { cases: [], ...base, error: result.error ?? "runner exited without a status" };
-        if (!existsSync(report)) return { cases: [], ...base, error: "vitest wrote no JSON report" };
+        const head = stderrHead(result.stderr);
+        const withHead = head === undefined ? {} : { stderrHead: head };
+        if (result.timedOut || result.error || result.exitCode === null) return { cases: [], ...base, error: result.error ?? "runner exited without a status", ...withHead };
+        if (!existsSync(report)) return { cases: [], ...base, error: "vitest wrote no JSON report", ...withHead };
         const causes = existsSync(sidecar) ? parseCauseSidecar(readFileSync(sidecar, "utf8")) : undefined;
-        return { cases: parseVitestReport(readFileSync(report, "utf8"), dir, causes), ...base };
+        const text = readFileSync(report, "utf8");
+        const suiteFailures = parseVitestSuiteFailures(text, dir);
+        return { cases: parseVitestReport(text, dir, causes), ...base, ...(suiteFailures.size ? { suiteFailures: Object.fromEntries(suiteFailures) } : {}) };
     } finally { rmSync(reports, { recursive: true, force: true }); }
 }
 

@@ -14,7 +14,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { VitestRun } from "../fail-before-fix/index.js";
-import { verifyKillProof } from "./receipt.js";
+// (`verifyKillProof` moved to receipt-freshness.ts after the review was written; the import is re-aimed, the cases are not.)
+import { verifyKillProof } from "./receipt-freshness.js";
 import { proveKill, type ProveKillOptions } from "./run.js";
 
 const NODE_MODULES = fileURLToPath(new URL("../../../node_modules", import.meta.url));

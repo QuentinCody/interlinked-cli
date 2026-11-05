@@ -32,7 +32,7 @@ import type * as TS from "typescript";
 import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { isTestPath } from "../coverage-test-selector.js";
 import { describeFailure, failedByOwnCheck, judgedFailure, type VitestCase } from "../fail-before-fix/classify.js";
-import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
+import { runVitestDetailed, STDERR_HEAD_BYTES, type VitestRun } from "../fail-before-fix/index.js";
 import { applyOverrides, createProjectCopyAsync, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
@@ -176,13 +176,13 @@ type BaselineProblem = { kind: "unavailable" | "not-passing-now"; reasons: strin
 function baselineProblems(tests: readonly string[], run: VitestRun): BaselineProblem | null {
 	if (run.error !== undefined || run.timedOut) {
 		const failure = run.timedOut ? `baseline run timed out after ${run.durationMs} ms; raise --run-timeout (default 300000)` : `baseline run failed: ${run.error}`;
-		return { kind: "unavailable", reasons: [failure], failing: [] };
+		return { kind: "unavailable", reasons: [failure, ...stderrReason(run)], failing: [] };
 	}
 	const named = run.cases.filter(row => tests.includes(row.file) && !NOT_RUN.has(row.status));
 	const silent = tests.filter(file => !named.some(row => row.file === file));
 	if (silent.length) {
 		const hint = "Check that the vitest config includes it (or pass --vitest-config <file>) and that it loads without ignored files.";
-		return { kind: "unavailable", reasons: [...silent.map(file => `${file} ran no test case in the isolated copy`), hint], failing: [] };
+		return { kind: "unavailable", reasons: [...silent.map(file => `${file} ran no test case in the isolated copy${suiteFailureOf(run, file)}`), hint], failing: [] };
 	}
 	const failing = named.filter(row => row.status !== "passed");
 	if (failing.length) {
@@ -191,17 +191,30 @@ function baselineProblems(tests: readonly string[], run: VitestRun): BaselinePro
 	return null;
 }
 
+/** vitest's own startup output when a run produced no report (round-4 layouts M6: "failed to load config …" was discarded). */
+function stderrReason(run: VitestRun): string[] {
+	return run.stderrHead !== undefined ? [`vitest stderr (first ${STDERR_HEAD_BYTES} bytes):\n${run.stderrHead}`] : [];
+}
+
+/** The file-level load error vitest reported for a file that ran no case (M6), as a suffix; empty when none. */
+function suiteFailureOf(run: VitestRun, file: string): string {
+	const message = run.suiteFailures?.[file];
+	return message !== undefined ? ` — the file failed to load: ${message}` : "";
+}
+
 /** One outcome per baseline-passing row, in baseline order; a duplicated full name yields one row per case. */
 function judgeCases(passing: readonly VitestCase[], under: VitestRun): CaseOutcome[] {
 	const seen = keyedRows(under.cases);
-	const runnerFailure = under.timedOut ? `runner timed out after ${under.durationMs} ms` : under.error;
+	const runnerFailure = under.timedOut ? `runner timed out after ${under.durationMs} ms` : under.error === undefined ? undefined : [under.error, ...stderrReason(under)].join("\n");
 	return withOrdinals(passing).map(({ key, row }) => {
 		const test = caseKey(row);
 		if (runnerFailure !== undefined) return { test, verdict: "inconclusive", reason: runnerFailure };
 		const result = seen.get(key);
 		if (result?.status === "passed") return { test, verdict: "survived" };
 		if (result !== undefined && killedByOwnCheck(result)) return { test, verdict: "killed" };
-		return { test, verdict: "inconclusive", reason: result?.message !== undefined ? describeFailure(result) : (result ? result.status : "no result under the mutant") };
+		const suite = suiteFailureOf(under, row.file);
+		const missing = suite !== "" ? `no result under the mutant${suite}` : "no result under the mutant";
+		return { test, verdict: "inconclusive", reason: result?.message !== undefined ? describeFailure(result) : (result ? result.status : missing) };
 	});
 }
 
