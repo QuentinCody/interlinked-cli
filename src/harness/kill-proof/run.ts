@@ -48,7 +48,8 @@ export interface ProveKillOptions {
 }
 
 /** Written into the mutated file's place for the reachability canary (review N6/N7): a test that still passes never loaded the copy's file. */
-const CANARY_SOURCE = 'throw new Error("interlinked kill-proof canary: the tests must load this file from the copy");\nexport {};\n';
+// (The message must not read like an `interlinked <command>` line: cli-program.test.ts scans source strings for printed commands.)
+const CANARY_SOURCE = 'throw new Error("kill-proof canary (prove-kill): the tests must load this file from the copy");\nexport {};\n';
 
 /** Cases vitest reports but does not run: not evidence either way (review R14). */
 const NOT_RUN = new Set(["skipped", "todo", "pending", "disabled"]);
