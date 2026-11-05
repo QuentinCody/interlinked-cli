@@ -58,6 +58,8 @@ change marks a `KILLED` receipt `STALE` and exits 1. Re-run the same
 `prove-kill` command to renew it. The walkthrough of every outcome, verbatim,
 is `docs/reviews/kill-proof-ux-walkthrough.md`.
 
+Review history (every finding, its resolution and its pinning test): `docs/reviews/kill-proof-decision-record.md`.
+
 ## When to use it
 
 - An agent or a developer says "I added a regression test for this bug" or
