@@ -3,7 +3,20 @@ import type { HarnessDecision } from "../types.js";
 import type { UnifiedHookEvent } from "../unified-event.js";
 import type { JsonObject } from "../../lib/json-types.js";
 import type { HookControl, HookTranslation } from "./hook-contract.js";
-import type { AdapterOutput } from "./types.js";
+import type { AdapterOutput, RunnerCapabilities } from "./types.js";
+import { COPILOT_CLI_CAPABILITIES, GEMINI_CLI_CAPABILITIES, eventCapability } from "./provider-capabilities.js";
+
+/**
+ * PostToolUse context text: `additional_context` plus every warning, joined the
+ * way Codex's `feedbackText` does. Warnings are the agent-facing correction
+ * channel; on stderr alone no model reads them. Only post-tool events whose
+ * declared controls include `context` qualify — Stop/PreToolUse are untouched.
+ */
+export function postToolContextText(decision: HarnessDecision, event: UnifiedHookEvent, capabilities: RunnerCapabilities): string | undefined {
+    const capability = eventCapability(capabilities, event.runner_native_event);
+    if (event.phase !== "post-tool" || !capability?.controls?.includes("context")) return decision.additional_context;
+    return [decision.additional_context, (decision.warnings ?? []).join("\n")].filter(Boolean).join("\n") || undefined;
+}
 
 function reasonOf(decision: HarnessDecision): string {
     const fallback = decision.decision === "ask" ? "Confirmation required" : "Blocked by the interlinked harness, but no reason was attached — likely a harness bug; run interlinked harness restart and report it.";
@@ -42,7 +55,8 @@ export function encodeCopilotDecision(decision: HarnessDecision, event: UnifiedH
     if (decision.decision !== "allow") return copilotRefusal(decision, name);
     const body: JsonObject = {};
     if (name === "preToolUse" && decision.updated_input) body.modifiedArgs = decision.updated_input;
-    if (["postToolUse", "subagentStart", "notification"].includes(name) && decision.additional_context) body.additionalContext = decision.additional_context;
+    const context = postToolContextText(decision, event, COPILOT_CLI_CAPABILITIES);
+    if (["postToolUse", "subagentStart", "notification"].includes(name) && context) body.additionalContext = context;
     const feedback = [...(decision.warnings ?? [])];
     if (decision.additional_context && !body.additionalContext) feedback.push(decision.additional_context);
     return { stdout: Object.keys(body).length ? JSON.stringify(body) : undefined, stderr: feedback.join("\n") || undefined, exit_code: 0 };
@@ -67,7 +81,8 @@ export function encodeGeminiDecision(decision: HarnessDecision, event: UnifiedHo
     const body: JsonObject = {};
     const specific: JsonObject = { hookEventName: name };
     if (name === "BeforeTool" && decision.updated_input) specific.tool_input = decision.updated_input;
-    if (GEMINI_CONTEXT_EVENTS.has(name) && decision.additional_context) specific.additionalContext = decision.additional_context;
+    const context = postToolContextText(decision, event, GEMINI_CLI_CAPABILITIES);
+    if (GEMINI_CONTEXT_EVENTS.has(name) && context) specific.additionalContext = context;
     if (Object.keys(specific).length > 1) body.hookSpecificOutput = specific;
     return { stdout: JSON.stringify(body), stderr: (decision.warnings ?? []).join("\n") || undefined, exit_code: 0 };
 }
