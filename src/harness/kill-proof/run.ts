@@ -12,7 +12,8 @@
 //    compile error, as mutation tools classify it, never a kill (review K5).
 // 3. Only cases from the NAMED files count (vitest positional filters are
 //    substrings, review R1). A case is `killed` when it fails by its own check
-//    (`fail-before-fix/classify.ts failedByOwnCheck`) and the failure is not a
+//    (`fail-before-fix/classify.ts failedByOwnCheck` — the ONE rule, property-test
+//    reports judged by the error they wrap) and the judged failure is not a
 //    `node:assert` raised from product code (review R4); `survived` when it still
 //    passes; else `inconclusive` with its first failure line. A runner that times
 //    out or fails to launch makes every case inconclusive — never a kill.
@@ -27,7 +28,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type * as TS from "typescript";
 import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { isTestPath } from "../coverage-test-selector.js";
-import { failedByOwnCheck, type VitestCase } from "../fail-before-fix/classify.js";
+import { describeFailure, failedByOwnCheck, judgedFailure, type VitestCase } from "../fail-before-fix/classify.js";
 import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
 import { createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
@@ -127,11 +128,13 @@ function testFileProblem(root: string, test: string): string | null {
  *  (foreign round 2: esrap on vitest 2.1.1 reported 4 real kills as inconclusive). */
 const SNAPSHOT_MISMATCH = /^(?:Error: )?Snapshot .*mismatched/;
 
-/** The test's own check fired: an assertion, a snapshot mismatch, or a plain error thrown from the test file; a product `node:assert` is not. */
+/** The test's own check fired (`failedByOwnCheck`, plus a snapshot mismatch); a product `node:assert` is not — read on the
+ *  failure the rule judged, so a property run that wraps one is excluded the same way. */
 export function killedByOwnCheck(row: VitestCase): boolean {
 	if (row.status === "failed" && SNAPSHOT_MISMATCH.test(row.message ?? "")) return true;
 	if (!failedByOwnCheck(row)) return false;
-	return !((row.message ?? "").startsWith(NODE_ASSERT_PREFIX) && row.thrownInTest !== true);
+	const judged = judgedFailure(row);
+	return !(judged.message.startsWith(NODE_ASSERT_PREFIX) && !judged.thrownInTest);
 }
 
 /** The mutated source must still parse: a syntax error is a compile error, not behaviour (review K5). */
@@ -195,7 +198,7 @@ function judgeCases(passing: readonly VitestCase[], under: VitestRun): CaseOutco
 		const result = seen.get(key);
 		if (result?.status === "passed") return { test, verdict: "survived" };
 		if (result !== undefined && killedByOwnCheck(result)) return { test, verdict: "killed" };
-		return { test, verdict: "inconclusive", reason: result?.message ?? (result ? result.status : "no result under the mutant") };
+		return { test, verdict: "inconclusive", reason: result?.message !== undefined ? describeFailure(result) : (result ? result.status : "no result under the mutant") };
 	});
 }
 

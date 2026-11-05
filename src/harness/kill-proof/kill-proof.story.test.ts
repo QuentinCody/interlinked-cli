@@ -157,6 +157,38 @@ describe("prove-kill story: weak test → strengthened test → stale proof", ()
 	});
 });
 
+// fast-check (a devDependency, reachable through the shared node_modules link) wraps what the predicate threw as the
+// report's `cause`; the JSON report alone shows "Error: Property failed after N tests" for every outcome (census #37).
+describe("prove-kill on property-based tests (real runner, fast-check)", () => {
+	const PROPERTY_TEST = "src/clamp.property.test.ts";
+	const CRASH_FAULT = ["--file", "src/clamp.ts", "--find", "n > max ? max : n", "--replace", "(n as unknown as { x: { y: number } }).x.y"];
+
+	it("P4: a fast-check property whose `expect` fails under the fault is KILLED — the test file is only reached through the report's cause", { timeout: SLOW }, () => {
+		write(PROPERTY_TEST, [
+			"import fc from \"fast-check\";",
+			"import { expect, it } from \"vitest\";",
+			"import { clamp } from \"./clamp.js\";",
+			"it(\"never exceeds max (property)\", () => {",
+			"\tfc.assert(fc.property(fc.integer({ min: 0, max: 100 }), (n) => { expect(clamp(n, 50)).toBeLessThanOrEqual(50); }), { numRuns: 200 });",
+			"});",
+			"",
+		].join("\n"));
+		const run = proveJson(PROPERTY_TEST);
+		expect(run.status).toBe(0);
+		const result = asResult(run);
+		expect(result.receipt?.verdict).toBe("killed");
+		expect(result.receipt?.underMutant.cases).toContainEqual({ test: `${PROPERTY_TEST} › never exceeds max (property)`, verdict: "killed" });
+	});
+
+	it("N9: a fault that makes the product crash inside the property run is INCONCLUSIVE (exit 2): the report wraps a TypeError, not the test's check", { timeout: SLOW }, () => {
+		const run = proveJson(PROPERTY_TEST, CRASH_FAULT);
+		expect(run.status).toBe(2);
+		const receipt = asResult(run).receipt;
+		expect(receipt?.verdict).toBe("inconclusive");
+		expect(receipt?.underMutant.cases[0]?.reason).toMatch(/^Error: Property failed after \d+ tests \(wrapping TypeError: Cannot read propert/);
+	});
+});
+
 describe("prove-kill refusals (real runner)", () => {
 	it("N1: an unknown mutant id is unavailable (exit 2) and writes no receipt", { timeout: SLOW }, () => {
 		const before = receiptIds();

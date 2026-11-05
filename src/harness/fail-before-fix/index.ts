@@ -10,13 +10,14 @@
 // Advisory evidence: it never blocks, and it says "unavailable" instead of guessing. Plan 32 build item 6.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { isTestSourcePath } from "../checks/shared-test-classification.js";
 import { runArgvInOverlay } from "../overlay-command-runner.js";
 import { parseImports } from "../project-graph/parser-imports.js";
 import { resolveImportPath } from "../project-graph/resolve.js";
+import { CAUSE_REPORTER, CAUSE_SIDECAR, causeReporterSource, parseCauseSidecar } from "./cause-reporter.js";
 import { classifyTest, isNewTest, parseVitestReport, type TestVerdict, type VitestCase } from "./classify.js";
 import { readEditEvents } from "./edit-log.js";
 import { replayFile, type FileReplay, type FileState } from "./replay.js";
@@ -62,6 +63,9 @@ async function replays(root: string, session: string, paths: Set<string>): Promi
     return { base: head, rows, recovered: events.filter(event => event.source === "timeline").length };
 }
 
+/** Runs `files` with vitest's JSON reporter in `dir` (a project root or a copy); no report = no rows, never a pass. The
+ *  cause sidecar (`cause-reporter.ts`, a second reporter loaded by absolute path from the report's temp dir) records what
+ *  each failure wrapped; a missing sidecar leaves every property report "not captured", never a kill. */
 /** One vitest run with the reasons a run produced no rows kept apart from "the tests reported nothing". */
 export interface VitestRun { cases: VitestCase[]; timedOut: boolean; error?: string; exitCode: number | null; durationMs: number; }
 
@@ -85,13 +89,15 @@ export async function runVitestDetailed(dir: string, files: readonly string[], b
     if (!files.length || missing.length) return { cases: [], timedOut: false, error: files.length ? `missing test file(s): ${missing.join(", ")}` : "no test files", exitCode: null, durationMs: 0 };
     const reports = mkdtempSync(join(tmpdir(), "interlinked-fbf-report-")), report = join(reports, "report.json"), tmp = join(reports, "tmp");
     mkdirSync(tmp);
+    const sidecar = join(reports, CAUSE_SIDECAR), reporter = join(reports, CAUSE_REPORTER);
     try {
-        const result = await runArgvInOverlay(["vitest", "run", ...files, ...vitestArgs, ...PRIVATE_VITEST_ARGS, "--reporter=json", `--outputFile=${report}`], dir, budgetMs, undefined, privateRunEnv(tmp));
-
+        writeFileSync(reporter, causeReporterSource(sidecar));
+        const result = await runArgvInOverlay(["vitest", "run", ...files, ...vitestArgs, ...PRIVATE_VITEST_ARGS, "--reporter=json", `--outputFile=${report}`, `--reporter=${reporter}`], dir, budgetMs, undefined, privateRunEnv(tmp));
         const base = { timedOut: result.timedOut, exitCode: result.exitCode, durationMs: result.durationMs };
         if (result.timedOut || result.error || result.exitCode === null) return { cases: [], ...base, error: result.error ?? "runner exited without a status" };
         if (!existsSync(report)) return { cases: [], ...base, error: "vitest wrote no JSON report" };
-        return { cases: parseVitestReport(readFileSync(report, "utf8"), dir), ...base };
+        const causes = existsSync(sidecar) ? parseCauseSidecar(readFileSync(sidecar, "utf8")) : undefined;
+        return { cases: parseVitestReport(readFileSync(report, "utf8"), dir, causes), ...base };
     } finally { rmSync(reports, { recursive: true, force: true }); }
 }
 
