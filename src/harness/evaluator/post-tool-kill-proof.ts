@@ -20,6 +20,7 @@ import { relative, resolve } from "node:path";
 import { findRepoRoot } from "../../lib/interlinked-root.js";
 import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { MUTATION_DIRECTED_PATH } from "../checks/test-legitimacy.js";
+import { knownSurvivorsFor, prefersBatch, proveKillCommandFor, type SurvivorsLookup } from "../kill-proof/prove-command.js";
 import { readKillProofIndex } from "../kill-proof/receipt.js";
 import { type Certification, type EnvironmentCache, receiptCertifies } from "../kill-proof/receipt-freshness.js";
 import type { CaseRequirement } from "../kill-proof/source-cases.js";
@@ -39,6 +40,8 @@ export interface KillProofNudgeInput {
 	/** Injected for tests; defaults to the real index + receipt-file certification. */
 	readIndex?: typeof readKillProofIndex;
 	certify?: (root: string, id: string, relPath: string, requireCases?: ReadonlyArray<string | CaseRequirement>, envCache?: EnvironmentCache) => Certification;
+	/** Injected for tests; defaults to the manifest survivors sidecar. Decides only the printed command's form (batch when > 1 survivor is known). */
+	knownSurvivors?: SurvivorsLookup;
 }
 
 /** Cases present in the written file but not in HEAD's version (an unborn file: every case). Null when git cannot say. */
@@ -63,7 +66,10 @@ export function killProofNudge(input: KillProofNudgeInput): string | null {
 	const envCache: EnvironmentCache = new Map();
 	const results = rows.map(row => certify(input.root, row.id, input.relPath, newCases, envCache));
 	if (results.some(result => result.certified)) return null;
-	const command = `interlinked tests prove-kill --mutant <id> --test ${input.relPath}`;
+	// Several known survivors of the companion source ⇒ the batch form (one shared baseline); else the single-mutant form.
+	const known = (input.knownSurvivors ?? knownSurvivorsFor)(input.root, input.relPath);
+	const command = proveKillCommandFor(input.relPath, known);
+	const idsHint = prefersBatch(known) ? "" : " (ids: interlinked mutation survivors --file <source>)";
 	const uncoveredOnly = results.filter(result => !result.certified && result.uncovered !== undefined && result.reasons.length === 1);
 	if (uncoveredOnly.length > 0) {
 		const titles = [...new Set(uncoveredOnly.flatMap(result => (result.certified ? [] : result.uncovered ?? [])))];
@@ -76,7 +82,7 @@ export function killProofNudge(input: KillProofNudgeInput): string | null {
 	}
 	const noKill = results.filter(result => result.receipt !== null && (result.receipt.verdict !== "killed" || !result.receipt.killedTests.includes(input.relPath)));
 	const weak = noKill.length > 0 ? ` ${noKill.length} recorded run(s) did not kill through this file (every case here survived or was inconclusive).` : "";
-	return `[interlinked:${KILL_PROOF_TAG}] ${input.relPath}: no executed kill proof covers this mutation-directed test file.${weak} A new case here claims to kill a mutant; prove it: ${command} (ids: interlinked mutation survivors --file <source>). Coverage, a test-contract marker or a green run is not proof.`;
+	return `[interlinked:${KILL_PROOF_TAG}] ${input.relPath}: no executed kill proof covers this mutation-directed test file.${weak} A new case here claims to kill a mutant; prove it: ${command}${idsHint}. Coverage, a test-contract marker or a green run is not proof.`;
 }
 
 /** PostToolUse entry: the written file must be a JS/TS mutation-directed test under the project root. */

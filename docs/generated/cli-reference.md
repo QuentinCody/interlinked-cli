@@ -2405,9 +2405,11 @@ Commands:
   prove-kill [options]            Prove that the named tests pass now and fail
                                   under ONE mutant: a manifest survivor
                                   (--mutant) or an explicit fault
-                                  (--file/--find/--replace). A killed proof
-                                  writes a receipt bound to the source, test
-                                  and runtime bytes.
+                                  (--file/--find/--replace); or under EVERY
+                                  manifest survivor of --file (--all-survivors,
+                                  one shared baseline). A killed proof writes a
+                                  receipt bound to the source, test and runtime
+                                  bytes.
   kill-proofs [options]           List recorded kill proofs. With --verify,
                                   check each against the bytes and runtime on
                                   disk.

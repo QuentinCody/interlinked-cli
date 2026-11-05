@@ -47,6 +47,8 @@ interface DetectFixtureOpts {
 	manifestAuthoritativeAt?: string;
 	/** Fresh `killed` kill-proof receipts naming the file (kill-proof/receipt.ts); default none. */
 	freshKillProofs?: number;
+	/** Survivors the sidecar knows for the companion source (kill-proof/prove-command.ts); default none known. */
+	knownSurvivors?: { source: string; count: number } | null;
 }
 
 /** Drives `detectMutationKillEvidenceGaps` with fully in-memory fakes — no
@@ -71,6 +73,7 @@ function detect(opts: DetectFixtureOpts): MutationKillEvidenceHit[] {
 				? null
 				: { authoritativeAt: opts.manifestAuthoritativeAt },
 		freshKillProofs: () => opts.freshKillProofs ?? 0,
+		knownSurvivors: () => opts.knownSurvivors ?? null,
 	});
 }
 
@@ -448,5 +451,29 @@ describe("detectMutationKillEvidenceGaps — real fs default readFile", () => {
 			cwd,
 		});
 		expect(hits).toEqual([]);
+	});
+});
+
+describe("prove-kill command on each hit (batch form when several survivors are known)", () => {
+	const current = { [KILL_FILE]: unmarkedCase("new case") };
+	it("P1: a hit carries the --all-survivors command over the companion source when the sidecar knows > 1 survivor, and the formatter prints it under the hit", () => {
+		const hits = detect({ current, baseline: { [KILL_FILE_REL]: "" }, gitHeadSha: SHA, knownSurvivors: { source: "src/checks/foo.ts", count: 4 } });
+		expect(hits).toHaveLength(1);
+		expect(hits[0]?.proveCommand).toBe(`interlinked tests prove-kill --file src/checks/foo.ts --test ${KILL_FILE_REL} --all-survivors`);
+		const warning = formatMutationKillEvidenceWarning(hits) ?? "";
+		expect(warning).toContain(`  - ${KILL_FILE_REL}: +1 new case(s) — 1 new case(s) missing a test-contract marker\n    prove it: interlinked tests prove-kill --file src/checks/foo.ts --test ${KILL_FILE_REL} --all-survivors`);
+	});
+	it("N1: one or no known survivor keeps the single-mutant command; the hit rules (new case, missing marker, stale measurement) are unchanged", () => {
+		const one = detect({ current, baseline: { [KILL_FILE_REL]: "" }, gitHeadSha: SHA, knownSurvivors: { source: "src/checks/foo.ts", count: 1 } });
+		expect(one[0]?.proveCommand).toBe(`interlinked tests prove-kill --mutant <id> --test ${KILL_FILE_REL}`);
+		const none = detect({ current, baseline: { [KILL_FILE_REL]: "" }, gitHeadSha: SHA });
+		expect(none[0]?.proveCommand).toBe(`interlinked tests prove-kill --mutant <id> --test ${KILL_FILE_REL}`);
+		// A file with complete evidence is still no hit, however many survivors are known.
+		const marked = detect({ current: { [KILL_FILE]: markedCase("new case") }, baseline: { [KILL_FILE_REL]: "" }, gitHeadSha: SHA, manifestAuthoritativeAt: "2099-01-01T00:00:00.000Z", knownSurvivors: { source: "src/checks/foo.ts", count: 4 } });
+		expect(marked).toEqual([]);
+	});
+	it("N2: a hand-built hit without a command prints no command line", () => {
+		const hit: MutationKillEvidenceHit = { file: KILL_FILE_REL, newCaseCount: 1, staleMeasurement: true, missingContractCount: 0 };
+		expect(formatMutationKillEvidenceWarning([hit])).not.toContain("prove it:");
 	});
 });
