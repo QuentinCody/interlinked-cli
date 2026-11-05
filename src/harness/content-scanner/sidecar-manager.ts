@@ -304,7 +304,12 @@ export class SidecarManager {
 		child.stderr?.setEncoding("utf8");
 		child.stderr?.on("data", (chunk: string) => stderrSink(chunk));
 
+		// Identity guard (stale-handle class, docs/reviews/stale-handle-live-precision.md P1):
+		// a late event from a replaced or already-released generation must not touch the
+		// current one — `ensureSpawned` may have spawned a successor while this child was
+		// marked killed but had not yet exited.
 		child.on("error", (err: Error) => {
+			if (this.child !== child) return;
 			this.rejectAllPending(`sidecar error: ${err.message}`);
 			this.child = null;
 			if (!this.disposed) {
@@ -317,6 +322,7 @@ export class SidecarManager {
 			}
 		});
 		child.on("exit", (code: number | null) => {
+			if (this.child !== child) return;
 			this.rejectAllPending(`sidecar exited with code ${code ?? "null"}`);
 			this.child = null;
 			if (!this.disposed) {
