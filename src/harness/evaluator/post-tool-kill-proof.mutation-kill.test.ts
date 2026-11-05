@@ -6,7 +6,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Certification, KillProofIndex, KillProofIndexRow } from "../kill-proof/receipt.js";
+import type { KillProofIndex, KillProofIndexRow } from "../kill-proof/receipt.js";
+import type { Certification } from "../kill-proof/receipt-freshness.js";
 import type { KillProofReceipt } from "../kill-proof/types.js";
 import { killProofNudge } from "./post-tool-kill-proof.js";
 
@@ -50,6 +51,6 @@ describe("killProofNudge — new cases are computed against HEAD by default", ()
 		writeFileSync(join(root, REL), "it('old case', () => {});\nit('new case', () => {});\n");
 		const certify = vi.fn((): Certification => ({ certified: true, receipt: receipt("killed", [REL]) }));
 		killProofNudge({ root, relPath: REL, readIndex: () => index(row("killed")), certify });
-		expect(certify).toHaveBeenCalledWith(root, "0123456789abcdef", REL, ["new case"]);
+		expect(certify).toHaveBeenCalledWith(root, "0123456789abcdef", REL, [{ kind: "exact", name: "new case" }], expect.any(Map));
 	});
 });

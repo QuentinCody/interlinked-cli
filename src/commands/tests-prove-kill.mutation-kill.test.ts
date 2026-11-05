@@ -66,7 +66,7 @@ describe("listKillProofs --verify — freshness classes", () => {
 		const receipt = await provenKill();
 		const before = listKillProofs(root, true);
 		expect(before.map(row => [row.id, row.freshness])).toEqual([[receipt.id, "uncommitted"]]);
-		expect(before[0]?.reasons?.[0]).toContain("work tree differs from HEAD or the index");
+		expect(before[0]?.reasons?.[0]).toContain("src/clamp.ts differs from HEAD or the index; commit it so the proof covers committed bytes");
 		git("commit", "-qm", "init");
 		expect(listKillProofs(root, true).map(row => row.freshness)).toEqual(["fresh"]);
 	});

@@ -91,7 +91,7 @@ describe("baseline problems — the reason names the actual failure", () => {
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
 		expect(result.verdict).toBe("unavailable");
-		expect(result.reasons).toEqual(["baseline run failed: timed out after 1234 ms"]);
+		expect(result.reasons).toEqual(["baseline run timed out after 1234 ms; raise --run-timeout (default 300000)"]);
 	});
 	// test-contract: boundary - a baseline failure naming a file that is missing from the copy AND the live tree is the test's own problem (not-passing-now), not a copy gap
 	it("a baseline failure on a file the live tree also lacks is not-passing-now", async () => {

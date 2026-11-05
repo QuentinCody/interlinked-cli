@@ -8,8 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { VitestRun } from "../fail-before-fix/index.js";
-import { caseNameMatches, configDeclaredInputs, declaredVitestConfig, freshKillsForTest, integrityReasons, receiptCertifies, receiptDigest, receiptId, sealReceipt, uncommittedPaths, verifyKillProof } from "./receipt.js";
+import { configDeclaredInputs, declaredVitestConfig, receiptDigest, receiptId, sealReceipt } from "./receipt.js";
+import { freshKillsForTest, integrityReasons, receiptCertifies, uncommittedPaths, verifyKillProof } from "./receipt-freshness.js";
 import { proveKill } from "./run.js";
+import { requirementCovered } from "./source-cases.js";
 import type { KillProofReceipt, ResolvedMutant } from "./types.js";
 
 const SOURCE = "export function clamp(n: number, max: number): number {\n\treturn n > max ? max : n;\n}\n";
@@ -59,7 +61,7 @@ function reversed(value: unknown): unknown {
 
 const MUTANT: ResolvedMutant = { file: "src/clamp.ts", offset: 64, originalLexeme: "n > max", replacement: "n >= max", line: 2, source: "explicit" };
 const ENV = { node: "v22.0.0", vitest: "4.0.0", platform: "linux-x64", config: null, setupFiles: [] };
-const HASHED = { source: { path: "src/clamp.ts", sha256: "a" }, tests: [{ path: TEST_FILE, sha256: "b" }], environment: ENV };
+const HASHED = { source: { path: "src/clamp.ts", sha256: "a" }, tests: [{ path: TEST_FILE, sha256: "b" }], boundImports: [], environment: ENV };
 
 describe("receiptId — the binding covers the whole mutant", () => {
 	// test-contract: invariant - two proofs that differ only in the replacement are different proofs; sharing an id would make one overwrite the other
@@ -95,13 +97,14 @@ describe("integrityReasons — verdict/case agreement in both directions", () =>
 	});
 });
 
-describe("caseNameMatches — a title matches at a describe boundary only", () => {
-	// test-contract: boundary - a killed case's full name ends with the title AFTER a separator; a title that is a bare suffix of a longer word does not match
+describe("requirementCovered — an exact title matches the full name only", () => {
+	// test-contract: boundary - a killed case's full name must EQUAL the exact title (round 4 replaced the describe-boundary suffix rule); a title that is only the tail of a longer name does not match
 	it("a title that is only the tail of a longer title does not match", () => {
-		expect(caseNameMatches("kills boundary", "boundary")).toBe(true);
-		expect(caseNameMatches("suite > kills boundary", "kills boundary")).toBe(true);
-		expect(caseNameMatches("killsboundary", "boundary")).toBe(false);
-		expect(caseNameMatches("the unboundary", "boundary")).toBe(false);
+		const killed = (name: string) => [{ name, verdict: "killed" as const }];
+		expect(requirementCovered({ kind: "exact", name: "kills boundary" }, killed("kills boundary"))).toBe(true);
+		expect(requirementCovered({ kind: "exact", name: "kills boundary" }, killed("suite > kills boundary"))).toBe(false);
+		expect(requirementCovered({ kind: "exact", name: "boundary" }, killed("killsboundary"))).toBe(false);
+		expect(requirementCovered({ kind: "exact", name: "boundary" }, killed("the unboundary"))).toBe(false);
 	});
 });
 
@@ -125,7 +128,7 @@ describe("uncommittedPaths — untracked files are uncommitted", () => {
 	// test-contract: public-api - a bound file git does not track at all is reported, not silently treated as committed
 	it("an untracked file is listed", () => {
 		write("src/untracked.ts", "export const x = 1;\n");
-		expect(uncommittedPaths(root, ["src/untracked.ts"])).toEqual(["src/untracked.ts"]);
+		expect(uncommittedPaths(root, [{ path: "src/untracked.ts", sha256: "x" }])).toEqual(["src/untracked.ts"]);
 	});
 });
 
