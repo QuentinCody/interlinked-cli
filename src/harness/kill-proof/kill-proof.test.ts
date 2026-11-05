@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { VitestRun } from "../fail-before-fix/index.js";
 import { killedByOwnCheck, killedTestFiles, missingVitest, normalizeTestPaths, proveKill } from "./run.js";
-import { freshKillsForTest, hashFile, parseKillProof, readKillProof, readKillProofIndex, rebuildKillProofIndex, verifyKillProof, writeKillProof } from "./receipt.js";
+import { hashFile, parseKillProof, readKillProof, readKillProofIndex, rebuildKillProofIndex, writeKillProof } from "./receipt.js";
+import { freshKillsForTest, verifyKillProof } from "./receipt-freshness.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
 
 const SOURCE = "export function clamp(n: number, max: number): number {\n\treturn n > max ? max : n;\n}\n";

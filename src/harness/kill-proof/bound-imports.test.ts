@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fileMutationLockPath, withFileMutationLock } from "../../lib/file-mutation-lock.js";
 import type { VitestRun } from "../fail-before-fix/index.js";
 import { boundImportClosure, MAX_BOUND_IMPORTS } from "./bound-imports.js";
-import { freshKillsForTest, killProofsDir, parseKillProof, readKillProofIndex, receiptCertifies, receiptFreshCheap, verifyKillProof, writeKillProof } from "./receipt.js";
+import { killProofsDir, parseKillProof, readKillProofIndex, writeKillProof } from "./receipt.js";
+import { freshKillsForTest, receiptCertifies, receiptFreshCheap, verifyKillProof } from "./receipt-freshness.js";
 import { proveKill } from "./run.js";
 import type { KillProofReceipt } from "./types.js";
 

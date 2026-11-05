@@ -194,7 +194,7 @@ export function evaluatePreToolUse(
 		// the two gates from double-firing on one command.
 		() => evaluateInterpreterWriteGuard(event, toolName, toolInput, warnings),
 		// Protected files.
-		() => evaluateProtectedFilesGuard(toolName, toolInput, rules, warnings),
+		() => evaluateProtectedFilesGuard(toolName, toolInput, rules, warnings, event.cwd),
 		// Scratchpad/temp write policy — tmp-secrets block + authored-code
 		// placement steer. MUST precede repo confinement, whose session-
 		// scratchpad carve-out would otherwise allow these uninspected.

@@ -25,10 +25,9 @@
 // `*.survivors?.*` opted it into the stricter evidence bar by its own naming
 // choice — the same "self-declared scope" logic large-file-policy.ts's
 // `isCappableFile` already uses. Firing is gated on NEW-CASE INTRODUCTION
-// (via check-evidence/case-parser.ts's block-opener walker, counted
-// before/after this session against the git HEAD-sha baseline) so a
-// drive-by maintenance edit to an EXISTING mutation-kill file — touching
-// zero test cases — never fires. Two evidence gaps are checked; EITHER
+// (kill-proof/source-cases.ts's AST walk, before/after this session against
+// the git HEAD-sha baseline) so a drive-by maintenance edit to an EXISTING
+// mutation-kill file — touching zero test cases — never fires. Two evidence gaps are checked; EITHER
 // alone is enough to fire (this is a nudge, not two separate checks):
 //
 //   (a) staleMeasurement — no mutation measurement (manifest
@@ -69,10 +68,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { countTestCaseOpeners } from "./check-evidence/case-parser.js";
 import { getExtension, JS_TS_EXTS } from "./checks/shared.js";
 import { checkTestLegitimacy, MUTATION_DIRECTED_PATH } from "./checks/test-legitimacy.js";
-import { freshKillsForTest } from "./kill-proof/receipt.js";
+import { freshKillsForTest } from "./kill-proof/receipt-freshness.js";
+import { type CaseRequirement, newCases } from "./kill-proof/source-cases.js";
 import { loadSurvivorsIndex } from "./mutation/survivors-index.js";
 import { splitIntroduced } from "./pre-block-gate.js";
 import type { ServerRuntime } from "./server/runtime-context.js";
@@ -196,27 +195,20 @@ interface DetectMutationKillEvidenceGapsOpts {
 	/** Injected for testing. Defaults to `freshKillsForTest(...).length`: the number
 	 *  of `killed` kill-proof receipts naming this test file whose source and test
 	 *  bytes match the files on disk now (kill-proof/receipt.ts; index read + two
-	 *  hashes, never the manifest). */
-	freshKillProofs?: (cwd: string, relPath: string, newCases: readonly string[]) => number;
+	 *  hashes, never the manifest) and whose killed cases cover every new case. */
+	freshKillProofs?: (cwd: string, relPath: string, newCases: readonly CaseRequirement[]) => number;
 }
 
-/** Titles of `it`/`test` cases present now but not in the baseline bytes (review K4: an old strong case must not
- *  certify a new weak one). A regex over quoted first arguments; generated titles (loops, `it.each`) are not literal
- *  and simply do not constrain the receipt. */
-const CASE_TITLE_RE = /\b(?:it|test)(?:\.(?:only|skip|todo|concurrent|each))*\s*(?:\([^)]*\))?\s*\(\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/g;
-
-function caseTitles(text: string): string[] {
-	return [...text.matchAll(CASE_TITLE_RE)].map(m => m[2] ?? "").filter(title => title.length > 0);
-}
-
-/** Literal case titles in `text` (counted with duplicates). */
-export function countCaseTitles(text: string): number {
-	return caseTitles(text).length;
-}
-
-export function newCaseTitles(current: string, baseline: string): string[] {
-	const before = new Set(caseTitles(baseline));
-	return [...new Set(caseTitles(current).filter(title => !before.has(title)))];
+/**
+ * The cases an edit ADDED, as vitest will name them (review K4: an old strong case must
+ * not certify a new weak one). One rule for the Stop check and the nudge
+ * (`kill-proof/source-cases.ts newCases`, review M6): a case is new when its full name /
+ * prefix family / title source is not in the baseline as a multiset AND its body does
+ * not equal a removed case's (that is a rename, which makes no new claim). A same-count
+ * swap of a strong case for a weak one is therefore a new case on both surfaces.
+ */
+export function newCaseRequirements(current: string, baseline: string, filePath: string): CaseRequirement[] {
+	return newCases(current, baseline, filePath).added.map(item => item.requirement);
 }
 
 /**
@@ -325,14 +317,11 @@ function evaluateMutationKillEvidence(
 	const relPath = relative(ctx.cwd, abs).replace(/\\/g, "/");
 	const baselineContent = ctx.gitShow(ctx.cwd, `${ctx.gitHeadSha}:${relPath}`) ?? "";
 
-	// A file GREW when it holds more case openers or more literal titles than the baseline. The line-based opener
-	// count misses a title on the line after `it(` (review L4); the title count does not. A file that did not grow
-	// (a rename, a reworded title) adds no claim and stays silent; when it grew, every title absent from the baseline
-	// is a new claim — a renamed old case included, since a rename cannot be told from a new case (review L3).
-	const titleGrowth = countCaseTitles(currentContent) - countCaseTitles(baselineContent);
-	const openerGrowth = countTestCaseOpeners(currentContent) - countTestCaseOpeners(baselineContent);
-	const newTitles = titleGrowth > 0 || openerGrowth > 0 ? newCaseTitles(currentContent, baselineContent) : [];
-	const newCaseCount = Math.max(newTitles.length, openerGrowth, titleGrowth, 0);
+	// The cases this file ADDED since the baseline, derived from the AST (`source-cases.ts`): a rename (new title,
+	// same body) makes no claim and stays silent; a new title with a new body is a claim whether or not the file
+	// grew (review M6). Computed titles are counted and can never be certified by name.
+	const newTitles = newCaseRequirements(currentContent, baselineContent, abs);
+	const newCaseCount = newTitles.length;
 	if (newCaseCount === 0) return null; // no new cases — maintenance edit, stay silent
 
 	const measurementMs = resolveMeasurementMs(ctx.cwd, ctx.loadMutationManifest, ctx.measurementCache);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Certification, KillProofIndex, KillProofIndexRow } from "../kill-proof/receipt.js";
+import type { KillProofIndex, KillProofIndexRow } from "../kill-proof/receipt.js";
+import type { Certification } from "../kill-proof/receipt-freshness.js";
 import type { KillProofReceipt } from "../kill-proof/types.js";
 import type { HarnessEvent } from "../types.js";
 import { collectKillProofWriteWarning, killProofNudge } from "./post-tool-kill-proof.js";

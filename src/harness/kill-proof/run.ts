@@ -80,6 +80,23 @@ function withWarnings<T extends ProveKillResult>(result: T, warnings: readonly s
 	return warnings.length ? { ...result, warnings: [...warnings] } : result;
 }
 
+/**
+ * Each row with its identity key: file, full name AND the ordinal among rows sharing that
+ * full name, in report order (review M3: two cases may carry one full name — a duplicate
+ * `it("caps at max")`, an `it.each` title without a placeholder — and vitest reports both
+ * in definition order on every run, so the n-th same-named row of one run is the n-th of
+ * the other; keying by name alone let the last row's outcome overwrite the others).
+ */
+function withOrdinals<T extends Pick<VitestCase, "file" | "name">>(rows: readonly T[]): Array<{ key: string; row: T }> {
+	const seen = new Map<string, number>();
+	return rows.map(row => {
+		const base = caseKey(row), ordinal = seen.get(base) ?? 0;
+		seen.set(base, ordinal + 1);
+		return { key: `${base}#${ordinal}`, row };
+	});
+}
+
+const keyedRows = (rows: readonly VitestCase[]): Map<string, VitestCase> => new Map(withOrdinals(rows).map(entry => [entry.key, entry.row]));
 
 function unavailable(reasons: string[], mutant?: ResolvedMutant): ProveKillResult {
 	return { ok: false, verdict: "unavailable", reasons, ...(mutant ? { mutant } : {}) };
@@ -168,13 +185,14 @@ function baselineProblems(tests: readonly string[], run: VitestRun): BaselinePro
 	return null;
 }
 
+/** One outcome per baseline-passing row, in baseline order; a duplicated full name yields one row per case. */
 function judgeCases(passing: readonly VitestCase[], under: VitestRun): CaseOutcome[] {
-	const seen = new Map(under.cases.map(row => [caseKey(row), row]));
+	const seen = keyedRows(under.cases);
 	const runnerFailure = under.timedOut ? `runner timed out after ${under.durationMs} ms` : under.error;
-	return passing.map(row => {
+	return withOrdinals(passing).map(({ key, row }) => {
 		const test = caseKey(row);
 		if (runnerFailure !== undefined) return { test, verdict: "inconclusive", reason: runnerFailure };
-		const result = seen.get(test);
+		const result = seen.get(key);
 		if (result?.status === "passed") return { test, verdict: "survived" };
 		if (result !== undefined && killedByOwnCheck(result)) return { test, verdict: "killed" };
 		return { test, verdict: "inconclusive", reason: result?.message ?? (result ? result.status : "no result under the mutant") };
@@ -193,13 +211,16 @@ export const KILL_REPEATS = 2;
  * guide's Limits: state with period 3 or longer, and probabilistic flakiness — repeats lower the odds, they do not
  * end them. The copies' own tmpdir and vitest cache are private per run (M2), so this covers what is left.
  */
-async function confirmKills(cases: readonly CaseOutcome[], runIn: (overrides: ReadonlyMap<string, string>) => Promise<VitestRun>): Promise<CaseOutcome[]> {
+async function confirmKills(cases: readonly CaseOutcome[], passing: readonly VitestCase[], runIn: (overrides: ReadonlyMap<string, string>) => Promise<VitestRun>): Promise<CaseOutcome[]> {
 	let out = [...cases];
+	// `cases` is in `passing` order, so the same-name ordinals (review M3) re-derive from the same rows.
+	const keys = withOrdinals(passing).map(entry => entry.key);
 	for (let repeat = 1; repeat <= KILL_REPEATS && out.some(row => row.verdict === "killed"); repeat++) {
 		const again = await runIn(new Map());
-		out = out.map(row => {
+		const repeats = keyedRows(again.cases);
+		out = out.map((row, index) => {
 			if (row.verdict !== "killed") return row;
-			const result = again.cases.find(c => caseKey(c) === row.test);
+			const result = repeats.get(keys[index] ?? "");
 			if (again.error === undefined && !again.timedOut && result?.status === "passed") return row;
 			const why = result?.message ?? again.error ?? result?.status ?? "no result";
 			return { test: row.test, verdict: "inconclusive", reason: `not repeatable: it also fails on a fresh unmutated copy (repeat ${repeat} of ${KILL_REPEATS}: ${why}). A run left state outside the copy` };
@@ -225,7 +246,8 @@ type RunIn = (overrides: ReadonlyMap<string, string>) => Promise<VitestRun>;
 async function canaryProblem(root: string, mutant: ResolvedMutant, tests: readonly string[], passing: readonly VitestCase[], runIn: RunIn): Promise<string[] | null> {
 	const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]));
 	if (canary.error !== undefined || canary.timedOut) return [`${CANARY_INCOMPLETE} (${canary.timedOut ? `timed out after ${canary.durationMs} ms` : canary.error})`];
-	const stillPassing = passing.filter(row => canary.cases.find(c => caseKey(c) === caseKey(row))?.status === "passed");
+	const canaryRows = keyedRows(canary.cases);
+	const stillPassing = withOrdinals(passing).filter(({ key }) => canaryRows.get(key)?.status === "passed").map(entry => entry.row);
 	if (stillPassing.length) {
 		return [
 			`the named tests never load ${mutant.file} from the copy, or catch its import error: a module-level throw in its place left ${stillPassing.length} case(s) passing — ${stillPassing.map(caseKey).join(", ")}.`,
@@ -375,7 +397,7 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 		? { cases: [], timedOut: false, error: parse.reason, exitCode: null, durationMs: 0 }
 		: await runIn(new Map([[mutant.file, mutated]]));
 	let cases = judgeCases(passing, under);
-	if (cases.some(row => row.verdict === "killed")) cases = await confirmKills(cases, runIn);
+	if (cases.some(row => row.verdict === "killed")) cases = await confirmKills(cases, passing, runIn);
 	const { verdict, reasons } = overallVerdict(cases);
 
 	if (verdict === "survived") {

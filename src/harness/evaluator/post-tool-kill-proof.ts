@@ -20,8 +20,10 @@ import { relative, resolve } from "node:path";
 import { findRepoRoot } from "../../lib/interlinked-root.js";
 import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { MUTATION_DIRECTED_PATH } from "../checks/test-legitimacy.js";
-import { type Certification, readKillProofIndex, receiptCertifies } from "../kill-proof/receipt.js";
-import { newCaseTitles } from "../mutation-kill-evidence-stop-check.js";
+import { readKillProofIndex } from "../kill-proof/receipt.js";
+import { type Certification, type EnvironmentCache, receiptCertifies } from "../kill-proof/receipt-freshness.js";
+import type { CaseRequirement } from "../kill-proof/source-cases.js";
+import { newCaseRequirements } from "../mutation-kill-evidence-stop-check.js";
 import type { HarnessEvent } from "../types.js";
 import { isFileWrite } from "./tool-classifiers.js";
 import { readToolString } from "./tool-input-values.js";
@@ -32,15 +34,15 @@ export interface KillProofNudgeInput {
 	root: string;
 	/** Repo-relative POSIX path of the written test file. */
 	relPath: string;
-	/** Case titles added since HEAD (review L5: the nudge applies the same new-case rule as the Stop check); default: computed from `git show HEAD:<file>`. */
-	newCases?: readonly string[];
+	/** Cases added since HEAD (review L5/M6: the nudge applies the SAME new-case rule as the Stop check); default: computed from `git show HEAD:<file>`. */
+	newCases?: ReadonlyArray<string | CaseRequirement>;
 	/** Injected for tests; defaults to the real index + receipt-file certification. */
 	readIndex?: typeof readKillProofIndex;
-	certify?: (root: string, id: string, relPath: string, requireCases?: readonly string[]) => Certification;
+	certify?: (root: string, id: string, relPath: string, requireCases?: ReadonlyArray<string | CaseRequirement>, envCache?: EnvironmentCache) => Certification;
 }
 
-/** Titles present in the written file but not in HEAD's version (an unborn file: every title). Null when git cannot say. */
-export function newCasesSinceHead(root: string, relPath: string): string[] | null {
+/** Cases present in the written file but not in HEAD's version (an unborn file: every case). Null when git cannot say. */
+export function newCasesSinceHead(root: string, relPath: string): CaseRequirement[] | null {
 	let current: string;
 	try { current = readFileSync(resolve(root, relPath), "utf8"); } catch { return null; }
 	let base = "";
@@ -49,15 +51,17 @@ export function newCasesSinceHead(root: string, relPath: string): string[] | nul
 	} catch {
 		base = "";
 	}
-	return newCaseTitles(current, base);
+	return newCaseRequirements(current, base, resolve(root, relPath));
 }
 
 /** The nudge text for one mutation-directed test file, or null when a receipt certifies it now. */
 export function killProofNudge(input: KillProofNudgeInput): string | null {
 	const readIndex = input.readIndex ?? readKillProofIndex, certify = input.certify ?? receiptCertifies;
 	const newCases = input.newCases ?? newCasesSinceHead(input.root, input.relPath) ?? [];
-	const rows = readIndex(input.root).receipts.filter(row => row.tests.some(test => test.path === input.relPath));
-	const results = rows.map(row => certify(input.root, row.id, input.relPath, newCases));
+	// Superseded rows are history (review M8): a newer proof of the same source × mutant × test set exists.
+	const rows = readIndex(input.root).receipts.filter(row => row.supersededBy === undefined && row.tests.some(test => test.path === input.relPath));
+	const envCache: EnvironmentCache = new Map();
+	const results = rows.map(row => certify(input.root, row.id, input.relPath, newCases, envCache));
 	if (results.some(result => result.certified)) return null;
 	const command = `interlinked tests prove-kill --mutant <id> --test ${input.relPath}`;
 	const uncoveredOnly = results.filter(result => !result.certified && result.uncovered !== undefined && result.reasons.length === 1);

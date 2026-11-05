@@ -57,6 +57,9 @@ source, tests, vitest config and setup files, and compares node and vitest. Any
 change marks a `KILLED` receipt `STALE` and exits 1. Re-run the same
 `prove-kill` command to renew it. The walkthrough of every outcome, verbatim,
 is `docs/reviews/kill-proof-ux-walkthrough.md`.
+The renewed receipt retires the stale one (see *Receipt retirement*), so the
+check is green again as soon as the newest proof of that source × mutant × test
+set holds.
 
 ## When to use it
 
@@ -84,8 +87,8 @@ interlinked tests prove-kill --file src/defu.ts \
 interlinked tests prove-kill ... --json
 
 # Receipts and freshness
-interlinked tests kill-proofs            # list
-interlinked tests kill-proofs --verify   # re-hash, re-resolve, exit 1 if any receipt is stale
+interlinked tests kill-proofs            # list, newest first (200 rows; --json lists every receipt)
+interlinked tests kill-proofs --verify   # re-hash, re-resolve, exit 1 if the newest receipt of any proof is stale
 ```
 
 `--test` is repeatable. `--run-timeout <ms>` bounds EACH vitest run (the baseline
@@ -198,7 +201,12 @@ the small read model. A receipt binds:
   declares;
 - the per-case outcomes on both sides, durations, the verdict, and
   `killedTests`: the named test files with at least one killed case, the only
-  files the receipt certifies;
+  files the receipt certifies. A case is recorded under vitest's full name
+  (`<file> › <describe titles and title, space-joined>`); two cases that share a
+  full name (a duplicated `it("…")`, an `it.each` title without a placeholder)
+  are judged one by one, paired by their position among the same-named rows in
+  report order, so a weak duplicate of a strong case records `survived` beside
+  the strong case's `killed`;
 - a `digest` over every other field, so an edited outcome no longer matches.
 
 The id is a hash of the inputs (bytes, bound helpers, mutant, runtime), so re-running the same
@@ -210,15 +218,37 @@ evidence of a kill. Every decision (the Stop check, the nudge, the list) reads
 the receipt FILE; `index.json` is only a locator. It is rebuilt from the receipt
 files under a short exclusive lock, so concurrent writers cannot drop each
 other's rows; a writer that cannot take the lock still writes its receipt and
-leaves the index to the next writer's rebuild. The harness refuses Write and
-Edit tool calls under `.interlinked/test-runs/kill-proofs/` (a `protected_files`
-rule): only the command writes there. `--verify` lists a receipt as
-`UNCOMMITTED` (exit 0) when the bound source or test bytes differ from HEAD or
-the index: the proof is about work-tree bytes, and a commit-time reader must
-know they are not the committed ones. Receipts are tamper-evident,
-not tamper-proof: the digest is unkeyed, so a receipt rewritten from scratch
-with recomputed hashes passes. They are evidence of execution on this machine,
-not a security boundary.
+leaves the index to the next writer's rebuild. The harness refuses Write, Edit and
+NotebookEdit tool calls under `.interlinked/test-runs/kill-proofs/` (a
+`protected_files` rule matched against the write's REAL path, so a symlinked
+receipts folder does not slip past): only the command writes there. A receipt
+file is only the receipt whose `id` it names: a copy under another valid name
+is unreadable, never a second receipt. `--verify` lists a receipt as
+`UNCOMMITTED` (exit 0) when the sha256 a bound source, test or helper was
+proven at is not the sha256 of that path's blob in HEAD and in the index: the
+proof is about work-tree bytes, and a commit-time reader must know they are not
+the committed ones. The comparison reads git's blobs, never `git status`, so an
+index flag (`--skip-worktree`, `--assume-unchanged`) cannot hide modified bytes.
+Receipts are tamper-evident, not tamper-proof: the digest is unkeyed, so a
+receipt rewritten from scratch with recomputed hashes passes. They are evidence
+of execution on this machine, not a security boundary.
+
+### Receipt retirement
+
+A receipt's id binds the exact bytes, so every re-proof after an edit writes a
+NEW receipt. The proof it renews is identified by its *proof key*: the source
+path, the mutant's identity (a manifest id, or for an explicit fault its file,
+`--find` lexeme and `--replace` text — the offset is not part of it, so a proof
+renewed after an edit above the fault is the same proof) and the named test
+set. Every index rebuild (each write) marks every receipt that is not the
+newest of its key with `supersededBy: <newest id>`. Superseded receipts stay on
+disk as history, are never read as evidence (the Stop check, the nudge and
+`freshKillsForTest` skip them even when their bytes come back), and
+`kill-proofs` lists them with `SUPERSEDED by <id>`. `--verify` judges only the
+newest receipt per key; a superseded receipt never fails it. Proving the same
+bytes again rewrites the same id with a newer `provedAt`, which makes it the
+current receipt once more. A different test set or a different fault is a
+different proof and is never superseded by another.
 
 ## Where the harness uses it
 
@@ -230,13 +260,11 @@ not a security boundary.
   that test file, the helpers it imports and the runtime are unchanged. Cost: one index read plus the
   hashes of the matching receipts.
 - **Stop** (human-visible stderr): `[interlinked:mutation-kill-evidence]`
-  accepts a receipt as measurement evidence only when EVERY newly added case
-  (a literal title present now and absent at session start, in a file that
-  grew) is among its killed cases; an old strong case, or one strong new case,
-  never certifies another new case that killed nothing. The PostToolUse nudge
-  applies the same rule against `HEAD`. A missing `test-contract` marker still
-  fires. Titles that are not literals (`it.each`, template strings) never
-  match, so such a file stays flagged until the proof names a literal case.
+  accepts a receipt as measurement evidence only when EVERY newly added case is
+  covered by its killed cases; an old strong case, one strong new case, or the
+  strong twin of a weak duplicate never certifies a case that killed nothing.
+  The PostToolUse nudge applies the same rule against `HEAD`. A missing
+  `test-contract` marker still fires.
 - **`interlinked verify`** (default gate, streaming and `--json`): when
   `.interlinked/test-runs/kill-proofs/` holds at least one receipt, verify
   gains a `kill_proofs` section (JSON key `kill_proofs`) listing every receipt
@@ -251,6 +279,42 @@ not a security boundary.
   and no git call (one directory probe). `--skip kill_proof_stale` keeps the
   listing and drops the finding.
 - `interlinked mutation survivors --file <src>` names the command.
+
+### How a new case is derived and matched
+
+Both surfaces read the cases from the TypeScript AST of the test file
+(`kill-proof/source-cases.ts`), before (the git baseline) and after the edit:
+
+- A case is a call whose callee chain starts at a bare `it` or `test` (so
+  `/re/.test("…")` or `obj.test(…)` is never one), optionally through `.only`,
+  `.skip`, `.todo`, `.concurrent`, `.sequential`, `.fails` and the configuring
+  calls `.each(...)`, `` .each`…` ``, `.for(...)`, `.skipIf(...)`, `.runIf(...)`;
+  `const t = test.extend(...)` makes `t(...)` a case. `describe` / `suite`
+  ancestors contribute their titles, space-joined, exactly as vitest's full name.
+- A string title is its cooked value (`"says \"max\""` is matched as
+  `says "max"`); an identifier bound once to a string literal in the file
+  resolves to it. Matching is EXACT on the full name — never a suffix: a new
+  `it("max")` is not certified by an old `describe("caps") it("at max")`.
+- An `.each` / `.for` title with a `%i` / `%s` / `%d` / `%j` / `%o` / `%#` /
+  `$prop` placeholder, or a template literal with substitutions, is a *prefix
+  family*: the literal text before the first placeholder (a `%%` before it is
+  a literal percent). The family is certified when EVERY recorded case of that
+  file whose name starts with the prefix killed, and at least one exists.
+  Residual limit: an old case that happens to share the prefix is part of the
+  family, so a surviving old `caps at max` blocks a fully killed
+  `it.each([5, 6])("caps %i")`; name the family distinctly.
+- A computed title (a call, an ambiguous identifier, an empty prefix, a case
+  under `describe.each` or under a non-literal `describe`) is *unresolvable*:
+  it counts as a new case and can never be certified by name, so the file stays
+  flagged until the title is literal.
+- Identity is a MULTISET: a weak duplicate of an existing title is one more
+  case, and it is certified only when every recorded case of that name killed.
+- A case whose title is new but whose body (its `.each` table and callback
+  text, whitespace collapsed) equals a removed case's is a RENAME and makes no
+  claim. A new title with a new body is a new case whether or not the file
+  grew: swapping a strong case for a weak one opens the gap on both surfaces.
+- Without `typescript` installed the walk degrades to a literal-title regex
+  (bare `it`/`test` head, no ancestors, no renames) and matches titles exactly.
 
 Stop-time warnings reach no agent as context on any runner (Claude Code, Codex,
 Factory Droid, Copilot, Gemini all put them on stderr with exit 0). The agent
@@ -337,3 +401,6 @@ sees the PostToolUse line; the human sees the Stop line.
     `source drift: symbol <name> not found (mutant <id>)`.
   `interlinked mutation measure <file>` re-measures; the ids then rank against
   the current body.
+- A prefix family (`it.each`, template titles) also covers older cases that
+  share the prefix; a case under `describe.each` or with a computed title can
+  only be certified after it is given a literal title.

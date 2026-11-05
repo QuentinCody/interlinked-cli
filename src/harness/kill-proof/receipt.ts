@@ -1,6 +1,7 @@
 // ===========================================
 // Kill proof — receipts and freshness
 // ===========================================
+// Store, parsing, ids and the index (freshness lives in receipt-freshness.ts).
 // A receipt lives at `.interlinked/test-runs/kill-proofs/<id>.json`; `index.json`
 // beside it is REBUILT from the receipt files on every write (never read-modify-
 // write, review R12) and is only a LOCATOR: every decision (Stop check, nudge,
@@ -16,15 +17,13 @@
 // passes; receipts are evidence of execution on this machine, not a security
 // boundary (CLAUDE.md: local checks are not a trust boundary).
 
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { withFileMutationLock } from "../../lib/file-mutation-lock.js";
 import { isJsonObject } from "../../lib/json-types.js";
-import { lineTextAt, relocate } from "./resolve.js";
-import type { BoundImport, CaseOutcome, Freshness, HashedFile, KillProofReceipt, ProofEnvironment, ResolvedMutant } from "./types.js";
+import type { BoundImport, CaseOutcome, HashedFile, KillProofReceipt, ProofEnvironment, ResolvedMutant } from "./types.js";
 
 export const KILL_PROOFS_DIR = ".interlinked/test-runs/kill-proofs";
 const INDEX_FILE = "index.json";
@@ -43,12 +42,28 @@ export interface KillProofIndexRow {
 	tests: HashedFile[];
 	killedTests: string[];
 	mutant: string;
+	/** Review M8: the id of the NEWEST receipt with the same proof key (`proofKey`); this row is history and is never evidence. */
+	supersededBy?: string;
 }
 
 export interface KillProofIndex { version: 1; receipts: KillProofIndexRow[]; }
 
 export function killProofsDir(root: string): string {
 	return join(root, KILL_PROOFS_DIR);
+}
+
+/**
+ * The proof a receipt is one attempt at: the source file, the mutant's identity (manifest
+ * id, or for an explicit fault its file, lexeme and replacement — an explicit `--find`
+ * occurs exactly once, so the offset is not part of the identity and a proof renewed
+ * after an edit above the fault is the same proof) and the named test set. The newest
+ * receipt (`provedAt`) for a key is the proof's current state; every older one is
+ * SUPERSEDED (review M8): kept on disk as history, marked in the index, skipped by every
+ * evidence reader and never a `--verify` failure.
+ */
+export function proofKey(receipt: Pick<KillProofReceipt, "source" | "mutant" | "tests">): string {
+	const mutant = receipt.mutant.mutantId !== undefined ? `manifest:${receipt.mutant.mutantId}` : `explicit:${receipt.mutant.file}\u0000${receipt.mutant.originalLexeme}\u0000${receipt.mutant.replacement}`;
+	return [receipt.source.path, mutant, ...receipt.tests.map(test => test.path).sort()].join("\u0001");
 }
 
 export function sha256Text(text: string): string {
@@ -254,24 +269,31 @@ export function parseKillProofIndex(value: unknown): KillProofIndex | null {
 	for (const row of value.receipts) {
 		if (!isJsonObject(row) || typeof row.id !== "string" || !ID_RE.test(row.id) || typeof row.verdict !== "string" || !VERDICTS.has(row.verdict as KillProofReceipt["verdict"])) return null;
 		if (typeof row.provedAt !== "string" || typeof row.mutant !== "string") return null;
+		if (row.supersededBy !== undefined && (typeof row.supersededBy !== "string" || !ID_RE.test(row.supersededBy))) return null;
 		const source = parseHashed(row.source), tests = parseHashedList(row.tests), killedTests = parseStringList(row.killedTests);
 		if (source === null || tests === null || killedTests === null) return null;
-		receipts.push({ id: row.id, verdict: row.verdict as KillProofReceipt["verdict"], provedAt: row.provedAt, source, tests, killedTests, mutant: row.mutant });
+		receipts.push({ id: row.id, verdict: row.verdict as KillProofReceipt["verdict"], provedAt: row.provedAt, source, tests, killedTests, mutant: row.mutant, ...(typeof row.supersededBy === "string" ? { supersededBy: row.supersededBy } : {}) });
 	}
 	return { version: 1, receipts };
 }
 
 // ---- store ----
 
-export function readKillProof(root: string, id: string): KillProofReceipt | null {
+function readReceiptAt(dir: string, id: string): KillProofReceipt | null {
 	if (!ID_RE.test(id)) return null;
-	const path = join(killProofsDir(root), `${id}.json`);
+	const path = join(dir, `${id}.json`);
 	if (!existsSync(path)) return null;
 	try {
-		return parseKillProof(JSON.parse(readFileSync(path, "utf8")));
+		const receipt = parseKillProof(JSON.parse(readFileSync(path, "utf8")));
+		return receipt !== null && receipt.id === id ? receipt : null;
 	} catch {
 		return null;
 	}
+}
+
+/** The receipt at `<id>.json`, only when it says it IS `id` (review M11: a copied file is not a second receipt). */
+export function readKillProof(root: string, id: string): KillProofReceipt | null {
+	return readReceiptAt(killProofsDir(root), id);
 }
 
 export function listKillProofIds(root: string): string[] {
@@ -280,14 +302,31 @@ export function listKillProofIds(root: string): string[] {
 	return readdirSync(dir).filter(name => /^[0-9a-f]{16}\.json$/.test(name)).map(name => name.slice(0, 16)).sort();
 }
 
+/** The newest receipt per proof key (review M8); the receipts to judge a proof by. */
+export function newestPerProofKey<T extends Pick<KillProofReceipt, "id" | "provedAt" | "source" | "mutant" | "tests">>(receipts: readonly T[]): Map<string, T> {
+	const newest = new Map<string, T>();
+	for (const receipt of receipts) {
+		const key = proofKey(receipt), known = newest.get(key);
+		if (known === undefined || receipt.provedAt > known.provedAt || (receipt.provedAt === known.provedAt && receipt.id < known.id)) newest.set(key, receipt);
+	}
+	return newest;
+}
+
 function indexRow(receipt: KillProofReceipt): KillProofIndexRow {
 	return { id: receipt.id, verdict: receipt.verdict, provedAt: receipt.provedAt, source: receipt.source, tests: receipt.tests, killedTests: receipt.killedTests, mutant: mutantLabel(receipt.mutant) };
 }
 
 /** The index is a projection of the receipt FILES: rebuilt, never patched, so a concurrent writer loses nothing. */
 export function rebuildKillProofIndex(root: string): KillProofIndex {
-	const receipts = listKillProofIds(root).map(id => readKillProof(root, id)).filter((r): r is KillProofReceipt => r !== null).map(indexRow);
-	return { version: 1, receipts };
+	const receipts = listKillProofIds(root).map(id => readKillProof(root, id)).filter((r): r is KillProofReceipt => r !== null);
+	const newest = newestPerProofKey(receipts);
+	return {
+		version: 1,
+		receipts: receipts.map(receipt => {
+			const current = newest.get(proofKey(receipt));
+			return current !== undefined && current.id !== receipt.id ? { ...indexRow(receipt), supersededBy: current.id } : indexRow(receipt);
+		}),
+	};
 }
 
 export function readKillProofIndex(root: string): KillProofIndex {
@@ -317,128 +356,10 @@ export function writeKillProof(root: string, receipt: KillProofReceipt): string 
 	writeAtomic(path, `${JSON.stringify(receipt, null, 1)}\n`);
 	const indexPath = join(dir, INDEX_FILE);
 	try {
+		// The rebuild also marks every older receipt of this receipt's proof key as superseded (review M8).
 		withFileMutationLock(indexPath, () => writeAtomic(indexPath, `${JSON.stringify(rebuildKillProofIndex(root), null, 1)}\n`), INDEX_LOCK);
 	} catch {
 		// Contended or unlockable: the next writer rebuilds the index from every receipt file, this one included.
 	}
 	return path;
-}
-
-// ---- freshness ----
-
-function hashMismatches(root: string, files: readonly HashedFile[], role: string): string[] {
-	return files.flatMap(file => {
-		const now = hashFile(root, file.path);
-		if (now === null) return [`${role} ${file.path} no longer exists`];
-		return now.sha256 === file.sha256 ? [] : [`${role} ${file.path} changed since the proof`];
-	});
-}
-
-/** Bytes-only freshness: the source, every named test file and (from a receipt) every bound helper. */
-export function bytesFresh(root: string, row: Pick<KillProofIndexRow, "source" | "tests"> & { boundImports?: readonly HashedFile[] }): string[] {
-	return [...hashMismatches(root, [row.source], "source"), ...hashMismatches(root, row.tests, "test"), ...hashMismatches(root, row.boundImports ?? [], "helper")];
-}
-
-function environmentReasons(root: string, recorded: ProofEnvironment): string[] {
-	const env = captureEnvironment(root, recorded.config?.path), reasons: string[] = [];
-	reasons.push(...hashMismatches(root, recorded.setupFiles, "setup file"));
-	for (const file of env.setupFiles) if (!recorded.setupFiles.some(known => known.path === file.path)) reasons.push(`setup file ${file.path} was added to the config since the proof`);
-	if (env.node !== recorded.node) reasons.push(`node ${recorded.node} → ${env.node}`);
-	if (env.vitest !== recorded.vitest) reasons.push(`vitest ${recorded.vitest ?? "unresolved"} → ${env.vitest ?? "unresolved"}`);
-	if (env.platform !== recorded.platform) reasons.push(`platform ${recorded.platform} → ${env.platform}`);
-	if ((env.config?.sha256 ?? null) !== (recorded.config?.sha256 ?? null)) reasons.push(`vitest config ${(recorded.config ?? env.config)?.path ?? ""} changed since the proof`);
-	return reasons;
-}
-
-/** The receipt's own consistency: digest and id re-derive, root matches, verdict agrees with its cases. */
-export function integrityReasons(root: string, receipt: KillProofReceipt): string[] {
-	const reasons: string[] = [];
-	if (receiptDigest(receipt) !== receipt.digest) reasons.push("receipt digest does not match its contents (edited receipt)");
-	if (receiptId(receipt) !== receipt.id) reasons.push("receipt id does not re-derive from its contents (edited or copied receipt)");
-	if (receipt.root !== root) reasons.push(`receipt was produced for ${receipt.root}, not this project`);
-	const killed = receipt.underMutant.cases.filter(row => row.verdict === "killed");
-	if ((receipt.verdict === "killed") !== killed.length > 0) reasons.push("verdict disagrees with the recorded cases");
-	const killedFiles = new Set(killed.map(row => row.test.slice(0, row.test.indexOf(" › "))));
-	if (receipt.killedTests.length !== killedFiles.size || receipt.killedTests.some(file => !killedFiles.has(file))) reasons.push("killedTests disagrees with the recorded cases");
-	return reasons;
-}
-
-/**
- * Cheap freshness for the hook path (no TypeScript, no manifest): integrity, bytes and
- * runtime. The receipt FILE is read, so a forged index row with no receipt is nothing.
- */
-export function receiptFreshCheap(root: string, id: string): { receipt: KillProofReceipt; reasons: string[] } | null {
-	const receipt = readKillProof(root, id);
-	if (receipt === null) return null;
-	return { receipt, reasons: [...integrityReasons(root, receipt), ...bytesFresh(root, receipt), ...environmentReasons(root, receipt.environment)] };
-}
-
-/** Full freshness: the cheap check plus the mutant still resolving at the recorded offset on the recorded line. */
-export function verifyKillProof(root: string, receipt: KillProofReceipt): Freshness {
-	const reasons = [...integrityReasons(root, receipt), ...bytesFresh(root, receipt), ...environmentReasons(root, receipt.environment)];
-	if (reasons.length === 0) {
-		const located = relocate(root, receipt.mutant);
-		if (!located.ok) reasons.push(`mutant no longer resolves: ${located.reason}`);
-		else if (located.mutant.offset !== receipt.mutant.offset) reasons.push(`mutant moved from offset ${receipt.mutant.offset} to ${located.mutant.offset}`);
-		else if (receipt.mutant.lineText !== undefined) {
-			const content = readFileSync(join(root, receipt.mutant.file), "utf8");
-			if (lineTextAt(content, located.mutant.offset) !== receipt.mutant.lineText) reasons.push("the mutated line changed since the proof");
-		}
-	}
-	return reasons.length === 0 ? { fresh: true } : { fresh: false, reasons };
-}
-
-/** Bound files whose work-tree bytes differ from HEAD or the index, or that are untracked (review N8). Empty outside git. */
-export function uncommittedPaths(root: string, paths: readonly string[]): string[] {
-	try {
-		const out = execFileSync("git", ["-C", root, "status", "--porcelain", "--untracked-files=all", "--", ...paths], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-		return out.split("\n").filter(Boolean).map(line => line.slice(3).trim().replace(/^"|"$/g, ""));
-	} catch {
-		return [];
-	}
-}
-
-/** The case titles (after ` › `) a receipt records as killed for one test file. */
-export function killedCaseNames(receipt: KillProofReceipt, testPath: string): string[] {
-	return receipt.underMutant.cases.filter(row => row.verdict === "killed" && row.test.startsWith(`${testPath} › `)).map(row => row.test.slice(testPath.length + 3));
-}
-
-export type Certification = { certified: true; receipt: KillProofReceipt } | { certified: false; receipt: KillProofReceipt | null; reasons: string[]; uncovered?: string[] };
-
-/** A killed case's full name (vitest joins describe blocks with spaces) ends with the case title. */
-export function caseNameMatches(name: string, title: string): boolean {
-	return name === title || name.endsWith(` ${title}`) || name.endsWith(` > ${title}`);
-}
-
-/**
- * Does receipt `id` certify `testPath` NOW? Read from the receipt FILE: integrity,
- * verdict `killed` through this file, the source and THIS test file's bytes, the
- * helpers THIS test file imports, the runtime (review K2, K11, K13). With `requireCases` (the newly added case titles), EVERY
- * one of them must be a killed case — an old strong case, or one strong new case,
- * never certifies another new case that killed nothing (reviews K4, L3).
- */
-export function receiptCertifies(root: string, id: string, testPath: string, requireCases?: readonly string[]): Certification {
-	const receipt = readKillProof(root, id);
-	if (receipt === null) return { certified: false, receipt: null, reasons: ["receipt file missing or unreadable"] };
-	const reasons = [...integrityReasons(root, receipt)];
-	if (receipt.verdict !== "killed" || !receipt.killedTests.includes(testPath)) reasons.push(`receipt did not kill through ${testPath}`);
-	const own = receipt.tests.filter(test => test.path === testPath);
-	if (own.length === 0) reasons.push(`receipt does not name ${testPath}`);
-	const helpers = receipt.boundImports.filter(file => file.importedBy.includes(testPath));
-	reasons.push(...hashMismatches(root, [receipt.source], "source"), ...hashMismatches(root, own, "test"), ...hashMismatches(root, helpers, "helper"), ...environmentReasons(root, receipt.environment));
-	let uncovered: string[] = [];
-	if (requireCases !== undefined && requireCases.length > 0) {
-		const killed = killedCaseNames(receipt, testPath);
-		uncovered = requireCases.filter(title => !killed.some(name => caseNameMatches(name, title)));
-		if (uncovered.length) reasons.push(`newly added case(s) not among this receipt's killed cases: ${uncovered.join(", ")}`);
-	}
-	return reasons.length === 0 ? { certified: true, receipt } : { certified: false, receipt, reasons, ...(uncovered.length ? { uncovered } : {}) };
-}
-
-/** Receipts that certify `testPath` now (see `receiptCertifies`). The Stop check's and the nudge's whole question. */
-export function freshKillsForTest(root: string, testPath: string, requireCases?: readonly string[]): KillProofReceipt[] {
-	return readKillProofIndex(root).receipts.flatMap(row => {
-		const result = receiptCertifies(root, row.id, testPath, requireCases);
-		return result.certified ? [result.receipt] : [];
-	});
 }
