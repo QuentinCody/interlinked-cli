@@ -46,10 +46,12 @@ export interface KillProofsSection {
 
 const ABSENT: KillProofsSection = { present: false, failed: false, rows: [], findings: [], lines: [], json: undefined };
 
-/** A killed receipt whose evidence lapsed: stale (bytes, runtime or mutant moved) or unreadable (the file no longer parses). */
+/** A CURRENT killed receipt whose evidence lapsed: stale (bytes, runtime or mutant moved) or unreadable (the file no
+ *  longer parses). A superseded receipt is history (review M8): `tests kill-proofs --verify` never fails on it, and
+ *  this section applies the same rule (verification af8b93d3 §6: verify's gate was stricter than documented). */
 export function staleKillFindings(rows: readonly KillProofRow[]): KillProofStaleFinding[] {
 	return rows.flatMap(row => {
-		if (row.verdict !== "killed" || (row.freshness !== "stale" && row.freshness !== "unreadable")) return [];
+		if (row.verdict !== "killed" || row.supersededBy !== undefined || (row.freshness !== "stale" && row.freshness !== "unreadable")) return [];
 		const reasons = row.reasons ?? [`receipt ${row.id} is unreadable (it no longer parses as a kill-proof receipt)`];
 		return [{
 			check: KILL_PROOF_STALE_CHECK,

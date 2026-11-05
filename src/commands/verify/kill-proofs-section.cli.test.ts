@@ -31,14 +31,14 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-function recordKill(): KillProofReceipt {
+function recordKill(provedAt = "2026-11-05T00:00:00.000Z"): KillProofReceipt {
 	const resolved = resolveMutant(root, { kind: "explicit", file: "src/clamp.ts", find: "n > max", replace: "n >= max" });
 	if (!resolved.ok) throw new Error(resolved.reason);
 	const mutant = { ...resolved.mutant, lineText: lineTextAt(readFileSync(join(root, "src/clamp.ts"), "utf8"), resolved.mutant.offset) };
 	const source = hashFile(root, "src/clamp.ts") as HashedFile, tests = [hashFile(root, "src/clamp.test.ts") as HashedFile];
 	const environment = captureEnvironment(root);
 	const receipt = sealReceipt({
-		version: 1, id: receiptId({ source, mutant, tests, boundImports: [], environment }), digest: "", verdict: "killed", reasons: [], provedAt: "2026-11-05T00:00:00.000Z", root,
+		version: 1, id: receiptId({ source, mutant, tests, boundImports: [], environment }), digest: "", verdict: "killed", reasons: [], provedAt, root,
 		source, mutant, tests, boundImports: [], killedTests: ["src/clamp.test.ts"],
 		baseline: { cases: 1, durationMs: 5 }, underMutant: { durationMs: 5, timedOut: false, cases: [{ test: "src/clamp.test.ts › caps", verdict: "killed" }] }, environment,
 	});
@@ -69,6 +69,21 @@ describe("built CLI: verify --json kill_proofs — negative (no finding)", () =>
 		const { status, json, stderr } = verifyJson();
 		expect(status, stderr).toBe(0);
 		expect(json.kill_proofs).toMatchObject({ issues: 0, files: [], details: [], receipts: [{ id: receipt.id, verdict: "killed", freshness: "fresh", tests: ["src/clamp.test.ts"] }] });
+	}, TIMEOUT);
+	it("N3: after a re-proof, the superseded stale receipt is no finding and verify exits 0; the tally says `1 superseded` (verification af8b93d3 §6)", () => {
+		const older = recordKill();
+		write("src/clamp.ts", `${SOURCE}// later\n`);
+		execFileSync("git", ["-C", root, "add", "."]);
+		execFileSync("git", ["-C", root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "edit"]);
+		const newer = recordKill("2026-11-06T00:00:00.000Z");
+		const { status, json, stderr } = verifyJson();
+		expect(status, stderr).toBe(0);
+		expect(json.kill_proofs).toMatchObject({ issues: 0, files: [], details: [] });
+		const receipts = (json.kill_proofs as { receipts: Array<{ id: string; freshness: string; supersededBy?: string }> }).receipts;
+		expect(receipts).toEqual(expect.arrayContaining([expect.objectContaining({ id: older.id, freshness: "stale", supersededBy: newer.id }), expect.objectContaining({ id: newer.id, freshness: "fresh" })]));
+		const list = spawnSync(process.execPath, [CANDIDATE, "tests", "kill-proofs", "--verify"], { cwd: root, encoding: "utf8", timeout: TIMEOUT, env: { ...process.env, NO_COLOR: "1" } });
+		expect(list.status, list.stderr).toBe(0);
+		expect(list.stdout).toContain("2 KILLED proof(s): 1 fresh, 0 uncommitted, 0 stale, 1 superseded.");
 	}, TIMEOUT);
 	it("N2: a repository without receipts has no `kill_proofs` key at all", () => {
 		const { status, json, stderr } = verifyJson();

@@ -158,6 +158,15 @@ describe("killProofsTally — positive (verified rows)", () => {
 			.toBe("3 KILLED proof(s): 1 fresh, 1 uncommitted, 1 stale. Re-run the prove-kill command of each stale proof to renew it.");
 	});
 });
+describe("killProofsTally — superseded receipts are history (verification af8b93d3 §6)", () => {
+	it("P1: a superseded killed receipt is counted as `superseded`, never as stale, and the renew hint is not raised for it", () => {
+		expect(killProofsTally([{ ...ROW, freshness: "uncommitted" }, { ...ROW, id: "b", freshness: "stale", supersededBy: ROW.id, reasons: ["source src/math.ts changed since the proof"] }]))
+			.toBe("2 KILLED proof(s): 0 fresh, 1 uncommitted, 0 stale, 1 superseded. Only KILLED proofs count as evidence.");
+	});
+	it("P2: a tally with no superseded receipt keeps its shape", () => {
+		expect(killProofsTally([{ ...ROW, freshness: "fresh" }])).toBe("1 KILLED proof(s): 1 fresh, 0 uncommitted, 0 stale. Only KILLED proofs count as evidence.");
+	});
+});
 describe("killProofsTally — negative (unverified rows)", () => {
 	it("N1: rows without a freshness have no tally", () => {
 		expect(killProofsTally([ROW])).toBeNull();

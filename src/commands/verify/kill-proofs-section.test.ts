@@ -58,7 +58,7 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 /** A sealed receipt over the fixture's CURRENT bytes: fresh by construction until something changes. */
-function receiptFor(verdict: KillProofReceipt["verdict"], replace = "n >= max"): KillProofReceipt {
+function receiptFor(verdict: KillProofReceipt["verdict"], replace = "n >= max", provedAt = "2026-11-05T00:00:00.000Z"): KillProofReceipt {
 	const resolved = resolveMutant(root, { kind: "explicit", file: SOURCE_FILE, find: "n > max", replace });
 	if (!resolved.ok) throw new Error(resolved.reason);
 	const mutant = { ...resolved.mutant, lineText: lineTextAt(readFileSync(join(root, SOURCE_FILE), "utf8"), resolved.mutant.offset) };
@@ -66,14 +66,14 @@ function receiptFor(verdict: KillProofReceipt["verdict"], replace = "n >= max"):
 	const environment = captureEnvironment(root);
 	const cases = [{ test: `${TEST_FILE} › caps`, verdict, ...(verdict === "inconclusive" ? { reason: "Error: crashed" } : {}) }];
 	const unsealed: KillProofReceipt = {
-		version: 1, id: receiptId({ source, mutant, tests, boundImports: [], environment }), digest: "", verdict, reasons: [], provedAt: "2026-11-05T00:00:00.000Z", root,
+		version: 1, id: receiptId({ source, mutant, tests, boundImports: [], environment }), digest: "", verdict, reasons: [], provedAt, root,
 		source, mutant, tests, boundImports: [], killedTests: verdict === "killed" ? [TEST_FILE] : [],
 		baseline: { cases: 1, durationMs: 5 }, underMutant: { durationMs: 5, timedOut: false, cases }, environment,
 	};
 	return sealReceipt(unsealed);
 }
-function record(verdict: KillProofReceipt["verdict"], replace?: string): KillProofReceipt {
-	const receipt = receiptFor(verdict, replace);
+function record(verdict: KillProofReceipt["verdict"], replace?: string, provedAt?: string): KillProofReceipt {
+	const receipt = receiptFor(verdict, replace, provedAt);
 	writeKillProof(root, receipt);
 	return receipt;
 }
@@ -198,6 +198,22 @@ describe("verify kill_proofs section — negative (must not fire)", () => {
 		expect(section.findings).toEqual([]);
 		expect(section.rows[0]?.freshness).toBe("stale");
 		expect(section.json).toMatchObject({ issues: 0, skipped: true });
+	});
+	it("N7: after a re-proof the SUPERSEDED stale receipt is history — no finding, verify does not fail, the tally counts it as superseded (verification af8b93d3 §6)", () => {
+		commitAll();
+		const older = record("killed");
+		write(SOURCE_FILE, `${SOURCE}// later\n`);
+		commitAll();
+		const newer = record("killed", undefined, "2026-11-06T00:00:00.000Z"); // same proof key, newer provedAt ⇒ `older` is superseded
+		const section = killProofsSection(root);
+		expect(section.rows.map(row => [row.id, row.freshness, row.supersededBy])).toEqual(expect.arrayContaining([[older.id, "stale", newer.id], [newer.id, "fresh", undefined]]));
+		expect(section.findings).toEqual([]);
+		expect(section.failed).toBe(false);
+		expect(section.json).toMatchObject({ issues: 0, files: [] });
+		expect(section.lines.at(-1)).toBe("2 KILLED proof(s): 1 fresh, 0 uncommitted, 0 stale, 1 superseded. Only KILLED proofs count as evidence.");
+		expect(staleKillFindings(section.rows)).toEqual([]);
+		// The same rule `tests kill-proofs --verify` applies: only a CURRENT stale killed receipt fails.
+		expect(listKillProofs(root, true).some(row => row.verdict === "killed" && row.supersededBy === undefined && row.freshness === "stale")).toBe(false);
 	});
 	it("N6: the rows ARE `listKillProofs(root, true)` — one implementation of freshness, not a second one", () => {
 		commitAll();

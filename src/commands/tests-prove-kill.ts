@@ -227,13 +227,18 @@ export function renderKillProofs(rows: readonly KillProofRow[]): string {
 	return summary === null ? listed : `${listed}\n${summary}`;
 }
 
-/** After --verify: count the KILLED receipts by freshness and say how to renew a stale one. Shared with verify's `kill_proofs` section. */
+/**
+ * After --verify: count the KILLED receipts by freshness and say how to renew a stale one. Shared with verify's
+ * `kill_proofs` section. A superseded receipt is history (review M8): it is counted as `superseded`, never in the
+ * freshness buckets, so the tally and the exit decision agree (verification af8b93d3 §6).
+ */
 export function killProofsTally(rows: readonly KillProofRow[]): string | null {
 	if (!rows.some(row => row.freshness !== undefined)) return null;
 	const killed = rows.filter(row => row.verdict === "killed");
-	const count = (state: KillProofRow["freshness"]): number => killed.filter(row => row.freshness === state).length;
+	const current = killed.filter(row => row.supersededBy === undefined), superseded = killed.length - current.length;
+	const count = (state: KillProofRow["freshness"]): number => current.filter(row => row.freshness === state).length;
 	const stale = count("stale") + count("unreadable");
-	const tally = `${killed.length} KILLED proof(s): ${count("fresh")} fresh, ${count("uncommitted")} uncommitted, ${stale} stale.`;
+	const tally = `${killed.length} KILLED proof(s): ${count("fresh")} fresh, ${count("uncommitted")} uncommitted, ${stale} stale${superseded > 0 ? `, ${superseded} superseded` : ""}.`;
 	return stale > 0 ? `${tally} Re-run the prove-kill command of each stale proof to renew it.` : `${tally} Only KILLED proofs count as evidence.`;
 }
 
