@@ -57,7 +57,7 @@ function readSource(root: string, file: string): string | null {
 function resolveFromManifest(root: string, spec: Extract<MutantSpec, { kind: "manifest" }>): Resolved {
 	const state = loadManifestState(join(root, ".interlinked"));
 	if (state.kind === "missing") {
-		return { ok: false, reason: "no mutation manifest at .interlinked/mutation-manifest.json — measure the file first (`interlinked mutation measure <file>`) or pass an explicit fault (--file/--find/--replace)" };
+		return { ok: false, reason: "no mutation manifest yet: run `interlinked mutation measure <file>`, or pass an explicit fault with --file/--find/--replace" };
 	}
 	if (state.kind === "corrupt") return { ok: false, reason: `mutation manifest is corrupt: ${state.detail}` };
 	const hit = findInManifest(state.manifest, spec.mutantId, spec.file);
@@ -109,7 +109,7 @@ function resolveExplicit(root: string, spec: Extract<MutantSpec, { kind: "explic
 	const content = readSource(root, spec.file);
 	if (content === null) return { ok: false, reason: `${spec.file} does not exist in the working tree` };
 	const occurrences = content.split(spec.find).length - 1;
-	if (occurrences !== 1) return { ok: false, reason: `anchor occurs ${occurrences} times in ${spec.file} (exactly one is required)` };
+	if (occurrences !== 1) return { ok: false, reason: `the --find text occurs ${occurrences} times in ${spec.file}; it must occur exactly once` };
 	const offset = content.indexOf(spec.find);
 	return {
 		ok: true,

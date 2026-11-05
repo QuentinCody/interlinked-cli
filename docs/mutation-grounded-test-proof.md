@@ -10,6 +10,32 @@ It writes a receipt when the answer was decided by running code. It never
 infers a kill from coverage, from a `test-contract` marker, from a plausible
 assertion, from an older receipt, or from a surviving-mutant count.
 
+## Quick start
+
+Nothing to install beyond interlinked: any git repository with vitest works.
+
+```bash
+# 1. Explicit fault: the test must pass now and fail with this one edit applied.
+interlinked tests prove-kill --file src/math.ts \
+  --find 'if (value > max) return max;' --replace 'if (value > max) return value;' \
+  --test test/clamp.test.ts
+
+# 2. Manifest survivor by id (list ids: interlinked mutation survivors --file <src>).
+interlinked tests prove-kill --mutant 575ddae6cc2946f9 --test src/harness/server/anti-stomp.test.ts
+```
+
+Reading the verdict (add `--json` for a machine-readable result):
+
+- `KILLED` (exit 0): a named test failed by its own check. A receipt is written.
+- `SURVIVED` (exit 1): every test still passed. Assert the value the fault changes.
+- `NOT-PASSING-NOW` (exit 1): a test fails on the live tree. Fix it first.
+- `INCONCLUSIVE` (exit 2): a crash, load error or timeout. Nothing is proven.
+- `UNAVAILABLE` (exit 2): the fault or a test could not be set up. Read the reason.
+
+Keeping the receipt fresh: `interlinked tests kill-proofs --verify` re-hashes the
+source and tests and compares the runtime. Any edit marks a `KILLED` receipt
+`STALE` and exits 1; re-run the same `prove-kill` command to renew it.
+
 ## When to use it
 
 - An agent or a developer says "I added a regression test for this bug" or
@@ -41,7 +67,9 @@ interlinked tests kill-proofs --verify   # re-hash, re-resolve, exit 1 if any re
 ```
 
 `--test` is repeatable. `--timeout <ms>` bounds EACH of the two test runs
-(default 300000).
+(default 300000). The CLI's resource supervisor also reads `--timeout` as the whole
+command's deadline, so a value below a few seconds stops the CLI before any
+verdict (exit 75).
 
 ## What happens
 
@@ -108,7 +136,8 @@ sees the PostToolUse line; the human sees the Stop line.
 
 ## Limits (v1)
 
-- vitest only. A jest or ava project gets `unavailable: 'vitest' failed to launch`.
+- vitest only. A jest or ava project gets `unavailable` with the reason
+  `vitest is not installed in this project (this project declares jest) …`.
 - The receipt binds the named test files and the mutated source, not the
   helpers a test imports; an edited helper does not stale a receipt. Name the
   helper as a `--test` file if that matters.

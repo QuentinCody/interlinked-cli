@@ -31,10 +31,10 @@ export function specFromOptions(options: ProveKillCliOptions): MutantSpec | stri
 	const explicit = options.find !== undefined || options.replace !== undefined;
 	if (options.mutant !== undefined && explicit) return "pass either --mutant <id> or --file/--find/--replace, not both";
 	if (options.mutant !== undefined) {
-		if (!/^[0-9a-f]{16}$/.test(options.mutant)) return "--mutant must be a 16-hex stable mutant id (see `interlinked mutation survivors --file <path>`)";
+		if (!/^[0-9a-f]{16}$/.test(options.mutant)) return "--mutant takes a 16-character hex mutant id; list them with `interlinked mutation survivors --file <path>`";
 		return { kind: "manifest", mutantId: options.mutant, ...(options.file !== undefined ? { file: options.file } : {}) };
 	}
-	if (!explicit) return "name the mutant: --mutant <id>, or --file <src> --find <text> --replace <text>";
+	if (!explicit) return "name the mutant: --mutant <id>, or --file <src> --find <text> --replace <text>; see --help";
 	if (options.file === undefined || options.find === undefined || options.replace === undefined) return "an explicit fault needs all three of --file, --find and --replace";
 	return { kind: "explicit", file: options.file, find: options.find, replace: options.replace };
 }
@@ -48,16 +48,16 @@ export function exitCodeFor(result: ProveKillResult): number {
 function nextStep(result: ProveKillResult): string {
 	if (!result.ok) {
 		return result.verdict === "not-passing-now"
-			? "Fix the test so it passes on the current code first; a test that fails live proves nothing about the mutant."
-			: "Resolve the reasons above and re-run; no receipt was written.";
+			? "Make the test pass on the current code first. A test that already fails proves nothing about the mutant."
+			: "Fix the reason above and re-run. No receipt was written.";
 	}
 	switch (result.receipt.verdict) {
 		case "killed":
-			return "Proof recorded. It stays valid while the source, the test files and the runtime are unchanged (`interlinked tests kill-proofs --verify`).";
+			return "Proof recorded. It holds while source, tests and runtime are unchanged; check with `interlinked tests kill-proofs --verify`.";
 		case "survived":
-			return "Strengthen the assertion so the mutated behaviour is observed (assert the value the mutant changes), then re-run. A test that passes under the mutant is not a regression test for it.";
+			return "These tests still pass with the mutant applied. Strengthen the assertion: check the value the mutant changes, then re-run.";
 		default:
-			return "No test failed by its own check. A crash, a load error or a timeout under the mutant is not a kill: make the test reach the mutated code and assert on its result.";
+			return "Nothing is proven: a crash, load error or timeout is not a kill. Assert on the mutated code's result, or raise --timeout.";
 	}
 }
 
@@ -116,7 +116,7 @@ export function listKillProofs(root: string, verify: boolean): KillProofRow[] {
 }
 
 export function renderKillProofs(rows: readonly KillProofRow[]): string {
-	if (rows.length === 0) return "no kill proofs recorded (run `interlinked tests prove-kill`)";
+	if (rows.length === 0) return "No kill proofs recorded yet. Make one with `interlinked tests prove-kill --help`.";
 	return rows.map(row => {
 		const head = `${row.id} ${row.verdict.toUpperCase().padEnd(12)} ${row.provedAt} ${row.mutant}`;
 		const tests = `  tests: ${row.tests.join(", ")}`;
