@@ -506,6 +506,10 @@ never writes a row; a write failure is silent. Rows the pre-push hook writes
 inside its disposable export land in the source checkout through
 `INTERLINKED_STAGES_LEDGER`.
 
+This repository's Vitest worker setup clears inherited stage, ledger, trace and
+owner variables so fixture checks cannot pollute the enclosing push's evidence.
+The outer verification supervisor retains its correlation and ledger destination.
+
 Legacy asynchronous Git pre-tool checks now write `pre-tool:project-typecheck`
 and `pre-tool:project-tests` rows, including admission and execution times and
 available process-tree memory observations. One caller owns each row; observers

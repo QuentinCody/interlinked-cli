@@ -12,8 +12,7 @@ import { traceManagedPushCommand } from "./managed-push-command.js";
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-// `prepareManagedPush` refuses any inherited GIT_* variable except GIT_PAGER (an IDE shell exports
-// GIT_ASKPASS / GIT_EDITOR), so the suite must not depend on the parent shell; scrub and restore.
+// Keep preparation fixtures independent of the parent Git invocation; each case supplies its own overrides.
 const scrubbed: Record<string, string> = {};
 const originalNode = process.execPath;
 let privateRuntime: string | undefined;
@@ -81,7 +80,65 @@ setInterval(()=>{},1000);\n`;
     return { files: { "scripts/git-hooks/pre-push": digest(Buffer.from(hook)), "scripts/owner.cjs": digest(Buffer.from(owner)) }, packages: [] };
 }
 
+function repositoryConfigGate(root: string): ManagedPushTrust {
+    const files = {
+        "scripts/git-hooks/pre-push": readFileSync(new URL("../../scripts/git-hooks/pre-push", import.meta.url), "utf8"),
+        // Admission is outside this regression: preserve the real hook's child invocation and exit status.
+        "scripts/run-resource-bounded.ts": 'import { spawnSync } from "node:child_process"; const [bin, ...args] = process.argv.slice(2); process.exitCode = spawnSync(bin, args, { stdio: "inherit" }).status ?? 1;\n',
+        // The runner fixture is plain JavaScript; it needs no TypeScript transform.
+        "node_modules/tsx/dist/loader.mjs": "export {};\n",
+    };
+    for (const [path, content] of Object.entries(files)) {
+        mkdirSync(dirname(join(root, path)), { recursive: true });
+        writeFileSync(join(root, path), content);
+    }
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "managed-config-fixture", type: "module", scripts: { "typecheck:stable": "node check-git.cjs" } }));
+    writeFileSync(join(root, "check-git.cjs"), `const fs = require("node:fs"), path = require("node:path"), { execFileSync } = require("node:child_process");
+const nested = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "managed-nested-git-"));
+const git = (...args) => execFileSync("git", args, { cwd: nested, encoding: "utf8" }).trim();
+try {
+    git("init", "-q"); git("config", "core.hooksPath", "own-hooks");
+    if (git("config", "--get", "core.hooksPath") !== "own-hooks") throw new Error("outer hook override leaked into nested repository");
+    fs.mkdirSync(path.join(nested, "own-hooks"));
+    fs.writeFileSync(path.join(nested, "own-hooks/pre-commit"), "#!/bin/sh\\necho nested-hook-ran\\n", { mode: 0o755 });
+    console.log(git("-c", "user.email=fixture@example.invalid", "-c", "user.name=Fixture", "commit", "--allow-empty", "-qm", "nested"));
+    console.log("legacy-config=" + git("config", "--default", "", "--get", "fixture.keep"));
+    console.log("managed-marker=" + (process.env.INTERLINKED_MANAGED_PUSH_HOOK || ""));
+    process.exitCode = 1; // The pinned outer hook must still enforce this failed verification.
+} finally { fs.rmSync(nested, { recursive: true, force: true }); }\n`);
+    git(root, "add", "package.json", "check-git.cjs"); git(root, "commit", "-qm", "verify nested repository configuration");
+    return { files: Object.fromEntries(Object.entries(files).map(([path, content]) => [path, digest(Buffer.from(content))])), packages: [] };
+}
+
 describe("managed native push handoff", () => {
+    it("scopes the pinned hooks override to the outer push while nested verification Git honors its own hook", () => {
+        const { root, remote } = fixture();
+        const command = prepareManagedPush(root, "git push origin main", "codex", repositoryConfigGate(root));
+        if (!command) throw new Error("Expected native rewrite");
+        // The captured hook, not this later mutable replacement, must run and refuse the push.
+        writeFileSync(join(root, "scripts/git-hooks/pre-push"), "#!/bin/sh\nexit 0\n");
+        const result = execute(root, command);
+        const output = `${result.stdout}${result.stderr}`;
+        expect(output).toContain("nested-hook-ran");
+        expect(output).toContain("legacy-config=\n");
+        expect(output).toContain("managed-marker=\n");
+        expect(output).toContain("typecheck:stable failed");
+        expect(result.status).not.toBe(0);
+        expect(git(remote, "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("");
+    });
+
+    it("preserves ordinary push command configuration without a matching managed-hook marker", () => {
+        const { root, remote } = fixture();
+        repositoryConfigGate(root);
+        const result = execute(root, "git -c fixture.keep=legacy-value push origin main", { ...process.env, INTERLINKED_MANAGED_PUSH_HOOK: "/another/hook" });
+        const output = `${result.stdout}${result.stderr}`;
+        expect(output).toContain("nested-hook-ran");
+        expect(output).toContain("legacy-config=legacy-value");
+        expect(output).toContain("typecheck:stable failed");
+        expect(result.status).not.toBe(0);
+        expect(git(remote, "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("");
+    });
+
     it("retains the legacy path for a group-writable Node executable", () => {
         const { root, trust } = fixture();
         const node = join(root, "writable-node");
@@ -220,12 +277,12 @@ describe("managed native push handoff", () => {
         expect(result.status).toBe(0);
         expect(git(remote, "rev-parse", "refs/heads/main")).toBe(git(root, "rev-parse", "HEAD"));
         expect(readFileSync(join(root, "trace-seen"), "utf8")).toBe(`${trace}\n`);
-        // A malformed trace is dropped rather than quoted into the command; the hook then sees none.
+        // A malformed explicit trace is dropped; the hook still inherits a valid caller trace.
         const unlabeled = prepareManagedPushHandoff(root, "git push origin main", "codex", trust, { trace: "not a trace" });
         if (unlabeled.kind !== "prepared") throw new Error("Expected native rewrite");
         expect(unlabeled.command).not.toContain("INTERLINKED_VERIFICATION_TRACE");
-        expect(execute(root, unlabeled.command).status).toBe(0);
-        expect(readFileSync(join(root, "trace-seen"), "utf8")).toBe("\n");
+        expect(execute(root, unlabeled.command, { ...process.env, INTERLINKED_VERIFICATION_TRACE: "inherited-12345678" }).status).toBe(0);
+        expect(readFileSync(join(root, "trace-seen"), "utf8")).toBe("inherited-12345678\n");
     });
 
     it("waits for the owned hook controller to reap its detached child after interruption", async () => {

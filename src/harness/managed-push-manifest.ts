@@ -5,7 +5,7 @@ export const MANAGED_PUSH_TRUST: ManagedPushTrust = {
     files: {
         "package-lock.json": "8b8377ec698fcbf19f916fd6e7f62438d4776b085632284af10c4f35bfcff024",
         "package.json": "5d37c743bdbf466a41bd7eeeb102f8150360100ba44456598fcbbb586f990045",
-        "scripts/git-hooks/pre-push": "631ad18c00b91cf76d0b8a6bd4b160dfaee07b129e0158e4206867ea8f3389e6",
+        "scripts/git-hooks/pre-push": "091e5d15c87ece836462e312bf41b68d8c4de7863adca7464a3e7e471590acad",
         "scripts/pre-push-coverage.mjs": "af2420c73800ba6c8175e9547bab420a5a4c36e2be552d1b53960dd428db1886",
         "scripts/run-resource-bounded.ts": "6acc8d64435977e7cb3c0698369eb4a45292d1d6710285dbedf3121628a4decb",
         "src/harness/check-engine/process-cancellation.ts": "9815d737df78267b3426bd2cfeac6dfe044a6dc717fa52738366b7ec1f161bf9",

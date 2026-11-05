@@ -31,6 +31,14 @@ remote="$1"
 url="$2"
 source_root="$(pwd -P)"
 hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# Git has already selected this pinned hook. Its command-scoped override must
+# not replace hook configuration in repositories created by verification.
+# The managed launcher refuses inherited Git overrides, so this removes only
+# its own core.hooksPath setting; ordinary pushes retain their configuration.
+if [ "${INTERLINKED_MANAGED_PUSH_HOOK:-}" = "$hook_dir" ]; then
+    unset GIT_CONFIG_PARAMETERS
+fi
+unset INTERLINKED_MANAGED_PUSH_HOOK
 # Every `bounded` step writes one stage-timing row (wait/exec ms, why no
 # verdict) through src/harness/verification-stages.ts. The gate runs inside a
 # disposable export whose .interlinked/ vanishes, so the ledger is pinned to

@@ -62,6 +62,11 @@ slot: both socket transports abort a request's signal when its client disconnect
 and the pre-tool git gate kills its child on it, recording `interrupted`.
 Queued framed requests retain that aborted signal after disconnect as well.
 
+Once the frozen hook is selected, it clears the launcher's command-scoped Git
+configuration before verification. This keeps the forced `core.hooksPath` from
+overriding nested fixture repositories; the outer push still executes its pinned
+protected hook. Ordinary pushes retain their own command-scoped Git settings.
+
 When maintaining this repository's gate or its helper runtime, regenerate the
 reviewed trust map with `node scripts/generate-managed-push-manifest.mjs` and run
 the same command with `--check`. A stale map disables recognition; it does not

@@ -54,7 +54,7 @@ function cleanup(plan) {
     rmSync(plan.root, { recursive: true });
 }
 async function push(plan, nodeOptions) {
-    const env = { ...process.env, PATH: join(plan.root, "bin") + ":" + (process.env.PATH || ""), NODE_OPTIONS: nodeOptions };
+    const env = { ...process.env, PATH: join(plan.root, "bin") + ":" + (process.env.PATH || ""), NODE_OPTIONS: nodeOptions, INTERLINKED_MANAGED_PUSH_HOOK: join(plan.root, "scripts/git-hooks") };
     const child = spawn(plan.git.path, ["-c", "core.hooksPath=" + join(plan.root, "scripts/git-hooks"), "push", plan.remote, plan.refspec], { cwd: plan.repo, env, stdio: "inherit", detached: true });
     let interrupted = false;
     const forward = signal => { interrupted = true; if (child.pid) { try { process.kill(-child.pid, signal); } catch (error) { if (error.code !== "ESRCH") throw error; } } };

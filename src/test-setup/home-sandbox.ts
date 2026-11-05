@@ -36,6 +36,14 @@ process.env.USERPROFILE = sandboxHome; // win32 homedir() source
 // exercise the override set and restore it themselves.
 delete process.env.INTERLINKED_HOME;
 
+// Fixture checks must not append rows to the enclosing push's ledger or inherit
+// its correlation. This setup runs only in test workers; the outer supervisor
+// retains its telemetry, and individual tests can still set explicit overrides.
+delete process.env.INTERLINKED_STAGE;
+delete process.env.INTERLINKED_STAGES_LEDGER;
+delete process.env.INTERLINKED_VERIFICATION_TRACE;
+delete process.env.INTERLINKED_VERIFICATION_OWNER;
+
 /** Exported for the regression pin; also handy for tests that want to assert
  *  against the sandbox root explicitly. */
 export const TEST_SANDBOX_HOME = sandboxHome;
