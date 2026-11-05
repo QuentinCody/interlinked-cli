@@ -49,6 +49,8 @@ function environmentReasons(root: string, recorded: ProofEnvironment, cache?: En
 	const env = currentEnvironment(root, recorded.config?.path, cache), reasons: string[] = [];
 	reasons.push(...hashMismatches(root, recorded.setupFiles, "setup file"));
 	for (const file of env.setupFiles) if (!recorded.setupFiles.some(known => known.path === file.path)) reasons.push(`setup file ${file.path} was added to the config since the proof`);
+	reasons.push(...hashMismatches(root, recorded.configFiles, "config file"));
+	for (const file of env.configFiles) if (!recorded.configFiles.some(known => known.path === file.path)) reasons.push(`config file ${file.path} is loaded by the config since the proof`);
 	if (env.node !== recorded.node) reasons.push(`node ${recorded.node} → ${env.node}`);
 	if (env.vitest !== recorded.vitest) reasons.push(`vitest ${recorded.vitest ?? "unresolved"} → ${env.vitest ?? "unresolved"}`);
 	if (env.platform !== recorded.platform) reasons.push(`platform ${recorded.platform} → ${env.platform}`);

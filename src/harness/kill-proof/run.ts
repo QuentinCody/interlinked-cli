@@ -28,15 +28,12 @@
 
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import type * as TS from "typescript";
-import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
-import { isTestPath } from "../coverage-test-selector.js";
 import { describeFailure, failedByOwnCheck, judgedFailure, type VitestCase } from "../fail-before-fix/classify.js";
-import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
+import { runVitestDetailed, STDERR_HEAD_BYTES, type VitestRun } from "../fail-before-fix/index.js";
 import { applyOverrides, createProjectCopyAsync, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
-import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
 import { boundImportClosureDetailed, testsReachingByRelativeImport } from "./bound-imports.js";
+import { explicitVitestConfig, hoistLayout, missingVitest, mutantParses, targetProblem } from "./proof-preconditions.js";
 
 import { captureEnvironment, hashFile, receiptId, resolveVitestConfig, sealReceipt, writeKillProof } from "./receipt.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
@@ -152,49 +149,19 @@ export function killedByOwnCheck(row: VitestCase): boolean {
 	return !(judged.message.startsWith(NODE_ASSERT_PREFIX) && !judged.thrownInTest);
 }
 
-/** The mutated source must still parse: a syntax error is a compile error, not behaviour (review K5). */
-export function mutantParses(file: string, mutated: string): { ok: true } | { ok: false; reason: string } | null {
-	const ts = loadTsModule();
-	if (ts === null) return null;
-	// Parse in the file's OWN dialect (review L6: JSX in a `.js` file is not JavaScript); binder-level early
-	// errors (a redeclared `let`) need a program and are not checked — vitest's transpiler does not check them either.
-	const ext = getExtension(file);
-	const kind = ext === ".tsx" ? ts.ScriptKind.TSX : ext === ".jsx" ? ts.ScriptKind.JSX : ext.startsWith(".ts") || ext === ".mts" || ext === ".cts" ? ts.ScriptKind.TS : ts.ScriptKind.JS;
-	const sf = ts.createSourceFile(file, mutated, ts.ScriptTarget.ES2022, true, kind);
-	const syntax = (sf as unknown as { parseDiagnostics?: TS.Diagnostic[] }).parseDiagnostics?.find(d => d.category === ts.DiagnosticCategory.Error);
-	if (syntax !== undefined) {
-		const text = ts.flattenDiagnosticMessageText(syntax.messageText, " ");
-		return { ok: false, reason: `the mutated ${file} does not parse (${text}); a compile error is not a kill` };
-	}
-	// TypeScript's parser accepts JSX in any file and leaves the complaint to the checker; a `.js`/`.ts` file is not JSX.
-	if ((kind === ts.ScriptKind.JS || kind === ts.ScriptKind.TS) && containsJsx(ts, sf)) {
-		return { ok: false, reason: `the mutated ${file} contains JSX, which ${ext} files cannot hold; a compile error is not a kill` };
-	}
-	return { ok: true };
-}
-
-function containsJsx(ts: NonNullable<ReturnType<typeof loadTsModule>>, node: TS.Node): boolean {
-	if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node)) return true;
-	let found = false;
-	ts.forEachChild(node, child => {
-		if (!found && containsJsx(ts, child)) found = true;
-	});
-	return found;
-}
-
 type BaselineProblem = { kind: "unavailable" | "not-passing-now"; reasons: string[]; failing: VitestCase[] };
 
 /** Baseline problems: a runner failure, a named file with no run case, or a case that does not pass. */
 function baselineProblems(tests: readonly string[], run: VitestRun): BaselineProblem | null {
 	if (run.error !== undefined || run.timedOut) {
 		const failure = run.timedOut ? `baseline run timed out after ${run.durationMs} ms; raise --run-timeout (default 300000)` : `baseline run failed: ${run.error}`;
-		return { kind: "unavailable", reasons: [failure], failing: [] };
+		return { kind: "unavailable", reasons: [failure, ...stderrReason(run)], failing: [] };
 	}
 	const named = run.cases.filter(row => tests.includes(row.file) && !NOT_RUN.has(row.status));
 	const silent = tests.filter(file => !named.some(row => row.file === file));
 	if (silent.length) {
 		const hint = "Check that the vitest config includes it (or pass --vitest-config <file>) and that it loads without ignored files.";
-		return { kind: "unavailable", reasons: [...silent.map(file => `${file} ran no test case in the isolated copy`), hint], failing: [] };
+		return { kind: "unavailable", reasons: [...silent.map(file => `${file} ran no test case in the isolated copy${suiteFailureOf(run, file)}`), hint], failing: [] };
 	}
 	const failing = named.filter(row => row.status !== "passed");
 	if (failing.length) {
@@ -203,17 +170,30 @@ function baselineProblems(tests: readonly string[], run: VitestRun): BaselinePro
 	return null;
 }
 
+/** vitest's own startup output when a run produced no report (round-4 layouts M6: "failed to load config …" was discarded). */
+function stderrReason(run: VitestRun): string[] {
+	return run.stderrHead !== undefined ? [`vitest stderr (first ${STDERR_HEAD_BYTES} bytes):\n${run.stderrHead}`] : [];
+}
+
+/** The file-level load error vitest reported for a file that ran no case (M6), as a suffix; empty when none. */
+function suiteFailureOf(run: VitestRun, file: string): string {
+	const message = run.suiteFailures?.[file];
+	return message !== undefined ? ` — the file failed to load: ${message}` : "";
+}
+
 /** One outcome per baseline-passing row, in baseline order; a duplicated full name yields one row per case. */
 function judgeCases(passing: readonly VitestCase[], under: VitestRun): CaseOutcome[] {
 	const seen = keyedRows(under.cases);
-	const runnerFailure = under.timedOut ? `runner timed out after ${under.durationMs} ms` : under.error;
+	const runnerFailure = under.timedOut ? `runner timed out after ${under.durationMs} ms` : under.error === undefined ? undefined : [under.error, ...stderrReason(under)].join("\n");
 	return withOrdinals(passing).map(({ key, row }) => {
 		const test = caseKey(row);
 		if (runnerFailure !== undefined) return { test, verdict: "inconclusive", reason: runnerFailure };
 		const result = seen.get(key);
 		if (result?.status === "passed") return { test, verdict: "survived" };
 		if (result !== undefined && killedByOwnCheck(result)) return { test, verdict: "killed" };
-		return { test, verdict: "inconclusive", reason: result?.message !== undefined ? describeFailure(result) : (result ? result.status : "no result under the mutant") };
+		const suite = suiteFailureOf(under, row.file);
+		const missing = suite !== "" ? `no result under the mutant${suite}` : "no result under the mutant";
+		return { test, verdict: "inconclusive", reason: result?.message !== undefined ? describeFailure(result) : (result ? result.status : missing) };
 	});
 }
 
@@ -271,7 +251,7 @@ async function canaryProblem(root: string, mutant: ResolvedMutant, tests: readon
 	if (stillPassing.length) {
 		return [
 			`the named tests never load ${mutant.file} from the copy, or catch its import error: a module-level throw in its place left ${stillPassing.length} case(s) passing — ${stillPassing.map(caseKey).join(", ")}.`,
-			"A mock, an alias, an absolute path or a link into the live tree bypasses the copy.",
+			"A mock, an alias, an absolute path or a link into the live tree bypasses the copy (a workspace package reached through node_modules/<name> → ../../packages/<name> is such a link: cross-package imports resolve into the live tree).",
 		];
 	}
 	if (tests.every(test => reaching.has(test))) return null;
@@ -317,36 +297,6 @@ function hashAll(root: string, paths: readonly string[]): HashedFile[] | string 
 		out.push(hashed);
 	}
 	return out;
-}
-
-const OTHER_RUNNERS = ["jest", "ava", "mocha", "uvu", "tap", "node:test", "jasmine", "bun:test"];
-
-/** v1 runs vitest only; say so, and name the runner the project does declare (review: a jest repo blamed its tests). */
-export function missingVitest(root: string): string | null {
-	if (existsSync(join(root, "node_modules", ".bin", "vitest"))) return null;
-	let declared = "";
-	try {
-		const pkg: unknown = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-		if (typeof pkg === "object" && pkg !== null) {
-			const deps = { ...(pkg as { dependencies?: Record<string, string> }).dependencies, ...(pkg as { devDependencies?: Record<string, string> }).devDependencies };
-			const found = OTHER_RUNNERS.filter(name => name in deps);
-			const script = (pkg as { scripts?: Record<string, string> }).scripts?.test;
-			if ("workspaces" in pkg || existsSync(join(root, "pnpm-workspace.yaml"))) return "vitest is not installed at this workspace root; pass --cwd <package> for a package that has vitest";
-			if (found.length) declared = ` (this project declares ${found.join(", ")})`;
-			else if (script) declared = ` (its test script is \`${script}\`)`;
-		}
-	} catch {
-		declared = "";
-	}
-	return `vitest is not installed in this project${declared}; v1 of prove-kill runs vitest only`;
-}
-
-function targetProblem(mutant: ResolvedMutant, tests: readonly string[]): string | null {
-	if (tests.includes(mutant.file)) return `${mutant.file} is both the mutated source and a named test`;
-	if (!JS_TS_EXTS.has(getExtension(mutant.file))) return `${mutant.file} is not a JS/TS source file; a proof mutates product code, not data or fixtures`;
-	if (isTestPath(mutant.file)) return `${mutant.file} is a test file; a proof mutates product code`;
-	if (mutant.file.split("/").includes("node_modules")) return `${mutant.file} is under node_modules`;
-	return null;
 }
 
 /** Paths a failure message names (ENOENT, "Cannot find module", open/read errors), as written. */
@@ -420,17 +370,19 @@ export function openProofContext(options: ProofContextOptions): OpenedProofConte
 	if (runnerProblem !== null) return { ok: false, reasons: [runnerProblem] };
 	const files = gitVisibleFiles(root);
 	if (files === null) return { ok: false, reasons: [`${root} is not a git work tree; the mutant cannot be isolated in a copy`] };
-	if (options.vitestConfig !== undefined && !existsSync(join(root, options.vitestConfig))) return { ok: false, reasons: [`--vitest-config ${options.vitestConfig} does not exist`] };
-	const configPath = resolveVitestConfig(root, options.vitestConfig);
+	const explicitConfig = options.vitestConfig === undefined ? undefined : explicitVitestConfig(root, options.vitestConfig);
+	if (typeof explicitConfig === "object") return { ok: false, reasons: [explicitConfig.reason] };
+	const configPath = resolveVitestConfig(root, explicitConfig);
 	const vitestArgs = configPath !== null ? ["--config", configPath] : [];
 	const warnings: string[] = [];
 	// Read through a call each time: the signal flips during the awaits below (TypeScript would narrow a field read).
 	const interrupted = (): boolean => options.signal?.aborted === true;
+	const hoist = options.runner ? undefined : hoistLayout(root);
 	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun & { dir: string }> => {
 		if (interrupted()) throw new ProofInterrupted();
 		// Speed (docs/reviews/kill-proof-performance.md): the regular-file copies are issued 64 at a time; the tree is
 		// identical to the synchronous copy. Each copy is removed before the next stage starts.
-		const copy = await createProjectCopyAsync(root, files, new Map());
+		const copy = await createProjectCopyAsync(root, files, new Map(), hoist);
 		try {
 			const sizeWarning = copySizeWarning(copy.bytes);
 			if (sizeWarning !== null && !warnings.includes(sizeWarning)) warnings.push(sizeWarning);
@@ -482,7 +434,7 @@ export async function proveResolved(context: ProofContext, mutant: ResolvedMutan
 	const { root, tests, warnings } = context;
 	const site = mutantSite(context, mutant);
 	if ("ok" in site) return site;
-	const parse = mutantParses(mutant.file, site.mutated);
+	const parse = mutantParses(mutant.file, site.mutated, site.content);
 
 	const baseline = await context.baseline();
 	const baseProblem = baselineProblems(tests, baseline);

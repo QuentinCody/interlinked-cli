@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { VitestRun } from "../fail-before-fix/index.js";
-import { killedByOwnCheck, mutantParses, proveKill } from "./run.js";
+import { mutantParses } from "./proof-preconditions.js";
+import { killedByOwnCheck, proveKill } from "./run.js";
 
 const SOURCE = "export function clamp(n: number, max: number): number {\n\treturn n > max ? max : n;\n}\n";
 const TEST = "import { clamp } from './clamp.js';\nit('caps', () => { expect(clamp(5, 3)).toBe(3); });\n";
@@ -53,13 +54,15 @@ describe("killedByOwnCheck — boundary of the snapshot-mismatch rule", () => {
 });
 
 describe("mutantParses — JSX in a non-JSX dialect", () => {
-	// test-contract: invariant - JSX in a .js file is a compile error in that dialect, so the proof refuses to run it (review L6 / round 3 N12)
+	// test-contract: invariant - JSX INTRODUCED into a JSX-free .js file is a compile error in that dialect, so the proof refuses to run it (review L6 / round 3 N12; introduced-only since round 4 layouts M1)
 	it("refuses JSX written into a .js file and accepts it in .tsx", () => {
-		const js = mutantParses("src/a.js", "export const a = <div />;\n");
+		const js = mutantParses("src/a.js", "export const a = <div />;\n", "export const a = 1;\n");
 		expect(js).not.toBeNull();
 		expect(js?.ok).toBe(false);
-		expect(js && !js.ok ? js.reason : "").toContain("contains JSX, which .js files cannot hold");
-		expect(mutantParses("src/a.tsx", "export const a = <div />;\n")).toEqual({ ok: true });
+		expect(js && !js.ok ? js.reason : "").toContain("introduces JSX, which .js files cannot hold");
+		expect(mutantParses("src/a.tsx", "export const a = <div />;\n", "export const a = 1;\n")).toEqual({ ok: true });
+		// A .js file that already held JSX (the project's vitest transforms it) is proven like any other.
+		expect(mutantParses("src/a.js", "export const a = <em />;\n", "export const a = <div />;\n")).toEqual({ ok: true });
 	});
 });
 

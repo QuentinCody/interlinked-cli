@@ -177,6 +177,32 @@ function caseRow(file: string, absolute: string, item: unknown, causes: CauseRow
     return row;
 }
 
+/** The first lines of a text, at most `max` characters, with an ellipsis when cut. */
+function head(text: string, lines: number, max: number): string {
+    const cut = text.trim().split("\n").slice(0, lines).join("\n");
+    return cut.length <= max ? cut : `${cut.slice(0, max - 1)}…`;
+}
+
+/**
+ * The SUITE-level failure of each file that reported no executed case (kill-proof review round 4 layouts, M6): a
+ * load error — an unresolvable import, a syntax error the transformer rejects, `require("vitest")` under CJS —
+ * lands in `testResults[].message` with an empty `assertionResults`, which `parseVitestReport` cannot show as a
+ * row. Keyed by project-relative file; the message is vitest's own first lines.
+ */
+export function parseVitestSuiteFailures(text: string, root: string): Map<string, string> {
+    const out = new Map<string, string>();
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { return out; }
+    if (!isJsonObject(parsed) || !Array.isArray(parsed.testResults)) return out;
+    for (const result of parsed.testResults) {
+        if (!isJsonObject(result) || typeof result.name !== "string" || !Array.isArray(result.assertionResults) || result.assertionResults.length > 0) continue;
+        if (typeof result.message !== "string" || result.message.trim() === "") continue;
+        const absolute = isAbsolute(result.name) ? result.name : join(root, result.name);
+        out.set(relative(root, absolute), head(result.message, 3, 600));
+    }
+    return out;
+}
+
 /** Per-test rows from vitest's JSON reporter; anything that is not that report yields no rows (no evidence).
  *  `causes` (the sidecar `cause-reporter.ts` wrote, keyed by the report's absolute file name) supplies what each failure wrapped. */
 export function parseVitestReport(text: string, root: string, causes?: CauseRows): VitestCase[] {

@@ -19,7 +19,7 @@ function row(id: string, line: number, verdict: KillProofReceipt["verdict"], cas
 		version: 1, id: id.slice(0, 16), digest: "0".repeat(64), verdict, reasons: verdict === "survived" ? ["2 case(s) passed with the mutant applied — these tests do not detect it"] : [], provedAt: "2026-11-05T00:00:00.000Z", root: "/repo",
 		source: { path: FILE, sha256: "a" }, mutant: mutant(id, line, lexeme, replacement), tests: [{ path: TEST, sha256: "b" }], boundImports: [], killedTests: verdict === "killed" ? [TEST] : [],
 		baseline: { cases: 2, durationMs: 900 }, underMutant: { durationMs: 700, timedOut: false, cases },
-		environment: { node: "v22.0.0", vitest: "4.0.0", platform: "linux", config: null, setupFiles: [] },
+		environment: { node: "v22.0.0", vitest: "4.0.0", platform: "linux", config: null, setupFiles: [], configFiles: [], unresolvable: [] },
 	};
 	return { ok: true, receipt, receiptPath: `/repo/.interlinked/test-runs/kill-proofs/${id}.json`, mutantId: id };
 }

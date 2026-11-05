@@ -60,7 +60,7 @@ function reversed(value: unknown): unknown {
 }
 
 const MUTANT: ResolvedMutant = { file: "src/clamp.ts", offset: 64, originalLexeme: "n > max", replacement: "n >= max", line: 2, source: "explicit" };
-const ENV = { node: "v22.0.0", vitest: "4.0.0", platform: "linux-x64", config: null, setupFiles: [] };
+const ENV = { node: "v22.0.0", vitest: "4.0.0", platform: "linux-x64", config: null, configFiles: [], setupFiles: [], unresolvable: [] };
 const HASHED = { source: { path: "src/clamp.ts", sha256: "a" }, tests: [{ path: TEST_FILE, sha256: "b" }], boundImports: [], environment: ENV };
 
 describe("receiptId — the binding covers the whole mutant", () => {
