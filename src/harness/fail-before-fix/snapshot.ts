@@ -6,7 +6,7 @@
 // caches) is never copied: the coverage overlay copies it, which costs gigabytes on this repository.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -41,7 +41,9 @@ function copyEntry(root: string, dir: string, rel: string): void {
     if (!link && !existsSync(source)) return; // a tracked file deleted in the working tree
     mkdirSync(dirname(target), { recursive: true });
     if (link) symlinkSync(readlinkSync(source), target);
-    else if (lstatSync(source).isFile()) copyFileSync(source, target);
+    // COPYFILE_FICLONE: a copy-on-write clone where the file system offers one (APFS, btrfs, XFS reflink);
+    // elsewhere Node falls back to a byte copy. A proof copies the whole git-visible tree twice per run.
+    else if (lstatSync(source).isFile()) copyFileSync(source, target, constants.COPYFILE_FICLONE);
 }
 
 function applyOverrides(dir: string, overrides: ReadonlyMap<string, string | null>): void {
