@@ -1,0 +1,226 @@
+{
+ "version": 1,
+ "faults": [
+  {
+   "id": "ultrahtml-01",
+   "path": "src/index.ts",
+   "find": "\t'&': '&amp;',",
+   "replace": "\t'&': '&',",
+   "rationale": "wrong value in escape table",
+   "requirement": {
+    "id": "escape-amp",
+    "text": "html`` escapes & in interpolated strings"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "ultrahtml-02",
+   "path": "src/index.ts",
+   "find": "\t\tattrStr += ` ${key}=\"${value}\"`;",
+   "replace": "\t\tattrStr += ` ${key}=${value}`;",
+   "rationale": "dropped quoting",
+   "requirement": {
+    "id": "attr-quote",
+    "text": "rendered attribute values are double-quoted"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts",
+    "test/jsx.test.tsx"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "ultrahtml-03",
+   "path": "src/index.ts",
+   "find": "for (let currentIndex = 0; currentIndex < str.length; currentIndex++) {",
+   "replace": "for (let currentIndex = 1; currentIndex < str.length; currentIndex++) {",
+   "rationale": "off-by-one",
+   "requirement": {
+    "id": "attr-first-char",
+    "text": "attribute names are parsed from their first character"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "ultrahtml-04",
+   "path": "src/index.ts",
+   "find": "\t\t\t\t\t\tstate = 'value';\n\t\t\t\t\t} else {\n\t\t\t\t\t\tstate = 'none';",
+   "replace": "\t\t\t\t\t\tstate = 'none';\n\t\t\t\t\t} else {\n\t\t\t\t\t\tstate = 'none';",
+   "rationale": "dropped branch",
+   "requirement": {
+    "id": "attr-value",
+    "text": "key=\"value\" attributes keep their value"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "ultrahtml-05",
+   "path": "src/index.ts",
+   "find": "\t\t\tif (n.name === 'svg') return true;",
+   "replace": "\t\t\tif (n.name === 'svg') return false;",
+   "rationale": "flipped return",
+   "requirement": {
+    "id": "svg-self-close",
+    "text": "empty elements inside svg render self-closed"
+   },
+   "tests": [
+    "test/svg.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "ultrahtml-06",
+   "path": "src/index.ts",
+   "find": "\t'wbr',\n]);",
+   "replace": "]);",
+   "rationale": "dropped set member (weakly tested tags may survive)",
+   "requirement": {
+    "id": "void-wbr",
+    "text": "wbr is a void tag"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "ultrahtml-07",
+   "path": "src/index.ts",
+   "find": "\t\t} else if (expr || expr === 0) {",
+   "replace": "\t\t} else if (expr) {",
+   "rationale": "dropped disjunct",
+   "requirement": {
+    "id": "html-zero",
+    "text": "html`` renders the number 0"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "ultrahtml-08",
+   "path": "src/index.ts",
+   "find": "\t\t\treturn `<!--${node.value}-->`;\n\t\tcase DOCTYPE_NODE:\n\t\t\treturn `<!${node.value}>`;\n\t}\n}\n\nexport async function render",
+   "replace": "\t\t\treturn `<!-${node.value}-->`;\n\t\tcase DOCTYPE_NODE:\n\t\t\treturn `<!${node.value}>`;\n\t}\n}\n\nexport async function render",
+   "rationale": "wrong literal",
+   "requirement": {
+    "id": "comment-render-sync",
+    "text": "renderSync keeps comments"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "ultrahtml-09",
+   "path": "src/index.ts",
+   "find": "const CHAR_AT = 64; // @",
+   "replace": "const CHAR_AT = 64; // at-sign",
+   "rationale": "comment change",
+   "requirement": {
+    "id": "comment",
+    "text": "comment-only change"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "ultrahtml-10",
+   "path": "src/index.ts",
+   "find": "const quote = currentChar === CHAR_DOUBLE_QUOTE ? '\"' : \"'\";",
+   "replace": "const quote = currentChar !== CHAR_DOUBLE_QUOTE ? \"'\" : '\"';",
+   "rationale": "equivalent rewrite",
+   "requirement": {
+    "id": "equiv-quote",
+    "text": "same quote selected"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "ultrahtml-11",
+   "path": "src/index.ts",
+   "find": "const HTMLString = Symbol('HTMLString');\nconst AttrString = Symbol('AttrString');",
+   "replace": "const AttrString = Symbol('AttrString');\nconst HTMLString = Symbol('HTMLString');",
+   "rationale": "reorder of independent declarations",
+   "requirement": {
+    "id": "reorder",
+    "text": "independent declarations reordered"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "ultrahtml-12",
+   "path": "src/index.ts",
+   "find": "export const DOCUMENT_NODE = 0;",
+   "replace": "throw new Error('fault: index throws at import');\nexport const DOCUMENT_NODE = 0;",
+   "rationale": "module throws at import",
+   "requirement": {
+    "id": "load",
+    "text": "module loads"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  },
+  {
+   "id": "ultrahtml-13",
+   "path": "src/index.ts",
+   "find": "export function parse(input: string | ReturnType<typeof html>): any {",
+   "replace": "function parse(input: string | ReturnType<typeof html>): any {",
+   "rationale": "exported function removed while tests import it",
+   "requirement": {
+    "id": "export",
+    "text": "parse is exported"
+   },
+   "tests": [
+    "test/basic.test.ts",
+    "test/html.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  }
+ ]
+}

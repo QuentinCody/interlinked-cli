@@ -1,0 +1,213 @@
+{
+ "version": 1,
+ "faults": [
+  {
+   "id": "is-what-01",
+   "path": "src/isPositiveNumber.ts",
+   "find": "payload > 0",
+   "replace": "payload >= 0",
+   "rationale": "boundary: > to >=",
+   "requirement": {
+    "id": "positive",
+    "text": "0 is not a positive number"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "is-what-02",
+   "path": "src/isNegativeNumber.ts",
+   "find": "payload < 0",
+   "replace": "payload > 0",
+   "rationale": "flipped comparison",
+   "requirement": {
+    "id": "negative",
+    "text": "isNegativeNumber is true only below zero"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "is-what-03",
+   "path": "src/isNumber.ts",
+   "find": " && !Number.isNaN(payload as number)",
+   "replace": "",
+   "rationale": "dropped guard",
+   "requirement": {
+    "id": "nan-not-number",
+    "text": "NaN is not a number"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "is-what-04",
+   "path": "src/isFullArray.ts",
+   "find": "payload.length > 0",
+   "replace": "payload.length > 1",
+   "rationale": "off-by-one",
+   "requirement": {
+    "id": "full-array",
+    "text": "a one-element array is full"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "is-what-05",
+   "path": "src/isPlainObject.ts",
+   "find": "if (getType(payload) !== 'Object') return false",
+   "replace": "if (getType(payload) === 'Array') return false",
+   "rationale": "weakened guard",
+   "requirement": {
+    "id": "plain-object",
+    "text": "only Object-tagged values are plain objects"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "is-what-06",
+   "path": "src/isHexDecimal.ts",
+   "find": "return length === undefined || payload.length === length",
+   "replace": "return length === undefined || payload.length >= length",
+   "rationale": "comparison weakened",
+   "requirement": {
+    "id": "hex-length",
+    "text": "a hex string with the wrong length is rejected"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "is-what-07",
+   "path": "src/isDate.ts",
+   "find": " && !Number.isNaN((payload as Date).valueOf())",
+   "replace": "",
+   "rationale": "dropped guard",
+   "requirement": {
+    "id": "invalid-date",
+    "text": "an Invalid Date is not a date"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "is-what-08",
+   "path": "src/isPrimitive.ts",
+   "find": "    isNull(payload) ||\n",
+   "replace": "",
+   "rationale": "dropped branch",
+   "requirement": {
+    "id": "primitive-null",
+    "text": "null is a primitive"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "killed"
+  },
+  {
+   "id": "is-what-09",
+   "path": "src/isEmptyString.ts",
+   "find": "export function isEmptyString",
+   "replace": "// is-what: true only for ''\nexport function isEmptyString",
+   "rationale": "comment change",
+   "requirement": {
+    "id": "comment",
+    "text": "comment-only change"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "is-what-10",
+   "path": "src/isFullObject.ts",
+   "find": "Object.keys(payload).length > 0",
+   "replace": "Object.keys(payload).length !== 0",
+   "rationale": "equivalent rewrite",
+   "requirement": {
+    "id": "equiv-full-object",
+    "text": "length is never negative"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "is-what-11",
+   "path": "src/isPrimitive.ts",
+   "find": "import { isBigInt } from './isBigInt.js'\nimport { isBoolean } from './isBoolean.js'",
+   "replace": "import { isBoolean } from './isBoolean.js'\nimport { isBigInt } from './isBigInt.js'",
+   "rationale": "reorder of independent declarations",
+   "requirement": {
+    "id": "reorder",
+    "text": "independent imports reordered"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "survived"
+  },
+  {
+   "id": "is-what-12",
+   "path": "src/isNumber.ts",
+   "find": "import { getType } from './getType.js'",
+   "replace": "import { getType } from './getType.js'\nthrow new Error('fault: isNumber throws at import')",
+   "rationale": "module throws at import",
+   "requirement": {
+    "id": "load",
+    "text": "module loads"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  },
+  {
+   "id": "is-what-13",
+   "path": "src/isNaNValue.ts",
+   "find": "export function isNaNValue(",
+   "replace": "function isNaNValue(",
+   "rationale": "exported function removed (index re-exports it)",
+   "requirement": {
+    "id": "export",
+    "text": "isNaNValue is exported"
+   },
+   "tests": [
+    "test/index.test.ts"
+   ],
+   "origin": "authored",
+   "expected": "inconclusive"
+  }
+ ]
+}
