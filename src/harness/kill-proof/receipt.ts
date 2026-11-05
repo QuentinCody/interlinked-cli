@@ -24,6 +24,7 @@ import { isAbsolute, join, relative } from "node:path";
 import { withFileMutationLock } from "../../lib/file-mutation-lock.js";
 import { isJsonObject } from "../../lib/json-types.js";
 import { lineTextAt, relocate } from "./resolve.js";
+import { type CaseRequirement, requirementCovered, requirementLabel } from "./source-cases.js";
 import type { BoundImport, CaseOutcome, Freshness, HashedFile, KillProofReceipt, ProofEnvironment, ResolvedMutant } from "./types.js";
 
 export const KILL_PROOFS_DIR = ".interlinked/test-runs/kill-proofs";
@@ -339,8 +340,21 @@ export function bytesFresh(root: string, row: Pick<KillProofIndexRow, "source" |
 	return [...hashMismatches(root, [row.source], "source"), ...hashMismatches(root, row.tests, "test"), ...hashMismatches(root, row.boundImports ?? [], "helper")];
 }
 
-function environmentReasons(root: string, recorded: ProofEnvironment): string[] {
-	const env = captureEnvironment(root, recorded.config?.path), reasons: string[] = [];
+/** Per-call memo of `captureEnvironment` by config path (review M10: one createRequire + config hash per call, not per receipt). */
+export type EnvironmentCache = Map<string, ProofEnvironment>;
+
+function currentEnvironment(root: string, configPath: string | undefined, cache: EnvironmentCache | undefined): ProofEnvironment {
+	if (cache === undefined) return captureEnvironment(root, configPath);
+	const key = configPath ?? "";
+	const known = cache.get(key);
+	if (known !== undefined) return known;
+	const env = captureEnvironment(root, configPath);
+	cache.set(key, env);
+	return env;
+}
+
+function environmentReasons(root: string, recorded: ProofEnvironment, cache?: EnvironmentCache): string[] {
+	const env = currentEnvironment(root, recorded.config?.path, cache), reasons: string[] = [];
 	reasons.push(...hashMismatches(root, recorded.setupFiles, "setup file"));
 	for (const file of env.setupFiles) if (!recorded.setupFiles.some(known => known.path === file.path)) reasons.push(`setup file ${file.path} was added to the config since the proof`);
 	if (env.node !== recorded.node) reasons.push(`node ${recorded.node} → ${env.node}`);
@@ -398,26 +412,32 @@ export function uncommittedPaths(root: string, paths: readonly string[]): string
 	}
 }
 
-/** The case titles (after ` › `) a receipt records as killed for one test file. */
+/** Every recorded case of one test file, name (after ` › `) and verdict, in report order; a duplicated full name yields one row per case. */
+export function caseRowsForTest(receipt: KillProofReceipt, testPath: string): Array<{ name: string; verdict: CaseOutcome["verdict"] }> {
+	const head = `${testPath} › `;
+	return receipt.underMutant.cases.filter(row => row.test.startsWith(head)).map(row => ({ name: row.test.slice(head.length), verdict: row.verdict }));
+}
+
+/** The case names (after ` › `) a receipt records as killed for one test file. */
 export function killedCaseNames(receipt: KillProofReceipt, testPath: string): string[] {
-	return receipt.underMutant.cases.filter(row => row.verdict === "killed" && row.test.startsWith(`${testPath} › `)).map(row => row.test.slice(testPath.length + 3));
+	return caseRowsForTest(receipt, testPath).filter(row => row.verdict === "killed").map(row => row.name);
 }
 
 export type Certification = { certified: true; receipt: KillProofReceipt } | { certified: false; receipt: KillProofReceipt | null; reasons: string[]; uncovered?: string[] };
 
-/** A killed case's full name (vitest joins describe blocks with spaces) ends with the case title. */
-export function caseNameMatches(name: string, title: string): boolean {
-	return name === title || name.endsWith(` ${title}`) || name.endsWith(` > ${title}`);
-}
+/** A bare string is an EXACT vitest full name (review M2: never a suffix). */
+export const asRequirement = (item: string | CaseRequirement): CaseRequirement => (typeof item === "string" ? { kind: "exact", name: item } : item);
 
 /**
  * Does receipt `id` certify `testPath` NOW? Read from the receipt FILE: integrity,
  * verdict `killed` through this file, the source and THIS test file's bytes, the
- * helpers THIS test file imports, the runtime (review K2, K11, K13). With `requireCases` (the newly added case titles), EVERY
- * one of them must be a killed case — an old strong case, or one strong new case,
- * never certifies another new case that killed nothing (reviews K4, L3).
+ * helpers THIS test file imports, the runtime (review K2, K11, K13). With `requireCases` (the newly added cases), EVERY
+ * one of them must be covered — exactly by full name, or as a prefix family — with every
+ * recorded case of that name killed (`source-cases.ts requirementCovered`): an old strong
+ * case, one strong new case, or a strong twin of a weak duplicate never certifies a case
+ * that killed nothing (reviews K4, L3, M2, M3).
  */
-export function receiptCertifies(root: string, id: string, testPath: string, requireCases?: readonly string[]): Certification {
+export function receiptCertifies(root: string, id: string, testPath: string, requireCases?: ReadonlyArray<string | CaseRequirement>, envCache?: EnvironmentCache): Certification {
 	const receipt = readKillProof(root, id);
 	if (receipt === null) return { certified: false, receipt: null, reasons: ["receipt file missing or unreadable"] };
 	const reasons = [...integrityReasons(root, receipt)];
@@ -425,20 +445,22 @@ export function receiptCertifies(root: string, id: string, testPath: string, req
 	const own = receipt.tests.filter(test => test.path === testPath);
 	if (own.length === 0) reasons.push(`receipt does not name ${testPath}`);
 	const helpers = receipt.boundImports.filter(file => file.importedBy.includes(testPath));
-	reasons.push(...hashMismatches(root, [receipt.source], "source"), ...hashMismatches(root, own, "test"), ...hashMismatches(root, helpers, "helper"), ...environmentReasons(root, receipt.environment));
+	reasons.push(...hashMismatches(root, [receipt.source], "source"), ...hashMismatches(root, own, "test"), ...hashMismatches(root, helpers, "helper"), ...environmentReasons(root, receipt.environment, envCache));
 	let uncovered: string[] = [];
 	if (requireCases !== undefined && requireCases.length > 0) {
-		const killed = killedCaseNames(receipt, testPath);
-		uncovered = requireCases.filter(title => !killed.some(name => caseNameMatches(name, title)));
+		const rows = caseRowsForTest(receipt, testPath);
+		uncovered = requireCases.map(asRequirement).filter(req => !requirementCovered(req, rows)).map(requirementLabel);
 		if (uncovered.length) reasons.push(`newly added case(s) not among this receipt's killed cases: ${uncovered.join(", ")}`);
 	}
 	return reasons.length === 0 ? { certified: true, receipt } : { certified: false, receipt, reasons, ...(uncovered.length ? { uncovered } : {}) };
 }
 
 /** Receipts that certify `testPath` now (see `receiptCertifies`). The Stop check's and the nudge's whole question. */
-export function freshKillsForTest(root: string, testPath: string, requireCases?: readonly string[]): KillProofReceipt[] {
-	return readKillProofIndex(root).receipts.flatMap(row => {
-		const result = receiptCertifies(root, row.id, testPath, requireCases);
+export function freshKillsForTest(root: string, testPath: string, requireCases?: ReadonlyArray<string | CaseRequirement>): KillProofReceipt[] {
+	// Only rows naming this test file are read (review M10): the index is the locator, the receipt file the record.
+	const envCache: EnvironmentCache = new Map();
+	return readKillProofIndex(root).receipts.filter(row => row.tests.some(test => test.path === testPath)).flatMap(row => {
+		const result = receiptCertifies(root, row.id, testPath, requireCases, envCache);
 		return result.certified ? [result.receipt] : [];
 	});
 }
