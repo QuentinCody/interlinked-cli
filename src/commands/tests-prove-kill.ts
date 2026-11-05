@@ -4,7 +4,8 @@
 // prove-kill: one mutant (a manifest survivor by id, or an explicit --find/--replace
 // fault), the tests that claim to catch it, local execution, a receipt. Exit 0 only
 // for `killed`; 1 for `survived` or `not-passing-now`; 2 when nothing could be
-// decided (`inconclusive`, `unavailable`, bad arguments).
+// decided (`inconclusive`, `unavailable`, bad arguments). `--all-survivors` proves
+// every manifest survivor of --file in one command (`tests-prove-kill-batch.ts`).
 // kill-proofs: list the receipts and, with --verify, say which still apply to the
 // bytes on disk.
 
@@ -102,7 +103,13 @@ export function renderProveKill(result: ProveKillResult): string {
 	return lines.join("\n");
 }
 
-export async function testsProveKillCommand(options: ProveKillCliOptions): Promise<void> {
+export async function testsProveKillCommand(options: ProveKillCliOptions & { allSurvivors?: boolean; max?: string }): Promise<void> {
+	// The batch loop (every manifest survivor of --file, one shared baseline) lives in its own module; a lazy import keeps the two from importing each other.
+	if (options.allSurvivors === true || options.max !== undefined) {
+		const { testsProveKillBatchCommand } = await import("./tests-prove-kill-batch.js");
+		await testsProveKillBatchCommand(options);
+		return;
+	}
 	const mode = getOutputMode(options);
 	const spec = specFromOptions(options);
 	if (typeof spec === "string") { outputError(mode, spec); process.exitCode = PROVE_KILL_EXIT.undecided; return; }

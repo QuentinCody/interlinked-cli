@@ -141,14 +141,17 @@ function registerFaults(tests: Command): void {
 /** Mutation-grounded test proof: one mutant, the tests that claim to catch it, local execution, a receipt. */
 function registerKillProof(tests: Command): void {
     tests.command("prove-kill")
-        .description("Prove that the named tests pass now and fail under ONE mutant: a manifest survivor (--mutant) or an explicit fault (--file/--find/--replace). A killed proof writes a receipt bound to the source, test and runtime bytes.")
+        .description("Prove that the named tests pass now and fail under ONE mutant: a manifest survivor (--mutant) or an explicit fault (--file/--find/--replace); or under EVERY manifest survivor of --file (--all-survivors, one shared baseline). A killed proof writes a receipt bound to the source, test and runtime bytes.")
         .option("--test <file>", "Test file that must catch the mutant; repeat for more files", (value: string, previous: string[] = []) => [...previous, value])
         .option("--mutant <id>", "16-hex mutant id from the mutation manifest (list: interlinked mutation survivors --file <src>)")
-        .option("--file <path>", "Source file to mutate; required for an explicit fault, narrows --mutant")
+        .option("--file <path>", "Source file to mutate; required for an explicit fault and for --all-survivors, narrows --mutant")
         .option("--find <text>", "Explicit fault: text that occurs exactly once in --file")
         .option("--replace <text>", "Explicit fault: the text that replaces --find")
+        .option("--all-survivors", "Prove every open manifest survivor of --file: one baseline, one mutant copy and one receipt each, a table and a k/s/i/u summary")
+        // No commander default: a defined `max` is how the command tells "--max was passed" (a default made every single-mutant run a batch request).
+        .option("--max <n>", "With --all-survivors: run at most n survivors (source order; default 50) and say how many were skipped")
         .option("--run-timeout <ms>", "Budget in ms for EACH vitest run (baseline, mutant, then repeat or canary copies)", "300000")
-        .option("--timeout <ms>", "Whole-command deadline in ms, enforced by the CLI supervisor (exit 75 when it passes; default 3600000, the maximum)")
+        .option("--timeout <ms>", "Whole-command deadline in ms, enforced by the CLI supervisor (exit 75 when it passes; default 3600000, the maximum); with --all-survivors it bounds the whole batch")
         .option("--vitest-config <file>", "vitest config to run with (default: the --config in scripts.test, else vitest's own discovery)")
         .option("--cwd <path>", "Project root (default: the current directory)")
         .option("--json", "Machine-readable result")
@@ -157,8 +160,11 @@ Examples:
   interlinked tests prove-kill --test test/clamp.test.ts --file src/math.ts \\
     --find 'if (value > max) return max;' --replace 'if (value > max) return value;'
   interlinked tests prove-kill --test src/a.test.ts --mutant 575ddae6cc2946f9
+  interlinked tests prove-kill --file src/a.ts --test src/a.mutation-kill.test.ts --all-survivors
 
 Exit codes: 0 killed; 1 survived or not-passing-now; 2 inconclusive, unavailable or a bad argument.
+With --all-survivors: 0 only when every survivor that ran is killed; 1 when any survived or a test is
+not-passing-now; 2 when nothing could run (no manifest, file not measured, no open survivor).
 Guide: docs/mutation-grounded-test-proof.md`)
         // A usage error (unknown option, missing value) exits 2 like every other undecided run — never 1, which a
         // caller reads as "survived" (kill-proof review round 4, M7). --help keeps exit 0.
