@@ -1828,7 +1828,16 @@ every runner, and the Stop check (`mutation-kill-evidence-stop-check.ts`) accept
 a receipt only when EVERY newly added case title (file grew; literal titles) is
 among its killed cases, and the nudge applies the same rule against HEAD; Write/
 Edit under `.interlinked/test-runs/kill-proofs/` are refused (`protected_files`);
-`mutation survivors --file` names the command. Measured 2026-11-04:
+`mutation survivors --file` names the command. `--all-survivors` (2026-11-05,
+`kill-proof/batch.ts`, `commands/tests-prove-kill-batch.ts`) proves every open
+manifest survivor of `--file` in one command against ONE shared baseline copy
+(canary/control shared per file, kill repeats still per mutant; `run.ts
+openProofContext` + `proveResolved` are the one verdict path, pinned batch ==
+single), one receipt per mutant, a table and `k killed / s survived / i
+inconclusive / u unavailable of n`; exit 0 only when every row killed, `--max`
+(default 50) caps it; the nudge and the Stop check print this form when the
+survivors sidecar knows > 1 survivor of the companion source
+(`kill-proof/prove-command.ts`). Measured 2026-11-04:
 three adversarial rounds plus a git/platform round (`docs/reviews/kill-proof-review-round{2,3}.md`,
 `kill-proof-git-edge-cases.md`, `kill-proof-review-round4-runner.md`: every reproduced false-pass fixed and pinned by
 `review-regressions-{round2,round3,git,round4-runner}.test.ts`; policy todos: byte-level receipt

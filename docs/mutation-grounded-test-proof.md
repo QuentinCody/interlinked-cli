@@ -37,6 +37,37 @@ A manifest survivor works the same way by id (list ids with
 `interlinked mutation survivors --file <src>`):
 `interlinked tests prove-kill --test src/harness/server/anti-stomp.test.ts --mutant 575ddae6cc2946f9`.
 
+Every survivor of a file at once — the batch loop. One baseline run is shared
+by every mutant (the unmutated copy is identical for all of them), then one
+mutant copy per survivor, one receipt each, and a table:
+
+```console
+$ interlinked tests prove-kill --file src/harness/recurrence-time.ts \
+    --test src/harness/recurrence-time.mutation-kill.test.ts --test src/harness/recurrence-time.test.ts --all-survivors
+file: src/harness/recurrence-time.ts (9 open survivor(s) in the manifest, generation 1; 9 run)
+tests: src/harness/recurrence-time.mutation-kill.test.ts, src/harness/recurrence-time.test.ts (11 case(s) pass in the isolated copy, 912 ms, shared by every mutant)
+  mutant             line  mutation                                                                 verdict          killed cases
+  3f05efd38cd5e4af     16  "SECONDS_PER_MINUTE * MS_PER_SECO… → "SECONDS_PER_MINUTE / MS_PER_SECO…  SURVIVED         none — every case still passes
+  532dcc0c1ccefed5     24  "/^\\s*(\\d+)\\s*([smhdw])\\s*$/i" → "/^\\s*(\\d+)\\s*([smhdw])\\s*/i"   SURVIVED         none — every case still passes
+  …
+  80af77afb7085336     67  "ms > lastMs" → "ms >= lastMs"                                           SURVIVED         none — every case still passes
+summary: 0 killed / 9 survived / 0 inconclusive / 0 unavailable of 9 (45.6 s)
+9 survivor(s) still pass these tests. Assert the value each surviving line changes, then re-run the same command.
+```
+
+(Measured 2026-11-05 on this repo against a fresh Stryker manifest: the nine
+survivors Stryker left under the same two test files all survive the proof
+too, as they must. The batch took 63 s wall; the same nine as single `--mutant`
+runs took 99 s, with identical receipt ids and verdicts.)
+
+Exit 0 only when every survivor that ran is killed; 1 when any survived or a
+test is not-passing-now; 2 when nothing could run (no manifest, the file is
+not measured, no open survivor). `--max <n>` (default 50) caps the batch in
+source order and the summary says how many were skipped. `--json` returns
+`{file, tests, survivors, skipped, results: [...per-mutant results, each with
+its mutantId...], summary, elapsedMs}`; each entry in `results` is exactly
+what the single-mutant command returns for that id.
+
 Reading the verdict (add `--json` for a machine-readable result). The last line
 of the human output always says what to do next.
 
@@ -80,6 +111,9 @@ interlinked tests prove-kill --file src/defu.ts \
   --replace 'if (value === undefined) {' \
   --test test/defu.test.ts
 
+# Every open manifest survivor of one file: one shared baseline, one receipt per mutant, a table
+interlinked tests prove-kill --file src/defu.ts --test test/defu.test.ts --all-survivors [--max 20]
+
 # Machine-readable
 interlinked tests prove-kill ... --json
 
@@ -89,7 +123,8 @@ interlinked tests kill-proofs --verify   # re-hash, re-resolve, exit 1 if any re
 ```
 
 `--test` is repeatable. `--run-timeout <ms>` bounds EACH vitest run (the baseline
-copy, the mutant copy, then the repeat or canary copies; default 300000).
+copy, the mutant copy, then the repeat or canary copies; default 300000) — in a
+batch too, per run, while `--timeout` bounds the whole batch.
 `--vitest-config <file>` passes a config to vitest; without it the `--config`
 that `scripts.test` names is used, else vitest's own discovery. `--timeout <ms>`
 is a different flag: the CLI's resource supervisor reads it as the whole
@@ -154,7 +189,14 @@ tracked files slow every proof`, `warnings` in `--json`); it changes no verdict.
    copy — the canary plus every named test replaced by one trivial case — must
    pass. If the control breaks too, a `setupFiles` entry or the config loads
    the file, not the tests, and the run is `unavailable` with that reason.
-6. **Verdict per case**, then overall:
+6. **Verdict per case**, then overall. In a batch (`--all-survivors`) steps 1–5
+   run per survivor against ONE shared baseline (step 2 runs once; the canary
+   and control of step 5 run once per file); the per-mutant repeats of step 4
+   stay per mutant, so a kill is still pass, FAIL, pass, pass around that
+   mutant run. The work-list is the manifest's open survivors for the file —
+   `mutation survivors --file` semantics, dispositions applied; nothing is
+   inferred from the tree — in source order; a survivor that no longer
+   re-locates is an `unavailable` row, never skipped silently.
 
 | Verdict | Meaning | Exit |
 |---|---|---|
@@ -251,6 +293,13 @@ not a security boundary.
   and no git call (one directory probe). `--skip kill_proof_stale` keeps the
   listing and drops the finding.
 - `interlinked mutation survivors --file <src>` names the command.
+- **Which command the nudge and the Stop check print**: when the manifest's
+  survivors sidecar (`.interlinked/mutation-survivors-index.json`) knows more
+  than one survivor of the test file's companion source (`src/a.mutation-kill.test.ts`
+  → `src/a.ts`), both print the batch form, `interlinked tests prove-kill
+  --file <src> --test <test> --all-survivors`; with one or no known survivor,
+  or no sidecar, the single-mutant form. The choice changes only the printed
+  command, never when either surface fires (`kill-proof/prove-command.ts`).
 
 Stop-time warnings reach no agent as context on any runner (Claude Code, Codex,
 Factory Droid, Copilot, Gemini all put them on stderr with exit 0). The agent
