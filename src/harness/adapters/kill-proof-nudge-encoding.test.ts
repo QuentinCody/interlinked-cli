@@ -59,31 +59,40 @@ describe("PostToolUse warning [interlinked:kill-proof] — channel per runner", 
 		expect(out.stderr).toBeUndefined();
 	});
 
-	it("N1: factory-droid PostToolUse emits an empty JSON body; the warning is stderr only", () => {
+	// The three pins below were N1–N3 (stderr only) until 2026-11-05: the old
+	// encoders hid every PostToolUse warning from these models.
+	it("P7: factory-droid PostToolUse puts the warning in hookSpecificOutput.additionalContext (stderr copy kept)", () => {
 		const out = encode("factory-droid", "PostToolUse", warn(NUDGE!));
 		expect(out.exit_code).toBe(0);
-		expect(stdoutJson(out)).toEqual({});
-		expect(stdoutText(out)).not.toContain("kill-proof");
+		expect(stdoutJson(out)).toEqual({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: NUDGE } });
 		expect(out.stderr).toBe(NUDGE);
 	});
 
-	it("N2: copilot-cli postToolUse emits no stdout; the warning is stderr only", () => {
+	it("P8: copilot-cli postToolUse puts the warning in top-level additionalContext (stderr copy kept)", () => {
 		const out = encode("copilot-cli", "postToolUse", warn(NUDGE!));
 		expect(out.exit_code).toBe(0);
-		expect(out.stdout).toBeUndefined();
+		expect(stdoutJson(out)).toEqual({ additionalContext: NUDGE });
 		expect(out.stderr).toBe(NUDGE);
 	});
 
-	it("N3: gemini-cli AfterTool emits an empty JSON body; the warning is stderr only", () => {
+	it("P9: gemini-cli AfterTool puts the warning in hookSpecificOutput.additionalContext (stderr copy kept)", () => {
 		const out = encode("gemini-cli", "AfterTool", warn(NUDGE!));
 		expect(out.exit_code).toBe(0);
-		expect(stdoutJson(out)).toEqual({});
-		expect(stdoutText(out)).not.toContain("kill-proof");
+		expect(stdoutJson(out)).toEqual({ hookSpecificOutput: { hookEventName: "AfterTool", additionalContext: NUDGE } });
 		expect(out.stderr).toBe(NUDGE);
+	});
+
+	it.each([
+		["P10", "factory-droid", "PostToolUse"],
+		["P11", "copilot-cli", "postToolUse"],
+		["P12", "gemini-cli", "AfterTool"],
+	] as const)("%s: %s %s joins additional_context first, then warnings (Codex order)", (_label, runner, nativeEvent) => {
+		const out = encode(runner, nativeEvent, { decision: "allow", additional_context: "ctx-line", warnings: [NUDGE!, "second"] });
+		expect(stdoutText(out)).toContain(JSON.stringify(`ctx-line\n${NUDGE}\nsecond`));
 	});
 });
 
-describe("contrast: the same text as additional_context (not warnings) on the stderr-only runners", () => {
+describe("the same text as additional_context still reaches each context field", () => {
 	const ctx: HarnessDecision = { decision: "allow", additional_context: NUDGE! };
 
 	it("P3: factory-droid PostToolUse routes additional_context to hookSpecificOutput.additionalContext", () => {
@@ -114,14 +123,38 @@ describe("Stop warning [interlinked:mutation-kill-evidence] (advisory allow) —
 	});
 });
 
+describe("Stop-family warnings stay out of the context field on the runners that gained PostToolUse context", () => {
+	it.each([
+		["N10", "factory-droid", "SubagentStop"],
+		["N11", "copilot-cli", "subagentStop"],
+	] as const)("%s: %s %s keeps an advisory warning off stdout (stderr only)", (_label, runner, nativeEvent) => {
+		const out = encode(runner, nativeEvent, warn(STOP_LINE));
+		expect(out.exit_code).toBe(0);
+		expect(stdoutText(out)).not.toContain("mutation-kill-evidence");
+		expect(out.stderr).toBe(STOP_LINE);
+	});
+
+	it("N12: gemini-cli AfterAgent carries additional_context but never the Stop warning in additionalContext", () => {
+		const out = encode("gemini-cli", "AfterAgent", { decision: "allow", additional_context: "ctx-line", warnings: [STOP_LINE] });
+		expect(stdoutJson(out)).toEqual({ hookSpecificOutput: { hookEventName: "AfterAgent", additionalContext: "ctx-line" } });
+		expect(out.stderr).toBe(STOP_LINE);
+	});
+});
+
 describe("capability table agrees with the Stop encoders", () => {
 	it.each(["claude-code", "codex"] as const)("N9: %s Stop declares no model context and no catalog 'context' control", runner => {
 		const stop = getAdapter(runner)!.capabilities.events.find(row => row.name === "Stop");
 		expect(stop).toMatchObject({ model_context: false, controls: ["continue"] });
 	});
 
-	it.each(["claude-code", "codex"] as const)("P6: %s PostToolUse declares model context, backed by a catalog 'context' control", runner => {
-		const post = getAdapter(runner)!.capabilities.events.find(row => row.name === "PostToolUse");
+	it.each([
+		["claude-code", "PostToolUse"],
+		["codex", "PostToolUse"],
+		["factory-droid", "PostToolUse"],
+		["copilot-cli", "postToolUse"],
+		["gemini-cli", "AfterTool"],
+	] as const)("P6: %s %s declares model context, backed by a catalog 'context' control", (runner, nativeEvent) => {
+		const post = getAdapter(runner)!.capabilities.events.find(row => row.name === nativeEvent);
 		expect(post?.model_context).toBe(true);
 		expect(post?.controls).toContain("context");
 	});

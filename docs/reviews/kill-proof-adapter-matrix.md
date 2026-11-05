@@ -14,9 +14,9 @@ stdout JSON field the runner documents as model context, `N<n>` = stderr on exit
 |---|---|---|---|---|---|
 | Claude Code | stdout `hookSpecificOutput.additionalContext` (+ stderr copy) — P1 | yes (encoded) | stderr, exit 0 — N4 | no | unit-encoded |
 | Codex | stdout `hookSpecificOutput.additionalContext` — P2 | yes (encoded) | stderr, exit 0 — N5 | no | unit-encoded |
-| Factory Droid | stdout `{}`; text on stderr only — N1 | **no** | stderr, exit 0 — N6 | no | unit-encoded; declared, not runtime-verified (experimental) |
-| Copilot CLI | no stdout; text on stderr only — N2 | **no** | stderr, exit 0 — N7 | no | unit-encoded |
-| Gemini CLI | stdout `{}`; text on stderr only — N3 | **no** | stderr, exit 0 — N8 | no | unit-encoded |
+| Factory Droid | stdout `hookSpecificOutput.additionalContext` (+ stderr copy) — P7 (was N1) | yes (encoded) | stderr, exit 0 — N6, N10 (SubagentStop) | no | unit-encoded; declared, not runtime-verified (experimental) |
+| Copilot CLI | stdout top-level `additionalContext` (+ stderr copy) — P8 (was N2) | yes (encoded) | stderr, exit 0 — N7, N11 (subagentStop) | no | unit-encoded |
+| Gemini CLI | stdout `hookSpecificOutput.additionalContext` (+ stderr copy) — P9 (was N3) | yes (encoded) | stderr, exit 0 — N8, N12 (AfterAgent keeps `additional_context`, never the warning) | no | unit-encoded |
 
 No row is `runtime-verified`: the e2e lane (`src/e2e/fixture.ts`) drives only the Claude Code entry
 (`--runner claude-code`, `INTERLINKED_CLIENT=claude`) and its assertions read `stdout + stderr`
@@ -24,26 +24,24 @@ concatenated (e.g. `post-tool-reminders.e2e.test.ts:24`), so no e2e test disting
 and no e2e test exercises the kill-proof nudge. No real runner binary is ever executed;
 `hook-support-catalog.json` records `runtime_verified: false` for all four catalogued runners.
 
-## Why Factory / Copilot / Gemini drop the nudge
+## Factory / Copilot / Gemini: warnings now reach the context field (2026-11-05)
 
-Their encoders route only `additional_context` to the context field; `warnings` go to stderr:
-
-- Factory: `additional-client-decisions.ts:20-23` (`factoryDecision` reads `decision.additional_context`).
-- Copilot: `provider-decisions.ts:40-48` (`body.additionalContext = decision.additional_context`; warnings → stderr).
-- Gemini: `provider-decisions.ts:64-72` (same shape).
-
-The contrast cases P3–P5 show the same text carried as `additional_context` DOES reach each runner's
-context field. So the gap is the warnings→context mapping, not the native protocol: the catalog
-lists `context` for Copilot `postToolUse` and Gemini `AfterTool`. Changing that mapping is an encoder
-behaviour change (it would put every PostToolUse warning in model context on three runners) and was
-not made here — design decision for the owner.
+Before 2026-11-05 these three encoders routed only `additional_context` to the context field and
+`warnings` to stderr, so every PostToolUse warning was hidden from the model. They now share
+`postToolContextText` (`provider-decisions.ts`): on a `post-tool` event whose declared controls
+include `context`, the context payload is `[additional_context, warnings.join("\n")]` joined by
+newline — the same rule as Codex's `feedbackText`. The stderr copy is kept. Stop, SubagentStop and
+PreToolUse encoding is unchanged (N6–N8, N10–N12). No runner declares a size limit for the context
+field in this codebase, so nothing is truncated. P10–P12 pin the join order; P3–P5 still pin
+`additional_context` alone.
 
 ## Capability table
 
 `provider-capabilities.ts` declared `modelContext: true` for `Stop` on Claude Code and Codex while
 neither encoder uses a context channel at an advisory Stop and the catalog lists only `continue`
 for both. Fixed (two identical lines, one per runner) and pinned by N9; PostToolUse's
-`model_context: true` is pinned as backed by a catalog `context` control (P6).
+`model_context: true` is pinned as backed by a catalog `context` control (P6), now for all five
+runners (Copilot `postToolUse` and Gemini `AfterTool` gained `modelContext: true` with this change).
 
 Still over-claiming, not changed: `SubagentStop` on Claude Code and Codex (`modelContext: true`,
 catalog `continue` only; the encoders share the Stop path).
