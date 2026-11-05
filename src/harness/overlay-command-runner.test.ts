@@ -6,7 +6,7 @@
 // and drive it through `runArgvInOverlay` with real `node` subprocesses
 // against a real tmpdir overlay root).
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -175,5 +175,40 @@ describe("runArgvInOverlay — defaultSpawn (real subprocess)", () => {
 		expect(r.timedOut).toBe(false);
 		expect(r.error).toContain("failed to launch");
 		expect(r.error).toMatch(/null byte/i);
+	});
+});
+
+// ===========================================
+// process group (kill-proof review round 4, M6)
+// ===========================================
+describe("runArgvInOverlay — a timed-out child's whole process group is stopped (real subprocesses)", () => {
+	it("N1: a grandchild spawned by the timed-out child is dead when the run returns; no marker appears afterwards", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "overlay-group-"));
+		const marker = join(dir, "grandchild-ran");
+		try {
+			// parent: spawns a grandchild that writes a marker after 1.5 s, then idles; budget 300 ms → timeout
+			const grandchild = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran'), 1500)`;
+			const parent = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], { stdio: 'inherit' }); setTimeout(() => {}, 60000);`;
+			const started = Date.now();
+			const r = await runArgvInOverlay(["node", "-e", parent], dir, 300);
+			expect(r.timedOut).toBe(true);
+			expect(r.exitCode).toBeNull();
+			expect(Date.now() - started).toBeLessThan(5_000); // the group died on SIGTERM, well inside the SIGKILL grace
+			await new Promise((done) => setTimeout(done, 2_000));
+			expect(existsSync(marker)).toBe(false);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}, 15_000);
+
+	it("P1: a child that finishes inside its budget is unaffected (exit code, stdout, no error)", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "overlay-group-"));
+		try {
+			const r = await runArgvInOverlay(["node", "-e", "process.stdout.write('ok'); process.exit(0);"], dir, 10_000);
+			expect(r).toMatchObject({ exitCode: 0, stdout: "ok", timedOut: false });
+			expect(process.listenerCount("SIGINT")).toBe(process.listenerCount("SIGTERM")); // the parent-exit guard was removed again
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
