@@ -132,7 +132,13 @@ batch too, per run, while `--timeout` bounds the whole batch.
 that `scripts.test` names is used, else vitest's own discovery. `--timeout <ms>`
 is a different flag: the CLI's resource supervisor reads it as the whole
 command's deadline (default and maximum 3600000), and a value below a few seconds
-stops the CLI before any verdict (exit 75). `prove-kill` accepts the flag itself
+stops the CLI before any verdict (exit 75). The deadline is a SIGTERM to the
+command, which handles it: the running vitest group is killed, every copy made
+so far is removed, `[interlinked:kill-proof] interrupted by SIGTERM: copies
+removed, no verdict, no receipt written` is printed and the exit is 75 (round 5,
+R5-7; the supervisor SIGKILLs a child that has not exited one second after the
+SIGTERM, so a copy whose removal takes longer than that can still be left
+behind). `prove-kill` accepts the flag itself
 too, so it never surfaces as a usage error; a usage error (an unknown option, a
 non-numeric timeout) exits 2 like every other undecided run, never 1.
 
@@ -142,8 +148,12 @@ copy's link and reorder test files between runs) and a fresh temp directory per
 run (`TMPDIR`/`TMP`/`TEMP`, removed with the run), so `os.tmpdir()` state cannot
 cross from one run to the next. Every vitest process runs in its own process
 group; a run that passes `--run-timeout` is stopped as a group, worker included,
-and the proof continues only once the group is gone. A copy over 256 MiB of
-git-visible files adds a warning (`[interlinked:kill-proof] copy is N MiB; large
+and the proof continues only once the group is gone — the wait is a referenced
+timer, so the command always ends in a verdict (`inconclusive` or `unavailable`,
+exit 2) with its copies removed, never in Node's exit 13 for an unsettled
+top-level await (round 5, R5-1). A copy over 256 MiB of
+git-visible files — allocated blocks, not apparent size, so a sparse file does
+not count (R5-12) — adds a warning (`[interlinked:kill-proof] copy is N MiB; large
 tracked files slow every proof`, `warnings` in `--json`); it changes no verdict.
 =====
 
@@ -191,7 +201,10 @@ tracked files slow every proof`, `warnings` in `--json`); it changes no verdict.
    import resolves inside the copy); for any other named test a **control**
    copy — the canary plus every named test replaced by one trivial case — must
    pass. If the control breaks too, a `setupFiles` entry or the config loads
-   the file, not the tests, and the run is `unavailable` with that reason.
+   the file, not the tests, and the run is `unavailable` with that reason; if
+   the control's stand-in case never ran at all (vitest's `testNamePattern`, in
+   the config or on the command line, filters it), the reason names the filter
+   instead (round 5, R5-10).
 6. **Verdict per case**, then overall. In a batch (`--all-survivors`) steps 1–5
    run per survivor against ONE shared baseline (step 2 runs once; the canary
    and control of step 5 run once per file); the per-mutant repeats of step 4
@@ -238,12 +251,22 @@ the small read model. A receipt binds:
   (helpers, shared fixture modules, re-export barrels), each with its sha256
   and `importedBy`, the named tests whose closure reaches it. The walk follows
   `import … from`, side-effect `import "…"` and `export … from` with relative
-  specifiers, transitively, inside the project; it skips type-only imports,
+  specifiers, transitively, inside the project, plus the `__mocks__` twin of
+  every factory-less `vi.mock("./x")` / `vi.doMock("./x")` (beside the mocked
+  module; a bare specifier's twin under `<root>/__mocks__/`) when one exists
+  (round 5, R5-4); it skips type-only imports,
   bare specifiers (packages and tsconfig aliases), anything under
   `node_modules` or outside the root, and the mutated source itself (bound as
-  the source; its imports are not walked). A changed helper stales the
+  the source; its imports are not walked). The config's `setupFiles` /
+  `globalSetup` files are walked too, as roots that run before every test:
+  what they reach is bound with `importedBy` = every named test (R5-5). A
+  changed helper stales the
   certification of every test that imports it, and only those; `--verify` names
-  it as `helper <path> changed since the proof`;
+  it as `helper <path> changed since the proof`. The walk stops at 200 files;
+  a receipt whose walk was cut carries `boundImportsTruncated: true` and
+  certifies NOTHING — `--verify` reports it `STALE: bound-import closure
+  truncated at 200 files; …`, the Stop check and the nudge refuse it — since an
+  edit that changes the proof may sit in a file it did not bind (R5-3);
 - node version, vitest version, platform, the sha256 of the vitest config in
   use, and the sha256 of every `setupFiles` / `globalSetup` file that config
   declares;
@@ -379,11 +402,18 @@ sees the PostToolUse line; the human sees the Stop line.
 
 - vitest only. A jest or ava project gets `unavailable` with the reason
   `vitest is not installed in this project (this project declares jest) …`.
-- Helper binding follows static relative imports only, and stops after 200
-  files (the closure beyond the cap is not bound). Dynamic `import()`,
-  `require()` and `vi.mock` targets are not followed, nor are aliased (bare)
-  specifiers; an edit to a module reached only that way does not stale a
-  receipt. Data files a test reads (JSON fixtures, snapshots) are not bound.
+- Helper binding follows static relative imports only (from the named tests
+  and the config's `setupFiles` / `globalSetup`), and stops after 200 files —
+  a receipt whose walk was cut says so and certifies nothing; re-prove with a
+  shallower helper tree. Dynamic `import()` and `require()` are not followed,
+  nor are aliased (bare) specifiers — `resolve.alias` and tsconfig `paths`
+  would need the vite/vitest config evaluated, which no static rule does — so
+  an edit to a module reached ONLY that way keeps a receipt FRESH that no
+  longer describes the test (a false FRESH; round 5, R5-6). A `vi.mock` with a
+  factory is bound through the file that holds the factory; a factory-less one
+  binds its `__mocks__` twin; a mock that vitest resolves another way (a
+  package's `__mocks__` outside the root, an alias) is not followed. Data files
+  a test reads (JSON fixtures, snapshots) are not bound.
   (A helper still cannot be named as a `--test` file: it reports no cases and
   the run is `unavailable`.)
 - The copies link the live `node_modules`. vitest's own results cache is
@@ -394,7 +424,16 @@ sees the PostToolUse line; the human sees the Stop line.
   end them. The kill sequence pass, FAIL, pass, pass rejects state that flips
   on every run (period 2); state that fails on exactly the second of every
   three runs (period 3) still passes, as does state kept where the proof does
-  not look (`$HOME`, `/var`). A test with failure rate f gives a false kill
+  not look (`$HOME`, `/var`) — also when a custom `sequence.sequencer` reads it
+  and reorders the files on exactly that run (round 5, R5-9). A repeat can only
+  catch state that misbehaves on an UNMUTATED run: ADAPTIVE state — a store of
+  seen source hashes beside the project that fails exactly when the bytes are
+  new — produces the kill sequence pass, FAIL, pass, pass for any mutant, a
+  comment-only one included, whatever the repeat count; its second proof then
+  reads `survived`, because the verdict depends on history (R5-8). The test did
+  read the mutated file and fail by its own check, so the proof's claim holds;
+  the lesson is that a receipt is one measurement — run a doubtful proof
+  twice, and keep test state inside the project. A test with failure rate f gives a false kill
   with probability (1−f)³·f per proof (one repeat: (1−f)²·f, at most 14.8 %),
   and `sequence.shuffle` makes order-dependent tests exactly that. Run the
   proof twice when in doubt; a receipt is one measurement.
@@ -420,9 +459,13 @@ sees the PostToolUse line; the human sees the Stop line.
   `survived`; nothing detects that case. Keep fixtures tracked.
 - A monorepo root without its own `vitest` is `unavailable`; run with `--cwd
   <package>`.
-- The copy is a git-visible copy
-, not an OS sandbox: a test that writes
-  outside its project does so for real, as it does under `vitest run`.
+- The copy is a git-visible copy, not an OS sandbox: a test that writes
+  outside its project does so for real, as it does under `vitest run`. A
+  timed-out run is killed as a process GROUP, so a grandchild that starts a
+  new session (`setsid`, `detached` + `unref`) escapes it and can outlive the
+  proof — a new session is outside any process group by definition; only a
+  cgroup or namespace sandbox stops it (round 5, R5-11). Windows has no
+  process groups at all: only the direct vitest child is killed there.
 - No model is involved anywhere. The differential-fuzz engine (which can
   propose a counterexample input) is a separate, manual tool and executes
   target code in-process; it is not on this path.

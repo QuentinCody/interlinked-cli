@@ -1839,7 +1839,17 @@ source × mutant × test set `supersededBy` in the index and `--verify` judges
 the newest per key (round 4, `kill-proof-review-round4-receipts.md`);
 Write/Edit/NotebookEdit under `.interlinked/test-runs/kill-proofs/` are refused
 (`protected_files`, matched on the real path);
-`mutation survivors --file` names the command. `--all-survivors` (2026-11-05,
+`mutation survivors --file` names the command. Round 5 (2026-11-05,
+`kill-proof-review-round5.md`, pins `kill-proof/round5-fixes.test.ts`): a
+timed-out run always settles a verdict (referenced group-reap poll, never exit 13);
+a qualified name declared twice in the current file refuses re-location; a
+closure cut at the 200-file cap is recorded (`boundImportsTruncated`) and
+certifies nothing; factory-less `vi.mock` `__mocks__` twins and the
+`setupFiles`/`globalSetup` closure are bound; SIGTERM (`--timeout`) removes the
+copies and exits 75; a superseded receipt is never a `verify` finding nor
+counted stale. Documented limits (POLICY todos): aliases, adaptive state keyed
+on the mutant's bytes, period-3 state, `setsid` escapes.
+`--all-survivors` (2026-11-05,
 `kill-proof/batch.ts`, `commands/tests-prove-kill-batch.ts`) proves every open
 manifest survivor of `--file` in one command against ONE shared baseline copy
 (canary/control shared per file, kill repeats still per mutant; `run.ts
