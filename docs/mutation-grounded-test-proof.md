@@ -66,10 +66,10 @@ interlinked tests kill-proofs            # list
 interlinked tests kill-proofs --verify   # re-hash, re-resolve, exit 1 if any receipt is stale
 ```
 
-`--test` is repeatable. `--timeout <ms>` bounds EACH of the two test runs
-(default 300000). The CLI's resource supervisor also reads `--timeout` as the whole
-command's deadline, so a value below a few seconds stops the CLI before any
-verdict (exit 75).
+`--test` is repeatable. `--run-timeout <ms>` bounds EACH vitest run (the baseline
+copy, then the mutant copy; default 300000). `--timeout <ms>` is a different flag:
+the CLI's resource supervisor reads it as the whole command's deadline, and a value
+below a few seconds stops the CLI before any verdict (exit 75).
 
 ## What happens
 
@@ -77,11 +77,17 @@ verdict (exit 75).
    through the manifest identity (symbol, operator, lexeme, ordinal). If the
    source drifted so the identity no longer resolves, the run is `unavailable`.
    An explicit `--find` must occur exactly once in `--file`.
-2. **Baseline.** The named test files run on the live tree, read only. Every
-   case must pass. A failing case stops the run: `not-passing-now`.
-3. **Mutant.** A disposable copy of the project as git sees it (tracked plus
-   untracked-not-ignored files, `node_modules` linked) receives the one mutated
-   source file. The same tests run there with vitest's JSON reporter.
+2. **Baseline.** The named test files run UNMUTATED in a fresh disposable copy
+   of the project as git sees it (tracked plus untracked-not-ignored files,
+   `node_modules` linked). Every case must pass. A case that fails in the copy
+   is re-run on the live tree, read only: passing there means the copy lacks
+   something the test needs (an ignored fixture) and the run is `unavailable`;
+   failing there too is `not-passing-now`.
+3. **Mutant.** A SECOND fresh copy receives the one mutated source file, so
+   nothing the baseline run left behind (a marker file, a snapshot, a log) can
+   fail the second run. A replacement that does not parse is `inconclusive`
+   without running: a compile error is not behaviour. The same tests run in the
+   copy with vitest's JSON reporter.
 4. **Verdict per case**, then overall:
 
 | Verdict | Meaning | Exit |
@@ -111,23 +117,36 @@ the small read model. A receipt binds:
 - every named test file's path and sha256;
 - node version, vitest version, platform, and the sha256 of the
   `vitest.config.*` / `vite.config.*` in use;
-- the per-case outcomes on both sides, durations, and the verdict.
+- the per-case outcomes on both sides, durations, the verdict, and
+  `killedTests`: the named test files with at least one killed case, the only
+  files the receipt certifies;
+- a `digest` over every other field, so an edited outcome no longer matches.
 
-The id is a hash of that binding, so re-running the same proof on the same
-bytes overwrites rather than duplicates. `kill-proofs --verify` re-hashes the
-files, compares the runtime, and re-resolves the mutant; any difference is
-`STALE` with the reasons named. A `survived` or `inconclusive` receipt is kept
-(it records what was tried) but never counts as evidence of a kill.
+The id is a hash of the inputs (bytes, mutant, runtime), so re-running the same
+proof on the same bytes overwrites rather than duplicates. `kill-proofs --verify`
+re-checks the digest, re-hashes the files, compares the runtime, and re-resolves
+the mutant; any difference is `STALE` with the reasons named. A `survived` or
+`inconclusive` receipt is kept (it records what was tried) but never counts as
+evidence of a kill. Every decision (the Stop check, the nudge, the list) reads
+the receipt FILE; `index.json` is only a locator. Receipts are tamper-evident,
+not tamper-proof: the digest is unkeyed, so a receipt rewritten from scratch
+with recomputed hashes passes. They are evidence of execution on this machine,
+not a security boundary.
 
 ## Where the harness uses it
 
-- **PostToolUse** (model-visible): writing a mutation-directed test file with
-  no fresh `killed` receipt prints `[interlinked:kill-proof] <file>: no
-  executed kill proof covers this mutation-directed test file … prove it:
-  interlinked tests prove-kill …`. Cost: one index read plus two hashes.
+- **PostToolUse** (model-visible on Claude Code and Codex): writing a
+  mutation-directed test file that no receipt certifies now prints
+  `[interlinked:kill-proof] <file>: no executed kill proof covers this
+  mutation-directed test file … prove it: interlinked tests prove-kill …`.
+  A receipt certifies a file when it killed THROUGH that file and the source,
+  that test file and the runtime are unchanged. Cost: one index read plus the
+  hashes of the matching receipts.
 - **Stop** (human-visible stderr): `[interlinked:mutation-kill-evidence]`
-  accepts a fresh `killed` receipt naming the file as measurement evidence; a
-  missing `test-contract` marker still fires.
+  accepts a receipt as measurement evidence only when one of the NEWLY added
+  cases (titles present now, absent at session start) is among its killed
+  cases, so an old strong case cannot certify a new weak one; a missing
+  `test-contract` marker still fires.
 - `interlinked mutation survivors --file <src>` names the command.
 
 Stop-time warnings reach no agent as context on any runner (Claude Code, Codex,
@@ -139,8 +158,16 @@ sees the PostToolUse line; the human sees the Stop line.
 - vitest only. A jest or ava project gets `unavailable` with the reason
   `vitest is not installed in this project (this project declares jest) …`.
 - The receipt binds the named test files and the mutated source, not the
-  helpers a test imports; an edited helper does not stale a receipt. Name the
-  helper as a `--test` file if that matters.
+  helpers, setup files or fixtures a test imports; an edited helper does not
+  stale a receipt. (A helper cannot be named as a `--test` file: it reports no
+  cases and the run is `unavailable`.)
+- The two copies link the live `node_modules`, so tool caches under it (for
+  example vitest's) are shared with the live tree; a test that writes into
+  `node_modules` writes into the live tree.
+- A test that reaches the source through an absolute path or an import from
+  outside the project runs against the live, unmutated code and reads as
+  `survived`; a named test file whose real path is outside the project is
+  refused.
 - One run cannot detect flakiness. A flaky test that happens to pass live and
   fail under the mutant reads as a kill. Run the proof twice when in doubt.
 - The copy is a git-visible copy, not an OS sandbox: a test that writes
