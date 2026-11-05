@@ -53,7 +53,7 @@ describe("kill-proof nudge through the real hook (claude-code)", () => {
 
     it("P2: a fresh killed receipt silences the nudge; a source edit makes it stale again", async () => {
         const proof = await fixture.cli(["tests", "prove-kill", "--cwd", fixture.cwd, "--file", "src/x.ts",
-            "--find", "a + b", "--replace", "a - b", "--test", "src/x.mutation-kill.test.ts", "--timeout", "40000"]);
+            "--find", "a + b", "--replace", "a - b", "--test", "src/x.mutation-kill.test.ts", "--run-timeout", "40000"]);
         expect(proof.code, proof.stdout + proof.stderr).toBe(0);
         expect(proof.stdout).toContain("verdict: KILLED");
 
