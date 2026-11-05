@@ -59,6 +59,24 @@ const NODE_ASSERT_PREFIX = "AssertionError [ERR_ASSERTION]";
 
 const caseKey = (row: Pick<VitestCase, "file" | "name">): string => `${row.file} › ${row.name}`;
 
+/**
+ * Each row with its identity key: file, full name AND the ordinal among rows sharing that
+ * full name, in report order (review M3: two cases may carry one full name — a duplicate
+ * `it("caps at max")`, an `it.each` title without a placeholder — and vitest reports both
+ * in definition order on every run, so the n-th same-named row of one run is the n-th of
+ * the other; keying by name alone let the last row's outcome overwrite the others).
+ */
+function withOrdinals<T extends Pick<VitestCase, "file" | "name">>(rows: readonly T[]): Array<{ key: string; row: T }> {
+	const seen = new Map<string, number>();
+	return rows.map(row => {
+		const base = caseKey(row), ordinal = seen.get(base) ?? 0;
+		seen.set(base, ordinal + 1);
+		return { key: `${base}#${ordinal}`, row };
+	});
+}
+
+const keyedRows = (rows: readonly VitestCase[]): Map<string, VitestCase> => new Map(withOrdinals(rows).map(entry => [entry.key, entry.row]));
+
 function unavailable(reasons: string[], mutant?: ResolvedMutant): ProveKillResult {
 	return { ok: false, verdict: "unavailable", reasons, ...(mutant ? { mutant } : {}) };
 }
@@ -142,13 +160,14 @@ function baselineProblems(tests: readonly string[], run: VitestRun): BaselinePro
 	return null;
 }
 
+/** One outcome per baseline-passing row, in baseline order; a duplicated full name yields one row per case. */
 function judgeCases(passing: readonly VitestCase[], under: VitestRun): CaseOutcome[] {
-	const seen = new Map(under.cases.map(row => [caseKey(row), row]));
+	const seen = keyedRows(under.cases);
 	const runnerFailure = under.timedOut ? `runner timed out after ${under.durationMs} ms` : under.error;
-	return passing.map(row => {
+	return withOrdinals(passing).map(({ key, row }) => {
 		const test = caseKey(row);
 		if (runnerFailure !== undefined) return { test, verdict: "inconclusive", reason: runnerFailure };
-		const result = seen.get(test);
+		const result = seen.get(key);
 		if (result?.status === "passed") return { test, verdict: "survived" };
 		if (result !== undefined && killedByOwnCheck(result)) return { test, verdict: "killed" };
 		return { test, verdict: "inconclusive", reason: result?.message ?? (result ? result.status : "no result under the mutant") };
@@ -284,9 +303,12 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 		// node_modules link, os.tmpdir()) can fail the second run of a test whatever the mutant did; an unmutated
 		// third copy must pass again, or the case is "not repeatable", never a kill.
 		const again = await runIn(new Map());
-		cases = cases.map(row => {
+		const repeats = keyedRows(again.cases);
+		// `cases` is in `passing` order, so the ordinals re-derive from the same rows.
+		cases = withOrdinals(passing).map(({ key }, index) => {
+			const row = cases[index] as CaseOutcome;
 			if (row.verdict !== "killed") return row;
-			const repeat = again.cases.find(c => caseKey(c) === row.test);
+			const repeat = repeats.get(key);
 			if (again.error === undefined && !again.timedOut && repeat?.status === "passed") return row;
 			return { test: row.test, verdict: "inconclusive", reason: `not repeatable: the case also fails on an unmutated copy after the mutant run (${repeat?.message ?? again.error ?? repeat?.status ?? "no result"}); a run left state outside the copy` };
 		});
@@ -295,7 +317,8 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	if (verdict === "survived") {
 		// Reachability canary (review N6/N7): a survivor only means something if the tests loaded the COPY's file.
 		const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]));
-		const stillPassing = passing.every(row => canary.cases.find(c => caseKey(c) === caseKey(row))?.status === "passed");
+		const canaryRows = keyedRows(canary.cases);
+		const stillPassing = withOrdinals(passing).every(({ key }) => canaryRows.get(key)?.status === "passed");
 		if (canary.error === undefined && !canary.timedOut && stillPassing) {
 			return unavailable([`the named tests do not load ${mutant.file} from the copy (an absolute path, an alias or a link into the live tree): a module-level throw in its place left every case passing`], mutant);
 		}
