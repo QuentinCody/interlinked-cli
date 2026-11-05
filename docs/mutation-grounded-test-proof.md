@@ -128,8 +128,11 @@ interlinked tests kill-proofs --verify   # re-hash, re-resolve, exit 1 if the ne
 `--test` is repeatable. `--run-timeout <ms>` bounds EACH vitest run (the baseline
 copy, the mutant copy, then the repeat or canary copies; default 300000) — in a
 batch too, per run, while `--timeout` bounds the whole batch.
-`--vitest-config <file>` passes a config to vitest; without it the `--config`
-that `scripts.test` names is used, else vitest's own discovery. `--timeout <ms>`
+`--vitest-config <file>` passes a config to vitest — absolute, relative to the
+shell's cwd or relative to the project, in that order, recorded repo-relative;
+a file outside the project is refused. Without it the `-c`/`--config` that
+`scripts.test` names is used, else `vitest.config.*` then `vite.config.*` in
+vitest's own order. `--timeout <ms>`
 is a different flag: the CLI's resource supervisor reads it as the whole
 command's deadline (default and maximum 3600000), and a value below a few seconds
 stops the CLI before any verdict (exit 75). `prove-kill` accepts the flag itself
@@ -245,8 +248,18 @@ the small read model. A receipt binds:
   certification of every test that imports it, and only those; `--verify` names
   it as `helper <path> changed since the proof`;
 - node version, vitest version, platform, the sha256 of the vitest config in
-  use, and the sha256 of every `setupFiles` / `globalSetup` file that config
-  declares;
+  use, the sha256 of every other file vitest loads to configure the run
+  (`configFiles`: each `test.projects` config and the configs' static local
+  import closure — a `test: testOptions` imported from a helper), and the sha256
+  of every `setupFiles` / `globalSetup` file any of them declares, resolved as
+  vitest resolves them (against the project root for the root config, against
+  the config's directory for a project config, against a static `test.root`
+  when one is declared). The values are read from the config's AST: arrays,
+  string literals and expression-free template literals bind; a computed value
+  (a spread, a call, an identifier, a template with `${}`), a path that is not
+  a project file, or a config read without `typescript` installed is recorded
+  under `unresolvable` and shown by `--verify` as `LIMIT (not bound)` — the
+  receipt never drops a declaration silently;
 - the per-case outcomes on both sides, durations, the verdict, and
   `killedTests`: the named test files with at least one killed case, the only
   files the receipt certifies. A case is recorded under vitest's full name
@@ -418,8 +431,35 @@ sees the PostToolUse line; the human sees the Stop line.
   the copy and is reported `unavailable` (it passes live). A test that reads
   ignored data OPTIONALLY passes vacuously in the copy and can read as
   `survived`; nothing detects that case. Keep fixtures tracked.
-- A monorepo root without its own `vitest` is `unavailable`; run with `--cwd
-  <package>`.
+- Workspaces: `vitest` is found where `npx vitest` would find it — the
+  project's own `node_modules`, else the nearest ancestor's up to the git root
+  (a hoisted npm/pnpm/yarn install) — and the copy places the package under
+  the same relative path below a link to that `node_modules`, so `--cwd
+  <package>` works for a hoisted member. A workspace root whose own vitest is
+  absent and that declares no hoisted one is `unavailable`. Cross-package
+  imports (`import … from "@mono/b"`) resolve through
+  `node_modules/@mono/b → ../../packages/b`, a link into the LIVE tree: a
+  mutant in another package is never loaded from the copy and the canary
+  reports `unavailable`. Prove a package's own files from that package.
+- Module-system semantics are vitest's, not Node's: vitest's module runner
+  shims `require`, `module.exports` and `__dirname` inside an `.mjs` source and
+  accepts `export` in a `.cjs` file, so a mutant that introduces one of them
+  runs and is judged by the tests (often `survived`) although Node's own loader
+  would refuse the file. The parse check models the dialect by extension only
+  (JS / TS / JSX); a `.js` or `.ts` file that already holds JSX (a CRA-era
+  layout the project's vitest transforms) is proven like any other, and only a
+  mutant that INTRODUCES JSX into a JSX-free file is refused as a compile error.
+- The receipt does not bind environment variables: a config that reads
+  `process.env.X` runs a different setup under a different shell, and two such
+  proofs share one id (the second overwrites the first). Receipts are evidence
+  of execution on this machine, not of the shell it ran in.
+- A manual mock (`__mocks__/x.ts`) is refused as a target: a proof over a mock
+  proves nothing about the module it stands in for.
+- A run that produces no case rows is explained by vitest's own words: a
+  startup failure keeps the first 2 KB of stderr (`failed to load config …
+  Could not resolve …`) and a file that reports no case carries its file-level
+  message (`Failed to load url ./x.js …`, `Vitest cannot be imported in a
+  CommonJS module …`) in the `unavailable` or `inconclusive` reason.
 - The copy is a git-visible copy
 , not an OS sandbox: a test that writes
   outside its project does so for real, as it does under `vitest run`.

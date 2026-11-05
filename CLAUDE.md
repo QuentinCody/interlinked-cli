@@ -1850,8 +1850,16 @@ inconclusive / u unavailable of n`; exit 0 only when every row killed, `--max`
 survivors sidecar knows > 1 survivor of the companion source
 (`kill-proof/prove-command.ts`). Measured 2026-11-04:
 three adversarial rounds plus a git/platform round (`docs/reviews/kill-proof-review-round{2,3}.md`,
-`kill-proof-git-edge-cases.md`, `kill-proof-review-round4-runner.md`: every reproduced false-pass fixed and pinned by
-`review-regressions-{round2,round3,git,round4-runner}.test.ts`; policy todos: byte-level receipt
+`kill-proof-git-edge-cases.md`, `kill-proof-review-round4-runner.md`, `kill-proof-review-round4-layouts.md`: every reproduced false-pass fixed and pinned by
+`review-regressions-{round2,round3,git,round4-runner,round4-layouts}.test.ts`; the layouts round (2026-11-05) made the
+JSX refusal introduced-only (`proof-preconditions.ts mutantParses`, the original decides), bound every file vitest loads to
+configure a run (`config-binding.ts`: `test.projects` configs, the configs' static import closure, `setupFiles` /
+`globalSetup` read from the AST and resolved as vitest does — against the project root, not the config's directory —
+with every computed value recorded as `environment.unresolvable` and printed by `--verify` as `LIMIT (not bound)`), found
+a HOISTED vitest by walking up to the git root and laid the copy out under the same prefix below a link to that
+`node_modules` (`--cwd <package>` works), kept vitest's startup stderr (first 2 KB) and the file-level load message on a
+no-case run, and resolves `--vitest-config` absolute / cwd-relative / root-relative with an outside-the-project refusal;
+policy todos: byte-level receipt
 
 rewrite, binder-level early errors, type-only errors); real kills
 on this repo (`docs/reviews/kill-proof-real-kills.md`: 6/8 explicit faults

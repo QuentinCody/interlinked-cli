@@ -200,3 +200,30 @@ Source-as-helper (family 7):
 Not tried: manifest (`--mutant`) mutants (no manifest in a throwaway repo, as in rounds 2–3); pnpm's isolated
 `node_modules/.pnpm` layout; a Windows path form; vitest `browser` mode; `test.root` / `test.dir` set to a
 subdirectory of the project.
+
+## Resolution (2026-11-05, branch `cloud/fix-round4-layouts`)
+
+Every red case in `review-regressions-round4-layouts.test.ts` is green through product changes only (11/11, no case
+weakened or skipped; the `verifyKillProof` import was re-aimed to `receipt-freshness.ts`, where the function moved after
+681e705). Each fix is pinned from the other side in `round4-layouts-fixes.test.ts` (25 cases, positive and negative).
+
+| id | status | where | what changed |
+|---|---|---|---|
+| M1 | **FIXED** | `proof-preconditions.ts` `mutantParses(file, mutated, original)` (moved out of `run.ts` for the line cap) | JSX in a `.js`/`.ts` file is refused INTRODUCED-ONLY: the ORIGINAL file is parsed too and a file that already held JSX is proven normally (N1 survived, N2 killed); a mutant adding JSX to a JSX-free file is still refused. |
+| M2 | **FIXED** | `config-binding.ts bindVitestConfig`; `receipt.ts captureEnvironment`; `types.ts ProofEnvironment.configFiles` | `test.projects` entries are expanded (glob / directory / file, `!` negation honoured); each project's config is bound under `configFiles` and its `setupFiles` / `globalSetup` resolved against the config's directory (vitest's project root). Freshness: a changed project config or setup file stales, a project config loaded since the proof stales (N3, N4). |
+| M3 | **FIXED** | `config-binding.ts configImportClosure` + `declarationsIn` | The config's static local import closure is bound (`configFiles`) and walked for declarations, so `test: testOptions` from `./config/test-options` binds the helper AND the setup files it names (N5, N6). Values come from a TypeScript AST walk: arrays, string literals, expression-free templates; anything computed (spread, call, identifier, `${}` template) or a path that is not a project file is recorded in `environment.unresolvable`, part of the id, and printed by `tests kill-proofs --verify` as `LIMIT (not bound): …`. Without `typescript` the old text pattern runs and that too is recorded. |
+| M4 | **FIXED** | `config-binding.ts walkConfig` / `baseFor` | Setup paths of the root config resolve against the PROJECT ROOT (vite's `root` = cwd), never the config file's directory; a static `test.root` re-bases them; a project config resolves against its own directory (N7). |
+| M5 | **FIXED** | `proof-preconditions.ts vitestHome` / `hoistLayout`, `missingVitest`; `fail-before-fix/index.ts nearestVitestBin`; `snapshot.ts createProjectCopyAsync(…, hoist)` | vitest is found walking up from `--cwd` to the git root; the copy places the package at `<copy>/<prefix>` with the hoisted `node_modules` linked at `<copy>/node_modules` (plus the package's own beside its files), and the runner invokes the nearest `node_modules/.bin/vitest` above the copy (N9). The walk never leaves the repository: a package without vitest below a git root is still `unavailable`. |
+| M6 | **FIXED** | `fail-before-fix/index.ts stderrHead` (`VitestRun.stderrHead`), `classify.ts parseVitestSuiteFailures` (`VitestRun.suiteFailures`); `run.ts baselineProblems` / `judgeCases` | A no-report run carries the first 2 KB of vitest's stderr (ANSI stripped) under the reason; a file that reports no case carries vitest's file-level message, in the baseline `unavailable` reason and in the per-case `inconclusive` reason under the mutant (N10, N11). |
+| M7 | **FIXED** | `proof-preconditions.ts explicitVitestConfig` | `--vitest-config` resolves absolute, then relative to the invoking cwd, then relative to the project root — the first that exists INSIDE the project — and is recorded repo-relative (N8). |
+| A1 | POLICY | guide Limits | Module-system semantics are vitest's: its runner shims `require` / `module.exports` / `__dirname` in `.mjs` and accepts `export` in `.cjs`; a mutant introducing them is judged by the tests. The receipt binds vitest, so the verdict is true for the runtime certified; refusing by Node's rules would reject files vitest runs. Documented, not modelled. |
+| A2 | **FIXED** (wording + guide) | `run.ts canaryProblem`; guide Limits | The canary message names the workspace link (`node_modules/<name> → ../../packages/<name>`), and the Limits say cross-package imports resolve into the live tree: prove a package's files from that package. |
+| A3 | **FIXED** | `proof-preconditions.ts targetProblem` | A path with a `__mocks__` segment is refused as a target: a proof over a mock proves nothing about the module it stands in for. |
+| A4 | **FIXED** | `proof-preconditions.ts explicitVitestConfig` | A config that resolves outside the project is refused up front with the resolved path, instead of being handed to vitest in the copy and ending as an anonymous "no JSON report". |
+| A5 | POLICY | guide Limits | Environment variables are not bound: the set a config may read is unbounded and the values are the shell's, not the project's. The guide states that two proofs under different environments share one id and that receipts are evidence of execution on this machine, not of its shell. |
+| A6 | **FIXED** | `receipt.ts declaredVitestConfig` / `resolveVitestConfig` (`normalizeRel`) | `./configs/x.mts` and `configs/x.mts` record one spelling; the discovery order is `vitest.config.*` then `vite.config.*`, as vitest's. |
+
+Receipt shape: `environment` gains `configFiles` and `unresolvable` (both part of `receiptId`; both REQUIRED by the
+parser, as `boundImports` is — a receipt written before this change does not bind the configs vitest loads and is
+re-proven, not trusted). Not addressed: pnpm's isolated `node_modules/.pnpm` layout, `test.dir`, browser mode and
+Windows paths were not tried by the review and are not tried here.
