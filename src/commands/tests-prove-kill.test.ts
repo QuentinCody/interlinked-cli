@@ -12,7 +12,7 @@ function receipt(verdict: KillProofReceipt["verdict"], cases: KillProofReceipt["
 		version: 1, id: "7113042096864a76", digest: "0".repeat(64), verdict, reasons: [], provedAt: "2026-11-04T00:00:00.000Z", root: "/repo",
 		source: { path: "src/math.ts", sha256: "a" }, mutant: MUTANT, tests: [{ path: "test/clamp.test.ts", sha256: "b" }], killedTests: [],
 		baseline: { cases: cases.length, durationMs: 800 }, underMutant: { durationMs: 700, timedOut: false, cases },
-		environment: { node: "v22.0.0", vitest: "4.0.0", platform: "linux", config: null },
+		environment: { node: "v22.0.0", vitest: "4.0.0", platform: "linux", config: null, setupFiles: [] },
 	};
 }
 

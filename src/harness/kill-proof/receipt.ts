@@ -14,10 +14,11 @@
 // passes; receipts are evidence of execution on this machine, not a security
 // boundary (CLAUDE.md: local checks are not a trust boundary).
 
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
 import { lineTextAt, relocate } from "./resolve.js";
 import type { CaseOutcome, Freshness, HashedFile, KillProofReceipt, ProofEnvironment, ResolvedMutant } from "./types.js";
@@ -28,7 +29,7 @@ const ID_RE = /^[0-9a-f]{16}$/;
 const VERDICTS = new Set<KillProofReceipt["verdict"]>(["killed", "survived", "inconclusive"]);
 const CASE_VERDICTS = new Set<CaseOutcome["verdict"]>(["killed", "survived", "inconclusive"]);
 const MUTANT_SOURCES = new Set<ResolvedMutant["source"]>(["manifest", "explicit"]);
-const CONFIG_NAMES = ["vitest.config.ts", "vitest.config.mts", "vitest.config.js", "vitest.config.mjs", "vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"];
+const CONFIG_NAMES = ["vitest.config.ts", "vitest.config.mts", "vitest.config.cts", "vitest.config.js", "vitest.config.mjs", "vitest.config.cjs", "vite.config.ts", "vite.config.mts", "vite.config.cts", "vite.config.js", "vite.config.mjs", "vite.config.cjs"];
 
 /** One index row: a locator plus display fields. Decisions never read `verdict` or `killedTests` from here. */
 export interface KillProofIndexRow {
@@ -57,8 +58,44 @@ export function hashFile(root: string, path: string): HashedFile | null {
 	return { path, sha256: createHash("sha256").update(readFileSync(abs)).digest("hex") };
 }
 
-/** Node, vitest (resolved from the project), platform and the hashed vitest/vite config, if any. */
-export function captureEnvironment(root: string): ProofEnvironment {
+/** The `--config <file>` a project's `scripts.test` passes to vitest, repo-relative; null when none (review N5). */
+export function declaredVitestConfig(root: string): string | null {
+	try {
+		const pkg: unknown = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+		const script = isJsonObject(pkg) && isJsonObject(pkg.scripts) ? pkg.scripts.test : undefined;
+		if (typeof script !== "string" || !/\bvitest\b/.test(script)) return null;
+		const match = /(?:^|\s)(?:--config|-c)(?:=|\s+)(["']?)([^\s"']+)\1/.exec(script);
+		const file = match?.[2];
+		return file !== undefined && existsSync(join(root, file)) ? file.replace(/\\/g, "/") : null;
+	} catch {
+		return null;
+	}
+}
+
+/** The vitest config in use: an explicit one, else the project's declared one, else the first default name present. */
+export function resolveVitestConfig(root: string, explicit?: string): string | null {
+	if (explicit !== undefined) return explicit;
+	return declaredVitestConfig(root) ?? CONFIG_NAMES.find(name => existsSync(join(root, name))) ?? null;
+}
+
+/** String literals under `setupFiles:` / `globalSetup:` in the config text, repo-relative (review N9: their bytes must be bound). */
+export function configDeclaredInputs(root: string, configPath: string | null): string[] {
+	if (configPath === null || !existsSync(join(root, configPath))) return [];
+	const text = readFileSync(join(root, configPath), "utf8");
+	const out: string[] = [];
+	for (const match of text.matchAll(/\b(?:setupFiles|globalSetup)\s*:\s*(\[[^\]]*\]|["'`][^"'`]+["'`])/g)) {
+		for (const literal of (match[1] ?? "").matchAll(/["'`]([^"'`]+)["'`]/g)) {
+			const raw = literal[1] ?? "";
+			if (raw.length === 0) continue;
+			const rel = (isAbsolute(raw) ? relative(root, raw) : relative(root, join(root, configPath, "..", raw))).replace(/\\/g, "/");
+			if (!rel.startsWith("..") && existsSync(join(root, rel)) && !out.includes(rel)) out.push(rel);
+		}
+	}
+	return out;
+}
+
+/** Node, vitest (resolved from the project), platform, the hashed vitest/vite config and the inputs it declares. */
+export function captureEnvironment(root: string, configPath?: string): ProofEnvironment {
 	let vitest: string | null = null;
 	try {
 		const require = createRequire(join(root, "package.json"));
@@ -67,8 +104,9 @@ export function captureEnvironment(root: string): ProofEnvironment {
 	} catch {
 		vitest = null;
 	}
-	const configName = CONFIG_NAMES.find(name => existsSync(join(root, name)));
-	return { node: process.version, vitest, platform: `${process.platform}-${process.arch}`, config: configName ? hashFile(root, configName) : null };
+	const config = resolveVitestConfig(root, configPath);
+	const setupFiles = configDeclaredInputs(root, config).map(path => hashFile(root, path)).filter((h): h is HashedFile => h !== null);
+	return { node: process.version, vitest, platform: `${process.platform}-${process.arch}`, config: config ? hashFile(root, config) : null, setupFiles };
 }
 
 /** A quoted snippet cut to `max` characters, with an ellipsis when cut so a clipped label never reads as the full text. */
@@ -89,6 +127,7 @@ export function receiptId(parts: { source: HashedFile; mutant: ResolvedMutant; t
 		parts.mutant.file, String(parts.mutant.offset), parts.mutant.originalLexeme, parts.mutant.replacement, parts.mutant.mutantId ?? "",
 		...parts.tests.map(test => `${test.path}=${test.sha256}`),
 		parts.environment.node, parts.environment.vitest ?? "", parts.environment.platform, parts.environment.config?.sha256 ?? "",
+		...parts.environment.setupFiles.map(file => `${file.path}=${file.sha256}`),
 	].join("\u0000");
 	return sha256Text(binding).slice(0, 16);
 }
@@ -166,7 +205,9 @@ function parseEnvironment(value: unknown): ProofEnvironment | null {
 	if (value.vitest !== null && typeof value.vitest !== "string") return null;
 	const config = value.config === null ? null : parseHashed(value.config);
 	if (value.config !== null && config === null) return null;
-	return { node: value.node, vitest: value.vitest, platform: value.platform, config };
+	const setupFiles = parseHashedList(value.setupFiles);
+	if (setupFiles === null) return null;
+	return { node: value.node, vitest: value.vitest, platform: value.platform, config, setupFiles };
 }
 
 export function parseKillProof(value: unknown): KillProofReceipt | null {
@@ -267,7 +308,9 @@ export function bytesFresh(root: string, row: Pick<KillProofIndexRow, "source" |
 }
 
 function environmentReasons(root: string, recorded: ProofEnvironment): string[] {
-	const env = captureEnvironment(root), reasons: string[] = [];
+	const env = captureEnvironment(root, recorded.config?.path), reasons: string[] = [];
+	reasons.push(...hashMismatches(root, recorded.setupFiles, "setup file"));
+	for (const file of env.setupFiles) if (!recorded.setupFiles.some(known => known.path === file.path)) reasons.push(`setup file ${file.path} was added to the config since the proof`);
 	if (env.node !== recorded.node) reasons.push(`node ${recorded.node} → ${env.node}`);
 	if (env.vitest !== recorded.vitest) reasons.push(`vitest ${recorded.vitest ?? "unresolved"} → ${env.vitest ?? "unresolved"}`);
 	if (env.platform !== recorded.platform) reasons.push(`platform ${recorded.platform} → ${env.platform}`);
@@ -311,6 +354,16 @@ export function verifyKillProof(root: string, receipt: KillProofReceipt): Freshn
 		}
 	}
 	return reasons.length === 0 ? { fresh: true } : { fresh: false, reasons };
+}
+
+/** Bound files whose work-tree bytes differ from HEAD or the index, or that are untracked (review N8). Empty outside git. */
+export function uncommittedPaths(root: string, paths: readonly string[]): string[] {
+	try {
+		const out = execFileSync("git", ["-C", root, "status", "--porcelain", "--untracked-files=all", "--", ...paths], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+		return out.split("\n").filter(Boolean).map(line => line.slice(3).trim().replace(/^"|"$/g, ""));
+	} catch {
+		return [];
+	}
 }
 
 /** The case titles (after ` › `) a receipt records as killed for one test file. */

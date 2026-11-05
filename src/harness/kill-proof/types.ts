@@ -70,6 +70,8 @@ export interface ProofEnvironment {
 	platform: string;
 	/** The vitest/vite config file the run used, hashed; null when none exists. */
 	config: HashedFile | null;
+	/** Files the config declares as `setupFiles` / `globalSetup`, hashed (review N9); empty when none. */
+	setupFiles: HashedFile[];
 }
 
 /** The receipt: everything a later reader needs to decide whether the proof still applies. */

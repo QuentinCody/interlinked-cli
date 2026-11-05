@@ -66,13 +66,13 @@ async function replays(root: string, session: string, paths: Set<string>): Promi
 /** One vitest run with the reasons a run produced no rows kept apart from "the tests reported nothing". */
 export interface VitestRun { cases: VitestCase[]; timedOut: boolean; error?: string; exitCode: number | null; durationMs: number; }
 
-export async function runVitestDetailed(dir: string, files: readonly string[], budgetMs: number): Promise<VitestRun> {
+export async function runVitestDetailed(dir: string, files: readonly string[], budgetMs: number, vitestArgs: readonly string[] = []): Promise<VitestRun> {
     const missing = files.filter(file => !existsSync(join(dir, file)));
     if (!files.length || missing.length) return { cases: [], timedOut: false, error: files.length ? `missing test file(s): ${missing.join(", ")}` : "no test files", exitCode: null, durationMs: 0 };
     const reports = mkdtempSync(join(tmpdir(), "interlinked-fbf-report-")), report = join(reports, "report.json");
     try {
         const env = Object.fromEntries(Object.entries({ ...process.env, CI: "1", NO_COLOR: "1" }).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
-        const result = await runArgvInOverlay(["vitest", "run", ...files, "--reporter=json", `--outputFile=${report}`], dir, budgetMs, undefined, env);
+        const result = await runArgvInOverlay(["vitest", "run", ...files, ...vitestArgs, "--reporter=json", `--outputFile=${report}`], dir, budgetMs, undefined, env);
         const base = { timedOut: result.timedOut, exitCode: result.exitCode, durationMs: result.durationMs };
         if (result.timedOut || result.error || result.exitCode === null) return { cases: [], ...base, error: result.error ?? "runner exited without a status" };
         if (!existsSync(report)) return { cases: [], ...base, error: "vitest wrote no JSON report" };

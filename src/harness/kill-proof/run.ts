@@ -27,7 +27,7 @@ import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
 import { createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
-import { captureEnvironment, hashFile, receiptId, sealReceipt, writeKillProof } from "./receipt.js";
+import { captureEnvironment, hashFile, receiptId, resolveVitestConfig, sealReceipt, writeKillProof } from "./receipt.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
 import type { CaseOutcome, HashedFile, KillProofReceipt, MutantSpec, ProveKillResult, ResolvedMutant } from "./types.js";
 
@@ -37,12 +37,17 @@ export interface ProveKillOptions {
 	tests: readonly string[];
 	/** Budget for EACH vitest run (baseline, then under the mutant). */
 	budgetMs: number;
+	/** vitest config to pass as `--config` (repo-relative); default: the one `scripts.test` declares, else vitest's discovery. */
+	vitestConfig?: string;
 	now?: () => Date;
 	/** Test hook: replaces the vitest runner. */
-	runner?: (dir: string, files: readonly string[], budgetMs: number) => Promise<VitestRun>;
+	runner?: (dir: string, files: readonly string[], budgetMs: number, vitestArgs: readonly string[]) => Promise<VitestRun>;
 	/** When false the receipt is returned but not written. Default true. */
 	persist?: boolean;
 }
+
+/** Written into the mutated file's place for the reachability canary (review N6/N7): a test that still passes never loaded the copy's file. */
+const CANARY_SOURCE = 'throw new Error("interlinked kill-proof canary: the tests must load this file from the copy");\nexport {};\n';
 
 /** Cases vitest reports but does not run: not evidence either way (review R14). */
 const NOT_RUN = new Set(["skipped", "todo", "pending", "disabled"]);
@@ -76,8 +81,13 @@ function testFileProblem(root: string, test: string): string | null {
 	return null;
 }
 
-/** The test's own check fired: an assertion or a plain error thrown from the test file; a product `node:assert` is not. */
+/** vitest reports a snapshot mismatch as `Error: Snapshot … mismatched` (vitest 2) — the test's own check, not a crash
+ *  (foreign round 2: esrap on vitest 2.1.1 reported 4 real kills as inconclusive). */
+const SNAPSHOT_MISMATCH = /^(?:Error: )?Snapshot .*mismatched/;
+
+/** The test's own check fired: an assertion, a snapshot mismatch, or a plain error thrown from the test file; a product `node:assert` is not. */
 export function killedByOwnCheck(row: VitestCase): boolean {
+	if (row.status === "failed" && SNAPSHOT_MISMATCH.test(row.message ?? "")) return true;
 	if (!failedByOwnCheck(row)) return false;
 	return !((row.message ?? "").startsWith(NODE_ASSERT_PREFIX) && row.thrownInTest !== true);
 }
@@ -175,9 +185,9 @@ function targetProblem(mutant: ResolvedMutant, tests: readonly string[]): string
 }
 
 /** A copy-only baseline failure (ignored fixture, environment) is not the test's fault: check the live tree, read only (review K6). */
-async function explainBaselineFailure(root: string, problem: BaselineProblem, tests: readonly string[], runner: NonNullable<ProveKillOptions["runner"]>, budgetMs: number, mutant: ResolvedMutant): Promise<ProveKillResult> {
+async function explainBaselineFailure(root: string, problem: BaselineProblem, tests: readonly string[], runner: NonNullable<ProveKillOptions["runner"]>, budgetMs: number, vitestArgs: readonly string[], mutant: ResolvedMutant): Promise<ProveKillResult> {
 	if (problem.kind === "unavailable") return unavailable(problem.reasons, mutant);
-	const live = await runner(root, tests, budgetMs);
+	const live = await runner(root, tests, budgetMs, vitestArgs);
 	const liveFailing = problem.failing.filter(row => live.cases.find(c => caseKey(c) === caseKey(row))?.status !== "passed");
 	if (live.error === undefined && !live.timedOut && liveFailing.length === 0) {
 		return unavailable([
@@ -214,32 +224,37 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	if (!content.startsWith(mutant.originalLexeme, mutant.offset)) return unavailable([`${mutant.file} changed between resolution and the run`], mutant);
 	const mutated = applyMutant(content, mutant.offset, mutant.originalLexeme, mutant.replacement);
 	const parse = mutantParses(mutant.file, mutated);
+	const configPath = resolveVitestConfig(root, options.vitestConfig);
+	if (options.vitestConfig !== undefined && !existsSync(join(root, options.vitestConfig))) return unavailable([`${options.vitestConfig} does not exist`], mutant);
+	const vitestArgs = configPath !== null ? ["--config", configPath] : [];
+	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun> => {
+		const copy = createProjectCopy(root, files, overrides);
+		try {
+			return await runner(copy.dir, tests, options.budgetMs, vitestArgs);
+		} finally {
+			copy.cleanup();
+		}
+	};
 
-	const baselineCopy = createProjectCopy(root, files, new Map());
-	let baseline: VitestRun;
-	try {
-		baseline = await runner(baselineCopy.dir, tests, options.budgetMs);
-	} finally {
-		baselineCopy.cleanup();
-	}
+	const baseline = await runIn(new Map());
 	const baseProblem = baselineProblems(tests, baseline);
-	if (baseProblem !== null) return explainBaselineFailure(root, baseProblem, tests, runner, options.budgetMs, mutant);
+	if (baseProblem !== null) return explainBaselineFailure(root, baseProblem, tests, runner, options.budgetMs, vitestArgs, mutant);
 	const passing = baseline.cases.filter(row => tests.includes(row.file) && row.status === "passed");
 
-	let under: VitestRun;
-	if (parse !== null && !parse.ok) {
-		under = { cases: [], timedOut: false, error: parse.reason, exitCode: null, durationMs: 0 };
-	} else {
-		const mutantCopy = createProjectCopy(root, files, new Map([[mutant.file, mutated]]));
-		try {
-			under = await runner(mutantCopy.dir, tests, options.budgetMs);
-		} finally {
-			mutantCopy.cleanup();
-		}
-	}
+	const under: VitestRun = parse !== null && !parse.ok
+		? { cases: [], timedOut: false, error: parse.reason, exitCode: null, durationMs: 0 }
+		: await runIn(new Map([[mutant.file, mutated]]));
 	const cases = judgeCases(passing, under);
 	const { verdict, reasons } = overallVerdict(cases);
-	const environment = captureEnvironment(root);
+	if (verdict === "survived") {
+		// Reachability canary (review N6/N7): a survivor only means something if the tests loaded the COPY's file.
+		const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]));
+		const stillPassing = passing.every(row => canary.cases.find(c => caseKey(c) === caseKey(row))?.status === "passed");
+		if (canary.error === undefined && !canary.timedOut && stillPassing) {
+			return unavailable([`the named tests do not load ${mutant.file} from the copy (an absolute path, an alias or a link into the live tree): a module-level throw in its place left every case passing`], mutant);
+		}
+	}
+	const environment = captureEnvironment(root, configPath ?? undefined);
 	const boundMutant: ResolvedMutant = { ...mutant, lineText: lineTextAt(content, mutant.offset) };
 	const receipt = sealReceipt({
 		version: 1,

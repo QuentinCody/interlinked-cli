@@ -36,12 +36,16 @@ const failing = (name: string, message: string, extra: Partial<Case> = {}): Case
 const okRun = (cases: Case[]): VitestRun => ({ cases, timedOut: false, exitCode: 0, durationMs: 10 });
 const SPEC = { kind: "explicit", file: "src/clamp.ts", find: "n > max", replace: "n >= max" } as const;
 
-/** A fake runner answering in call order: first the baseline (unmutated copy), then the mutant run. */
-function fakeRunner(baseline: VitestRun, mutated: VitestRun) {
+/** A fake runner answering in call order: the baseline copy, the mutant copy, then the reachability canary
+ *  (a copy whose source is a module-level throw: every case fails, i.e. the tests DID load the file), then the live tree. */
+function fakeRunner(baseline: VitestRun, mutated: VitestRun, canary?: VitestRun) {
 	const calls: { dir: string; source: string }[] = [];
+	const loaded: VitestRun = okRun(baseline.cases.map(row => ({ ...row, status: "failed", message: "Error: interlinked kill-proof canary" })));
 	const runner = async (dir: string): Promise<VitestRun> => {
 		calls.push({ dir, source: readFileSync(join(dir, "src/clamp.ts"), "utf8") });
-		return calls.length === 1 ? baseline : mutated;
+		if (calls.length === 1) return baseline;
+		if (calls.length === 2) return mutated;
+		return canary ?? loaded;
 	};
 	return { runner, calls };
 }
@@ -107,6 +111,10 @@ describe("proveKill — positive (must fire)", () => {
 		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner, persist: false });
 		expect(result.ok && result.receipt.verdict).toBe("killed");
 	});
+	it("P5: a vitest snapshot mismatch is the test's own check (foreign round 2, esrap on vitest 2)", () => {
+		expect(killedByOwnCheck(failing("x", "Error: Snapshot `x 1` mismatched"))).toBe(true);
+		expect(killedByOwnCheck(failing("x", "Snapshot `x 1` mismatched"))).toBe(true);
+	});
 	it("P3: a `node:assert` failure thrown FROM the test file is still the test's check", () => {
 		expect(killedByOwnCheck(failing("x", "AssertionError [ERR_ASSERTION]: out >= 0", { thrownInTest: true }))).toBe(true);
 	});
@@ -142,6 +150,14 @@ describe("proveKill — negative (must not fire)", () => {
 		expect(calls).toHaveLength(2);
 		expect(calls[1]?.dir).toBe(root);
 		expect(readKillProofIndex(root).receipts).toEqual([]);
+	});
+	it("N16: a survivor whose tests never load the copy's file is unavailable, not survived (review N6/N7 canary)", async () => {
+		const { runner, calls } = fakeRunner(okRun([passing("caps")]), okRun([passing("caps")]), okRun([passing("caps")]));
+		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner });
+		expect(!result.ok && result.verdict).toBe("unavailable");
+		expect(!result.ok && result.reasons[0]).toMatch(/do not load src\/clamp\.ts from the copy/);
+		expect(calls).toHaveLength(3);
+		expect(calls[2]?.source).toMatch(/kill-proof canary/);
 	});
 	it("N13: a case that fails in the copy but passes on the live tree is unavailable (an ignored fixture), not the test's fault (review K6)", async () => {
 		const { runner, calls } = fakeRunner(okRun([failing("caps", "Error: ENOENT fixtures/case.json")]), okRun([passing("caps")]));

@@ -10,7 +10,7 @@
 
 import { realpathSync } from "node:fs";
 import { proveKill } from "../harness/kill-proof/run.js";
-import { listKillProofIds, mutantLabel, readKillProof, readKillProofIndex, verifyKillProof } from "../harness/kill-proof/receipt.js";
+import { listKillProofIds, mutantLabel, readKillProof, readKillProofIndex, uncommittedPaths, verifyKillProof } from "../harness/kill-proof/receipt.js";
 import type { KillProofReceipt, MutantSpec, ProveKillResult } from "../harness/kill-proof/types.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 
@@ -22,6 +22,7 @@ export interface ProveKillCliOptions {
 	find?: string;
 	replace?: string;
 	runTimeout?: string;
+	vitestConfig?: string;
 	json?: boolean;
 }
 
@@ -86,7 +87,7 @@ export async function testsProveKillCommand(options: ProveKillCliOptions): Promi
 	if (!Number.isFinite(budgetMs) || budgetMs <= 0) { outputError(mode, "--run-timeout must be a positive number of milliseconds"); process.exitCode = PROVE_KILL_EXIT.undecided; return; }
 	try {
 		const root = realpathSync(options.cwd ?? process.cwd());
-		const result = await proveKill({ root, spec, tests: options.test ?? [], budgetMs });
+		const result = await proveKill({ root, spec, tests: options.test ?? [], budgetMs, ...(options.vitestConfig !== undefined ? { vitestConfig: options.vitestConfig } : {}) });
 		process.exitCode = exitCodeFor(result);
 		output(mode, result, { normal: () => renderProveKill(result) });
 	} catch (error) {
@@ -97,7 +98,7 @@ export async function testsProveKillCommand(options: ProveKillCliOptions): Promi
 
 export interface KillProofsCliOptions { cwd?: string; verify?: boolean; json?: boolean; }
 
-export interface KillProofRow { id: string; verdict: KillProofReceipt["verdict"]; provedAt: string; mutant: string; tests: string[]; killedTests: string[]; freshness?: "fresh" | "stale" | "unreadable"; reasons?: string[]; }
+export interface KillProofRow { id: string; verdict: KillProofReceipt["verdict"]; provedAt: string; mutant: string; tests: string[]; killedTests: string[]; freshness?: "fresh" | "uncommitted" | "stale" | "unreadable"; reasons?: string[]; }
 
 export function listKillProofs(root: string, verify: boolean): KillProofRow[] {
 	const index = new Map(readKillProofIndex(root).receipts.map(row => [row.id, row]));
@@ -112,7 +113,10 @@ export function listKillProofs(root: string, verify: boolean): KillProofRow[] {
 		if (!verify || base.freshness === "unreadable") return base;
 		if (receipt === null) return { ...base, freshness: "unreadable" };
 		const freshness = verifyKillProof(root, receipt);
-		return freshness.fresh ? { ...base, freshness: "fresh" } : { ...base, freshness: "stale", reasons: freshness.reasons };
+		if (!freshness.fresh) return { ...base, freshness: "stale", reasons: freshness.reasons };
+		// The proof certifies WORK-TREE bytes; a commit-time reader must know when those are not the committed ones (review N8).
+		const uncommitted = uncommittedPaths(root, [receipt.source.path, ...receipt.tests.map(test => test.path)]);
+		return uncommitted.length ? { ...base, freshness: "uncommitted", reasons: uncommitted.map(path => `${path}: work tree differs from HEAD or the index (the proven bytes are not committed)`) } : { ...base, freshness: "fresh" };
 	});
 }
 
@@ -134,7 +138,8 @@ export function testsKillProofsCommand(options: KillProofsCliOptions): void {
 		const rows = listKillProofs(realpathSync(options.cwd ?? process.cwd()), options.verify === true);
 		output(mode, { receipts: rows }, { normal: () => renderKillProofs(rows) });
 		// Only a KILLED receipt carries evidence, so only a stale or unreadable killed receipt fails the check.
-		process.exitCode = options.verify && rows.some(row => row.verdict === "killed" && row.freshness !== "fresh") ? 1 : 0;
+		// `uncommitted` is fresh bytes that are not the committed ones: reported, never a failure.
+		process.exitCode = options.verify && rows.some(row => row.verdict === "killed" && (row.freshness === "stale" || row.freshness === "unreadable")) ? 1 : 0;
 	} catch (error) {
 		outputError(mode, error instanceof Error ? error.message : "kill proofs unavailable");
 		process.exitCode = PROVE_KILL_EXIT.undecided;

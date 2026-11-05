@@ -89,6 +89,8 @@ beforeAll(() => {
 	symlinkSync(SHARED_MODULES, join(root, "node_modules"));
 	execFileSync("git", ["init", "-q"], { cwd: root });
 	execFileSync("git", ["add", "-A"], { cwd: root });
+	// Committed, so a proof over these bytes reads FRESH rather than `uncommitted` (work tree ≠ HEAD) under --verify.
+	execFileSync("git", ["-c", "user.email=s@example.invalid", "-c", "user.name=s", "commit", "-qm", "story"], { cwd: root });
 });
 
 afterAll(() => {
@@ -122,11 +124,13 @@ describe("prove-kill story: weak test → strengthened test → stale proof", ()
 		// killed receipt. P1's `survived` receipt names the old test bytes: listed as
 		// STALE, but it does not fail the check while the kill itself is FRESH.
 		const rows = verifyRows();
-		expect(rows.find(row => row.id === onDisk.id)).toMatchObject({ verdict: "killed", freshness: "fresh" });
+		// The strengthened test file is written but never committed in this story, so the proof is `uncommitted`:
+		// bytes fresh, not the committed ones (review N8). Exit stays 0; only a STALE killed receipt fails --verify.
+		expect(rows.find(row => row.id === onDisk.id)).toMatchObject({ verdict: "killed", freshness: "uncommitted" });
 		expect(rows.find(row => row.verdict === "survived")).toMatchObject({ freshness: "stale" });
 		const verify = cli(["tests", "kill-proofs", "--verify"]);
 		expect(verify.status).toBe(0);
-		expect(verify.stdout).toContain("FRESH");
+		expect(verify.stdout).toContain("UNCOMMITTED");
 		expect(killProofNudge({ root, relPath: STORY_TEST })).toBeNull();
 		// Only the killed receipt left: still exit 0.
 		for (const row of rows) if (row.id !== onDisk.id) rmSync(join(root, PROOFS, `${row.id}.json`));
@@ -171,11 +175,14 @@ describe("prove-kill refusals (real runner)", () => {
 		expect(receiptIds()).toEqual(before);
 	});
 
-	it("N3: a test that mocks the implementation away survives the fault (exit 1)", { timeout: SLOW }, () => {
+	it("N3: a test that mocks the implementation away never loads the copy's file: unavailable (exit 2), not a verdict", { timeout: SLOW }, () => {
 		write("src/clamp.mocked.test.ts", "import { expect, it, vi } from \"vitest\";\nvi.mock(\"./clamp.js\", () => ({ clamp: () => 3 }));\nimport { clamp } from \"./clamp.js\";\nit(\"mocked\", () => { expect(clamp(5, 3)).toBe(3); });\n");
 		const run = proveJson("src/clamp.mocked.test.ts");
-		expect(run.status).toBe(1);
-		expect(asResult(run).receipt?.verdict).toBe("survived");
+		expect(run.status).toBe(2);
+		const result = asResult(run);
+		expect(result.ok).toBe(false);
+		expect(result.verdict).toBe("unavailable");
+		expect((result.reasons ?? []).join(" ")).toMatch(/do not load src\/clamp\.ts from the copy/);
 	});
 
 	it("N4: an assertion on the unmutated function survives the fault", { timeout: SLOW }, () => {

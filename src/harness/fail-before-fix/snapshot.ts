@@ -36,11 +36,21 @@ export function copyWriteTarget(dir: string, path: string): string {
     return target;
 }
 
+/** A link whose target resolves inside the root must point at the COPY's twin, never back at the live tree
+ *  (kill-proof review N1/N2: an absolute in-repo link made the copy load the live, unmutated file). */
+function copiedLinkTarget(rootReal: string, dir: string, source: string, target: string): string {
+    const raw = readlinkSync(source);
+    let real: string;
+    try { real = realpathSync(resolve(dirname(source), raw)); } catch { return raw; }
+    if (real !== rootReal && !real.startsWith(rootReal + sep)) return raw;
+    return relative(dirname(target), join(dir, relative(rootReal, real))) || ".";
+}
+
 function copyEntry(root: string, dir: string, rel: string): void {
     const source = join(root, rel), target = join(dir, rel), link = isLink(source);
     if (!link && !existsSync(source)) return; // a tracked file deleted in the working tree
     mkdirSync(dirname(target), { recursive: true });
-    if (link) symlinkSync(readlinkSync(source), target);
+    if (link) symlinkSync(copiedLinkTarget(root, dir, source, target), target);
     // COPYFILE_FICLONE: a copy-on-write clone where the file system offers one (APFS, btrfs, XFS reflink);
     // elsewhere Node falls back to a byte copy. A proof copies the whole git-visible tree twice per run.
     else if (lstatSync(source).isFile()) copyFileSync(source, target, constants.COPYFILE_FICLONE);
@@ -58,8 +68,9 @@ function applyOverrides(dir: string, overrides: ReadonlyMap<string, string | nul
 /** Copies the git-visible project, links node_modules, then writes each override (null removes the file). */
 export function createProjectCopy(root: string, files: readonly string[], overrides: ReadonlyMap<string, string | null>): ProjectCopy {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "interlinked-fail-before-fix-")));
+    const rootReal = realpathSync(root);
     try {
-        for (const rel of files) copyEntry(root, dir, rel);
+        for (const rel of files) copyEntry(rootReal, dir, rel);
         const modules = join(root, "node_modules");
         if (existsSync(modules) && !existsSync(join(dir, "node_modules"))) symlinkSync(modules, join(dir, "node_modules"));
         applyOverrides(dir, overrides);
