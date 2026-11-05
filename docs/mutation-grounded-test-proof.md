@@ -205,6 +205,19 @@ not a security boundary.
   applies the same rule against `HEAD`. A missing `test-contract` marker still
   fires. Titles that are not literals (`it.each`, template strings) never
   match, so such a file stays flagged until the proof names a literal case.
+- **`interlinked verify`** (default gate, streaming and `--json`): when
+  `.interlinked/test-runs/kill-proofs/` holds at least one receipt, verify
+  gains a `kill_proofs` section (JSON key `kill_proofs`) listing every receipt
+  — verdict, source, test file(s), and the SAME freshness
+  `interlinked tests kill-proofs --verify` reports (`fresh` / `uncommitted` /
+  `stale` / `unreadable`, with reasons; one implementation, `listKillProofs`).
+  A STALE or UNREADABLE **killed** receipt is a `kill_proof_stale` finding
+  (`[proven]`: hashes and a parser decided it) that fails verify under its
+  exit convention, with the fix `interlinked tests prove-kill --mutant <id>
+  --test <file>`; `uncommitted` is reported, never a finding; `survived` and
+  `inconclusive` receipts are listed, never findings. No receipt ⇒ no section
+  and no git call (one directory probe). `--skip kill_proof_stale` keeps the
+  listing and drops the finding.
 - `interlinked mutation survivors --file <src>` names the command.
 
 Stop-time warnings reach no agent as context on any runner (Claude Code, Codex,

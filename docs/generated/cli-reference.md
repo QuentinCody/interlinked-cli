@@ -2402,16 +2402,15 @@ Commands:
   faults                          Requirement faults: recorded violations of
                                   stated requirements, run against the tests
                                   that must notice them
-  prove-kill [options]            Prove that the named tests pass on the live
-                                  tree and fail under ONE mutant (a manifest
-                                  survivor by id, or an explicit
-                                  --find/--replace fault); writes a receipt
-                                  bound to source, test and runtime bytes. Exit
-                                  0 killed; 1 survived or not passing now; 2
-                                  undecided
-  kill-proofs [options]           List recorded kill proofs; --verify re-checks
-                                  each against the bytes and runtime on disk
-                                  (exit 1 when any is stale)
+  prove-kill [options]            Prove that the named tests pass now and fail
+                                  under ONE mutant: a manifest survivor
+                                  (--mutant) or an explicit fault
+                                  (--file/--find/--replace). A killed proof
+                                  writes a receipt bound to the source, test
+                                  and runtime bytes.
+  kill-proofs [options]           List recorded kill proofs. With --verify,
+                                  check each against the bytes and runtime on
+                                  disk.
   readiness [options] <language>  Inspect test prerequisites without
                                   installing; Python also reports approved
                                   provisioning argv
@@ -3231,8 +3230,7 @@ Usage: interlinked index update [options]
 Incrementally update the index from git changes
 
 Options:
-  --cwd <path>  Working directory (default:
-                "<cwd>")
+  --cwd <path>  Working directory (default: "<cwd>")
   -h, --help    display help for command
 ```
 
@@ -3244,8 +3242,7 @@ Usage: interlinked index status [options]
 Show index status and statistics
 
 Options:
-  --cwd <path>  Working directory (default:
-                "<cwd>")
+  --cwd <path>  Working directory (default: "<cwd>")
   --json        Output as JSON
   -h, --help    display help for command
 ```
@@ -3258,8 +3255,7 @@ Usage: interlinked index query [options] <pattern>
 Query the index for candidate files (debug tool)
 
 Options:
-  --cwd <path>  Working directory (default:
-                "<cwd>")
+  --cwd <path>  Working directory (default: "<cwd>")
   --regex       Treat pattern as regex (default: false)
   -h, --help    display help for command
 ```
