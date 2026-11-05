@@ -57,11 +57,23 @@ export function isNewTest(preSessionFile: string | null, title: string): boolean
     return preSessionFile === null || !preSessionFile.includes(title);
 }
 
+/** vitest 3/4 report a test or hook timeout as the stack placeholder it created when the test was scheduled
+ *  (`new Error("STACK_TRACE_ERROR")` in @vitest/runner); vitest 2 said `Error: Test timed out in 100ms.`. The
+ *  placeholder names nothing, so the row says what happened (kill-proof review round 4, M9). */
+const STACK_TRACE_PLACEHOLDER = "Error: STACK_TRACE_ERROR";
+export const TIMEOUT_REASON = "test timed out (vitest testTimeout or hookTimeout; reported as Error: STACK_TRACE_ERROR)";
+
+function firstLine(message: string): string {
+    const line = (message.trim().split("\n")[0] ?? "").slice(0, 240);
+    return line === STACK_TRACE_PLACEHOLDER ? TIMEOUT_REASON : line;
+}
+
 function caseRow(file: string, absolute: string, item: unknown): VitestCase | null {
     if (!isJsonObject(item) || typeof item.fullName !== "string" || typeof item.status !== "string") return null;
     const row: VitestCase = { file, name: item.fullName, title: typeof item.title === "string" ? item.title : item.fullName, status: item.status };
     const first = Array.isArray(item.failureMessages) ? item.failureMessages.find((value): value is string => typeof value === "string") : undefined;
-    if (first) row.message = (first.trim().split("\n")[0] ?? "").slice(0, 240);
+    if (first) row.message = firstLine(first);
+
     if (first && thrownIn(first, absolute, file)) row.thrownInTest = true;
     return row;
 }

@@ -66,6 +66,42 @@ function readCode(root: string, rel: string): string | null {
 	}
 }
 
+/** Repo-relative files `file` imports statically by a relative specifier and that resolve inside the project. */
+function localImportsOf(root: string, file: string): string[] {
+	const content = readCode(root, file);
+	if (content === null) return [];
+	const out: string[] = [];
+	for (const specifier of staticLocalSpecifiers(content, join(root, file))) {
+		const target = resolveImportPath(join(root, file), specifier);
+		const rel = target === null ? null : insideProject(root, target);
+		if (rel !== null && !out.includes(rel)) out.push(rel);
+	}
+	return out;
+}
+
+/**
+ * The named tests whose static RELATIVE import closure reaches `file` (round-4 M3). A relative import resolves
+ * inside whichever tree runs the test, so such a test loads the COPY's file; an absolute path, an alias, a mock
+ * or a dynamic import gives no such guarantee and is not counted. Same walk and cap as the bound closure.
+ */
+export function testsReachingByRelativeImport(root: string, tests: readonly string[], file: string, cap = MAX_BOUND_IMPORTS): Set<string> {
+	const reaching = new Set<string>();
+	for (const test of tests) {
+		const seen = new Set<string>([test]);
+		const queue = [test];
+		while (queue.length > 0 && !reaching.has(test)) {
+			const current = queue.shift() as string;
+			for (const rel of localImportsOf(root, current)) {
+				if (rel === file) { reaching.add(test); break; }
+				if (seen.has(rel) || seen.size > cap) continue;
+				seen.add(rel);
+				queue.push(rel);
+			}
+		}
+	}
+	return reaching;
+}
+
 /**
  * The local import closure of `tests`, hashed, sorted by path; the named tests and
  * `mutatedFile` are never listed. At most `cap` files are bound.
@@ -78,12 +114,8 @@ export function boundImportClosure(root: string, tests: readonly string[], mutat
 		const queue = [test];
 		while (queue.length > 0) {
 			const file = queue.shift() as string;
-			const content = readCode(root, file);
-			if (content === null) continue;
-			for (const specifier of staticLocalSpecifiers(content, join(root, file))) {
-				const target = resolveImportPath(join(root, file), specifier);
-				const rel = target === null ? null : insideProject(root, target);
-				if (rel === null || seen.has(rel) || excluded.has(rel)) continue;
+			for (const rel of localImportsOf(root, file)) {
+				if (seen.has(rel) || excluded.has(rel)) continue;
 				if (!importers.has(rel) && importers.size >= cap) continue;
 				seen.add(rel);
 				const by = importers.get(rel) ?? new Set<string>();

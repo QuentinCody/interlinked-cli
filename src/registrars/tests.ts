@@ -147,7 +147,8 @@ function registerKillProof(tests: Command): void {
         .option("--file <path>", "Source file to mutate; required for an explicit fault, narrows --mutant")
         .option("--find <text>", "Explicit fault: text that occurs exactly once in --file")
         .option("--replace <text>", "Explicit fault: the text that replaces --find")
-        .option("--run-timeout <ms>", "Budget in ms for EACH vitest run (baseline, mutant, then a repeat or canary copy); --timeout is the whole-command deadline", "300000")
+        .option("--run-timeout <ms>", "Budget in ms for EACH vitest run (baseline, mutant, then repeat or canary copies)", "300000")
+        .option("--timeout <ms>", "Whole-command deadline in ms, enforced by the CLI supervisor (exit 75 when it passes; default 3600000, the maximum)")
         .option("--vitest-config <file>", "vitest config to run with (default: the --config in scripts.test, else vitest's own discovery)")
         .option("--cwd <path>", "Project root (default: the current directory)")
         .option("--json", "Machine-readable result")
@@ -159,7 +160,11 @@ Examples:
 
 Exit codes: 0 killed; 1 survived or not-passing-now; 2 inconclusive, unavailable or a bad argument.
 Guide: docs/mutation-grounded-test-proof.md`)
+        // A usage error (unknown option, missing value) exits 2 like every other undecided run — never 1, which a
+        // caller reads as "survived" (kill-proof review round 4, M7). --help keeps exit 0.
+        .exitOverride(error => process.exit(error.exitCode === 0 ? 0 : 2))
         .action(async (options: OptionValues) => {
+
             const { testsProveKillCommand } = await import("../commands/tests-prove-kill.js");
             await testsProveKillCommand(options);
         });

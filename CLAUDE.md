@@ -1796,11 +1796,16 @@ a copy-only failure is re-checked on the live tree and reported `unavailable`,
 a live failure `not-passing-now`), then once more in a SECOND fresh copy holding
 the mutated file (nothing the baseline left behind can fail the mutant run); a
 replacement that does not parse in the file's own dialect is `inconclusive`
-without running; a kill is accepted only after a third unmutated copy passes
-again (state left outside the copies — the shared `node_modules` link, the OS
-temp dir — makes it "not repeatable" → `inconclusive`); a survivor is accepted
-only after a canary copy (module-level throw in the file's place) breaks the
-tests, else `unavailable` (the tests never loaded the copy's file). A case is
+without running; a kill is accepted only after TWO further unmutated copies pass
+again (pass, FAIL, pass, pass — state left outside the copies makes it "not
+repeatable" → `inconclusive`; round 4 M1); a survivor is accepted only after a
+canary copy (module-level throw in the file's place) breaks EVERY case of each
+named file, the canary run completed, and the break is the tests' doing (a
+relative import reaching the file, or a control copy with stand-in tests that
+passes), else `unavailable` (round 4 M3/M4). Every vitest run is private:
+`--no-cache` and a fresh TMPDIR per run (round 4 M2); vitest runs in its own
+process group and a timed-out run is killed as a group (round 4 M6). A case is
+
 `killed` only when it fails BY ITS OWN CHECK (`fail-before-fix/classify.ts
 failedByOwnCheck`, minus a `node:assert` raised from product code); a product
 crash, a load error, a runner timeout or a missing result is `inconclusive`; an
@@ -1825,8 +1830,9 @@ among its killed cases, and the nudge applies the same rule against HEAD; Write/
 Edit under `.interlinked/test-runs/kill-proofs/` are refused (`protected_files`);
 `mutation survivors --file` names the command. Measured 2026-11-04:
 three adversarial rounds plus a git/platform round (`docs/reviews/kill-proof-review-round{2,3}.md`,
-`kill-proof-git-edge-cases.md`: every reproduced false-pass fixed and pinned by
-`review-regressions-{round2,round3,git}.test.ts`; policy todos: byte-level receipt
+`kill-proof-git-edge-cases.md`, `kill-proof-review-round4-runner.md`: every reproduced false-pass fixed and pinned by
+`review-regressions-{round2,round3,git,round4-runner}.test.ts`; policy todos: byte-level receipt
+
 rewrite, binder-level early errors, type-only errors); real kills
 on this repo (`docs/reviews/kill-proof-real-kills.md`: 6/8 explicit faults
 survived existing tests, 5 new mutation-kill files each proven); ten foreign

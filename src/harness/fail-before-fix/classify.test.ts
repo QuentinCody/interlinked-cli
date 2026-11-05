@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyTest, failedByOwnCheck, failureKind, isNewTest, parseVitestReport } from "./classify.js";
+import { classifyTest, failedByOwnCheck, failureKind, isNewTest, parseVitestReport, TIMEOUT_REASON } from "./classify.js";
 
 describe("classifyTest — positive", () => {
     it("P1: passes now and fails BY ASSERTION on the pre-session code ⇒ fails-before-fix (it pins the change)", () => {
@@ -100,5 +100,18 @@ describe("failedByOwnCheck — negative (inconclusive, never a kill)", () => {
         expect(failing("Error: waitFor: predicate not satisfied")?.thrownInTest).toBeUndefined();
         expect(failing("Error: no\n    at async Promise.all (index 0)\n    at /private/var/repo/src/sum.test.ts:3:1")?.thrownInTest).toBeUndefined();
         expect(failedByOwnCheck({ status: "passed", thrownInTest: true })).toBe(false);
+    });
+});
+
+describe("parseVitestReport — vitest 3/4 timeout placeholder (kill-proof review round 4, M9)", () => {
+    it("P1: `Error: STACK_TRACE_ERROR` becomes a readable timeout reason and is still not the test's own check", () => {
+        const row = failing("Error: STACK_TRACE_ERROR\n    at task (file:///repo/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at /private/var/repo/src/sum.test.ts:2:1");
+        expect(row?.message).toBe(TIMEOUT_REASON);
+        expect(row?.message).toMatch(/^test timed out \(vitest testTimeout/);
+        expect(failedByOwnCheck(row ?? { status: "missing" })).toBe(false);
+    });
+    it("N1: vitest 2's own wording and every other first line pass through unchanged", () => {
+        expect(failing("Error: Test timed out in 100ms.\n    at Timeout.<anonymous> (file:///repo/node_modules/@vitest/runner/dist/index.js:44:18)")?.message).toBe("Error: Test timed out in 100ms.");
+        expect(failing("Error: STACK_TRACE_ERROR happened\n    at x (/repo/a.ts:1:1)")?.message).toBe("Error: STACK_TRACE_ERROR happened");
     });
 });

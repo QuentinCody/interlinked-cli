@@ -98,11 +98,13 @@ describe("proveKill — positive (must fire)", () => {
 		expect(result.receipt.environment.node).toBe(process.version);
 		expect(readKillProof(root, result.receipt.id)).toEqual(result.receipt);
 		expect(readKillProofIndex(root).receipts.map(row => row.id)).toEqual([result.receipt.id]);
-		// fresh copies, never the live tree: baseline, the mutant copy, then the repeat baseline after a kill (reviews K1, L1)
-		expect(calls).toHaveLength(3);
+		// fresh copies, never the live tree: baseline, the mutant copy, then TWO repeat baselines after a kill (reviews K1, L1, round-4 M1)
+		expect(calls).toHaveLength(4);
 		expect(calls.every(call => call.dir !== root)).toBe(true);
-		expect(new Set(calls.map(call => call.dir)).size).toBe(3);
+		expect(new Set(calls.map(call => call.dir)).size).toBe(4);
 		expect(calls[2]?.source).toBe(SOURCE);
+		expect(calls[3]?.source).toBe(SOURCE);
+
 		expect(result.receipt.digest).toHaveLength(64);
 		expect(calls[0]?.source).toBe(SOURCE);
 		expect(calls[1]?.source).toBe(SOURCE.replace("n > max", "n >= max"));

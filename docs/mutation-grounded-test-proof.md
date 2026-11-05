@@ -89,11 +89,25 @@ interlinked tests kill-proofs --verify   # re-hash, re-resolve, exit 1 if any re
 ```
 
 `--test` is repeatable. `--run-timeout <ms>` bounds EACH vitest run (the baseline
-copy, the mutant copy, then the repeat or canary copy; default 300000).
+copy, the mutant copy, then the repeat or canary copies; default 300000).
 `--vitest-config <file>` passes a config to vitest; without it the `--config`
-that `scripts.test` names is used, else vitest's own discovery. `--timeout <ms>` is a different flag:
-the CLI's resource supervisor reads it as the whole command's deadline, and a value
-below a few seconds stops the CLI before any verdict (exit 75).
+that `scripts.test` names is used, else vitest's own discovery. `--timeout <ms>`
+is a different flag: the CLI's resource supervisor reads it as the whole
+command's deadline (default and maximum 3600000), and a value below a few seconds
+stops the CLI before any verdict (exit 75). `prove-kill` accepts the flag itself
+too, so it never surfaces as a usage error; a usage error (an unknown option, a
+non-numeric timeout) exits 2 like every other undecided run, never 1.
+
+Every vitest run the proof makes is private: `--no-cache` (vitest's results
+cache is never written — it would land in the live `node_modules` through the
+copy's link and reorder test files between runs) and a fresh temp directory per
+run (`TMPDIR`/`TMP`/`TEMP`, removed with the run), so `os.tmpdir()` state cannot
+cross from one run to the next. Every vitest process runs in its own process
+group; a run that passes `--run-timeout` is stopped as a group, worker included,
+and the proof continues only once the group is gone. A copy over 256 MiB of
+git-visible files adds a warning (`[interlinked:kill-proof] copy is N MiB; large
+tracked files slow every proof`, `warnings` in `--json`); it changes no verdict.
+=====
 
 ## What happens
 
@@ -108,22 +122,38 @@ below a few seconds stops the CLI before any verdict (exit 75).
    `node_modules` linked). Every case must pass. A case that fails because the
    copy lacks a file the live tree has (an ignored fixture named in the failure)
    makes the run `unavailable`; any other failure is `not-passing-now`. Nothing
-   ever runs on the live tree: a live run writes tool caches there.
+   ever runs on the live tree: a live run writes tool caches there. Each run
+   gets `--no-cache` and its own temp directory (see Usage), so neither
+   vitest's results cache nor `os.tmpdir()` carries anything between runs.
 3. **Mutant.** A SECOND fresh copy receives the one mutated source file, so
    nothing the baseline run left behind (a marker file, a snapshot, a log) can
    fail the second run. A replacement that does not parse is `inconclusive`
    without running: a compile error is not behaviour. The same tests run in the
    copy with vitest's JSON reporter.
-4. **Repeat baseline** (only when a case was killed). A third fresh,
-   unmutated copy runs the tests again. A killed case must pass there; one
-   that fails again was broken by state a run left OUTSIDE the copies (the
-   shared `node_modules` link, the OS temp directory) and is `inconclusive`
-   ("not repeatable"), never a kill.
-5. **Canary** (only when every case survived). A third copy holds a
-   module-level `throw` in the mutated file's place. If the named tests still
-   pass, they never loaded the copy's file (a mock, an absolute import, an
-   alias or a link into the live tree) and the run is `unavailable`, not
-   `survived`.
+4. **Repeat baseline, twice** (only when a case was killed). Two more fresh,
+   unmutated copies run the tests again, so a kill is the sequence pass, FAIL,
+   pass, pass. A killed case must pass in both; one that fails again was
+   broken by state a run left OUTSIDE the copies (`$HOME`, `/var`, a path
+   beside the project — the copies' temp directory and vitest cache are
+   already private) and is `inconclusive` ("not repeatable"), never a kill.
+   One repeat accepted state that flips on every run (a counter that forbids
+   its second reading, a marker the next run deletes): with the mutant always
+   in run 2 of 3, period-2 state lined up with it. Two repeats reject every
+   period-2 pattern; see Limits for what remains.
+5. **Canary** (only when every case survived). A further copy holds a
+   module-level `throw` in the mutated file's place, and the survivor stands
+   only when three things hold. The canary run completed — a canary that times
+   out or fails to launch is `unavailable` ("canary run did not complete;
+   cannot show the tests load the copy"), never `survived`. Per named file,
+   every baseline-passing case stopped passing — a case still passing never
+   loaded the copy's file (a mock, an absolute import, an alias or a link into
+   the live tree) or caught its own import error; the run is `unavailable` and
+   names the cases. And the break is the tests' doing: a test whose static
+   relative imports reach the mutated file is evidence by itself (a relative
+   import resolves inside the copy); for any other named test a **control**
+   copy — the canary plus every named test replaced by one trivial case — must
+   pass. If the control breaks too, a `setupFiles` entry or the config loads
+   the file, not the tests, and the run is `unavailable` with that reason.
 6. **Verdict per case**, then overall:
 
 | Verdict | Meaning | Exit |
@@ -237,9 +267,29 @@ sees the PostToolUse line; the human sees the Stop line.
   receipt. Data files a test reads (JSON fixtures, snapshots) are not bound.
   (A helper still cannot be named as a `--test` file: it reports no cases and
   the run is `unavailable`.)
-- The two copies link the live `node_modules`, so tool caches under it (for
-  example vitest's) are shared with the live tree; a test that writes into
-  `node_modules` writes into the live tree.
+- The copies link the live `node_modules`. vitest's own results cache is
+  disabled for every run (`--no-cache`, accepted by vitest 2.1.9, 3.2.7 and
+  4.1.11) and each run has a private temp directory, but any OTHER write a test
+  or tool makes under `node_modules` still lands in the live tree.
+- Repeats lower the odds of a false kill from state and flakiness; they do not
+  end them. The kill sequence pass, FAIL, pass, pass rejects state that flips
+  on every run (period 2); state that fails on exactly the second of every
+  three runs (period 3) still passes, as does state kept where the proof does
+  not look (`$HOME`, `/var`). A test with failure rate f gives a false kill
+  with probability (1−f)³·f per proof (one repeat: (1−f)²·f, at most 14.8 %),
+  and `sequence.shuffle` makes order-dependent tests exactly that. Run the
+  proof twice when in doubt; a receipt is one measurement.
+- A test that catches its own import of the mutated file (`try { await
+  import("../src/x") } catch {}`) swallows the canary and is reported
+  `unavailable` ("never load … or catch its import error"), by design: a
+  survivor needs evidence that the tests observed the copy's file, and a
+  swallowed import gives none. Assert on the import's result instead.
+- A `setupFiles` entry or a vitest config that imports the mutated source makes
+  the canary break every case without the tests' involvement. A test that also
+  imports the source by a relative path is still attributed; one that reaches
+  it only through an alias, a mock or a dynamic import is `unavailable`
+  (the control copy breaks too). Import the source from the test.
+
 - A test that reaches the source through an absolute path, an alias or a
   mock runs against the live, unmutated code; the canary turns that into
   `unavailable` (the tests do not load the file from the copy). A named test
@@ -251,9 +301,8 @@ sees the PostToolUse line; the human sees the Stop line.
   `survived`; nothing detects that case. Keep fixtures tracked.
 - A monorepo root without its own `vitest` is `unavailable`; run with `--cwd
   <package>`.
-- One run cannot detect flakiness. A flaky test that happens to pass live and
-  fail under the mutant reads as a kill. Run the proof twice when in doubt.
-- The copy is a git-visible copy, not an OS sandbox: a test that writes
+- The copy is a git-visible copy
+, not an OS sandbox: a test that writes
   outside its project does so for real, as it does under `vitest run`.
 - No model is involved anywhere. The differential-fuzz engine (which can
   propose a counterexample input) is a separate, manual tool and executes

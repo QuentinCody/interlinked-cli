@@ -10,7 +10,7 @@
 // Advisory evidence: it never blocks, and it says "unavailable" instead of guessing. Plan 32 build item 6.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { isTestSourcePath } from "../checks/shared-test-classification.js";
@@ -62,17 +62,32 @@ async function replays(root: string, session: string, paths: Set<string>): Promi
     return { base: head, rows, recovered: events.filter(event => event.source === "timeline").length };
 }
 
-/** Runs `files` with vitest's JSON reporter in `dir` (a project root or a copy); no report = no rows, never a pass. */
 /** One vitest run with the reasons a run produced no rows kept apart from "the tests reported nothing". */
 export interface VitestRun { cases: VitestCase[]; timedOut: boolean; error?: string; exitCode: number | null; durationMs: number; }
 
+/**
+ * Every run is PRIVATE (kill-proof review round 4, M1/M2/M8): `--no-cache` so vitest never writes its results
+ * cache (`node_modules/.vite/vitest/…/results.json`, which lands in the LIVE tree through the copy's node_modules
+ * link and reorders files between runs — accepted by vitest 2.1.9, 3.2.7 and 4.1.11; `--cache.dir` throws on all
+ * three), and TMPDIR/TMP/TEMP pointed at a fresh directory removed with the run, so `os.tmpdir()` state (a counter,
+ * a lock file) cannot cross from one run to the next. State under $HOME or elsewhere still can; the double repeat
+ * in `kill-proof/run.ts` covers it.
+ */
+export const PRIVATE_VITEST_ARGS: readonly string[] = ["--no-cache"];
+export function privateRunEnv(tmp: string): Record<string, string> {
+    const base = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+    return { ...base, CI: "1", NO_COLOR: "1", TMPDIR: tmp, TMP: tmp, TEMP: tmp };
+}
+
+/** Runs `files` with vitest's JSON reporter in `dir` (a project root or a copy); no report = no rows, never a pass. */
 export async function runVitestDetailed(dir: string, files: readonly string[], budgetMs: number, vitestArgs: readonly string[] = []): Promise<VitestRun> {
     const missing = files.filter(file => !existsSync(join(dir, file)));
     if (!files.length || missing.length) return { cases: [], timedOut: false, error: files.length ? `missing test file(s): ${missing.join(", ")}` : "no test files", exitCode: null, durationMs: 0 };
-    const reports = mkdtempSync(join(tmpdir(), "interlinked-fbf-report-")), report = join(reports, "report.json");
+    const reports = mkdtempSync(join(tmpdir(), "interlinked-fbf-report-")), report = join(reports, "report.json"), tmp = join(reports, "tmp");
+    mkdirSync(tmp);
     try {
-        const env = Object.fromEntries(Object.entries({ ...process.env, CI: "1", NO_COLOR: "1" }).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
-        const result = await runArgvInOverlay(["vitest", "run", ...files, ...vitestArgs, "--reporter=json", `--outputFile=${report}`], dir, budgetMs, undefined, env);
+        const result = await runArgvInOverlay(["vitest", "run", ...files, ...vitestArgs, ...PRIVATE_VITEST_ARGS, "--reporter=json", `--outputFile=${report}`], dir, budgetMs, undefined, privateRunEnv(tmp));
+
         const base = { timedOut: result.timedOut, exitCode: result.exitCode, durationMs: result.durationMs };
         if (result.timedOut || result.error || result.exitCode === null) return { cases: [], ...base, error: result.error ?? "runner exited without a status" };
         if (!existsSync(report)) return { cases: [], ...base, error: "vitest wrote no JSON report" };

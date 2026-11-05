@@ -16,7 +16,11 @@
 //    `node:assert` raised from product code (review R4); `survived` when it still
 //    passes; else `inconclusive` with its first failure line. A runner that times
 //    out or fails to launch makes every case inconclusive — never a kill.
-// The live tree is only read. Both copies are removed before this returns.
+// Every vitest run is private (round 4, M2): `--no-cache` (vitest's results cache would land in the LIVE
+// node_modules through the copy's link and reorder files between runs) and a fresh TMPDIR per run
+// (`fail-before-fix/index.ts runVitestDetailed`), so no run can see the previous run's tmpdir state.
+// The live tree is only read. Every copy is removed before this returns.
+
 
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -28,7 +32,8 @@ import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
 import { createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
-import { boundImportClosure } from "./bound-imports.js";
+import { boundImportClosure, testsReachingByRelativeImport } from "./bound-imports.js";
+
 import { captureEnvironment, hashFile, receiptId, resolveVitestConfig, sealReceipt, writeKillProof } from "./receipt.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
 import type { CaseOutcome, HashedFile, KillProofReceipt, MutantSpec, ProveKillResult, ResolvedMutant } from "./types.js";
@@ -51,6 +56,10 @@ export interface ProveKillOptions {
 /** Written into the mutated file's place for the reachability canary (review N6/N7): a test that still passes never loaded the copy's file. */
 // (The message must not read like an `interlinked <command>` line: cli-program.test.ts scans source strings for printed commands.)
 const CANARY_SOURCE = 'throw new Error("kill-proof canary (prove-kill): the tests must load this file from the copy");\nexport {};\n';
+/** Stands in for every named test in the canary CONTROL run (round-4 M3): it imports nothing of the project. */
+const CONTROL_TEST = 'import { it } from "vitest";\nit("kill-proof control (prove-kill): the environment alone must not fail this case", () => {});\n';
+const CANARY_INCOMPLETE = "canary run did not complete; cannot show the tests load the copy";
+
 
 /** Cases vitest reports but does not run: not evidence either way (review R14). */
 const NOT_RUN = new Set(["skipped", "todo", "pending", "disabled"]);
@@ -58,6 +67,19 @@ const NOT_RUN = new Set(["skipped", "todo", "pending", "disabled"]);
 const NODE_ASSERT_PREFIX = "AssertionError [ERR_ASSERTION]";
 
 const caseKey = (row: Pick<VitestCase, "file" | "name">): string => `${row.file} › ${row.name}`;
+
+/** Above this many git-visible bytes a proof warns (round-4 M10): each run copies the tree again, three to five times per proof. */
+export const COPY_BUDGET_BYTES = 256 * 1024 * 1024;
+export function copySizeWarning(bytes: number): string | null {
+	if (bytes <= COPY_BUDGET_BYTES) return null;
+	return `[interlinked:kill-proof] copy is ${Math.round(bytes / 1024 / 1024)} MiB; large tracked files slow every proof`;
+}
+
+/** Attach run-level warnings to a result without changing its verdict. */
+function withWarnings<T extends ProveKillResult>(result: T, warnings: readonly string[]): T {
+	return warnings.length ? { ...result, warnings: [...warnings] } : result;
+}
+
 
 function unavailable(reasons: string[], mutant?: ResolvedMutant): ProveKillResult {
 	return { ok: false, verdict: "unavailable", reasons, ...(mutant ? { mutant } : {}) };
@@ -159,7 +181,72 @@ function judgeCases(passing: readonly VitestCase[], under: VitestRun): CaseOutco
 	});
 }
 
+/** How many unmutated copies must pass again after a kill (round-4 M1). */
+export const KILL_REPEATS = 2;
+
+/**
+ * A kill must be REPEATABLE (review L1; round-4 M1). State a run leaves outside its copy — $HOME, /var, a path
+ * beside the project — can fail the next run of a test whatever the mutant did. Two unmutated copies run AFTER the
+ * kill, so the sequence a kill needs is pass, FAIL, pass, pass: state that flips on every run (period 2: a counter
+ * that forbids its second reading, a marker the next run deletes) fails the second repeat and the case is "not
+ * repeatable", never a kill. One repeat accepted exactly that pattern (round-4 N1/N2). Residual, stated in the
+ * guide's Limits: state with period 3 or longer, and probabilistic flakiness — repeats lower the odds, they do not
+ * end them. The copies' own tmpdir and vitest cache are private per run (M2), so this covers what is left.
+ */
+async function confirmKills(cases: readonly CaseOutcome[], runIn: (overrides: ReadonlyMap<string, string>) => Promise<VitestRun>): Promise<CaseOutcome[]> {
+	let out = [...cases];
+	for (let repeat = 1; repeat <= KILL_REPEATS && out.some(row => row.verdict === "killed"); repeat++) {
+		const again = await runIn(new Map());
+		out = out.map(row => {
+			if (row.verdict !== "killed") return row;
+			const result = again.cases.find(c => caseKey(c) === row.test);
+			if (again.error === undefined && !again.timedOut && result?.status === "passed") return row;
+			const why = result?.message ?? again.error ?? result?.status ?? "no result";
+			return { test: row.test, verdict: "inconclusive", reason: `not repeatable: it also fails on a fresh unmutated copy (repeat ${repeat} of ${KILL_REPEATS}: ${why}). A run left state outside the copy` };
+		});
+	}
+	return out;
+}
+
+type RunIn = (overrides: ReadonlyMap<string, string>) => Promise<VitestRun>;
+
+/**
+ * Reachability (reviews N6/N7; round-4 M3/M4). A survivor means something only if the named tests loaded the
+ * COPY's file. A canary copy holds a module-level throw in the file's place; the survivor stands only when:
+ *  1. the canary run completed — a timeout or launch failure is no evidence (M4), never "survived";
+ *  2. PER FILE, every baseline-passing case stopped passing (M3): a case still passing never reached the file,
+ *     or caught its import error (M11);
+ *  3. the break is the TESTS' doing: a test whose static relative imports reach the file is evidence by itself
+ *     (a relative import resolves inside the copy); for any other named test a CONTROL copy — canary plus every
+ *     named test replaced by one trivial case — must pass. If the control breaks too, a setup file or the config
+ *     loads the file (the setup-file hole, M3): nothing shows the tests themselves did.
+ * Returns the `unavailable` reasons, or null when the survivor is attributable to the copy's file.
+ */
+async function canaryProblem(root: string, mutant: ResolvedMutant, tests: readonly string[], passing: readonly VitestCase[], runIn: RunIn): Promise<string[] | null> {
+	const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]));
+	if (canary.error !== undefined || canary.timedOut) return [`${CANARY_INCOMPLETE} (${canary.timedOut ? `timed out after ${canary.durationMs} ms` : canary.error})`];
+	const stillPassing = passing.filter(row => canary.cases.find(c => caseKey(c) === caseKey(row))?.status === "passed");
+	if (stillPassing.length) {
+		return [
+			`the named tests never load ${mutant.file} from the copy, or catch its import error: a module-level throw in its place left ${stillPassing.length} case(s) passing — ${stillPassing.map(caseKey).join(", ")}.`,
+			"A mock, an alias, an absolute path or a link into the live tree bypasses the copy.",
+		];
+	}
+	const reaching = testsReachingByRelativeImport(root, tests, mutant.file);
+	if (tests.every(test => reaching.has(test))) return null;
+	const control = await runIn(new Map([[mutant.file, CANARY_SOURCE], ...tests.map(test => [test, CONTROL_TEST] as const)]));
+	if (control.error !== undefined || control.timedOut) return [`${CANARY_INCOMPLETE} (control run: ${control.timedOut ? `timed out after ${control.durationMs} ms` : control.error})`];
+	const unattributed = tests.filter(test => !reaching.has(test) && !control.cases.some(c => c.file === test && c.status === "passed"));
+	if (unattributed.length === 0) return null;
+	return [
+		`the canary breaks the run through a setup file or the config, not through ${unattributed.join(", ")}: no static relative import there reaches ${mutant.file}, so a survivor cannot be attributed to the copy's file.`,
+		"Import the source from the test by a relative path, or name a test that does.",
+	];
+}
+
 function overallVerdict(cases: readonly CaseOutcome[]): { verdict: KillProofReceipt["verdict"]; reasons: string[] } {
+
+
 	const killed = cases.filter(row => row.verdict === "killed"), inconclusive = cases.filter(row => row.verdict === "inconclusive");
 	if (killed.length) return { verdict: "killed", reasons: killed.map(row => `${row.test} failed by its own check under the mutant`) };
 	if (inconclusive.length) return { verdict: "inconclusive", reasons: inconclusive.map(row => `${row.test}: ${row.reason ?? "no result"}`) };
@@ -266,9 +353,12 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	const configPath = resolveVitestConfig(root, options.vitestConfig);
 	if (options.vitestConfig !== undefined && !existsSync(join(root, options.vitestConfig))) return unavailable([`--vitest-config ${options.vitestConfig} does not exist`], mutant);
 	const vitestArgs = configPath !== null ? ["--config", configPath] : [];
+	const warnings: string[] = [];
 	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun & { dir: string }> => {
 		const copy = createProjectCopy(root, files, overrides);
 		try {
+			const sizeWarning = copySizeWarning(copy.bytes);
+			if (sizeWarning !== null && !warnings.includes(sizeWarning)) warnings.push(sizeWarning);
 			return { ...(await runner(copy.dir, tests, options.budgetMs, vitestArgs)), dir: copy.dir };
 		} finally {
 			copy.cleanup();
@@ -277,37 +367,23 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 
 	const baseline = await runIn(new Map());
 	const baseProblem = baselineProblems(tests, baseline);
-	if (baseProblem !== null) return explainBaselineFailure(root, baseline.dir, baseProblem, mutant);
+	if (baseProblem !== null) return withWarnings(explainBaselineFailure(root, baseline.dir, baseProblem, mutant), warnings);
+
 	const passing = baseline.cases.filter(row => tests.includes(row.file) && row.status === "passed");
 
 	const under: VitestRun = parse !== null && !parse.ok
 		? { cases: [], timedOut: false, error: parse.reason, exitCode: null, durationMs: 0 }
 		: await runIn(new Map([[mutant.file, mutated]]));
 	let cases = judgeCases(passing, under);
-	if (cases.some(row => row.verdict === "killed")) {
-		// Repeat baseline (review L1): a kill must be REPEATABLE. State a run leaves outside the copy (the shared
-		// node_modules link, os.tmpdir()) can fail the second run of a test whatever the mutant did; an unmutated
-		// third copy must pass again, or the case is "not repeatable", never a kill.
-		const again = await runIn(new Map());
-		cases = cases.map(row => {
-			if (row.verdict !== "killed") return row;
-			const repeat = again.cases.find(c => caseKey(c) === row.test);
-			if (again.error === undefined && !again.timedOut && repeat?.status === "passed") return row;
-			return { test: row.test, verdict: "inconclusive", reason: `not repeatable: it also fails on a fresh unmutated copy (${repeat?.message ?? again.error ?? repeat?.status ?? "no result"}). A run left state outside the copy` };
-		});
-	}
+	if (cases.some(row => row.verdict === "killed")) cases = await confirmKills(cases, runIn);
 	const { verdict, reasons } = overallVerdict(cases);
+
 	if (verdict === "survived") {
-		// Reachability canary (review N6/N7): a survivor only means something if the tests loaded the COPY's file.
-		const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]));
-		const stillPassing = passing.every(row => canary.cases.find(c => caseKey(c) === caseKey(row))?.status === "passed");
-		if (canary.error === undefined && !canary.timedOut && stillPassing) {
-			return unavailable([
-				`the named tests never load ${mutant.file} from the copy: a module-level throw in its place left every case passing.`,
-				"A mock, an alias, an absolute path or a link into the live tree bypasses the copy.",
-			], mutant);
-		}
+		const problem = await canaryProblem(root, mutant, tests, passing, runIn);
+		if (problem !== null) return withWarnings(unavailable(problem, mutant), warnings);
 	}
+
+
 	const environment = captureEnvironment(root, configPath ?? undefined);
 	const boundMutant: ResolvedMutant = { ...mutant, lineText: lineTextAt(content, mutant.offset) };
 	const boundImports = boundImportClosure(root, tests, mutant.file);
@@ -321,5 +397,6 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 		environment,
 	});
 	const receiptPath = options.persist === false ? "" : writeKillProof(root, receipt);
-	return { ok: true, receipt, receiptPath };
+	return withWarnings({ ok: true, receipt, receiptPath }, warnings);
+
 }

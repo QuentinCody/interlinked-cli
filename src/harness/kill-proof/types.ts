@@ -104,9 +104,11 @@ export interface KillProofReceipt {
 	environment: ProofEnvironment;
 }
 
-/** The command's result: a receipt when the mutant run executed, else the reason it did not. */
+/** The command's result: a receipt when the mutant run executed, else the reason it did not.
+ *  `warnings` (either shape): run-level notes that change no verdict — today the copy-size budget (round-4 M10). */
 export type ProveKillResult =
-	| { ok: true; receipt: KillProofReceipt; receiptPath: string }
-	| { ok: false; verdict: "not-passing-now" | "unavailable"; reasons: string[]; mutant?: ResolvedMutant };
+	| { ok: true; receipt: KillProofReceipt; receiptPath: string; warnings?: string[] }
+	| { ok: false; verdict: "not-passing-now" | "unavailable"; reasons: string[]; mutant?: ResolvedMutant; warnings?: string[] };
+
 
 export type Freshness = { fresh: true } | { fresh: false; reasons: string[] };
