@@ -67,7 +67,9 @@ interlinked tests kill-proofs --verify   # re-hash, re-resolve, exit 1 if any re
 ```
 
 `--test` is repeatable. `--run-timeout <ms>` bounds EACH vitest run (the baseline
-copy, then the mutant copy; default 300000). `--timeout <ms>` is a different flag:
+copy, then the mutant copy, then the canary when needed; default 300000).
+`--vitest-config <file>` passes a config to vitest; without it the `--config`
+that `scripts.test` names is used, else vitest's own discovery. `--timeout <ms>` is a different flag:
 the CLI's resource supervisor reads it as the whole command's deadline, and a value
 below a few seconds stops the CLI before any verdict (exit 75).
 
@@ -88,11 +90,16 @@ below a few seconds stops the CLI before any verdict (exit 75).
    fail the second run. A replacement that does not parse is `inconclusive`
    without running: a compile error is not behaviour. The same tests run in the
    copy with vitest's JSON reporter.
-4. **Verdict per case**, then overall:
+4. **Canary** (only when every case survived). A third copy holds a
+   module-level `throw` in the mutated file's place. If the named tests still
+   pass, they never loaded the copy's file (a mock, an absolute import, an
+   alias or a link into the live tree) and the run is `unavailable`, not
+   `survived`.
+5. **Verdict per case**, then overall:
 
 | Verdict | Meaning | Exit |
 |---|---|---|
-| `killed` | at least one named case failed **by its own check** (an assertion, or a plain error thrown from the test file) | 0 |
+| `killed` | at least one named case failed **by its own check** (an assertion, a snapshot mismatch, or a plain error thrown from the test file) | 0 |
 | `survived` | every case still passed with the mutant applied; these tests do not detect it | 1 |
 | `not-passing-now` | a named case fails on the live tree; the proof cannot start | 1 |
 | `inconclusive` | no case failed by its own check, and at least one crashed, failed to load, or the runner timed out — nothing is proven | 2 |
@@ -103,7 +110,9 @@ A crash in product code under the mutant (`TypeError`, a stack overflow) is
 about the intended behaviour fired; this is the same rule `tests
 fail-before-fix` and `tests faults run` apply. Measured on two foreign
 repositories (2026-11-04): 2 of 16 author-labelled "killed" faults fell into
-this class.
+this class; over ten repositories and 130 authored faults, 100 verdicts matched
+the author's prediction, 11 predictions were wrong, 3 were library crashes, and
+13 were a monorepo root reported `unavailable`.
 
 ## The receipt
 
@@ -115,8 +124,9 @@ the small read model. A receipt binds:
   mutant its `mutantId`, `siteId`, `symbolId`, `qualifiedName`, `mutator`,
   `ordinalWithinSymbol`, manifest generation and recorded status;
 - every named test file's path and sha256;
-- node version, vitest version, platform, and the sha256 of the
-  `vitest.config.*` / `vite.config.*` in use;
+- node version, vitest version, platform, the sha256 of the vitest config in
+  use, and the sha256 of every `setupFiles` / `globalSetup` file that config
+  declares;
 - the per-case outcomes on both sides, durations, the verdict, and
   `killedTests`: the named test files with at least one killed case, the only
   files the receipt certifies;
@@ -128,7 +138,10 @@ re-checks the digest, re-hashes the files, compares the runtime, and re-resolves
 the mutant; any difference is `STALE` with the reasons named. A `survived` or
 `inconclusive` receipt is kept (it records what was tried) but never counts as
 evidence of a kill. Every decision (the Stop check, the nudge, the list) reads
-the receipt FILE; `index.json` is only a locator. Receipts are tamper-evident,
+the receipt FILE; `index.json` is only a locator. `--verify` lists a receipt as
+`UNCOMMITTED` (exit 0) when the bound source or test bytes differ from HEAD or
+the index: the proof is about work-tree bytes, and a commit-time reader must
+know they are not the committed ones. Receipts are tamper-evident,
 not tamper-proof: the digest is unkeyed, so a receipt rewritten from scratch
 with recomputed hashes passes. They are evidence of execution on this machine,
 not a security boundary.
@@ -164,10 +177,17 @@ sees the PostToolUse line; the human sees the Stop line.
 - The two copies link the live `node_modules`, so tool caches under it (for
   example vitest's) are shared with the live tree; a test that writes into
   `node_modules` writes into the live tree.
-- A test that reaches the source through an absolute path or an import from
-  outside the project runs against the live, unmutated code and reads as
-  `survived`; a named test file whose real path is outside the project is
-  refused.
+- A test that reaches the source through an absolute path, an alias or a
+  mock runs against the live, unmutated code; the canary turns that into
+  `unavailable` (the tests do not load the file from the copy). A named test
+  file whose real path is outside the project is refused; links that resolve
+  inside the project are rewritten to the copy.
+- Ignored data is never copied. A test that reads an ignored fixture fails in
+  the copy and is reported `unavailable` (it passes live). A test that reads
+  ignored data OPTIONALLY passes vacuously in the copy and can read as
+  `survived`; nothing detects that case. Keep fixtures tracked.
+- A monorepo root without its own `vitest` is `unavailable`; run with `--cwd
+  <package>`.
 - One run cannot detect flakiness. A flaky test that happens to pass live and
   fail under the mutant reads as a kill. Run the proof twice when in doubt.
 - The copy is a git-visible copy, not an OS sandbox: a test that writes
