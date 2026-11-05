@@ -100,13 +100,13 @@ inputs (#1, #2, #16). Each file sits beside its module; every case is preceded b
 | 3 | `lib/value-validation.mutation-kill.test.ts` | killed | 0 | 1/1 "rejects non-finite numbers" | `8f3aff77f5b68434` | 841 | 777 | 8970 |
 | 5 | `lib/auth-cred-match.mutation-kill.test.ts` | killed | 0 | 1/2 "accepts an unexpired token whose expiry is given in epoch seconds" | `72b4eb305b8312ff` | 829 | 758 | 8836 |
 | 10 | `lib/manual-debt-marker-transition.mutation-kill.test.ts` | killed | 0 | 1/1 "rejects a closed transition whose before fingerprint mismatches" | `6df38ee983d23ad7` | 1091 | 867 | 9986 |
-| 16 | `lib/lint-import/sarif.mutation-kill.test.ts` | killed | 0 | 1/1 "drops informational results and keeps failing ones" | `8f665d5d041a24ec` | 823 | 773 | 9030 |
+| 16 | `lib/lint-import/sarif.mutation-kill.test.ts` | killed | 0 | 1/1 "drops informational results and keeps failing ones" | `741094a369e88eeb` | 762 | 737 | 10802 |
 | 20 | `lib/cowork/policy.mutation-kill.test.ts` | killed | 0 | 1/2 "refuses a bridge timeout above 10000 ms" | `d17f2dd4b8a98212` | 802 | 723 | 9274 |
 | 26 | `lib/write-tool-registry.mutation-kill.test.ts` | killed | 0 | 1/1 "classifies an MCP save tool as write-capable" | `8d27927063d159ef` | 1034 | 823 | 9477 |
 | 27 | `lib/hook-template-chunks/package-install-cold-guard.mutation-kill.test.ts` | killed | 0 | 1/1 "blocks an install issued through the run_command shell tool" | `1b7e705349f2e0b2` | 764 | 797 | 9317 |
 | 28 | `lib/hook-template-chunks/destructive-command-guard-git.mutation-kill.test.ts` | killed | 0 | 1/2 "blocks git stash clear" | `f0e01063e80ec067` | 807 | 741 | 8440 |
 
-10/10 killed. The four non-killing second cases (#2, #5, #20, #28) pin the other side of the
+10/10 killed. #16 was re-proved (`741094a369e88eeb`, killed, exit 0) after a comment-only edit to its test file; the first receipt `8f665d5d041a24ec` (killed, 823/773 ms) is stale by test sha. The four non-killing second cases (#2, #5, #20, #28) pin the other side of the
 same boundary and are reported per case as `survived`, as expected.
 
 ## Timing (end-to-end wall time per `prove-kill` invocation)
