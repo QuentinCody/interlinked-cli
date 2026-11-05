@@ -22,9 +22,21 @@ export interface ProveKillCliOptions {
 	find?: string;
 	replace?: string;
 	runTimeout?: string;
+	/** Whole-command deadline; read and enforced by the CLI supervisor (`harness/resource-cli.ts`), validated here so a typo is a usage error. */
+	timeout?: string;
 	vitestConfig?: string;
 	json?: boolean;
 }
+
+/** `--run-timeout` / `--timeout` must be a positive integer count of milliseconds; the message names the flag. */
+export function timeoutProblem(options: ProveKillCliOptions): string | null {
+	for (const [flag, value] of [["--run-timeout", options.runTimeout], ["--timeout", options.timeout]] as const) {
+		if (value === undefined) continue;
+		if (!/^\d+$/.test(value) || Number(value) <= 0 || !Number.isSafeInteger(Number(value))) return `${flag} must be a positive number of milliseconds`;
+	}
+	return null;
+}
+
 
 export const PROVE_KILL_EXIT = { proven: 0, failed: 1, undecided: 2 } as const;
 
@@ -94,8 +106,10 @@ export async function testsProveKillCommand(options: ProveKillCliOptions): Promi
 	const mode = getOutputMode(options);
 	const spec = specFromOptions(options);
 	if (typeof spec === "string") { outputError(mode, spec); process.exitCode = PROVE_KILL_EXIT.undecided; return; }
+	const badTimeout = timeoutProblem(options);
+	if (badTimeout !== null) { outputError(mode, badTimeout); process.exitCode = PROVE_KILL_EXIT.undecided; return; }
 	const budgetMs = Number(options.runTimeout ?? "300000");
-	if (!Number.isFinite(budgetMs) || budgetMs <= 0) { outputError(mode, "--run-timeout must be a positive number of milliseconds"); process.exitCode = PROVE_KILL_EXIT.undecided; return; }
+
 	try {
 		const root = realpathSync(options.cwd ?? process.cwd());
 		const result = await proveKill({ root, spec, tests: options.test ?? [], budgetMs, ...(options.vitestConfig !== undefined ? { vitestConfig: options.vitestConfig } : {}) });

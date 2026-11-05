@@ -3,7 +3,7 @@
 // engine itself is pinned in `src/harness/kill-proof/*.test.ts`.
 import { describe, expect, it } from "vitest";
 import type { KillProofReceipt, ProveKillResult, ResolvedMutant } from "../harness/kill-proof/types.js";
-import { exitCodeFor, type KillProofRow, PROVE_KILL_EXIT, renderKillProofs, renderProveKill, specFromOptions } from "./tests-prove-kill.js";
+import { exitCodeFor, type KillProofRow, PROVE_KILL_EXIT, renderKillProofs, renderProveKill, specFromOptions, timeoutProblem } from "./tests-prove-kill.js";
 
 const MUTANT: ResolvedMutant = { file: "src/math.ts", offset: 10, originalLexeme: "return max;", replacement: "return value;", line: 3, source: "explicit" };
 
