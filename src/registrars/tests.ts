@@ -141,25 +141,36 @@ function registerFaults(tests: Command): void {
 /** Mutation-grounded test proof: one mutant, the tests that claim to catch it, local execution, a receipt. */
 function registerKillProof(tests: Command): void {
     tests.command("prove-kill")
-        .description("Prove that the named tests pass on the live tree and fail under ONE mutant (a manifest survivor by id, or an explicit --find/--replace fault); writes a receipt bound to source, test and runtime bytes. Exit 0 killed; 1 survived or not passing now; 2 undecided")
-        .option("--cwd <path>", "Project root")
-        .option("--test <file>", "Test file that must notice the mutant (repeatable)", (value: string, previous: string[] = []) => [...previous, value])
-        .option("--mutant <id>", "Stable mutant id from .interlinked/mutation-manifest.json (see `interlinked mutation survivors --file <path>`)")
-        .option("--file <path>", "Source file: narrows --mutant, required for an explicit fault")
-        .option("--find <text>", "Explicit fault: source text that occurs exactly once in --file")
-        .option("--replace <text>", "Explicit fault: the replacement text")
-        .option("--run-timeout <ms>", "Budget for EACH vitest run (the baseline copy, then the mutant copy); `--timeout` is the whole-command deadline", "300000")
-        .option("--vitest-config <file>", "vitest config to pass as --config (default: the one `scripts.test` declares, else vitest's own discovery)")
+        .description("Prove that the named tests pass now and fail under ONE mutant: a manifest survivor (--mutant) or an explicit fault (--file/--find/--replace). A killed proof writes a receipt bound to the source, test and runtime bytes.")
+        .option("--test <file>", "Test file that must catch the mutant; repeat for more files", (value: string, previous: string[] = []) => [...previous, value])
+        .option("--mutant <id>", "16-hex mutant id from the mutation manifest (list: interlinked mutation survivors --file <src>)")
+        .option("--file <path>", "Source file to mutate; required for an explicit fault, narrows --mutant")
+        .option("--find <text>", "Explicit fault: text that occurs exactly once in --file")
+        .option("--replace <text>", "Explicit fault: the text that replaces --find")
+        .option("--run-timeout <ms>", "Budget in ms for EACH vitest run (baseline, mutant, then a repeat or canary copy); --timeout is the whole-command deadline", "300000")
+        .option("--vitest-config <file>", "vitest config to run with (default: the --config in scripts.test, else vitest's own discovery)")
+        .option("--cwd <path>", "Project root (default: the current directory)")
         .option("--json", "Machine-readable result")
+        .addHelpText("after", `
+Examples:
+  interlinked tests prove-kill --test test/clamp.test.ts --file src/math.ts \\
+    --find 'if (value > max) return max;' --replace 'if (value > max) return value;'
+  interlinked tests prove-kill --test src/a.test.ts --mutant 575ddae6cc2946f9
+
+Exit codes: 0 killed; 1 survived or not-passing-now; 2 inconclusive, unavailable or a bad argument.
+Guide: docs/mutation-grounded-test-proof.md`)
         .action(async (options: OptionValues) => {
             const { testsProveKillCommand } = await import("../commands/tests-prove-kill.js");
             await testsProveKillCommand(options);
         });
     tests.command("kill-proofs")
-        .description("List recorded kill proofs; --verify re-checks each against the bytes and runtime on disk (exit 1 when any is stale)")
-        .option("--cwd <path>", "Project root")
-        .option("--verify", "Re-hash source and tests, re-resolve the mutant, compare the runtime")
+        .description("List recorded kill proofs. With --verify, check each against the bytes and runtime on disk.")
+        .option("--verify", "Re-hash source, tests, config and setup files, re-locate the mutant, compare node and vitest")
+        .option("--cwd <path>", "Project root (default: the current directory)")
         .option("--json", "Machine-readable list")
+        .addHelpText("after", `
+Freshness (with --verify): FRESH, UNCOMMITTED (fresh, but the proven bytes differ from HEAD), STALE (re-run prove-kill).
+Exit codes: 0, or 1 when --verify finds a KILLED proof stale or unreadable; 2 on an error.`)
         .action(async (options: OptionValues) => {
             const { testsKillProofsCommand } = await import("../commands/tests-prove-kill.js");
             testsKillProofsCommand(options);

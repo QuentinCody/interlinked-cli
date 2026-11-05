@@ -13,28 +13,50 @@ assertion, from an older receipt, or from a surviving-mutant count.
 ## Quick start
 
 Nothing to install beyond interlinked: any git repository with vitest works.
+Commit first if you can: a proof of uncommitted bytes is reported `UNCOMMITTED`.
 
-```bash
-# 1. Explicit fault: the test must pass now and fail with this one edit applied.
-interlinked tests prove-kill --file src/math.ts \
-  --find 'if (value > max) return max;' --replace 'if (value > max) return value;' \
-  --test test/clamp.test.ts
+```console
+$ interlinked tests prove-kill --test test/clamp.test.ts --file src/math.ts \
+    --find 'if (value > max) return max;' --replace 'if (value > max) return value;'
+mutant: explicit fault @ src/math.ts:3 "if (value > max) return max;" → "if (value > max) return value;"
+tests: test/clamp.test.ts (2 case(s) pass in the isolated copy, 615 ms)
+verdict: KILLED (570 ms under the mutant)
+  survived     test/clamp.test.ts › clamps below the range
+  killed       test/clamp.test.ts › clamps above the range
+receipt: /tmp/kp-demo/.interlinked/test-runs/kill-proofs/d9fa203ce7d2b6e8.json
+Proof recorded. It holds while source, tests and runtime are unchanged; check with `interlinked tests kill-proofs --verify`.
 
-# 2. Manifest survivor by id (list ids: interlinked mutation survivors --file <src>).
-interlinked tests prove-kill --mutant 575ddae6cc2946f9 --test src/harness/server/anti-stomp.test.ts
+$ interlinked tests kill-proofs --verify
+d9fa203ce7d2b6e8 KILLED       2026-11-05T03:49:20.430Z explicit fault @ src/math.ts:3 "if (value > max) return max;" → "if (value > max) return value;"
+  tests: test/clamp.test.ts
+  FRESH
+1 KILLED proof(s): 1 fresh, 0 uncommitted, 0 stale. Only KILLED proofs count as evidence.
 ```
 
-Reading the verdict (add `--json` for a machine-readable result):
+A manifest survivor works the same way by id (list ids with
+`interlinked mutation survivors --file <src>`):
+`interlinked tests prove-kill --test src/harness/server/anti-stomp.test.ts --mutant 575ddae6cc2946f9`.
+
+Reading the verdict (add `--json` for a machine-readable result). The last line
+of the human output always says what to do next.
 
 - `KILLED` (exit 0): a named test failed by its own check. A receipt is written.
 - `SURVIVED` (exit 1): every test still passed. Assert the value the fault changes.
-- `NOT-PASSING-NOW` (exit 1): a test fails on the live tree. Fix it first.
-- `INCONCLUSIVE` (exit 2): a crash, load error or timeout. Nothing is proven.
-- `UNAVAILABLE` (exit 2): the fault or a test could not be set up. Read the reason.
+- `NOT-PASSING-NOW` (exit 1): a test fails before any mutation. Fix it first.
+- `INCONCLUSIVE` (exit 2): the mutant did not parse, a test crashed or timed
+  out, or the kill did not repeat on a clean copy. Nothing is proven.
+- `UNAVAILABLE` (exit 2): the proof could not be set up. The reason names the
+  cause, such as a missing test, an ignored fixture, a mock, or a workspace root.
+
+Two flags fix most `UNAVAILABLE` runs. `--run-timeout <ms>` raises the budget
+for each vitest run (default 300000). `--vitest-config <file>` picks the config
+when the test is outside the default one's `include`.
 
 Keeping the receipt fresh: `interlinked tests kill-proofs --verify` re-hashes the
-source and tests and compares the runtime. Any edit marks a `KILLED` receipt
-`STALE` and exits 1; re-run the same `prove-kill` command to renew it.
+source, tests, vitest config and setup files, and compares node and vitest. Any
+change marks a `KILLED` receipt `STALE` and exits 1. Re-run the same
+`prove-kill` command to renew it. The walkthrough of every outcome, verbatim,
+is `docs/reviews/kill-proof-ux-walkthrough.md`.
 
 ## When to use it
 
@@ -67,7 +89,7 @@ interlinked tests kill-proofs --verify   # re-hash, re-resolve, exit 1 if any re
 ```
 
 `--test` is repeatable. `--run-timeout <ms>` bounds EACH vitest run (the baseline
-copy, then the mutant copy, then the canary when needed; default 300000).
+copy, the mutant copy, then the repeat or canary copy; default 300000).
 `--vitest-config <file>` passes a config to vitest; without it the `--config`
 that `scripts.test` names is used, else vitest's own discovery. `--timeout <ms>` is a different flag:
 the CLI's resource supervisor reads it as the whole command's deadline, and a value

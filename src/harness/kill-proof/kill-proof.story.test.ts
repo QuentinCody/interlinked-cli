@@ -182,7 +182,7 @@ describe("prove-kill refusals (real runner)", () => {
 		const result = asResult(run);
 		expect(result.ok).toBe(false);
 		expect(result.verdict).toBe("unavailable");
-		expect((result.reasons ?? []).join(" ")).toMatch(/do not load src\/clamp\.ts from the copy/);
+		expect((result.reasons ?? []).join(" ")).toMatch(/never load src\/clamp\.ts from the copy/);
 	});
 
 	it("N4: an assertion on the unmutated function survives the fault", { timeout: SLOW }, () => {

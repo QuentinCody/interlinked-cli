@@ -58,8 +58,17 @@ function nextStep(result: ProveKillResult): string {
 		case "survived":
 			return "These tests still pass with the mutant applied. Strengthen the assertion: check the value the mutant changes, then re-run.";
 		default:
-			return "Nothing is proven: a crash, load error or timeout is not a kill. Assert on the mutated code's result, or raise --timeout.";
+			return inconclusiveStep(result.receipt);
 	}
+}
+
+/** The next step for an inconclusive proof names its cause: a parse error, a timeout, a non-repeatable kill, or a crash. */
+function inconclusiveStep(receipt: KillProofReceipt): string {
+	const { underMutant } = receipt;
+	if (/does not parse|contains JSX/.test(underMutant.error ?? "")) return "Nothing is proven: the mutated file does not parse. Pick a replacement that compiles, then re-run.";
+	if (underMutant.timedOut) return "Nothing is proven: the mutant run timed out. Raise --run-timeout (default 300000), then re-run.";
+	if (underMutant.cases.some(row => row.reason?.startsWith("not repeatable") === true)) return "Nothing is proven: the test fails on a second clean run. Make it clean up the state it leaves.";
+	return "Nothing is proven: a crash or load error is not a kill. Assert on the mutated code's result instead.";
 }
 
 export function renderProveKill(result: ProveKillResult): string {
@@ -116,13 +125,13 @@ export function listKillProofs(root: string, verify: boolean): KillProofRow[] {
 		if (!freshness.fresh) return { ...base, freshness: "stale", reasons: freshness.reasons };
 		// The proof certifies WORK-TREE bytes; a commit-time reader must know when those are not the committed ones (review N8).
 		const uncommitted = uncommittedPaths(root, [receipt.source.path, ...receipt.tests.map(test => test.path), ...receipt.boundImports.map(file => file.path)]);
-		return uncommitted.length ? { ...base, freshness: "uncommitted", reasons: uncommitted.map(path => `${path}: work tree differs from HEAD or the index (the proven bytes are not committed)`) } : { ...base, freshness: "fresh" };
+		return uncommitted.length ? { ...base, freshness: "uncommitted", reasons: uncommitted.map(path => `${path} differs from HEAD or the index; commit it so the proof covers committed bytes`) } : { ...base, freshness: "fresh" };
 	});
 }
 
 export function renderKillProofs(rows: readonly KillProofRow[]): string {
 	if (rows.length === 0) return "No kill proofs recorded yet. Make one with `interlinked tests prove-kill --help`.";
-	return rows.map(row => {
+	const listed = rows.map(row => {
 		const head = `${row.id} ${row.verdict.toUpperCase().padEnd(12)} ${row.provedAt} ${row.mutant}`;
 		// Name the killing files only when a multi-file receipt did not kill through every named file (review K10).
 		const partial = row.tests.length > 1 && row.killedTests.length !== row.tests.length;
@@ -130,6 +139,18 @@ export function renderKillProofs(rows: readonly KillProofRow[]): string {
 		const fresh = row.freshness ? `  ${row.freshness.toUpperCase()}${row.reasons ? `: ${row.reasons.join("; ")}` : ""}` : null;
 		return [head, tests, ...(fresh ? [fresh] : [])].join("\n");
 	}).join("\n");
+	const summary = verifySummary(rows);
+	return summary === null ? listed : `${listed}\n${summary}`;
+}
+
+/** After --verify: count the KILLED receipts by freshness and say how to renew a stale one. */
+function verifySummary(rows: readonly KillProofRow[]): string | null {
+	if (!rows.some(row => row.freshness !== undefined)) return null;
+	const killed = rows.filter(row => row.verdict === "killed");
+	const count = (state: KillProofRow["freshness"]): number => killed.filter(row => row.freshness === state).length;
+	const stale = count("stale") + count("unreadable");
+	const tally = `${killed.length} KILLED proof(s): ${count("fresh")} fresh, ${count("uncommitted")} uncommitted, ${stale} stale.`;
+	return stale > 0 ? `${tally} Re-run the prove-kill command of each stale proof to renew it.` : `${tally} Only KILLED proofs count as evidence.`;
 }
 
 export function testsKillProofsCommand(options: KillProofsCliOptions): void {

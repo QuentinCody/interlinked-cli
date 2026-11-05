@@ -78,9 +78,9 @@ export function normalizeTestPaths(root: string, tests: readonly string[]): stri
 function testFileProblem(root: string, test: string): string | null {
 	const abs = join(root, test);
 	if (!existsSync(abs)) return `${test} does not exist`;
-	if (lstatSync(abs).isDirectory()) return `${test} is a directory; name test files`;
+	if (lstatSync(abs).isDirectory()) return `${test} is a directory; pass each test file with its own --test`;
 	const real = realpathSync(abs);
-	if (real !== root && !real.startsWith(root + sep)) return `${test} resolves outside the project (${real}); a test outside the copy would run against the live source`;
+	if (real !== root && !real.startsWith(root + sep)) return `${test} resolves outside the project (${real}). It would test the live source, not the copy`;
 	return null;
 }
 
@@ -130,11 +130,15 @@ type BaselineProblem = { kind: "unavailable" | "not-passing-now"; reasons: strin
 /** Baseline problems: a runner failure, a named file with no run case, or a case that does not pass. */
 function baselineProblems(tests: readonly string[], run: VitestRun): BaselineProblem | null {
 	if (run.error !== undefined || run.timedOut) {
-		return { kind: "unavailable", reasons: [`baseline run failed: ${run.timedOut ? `timed out after ${run.durationMs} ms` : run.error}`], failing: [] };
+		const failure = run.timedOut ? `baseline run timed out after ${run.durationMs} ms; raise --run-timeout (default 300000)` : `baseline run failed: ${run.error}`;
+		return { kind: "unavailable", reasons: [failure], failing: [] };
 	}
 	const named = run.cases.filter(row => tests.includes(row.file) && !NOT_RUN.has(row.status));
 	const silent = tests.filter(file => !named.some(row => row.file === file));
-	if (silent.length) return { kind: "unavailable", reasons: silent.map(file => `${file} reported no executed test case in the baseline copy`), failing: [] };
+	if (silent.length) {
+		const hint = "Check that the vitest config includes it (or pass --vitest-config <file>) and that it loads without ignored files.";
+		return { kind: "unavailable", reasons: [...silent.map(file => `${file} ran no test case in the isolated copy`), hint], failing: [] };
+	}
 	const failing = named.filter(row => row.status !== "passed");
 	if (failing.length) {
 		return { kind: "not-passing-now", reasons: failing.map(row => `${caseKey(row)}: ${row.status}${row.message ? ` — ${row.message}` : ""}`), failing };
@@ -189,6 +193,7 @@ export function missingVitest(root: string): string | null {
 			const deps = { ...(pkg as { dependencies?: Record<string, string> }).dependencies, ...(pkg as { devDependencies?: Record<string, string> }).devDependencies };
 			const found = OTHER_RUNNERS.filter(name => name in deps);
 			const script = (pkg as { scripts?: Record<string, string> }).scripts?.test;
+			if ("workspaces" in pkg || existsSync(join(root, "pnpm-workspace.yaml"))) return "vitest is not installed at this workspace root; pass --cwd <package> for a package that has vitest";
 			if (found.length) declared = ` (this project declares ${found.join(", ")})`;
 			else if (script) declared = ` (its test script is \`${script}\`)`;
 		}
@@ -225,7 +230,7 @@ function explainBaselineFailure(root: string, copyDir: string, problem: Baseline
 	}).filter((p): p is string => p !== null);
 	if (lacking.length) {
 		return unavailable([
-			`the isolated git-visible copy lacks ${[...new Set(lacking)].join(", ")} (ignored or untracked files are not copied), so the baseline cannot run there:`,
+			`the isolated copy lacks ${[...new Set(lacking)].join(", ")}: ignored files are not copied. Track the file, then re-run.`,
 			...problem.reasons,
 		], mutant);
 	}
@@ -259,7 +264,7 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	const mutated = applyMutant(content, mutant.offset, mutant.originalLexeme, mutant.replacement);
 	const parse = mutantParses(mutant.file, mutated);
 	const configPath = resolveVitestConfig(root, options.vitestConfig);
-	if (options.vitestConfig !== undefined && !existsSync(join(root, options.vitestConfig))) return unavailable([`${options.vitestConfig} does not exist`], mutant);
+	if (options.vitestConfig !== undefined && !existsSync(join(root, options.vitestConfig))) return unavailable([`--vitest-config ${options.vitestConfig} does not exist`], mutant);
 	const vitestArgs = configPath !== null ? ["--config", configPath] : [];
 	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun & { dir: string }> => {
 		const copy = createProjectCopy(root, files, overrides);
@@ -288,7 +293,7 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 			if (row.verdict !== "killed") return row;
 			const repeat = again.cases.find(c => caseKey(c) === row.test);
 			if (again.error === undefined && !again.timedOut && repeat?.status === "passed") return row;
-			return { test: row.test, verdict: "inconclusive", reason: `not repeatable: the case also fails on an unmutated copy after the mutant run (${repeat?.message ?? again.error ?? repeat?.status ?? "no result"}); a run left state outside the copy` };
+			return { test: row.test, verdict: "inconclusive", reason: `not repeatable: it also fails on a fresh unmutated copy (${repeat?.message ?? again.error ?? repeat?.status ?? "no result"}). A run left state outside the copy` };
 		});
 	}
 	const { verdict, reasons } = overallVerdict(cases);
@@ -297,7 +302,10 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 		const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]));
 		const stillPassing = passing.every(row => canary.cases.find(c => caseKey(c) === caseKey(row))?.status === "passed");
 		if (canary.error === undefined && !canary.timedOut && stillPassing) {
-			return unavailable([`the named tests do not load ${mutant.file} from the copy (an absolute path, an alias or a link into the live tree): a module-level throw in its place left every case passing`], mutant);
+			return unavailable([
+				`the named tests never load ${mutant.file} from the copy: a module-level throw in its place left every case passing.`,
+				"A mock, an alias, an absolute path or a link into the live tree bypasses the copy.",
+			], mutant);
 		}
 	}
 	const environment = captureEnvironment(root, configPath ?? undefined);
