@@ -1825,9 +1825,9 @@ a receipt only when EVERY newly added case — derived from the TypeScript AST
 as prefix families, computed titles unresolvable, a same-body retitle is a
 rename, a new body is a new case even at the same count) — is covered by its
 killed cases (every recorded case of that name killed), and the nudge applies
-the same rule against HEAD; a re-proof retires older receipts of the same
-source × mutant × test set under `kill-proofs/superseded/` and `--verify`
-judges the newest per key (round 4, `kill-proof-review-round4-receipts.md`);
+the same rule against HEAD; a re-proof marks older receipts of the same
+source × mutant × test set `supersededBy` in the index and `--verify` judges
+the newest per key (round 4, `kill-proof-review-round4-receipts.md`);
 Write/Edit/NotebookEdit under `.interlinked/test-runs/kill-proofs/` are refused
 (`protected_files`, matched on the real path);
 `mutation survivors --file` names the command. Measured 2026-11-04:

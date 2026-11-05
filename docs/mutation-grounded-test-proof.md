@@ -186,15 +186,15 @@ NEW receipt. The proof it renews is identified by its *proof key*: the source
 path, the mutant's identity (a manifest id, or for an explicit fault its file,
 `--find` lexeme and `--replace` text — the offset is not part of it, so a proof
 renewed after an edit above the fault is the same proof) and the named test
-set. On every write, older receipts with the same key are moved to
-`.interlinked/test-runs/kill-proofs/superseded/`: they are kept as history, are
-never read as evidence (not in `index.json`, not by the Stop check or the
-nudge), and `kill-proofs` lists them with `SUPERSEDED by <id>`. `--verify`
-judges only the newest receipt per key; a superseded receipt never fails it. A
-receipt an older build left unretired is still ranked newest-per-key by the
-listing. Proving the same bytes again revives the retired receipt (same id).
-A different test set or a different fault is a different proof and is never
-retired by another.
+set. Every index rebuild (each write) marks every receipt that is not the
+newest of its key with `supersededBy: <newest id>`. Superseded receipts stay on
+disk as history, are never read as evidence (the Stop check, the nudge and
+`freshKillsForTest` skip them even when their bytes come back), and
+`kill-proofs` lists them with `SUPERSEDED by <id>`. `--verify` judges only the
+newest receipt per key; a superseded receipt never fails it. Proving the same
+bytes again rewrites the same id with a newer `provedAt`, which makes it the
+current receipt once more. A different test set or a different fault is a
+different proof and is never superseded by another.
 
 ## Where the harness uses it
 
