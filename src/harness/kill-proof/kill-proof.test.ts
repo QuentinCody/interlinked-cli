@@ -40,11 +40,11 @@ const SPEC = { kind: "explicit", file: "src/clamp.ts", find: "n > max", replace:
  *  after a kill), the mutated source → `mutated`, the reachability canary → `canary` (default: every case fails,
  *  i.e. the tests DID load the file). */
 function fakeRunner(baseline: VitestRun, mutated: VitestRun, canary?: VitestRun) {
-	const calls: { dir: string; source: string }[] = [];
+	const calls: { dir: string; source: string; args: readonly string[] }[] = [];
 	const loaded: VitestRun = okRun(baseline.cases.map(row => ({ ...row, status: "failed", message: "Error: interlinked kill-proof canary" })));
-	const runner = async (dir: string): Promise<VitestRun> => {
+	const runner = async (dir: string, _files: readonly string[], _budgetMs: number, args: readonly string[]): Promise<VitestRun> => {
 		const source = readFileSync(join(dir, "src/clamp.ts"), "utf8");
-		calls.push({ dir, source });
+		calls.push({ dir, source, args });
 		if (source.includes("kill-proof canary")) return canary ?? loaded;
 		return source === SOURCE ? baseline : mutated;
 	};
@@ -119,6 +119,22 @@ describe("proveKill — positive (must fire)", () => {
 	});
 	it("P3: a `node:assert` failure thrown FROM the test file is still the test's check", () => {
 		expect(killedByOwnCheck(failing("x", "AssertionError [ERR_ASSERTION]: out >= 0", { thrownInTest: true }))).toBe(true);
+	});
+	it("P6: `--vitest-config` (vitestConfig) is passed to every vitest run as --config and bound into the receipt; the one `scripts.test` names is the default", async () => {
+		write("vitest.unit.config.ts", "export default {};\n");
+		write("package.json", '{"name":"x","type":"module","scripts":{"test":"vitest run --config vitest.unit.config.ts"}}\n');
+		git("add", ".");
+		const { runner, calls } = fakeRunner(okRun([passing("caps")]), KILLED);
+		const declared = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner, persist: false });
+		expect(calls.every(call => call.args.join(" ") === "--config vitest.unit.config.ts")).toBe(true);
+		expect(declared.ok && declared.receipt.environment.config?.path).toBe("vitest.unit.config.ts");
+		write("vitest.other.config.ts", "export default {};\n");
+		const { runner: runner2, calls: calls2 } = fakeRunner(okRun([passing("caps")]), KILLED);
+		const explicit = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner: runner2, persist: false, vitestConfig: "vitest.other.config.ts" });
+		expect(calls2[0]?.args).toEqual(["--config", "vitest.other.config.ts"]);
+		expect(explicit.ok && explicit.receipt.environment.config?.path).toBe("vitest.other.config.ts");
+		const missing = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner: runner2, persist: false, vitestConfig: "nope.config.ts" });
+		expect(!missing.ok && missing.reasons[0]).toBe("nope.config.ts does not exist");
 	});
 	it("P4: `./`-prefixed and absolute test paths normalize to repo-relative", () => {
 		expect(normalizeTestPaths(root, [`./${TEST_FILE}`, join(root, TEST_FILE)])).toEqual([TEST_FILE]);
