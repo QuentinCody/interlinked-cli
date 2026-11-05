@@ -36,7 +36,7 @@ import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
 import { applyOverrides, createProjectCopyAsync, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
-import { boundImportClosure, testsReachingByRelativeImport } from "./bound-imports.js";
+import { boundImportClosureDetailed, testsReachingByRelativeImport } from "./bound-imports.js";
 
 import { captureEnvironment, hashFile, receiptId, resolveVitestConfig, sealReceipt, writeKillProof } from "./receipt.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
@@ -476,12 +476,15 @@ export async function proveResolved(context: ProofContext, mutant: ResolvedMutan
 
 	const environment = context.environment();
 	const boundMutant: ResolvedMutant = { ...mutant, lineText: lineTextAt(site.content, mutant.offset) };
-	const boundImports = boundImportClosure(root, tests, mutant.file);
+	// The setup files the config declares run before every named test, so their closure is bound for every test (R5-5);
+	// a closure cut at the cap is recorded on the receipt and never certifies (R5-3).
+	const closure = boundImportClosureDetailed(root, tests, mutant.file, { globalRoots: environment.setupFiles.map(file => file.path) });
+	const binding = { boundImports: closure.files, ...(closure.truncated ? { boundImportsTruncated: true as const } : {}) };
 	const receipt = sealReceipt({
 		version: 1,
-		id: receiptId({ source: site.source, mutant: boundMutant, tests: context.testHashes, boundImports, environment }),
+		id: receiptId({ source: site.source, mutant: boundMutant, tests: context.testHashes, ...binding, environment }),
 		digest: "",
-		verdict, reasons, provedAt: context.now().toISOString(), root, source: site.source, mutant: boundMutant, tests: context.testHashes, boundImports, killedTests: killedTestFiles(cases),
+		verdict, reasons, provedAt: context.now().toISOString(), root, source: site.source, mutant: boundMutant, tests: context.testHashes, ...binding, killedTests: killedTestFiles(cases),
 		baseline: { cases: passing.length, durationMs: baseline.durationMs },
 		underMutant: { durationMs: under.durationMs, timedOut: under.timedOut, cases, ...(under.error !== undefined ? { error: under.error } : {}) },
 		environment,

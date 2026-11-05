@@ -97,6 +97,9 @@ export interface KillProofReceipt {
 	tests: HashedFile[];
 	/** The named tests' local static import closure (helpers, fixtures modules), hashed; capped (see bound-imports.ts). */
 	boundImports: BoundImport[];
+	/** Present (true) when the closure walk hit its cap with files unvisited: the receipt binds less than the tests
+	 *  load and certifies nothing (round 5, R5-3). Absent otherwise. */
+	boundImportsTruncated?: true;
 	/** The named test files with at least one killed case — the only files this receipt certifies. */
 	killedTests: string[];
 	baseline: { cases: number; durationMs: number };

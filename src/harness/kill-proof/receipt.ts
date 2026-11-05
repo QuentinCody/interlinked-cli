@@ -139,12 +139,13 @@ export function mutantLabel(mutant: ResolvedMutant): string {
 }
 
 /** Same bytes, same mutant, same runtime ⇒ same id; a re-run overwrites rather than duplicates. */
-export function receiptId(parts: { source: HashedFile; mutant: ResolvedMutant; tests: HashedFile[]; boundImports: readonly BoundImport[]; environment: ProofEnvironment }): string {
+export function receiptId(parts: { source: HashedFile; mutant: ResolvedMutant; tests: HashedFile[]; boundImports: readonly BoundImport[]; boundImportsTruncated?: true; environment: ProofEnvironment }): string {
 	const binding = [
 		parts.source.path, parts.source.sha256,
 		parts.mutant.file, String(parts.mutant.offset), parts.mutant.originalLexeme, parts.mutant.replacement, parts.mutant.mutantId ?? "",
 		...parts.tests.map(test => `${test.path}=${test.sha256}`),
 		...parts.boundImports.map(file => `helper:${file.path}=${file.sha256}<${file.importedBy.join(",")}`),
+		...(parts.boundImportsTruncated === true ? ["helpers:truncated"] : []),
 		parts.environment.node, parts.environment.vitest ?? "", parts.environment.platform, parts.environment.config?.sha256 ?? "",
 		...parts.environment.setupFiles.map(file => `${file.path}=${file.sha256}`),
 	].join("\u0000");
@@ -250,6 +251,8 @@ export function parseKillProof(value: unknown): KillProofReceipt | null {
 	// No default for an absent `boundImports`: a receipt that does not bind its helpers is not a receipt (unreleased field).
 	const boundImports = parseBoundImports(value.boundImports);
 	if (reasons === null || killedTests === null || source === null || mutant === null || tests === null || boundImports === null || environment === null) return null;
+	// The truncation flag is either absent or exactly `true` (round 5, R5-3); any other value is not a receipt.
+	if (value.boundImportsTruncated !== undefined && value.boundImportsTruncated !== true) return null;
 	const { baseline, underMutant } = value;
 	if (!isJsonObject(baseline) || typeof baseline.cases !== "number" || typeof baseline.durationMs !== "number") return null;
 	if (!isJsonObject(underMutant) || typeof underMutant.durationMs !== "number" || typeof underMutant.timedOut !== "boolean") return null;
@@ -257,7 +260,7 @@ export function parseKillProof(value: unknown): KillProofReceipt | null {
 	if (cases === null) return null;
 	return {
 		version: 1, id: value.id, digest: value.digest, verdict: value.verdict as KillProofReceipt["verdict"], reasons, provedAt: value.provedAt, root: value.root,
-		source, mutant, tests, boundImports, killedTests, baseline: { cases: baseline.cases, durationMs: baseline.durationMs },
+		source, mutant, tests, boundImports, ...(value.boundImportsTruncated === true ? { boundImportsTruncated: true as const } : {}), killedTests, baseline: { cases: baseline.cases, durationMs: baseline.durationMs },
 		underMutant: { durationMs: underMutant.durationMs, timedOut: underMutant.timedOut, cases, ...(typeof underMutant.error === "string" ? { error: underMutant.error } : {}) },
 		environment,
 	};
