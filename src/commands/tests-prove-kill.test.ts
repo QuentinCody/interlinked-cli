@@ -3,7 +3,7 @@
 // engine itself is pinned in `src/harness/kill-proof/*.test.ts`.
 import { describe, expect, it } from "vitest";
 import type { KillProofReceipt, ProveKillResult, ResolvedMutant } from "../harness/kill-proof/types.js";
-import { exitCodeFor, type KillProofRow, PROVE_KILL_EXIT, renderKillProofs, renderProveKill, specFromOptions } from "./tests-prove-kill.js";
+import { exitCodeFor, type KillProofRow, killProofsTally, PROVE_KILL_EXIT, renderKillProofs, renderProveKill, renewCommand, specFromOptions } from "./tests-prove-kill.js";
 
 const MUTANT: ResolvedMutant = { file: "src/math.ts", offset: 10, originalLexeme: "return max;", replacement: "return value;", line: 3, source: "explicit" };
 
@@ -138,5 +138,28 @@ describe("renderKillProofs — positive (rows)", () => {
 describe("renderKillProofs — negative (nothing recorded)", () => {
 	it("N1: the empty state says how to make a proof", () => {
 		expect(renderKillProofs([])).toBe("No kill proofs recorded yet. Make one with `interlinked tests prove-kill --help`.");
+	});
+});
+
+describe("renewCommand — positive (a receipt names its id and files)", () => {
+	it("P1: a manifest receipt's renew command carries its mutant id and every named test file", () => {
+		expect(renewCommand({ mutantId: "0123456789abcdef", tests: ["a.test.ts", "b.test.ts"] })).toBe("interlinked tests prove-kill --mutant 0123456789abcdef --test a.test.ts --test b.test.ts");
+	});
+});
+describe("renewCommand — negative (nothing to fill in)", () => {
+	it("N1: an explicit fault or an unreadable receipt keeps the nudge's placeholders", () => {
+		expect(renewCommand({ tests: ["a.test.ts"] })).toBe("interlinked tests prove-kill --mutant <id> --test a.test.ts");
+		expect(renewCommand({ tests: [] })).toBe("interlinked tests prove-kill --mutant <id> --test <file>");
+	});
+});
+describe("killProofsTally — positive (verified rows)", () => {
+	it("P1: counts KILLED receipts by freshness; unreadable counts as stale", () => {
+		expect(killProofsTally([{ ...ROW, freshness: "fresh" }, { ...ROW, id: "b", freshness: "unreadable" }, { ...ROW, id: "c", freshness: "uncommitted" }, { ...ROW, id: "d", verdict: "survived", freshness: "stale" }]))
+			.toBe("3 KILLED proof(s): 1 fresh, 1 uncommitted, 1 stale. Re-run the prove-kill command of each stale proof to renew it.");
+	});
+});
+describe("killProofsTally — negative (unverified rows)", () => {
+	it("N1: rows without a freshness have no tally", () => {
+		expect(killProofsTally([ROW])).toBeNull();
 	});
 });
