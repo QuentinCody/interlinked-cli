@@ -75,6 +75,8 @@ export function renderProveKill(result: ProveKillResult): string {
 	const lines: string[] = [];
 	const mutant = result.ok ? result.receipt.mutant : result.mutant;
 	if (mutant) lines.push(`mutant: ${mutantLabel(mutant)}`);
+	for (const warning of result.warnings ?? []) lines.push(`warning: ${warning}`);
+
 	if (!result.ok) {
 		lines.push(`verdict: ${result.verdict.toUpperCase()}`, ...result.reasons.map(reason => `  - ${reason}`), nextStep(result));
 		return lines.join("\n");

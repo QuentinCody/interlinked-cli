@@ -68,6 +68,19 @@ const NODE_ASSERT_PREFIX = "AssertionError [ERR_ASSERTION]";
 
 const caseKey = (row: Pick<VitestCase, "file" | "name">): string => `${row.file} › ${row.name}`;
 
+/** Above this many git-visible bytes a proof warns (round-4 M10): each run copies the tree again, three to five times per proof. */
+export const COPY_BUDGET_BYTES = 256 * 1024 * 1024;
+export function copySizeWarning(bytes: number): string | null {
+	if (bytes <= COPY_BUDGET_BYTES) return null;
+	return `[interlinked:kill-proof] copy is ${Math.round(bytes / 1024 / 1024)} MiB; large tracked files slow every proof`;
+}
+
+/** Attach run-level warnings to a result without changing its verdict. */
+function withWarnings<T extends ProveKillResult>(result: T, warnings: readonly string[]): T {
+	return warnings.length ? { ...result, warnings: [...warnings] } : result;
+}
+
+
 function unavailable(reasons: string[], mutant?: ResolvedMutant): ProveKillResult {
 	return { ok: false, verdict: "unavailable", reasons, ...(mutant ? { mutant } : {}) };
 }
@@ -340,9 +353,12 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	const configPath = resolveVitestConfig(root, options.vitestConfig);
 	if (options.vitestConfig !== undefined && !existsSync(join(root, options.vitestConfig))) return unavailable([`--vitest-config ${options.vitestConfig} does not exist`], mutant);
 	const vitestArgs = configPath !== null ? ["--config", configPath] : [];
+	const warnings: string[] = [];
 	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun & { dir: string }> => {
 		const copy = createProjectCopy(root, files, overrides);
 		try {
+			const sizeWarning = copySizeWarning(copy.bytes);
+			if (sizeWarning !== null && !warnings.includes(sizeWarning)) warnings.push(sizeWarning);
 			return { ...(await runner(copy.dir, tests, options.budgetMs, vitestArgs)), dir: copy.dir };
 		} finally {
 			copy.cleanup();
@@ -351,7 +367,8 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 
 	const baseline = await runIn(new Map());
 	const baseProblem = baselineProblems(tests, baseline);
-	if (baseProblem !== null) return explainBaselineFailure(root, baseline.dir, baseProblem, mutant);
+	if (baseProblem !== null) return withWarnings(explainBaselineFailure(root, baseline.dir, baseProblem, mutant), warnings);
+
 	const passing = baseline.cases.filter(row => tests.includes(row.file) && row.status === "passed");
 
 	const under: VitestRun = parse !== null && !parse.ok
@@ -363,8 +380,9 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 
 	if (verdict === "survived") {
 		const problem = await canaryProblem(root, mutant, tests, passing, runIn);
-		if (problem !== null) return unavailable(problem, mutant);
+		if (problem !== null) return withWarnings(unavailable(problem, mutant), warnings);
 	}
+
 
 	const environment = captureEnvironment(root, configPath ?? undefined);
 	const boundMutant: ResolvedMutant = { ...mutant, lineText: lineTextAt(content, mutant.offset) };
@@ -379,5 +397,6 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 		environment,
 	});
 	const receiptPath = options.persist === false ? "" : writeKillProof(root, receipt);
-	return { ok: true, receipt, receiptPath };
+	return withWarnings({ ok: true, receipt, receiptPath }, warnings);
+
 }

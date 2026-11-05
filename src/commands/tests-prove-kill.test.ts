@@ -140,3 +140,25 @@ describe("renderKillProofs — negative (nothing recorded)", () => {
 		expect(renderKillProofs([])).toBe("No kill proofs recorded yet. Make one with `interlinked tests prove-kill --help`.");
 	});
 });
+
+describe("timeoutProblem — --timeout / --run-timeout validation (kill-proof review round 4, M7)", () => {
+	it("P1: both flags absent, or positive integers, are accepted", () => {
+		expect(timeoutProblem({})).toBeNull();
+		expect(timeoutProblem({ runTimeout: "300000", timeout: "600000" })).toBeNull();
+	});
+	it("N1: a non-numeric or non-positive value is a usage error naming the flag", () => {
+		expect(timeoutProblem({ timeout: "soon" })).toBe("--timeout must be a positive number of milliseconds");
+		expect(timeoutProblem({ timeout: "0" })).toBe("--timeout must be a positive number of milliseconds");
+		expect(timeoutProblem({ runTimeout: "-5" })).toBe("--run-timeout must be a positive number of milliseconds");
+	});
+});
+
+describe("renderProveKill — run-level warnings (kill-proof review round 4, M10)", () => {
+	it("P1: a copy-size warning is printed after the mutant line and does not change the verdict or exit code", () => {
+		const warned: ProveKillResult = { ...ok("killed", [{ test: "t › a", verdict: "killed" }]), warnings: ["[interlinked:kill-proof] copy is 400 MiB; large tracked files slow every proof"] };
+		const text = renderProveKill(warned);
+		expect(text.split("\n")[1]).toBe("warning: [interlinked:kill-proof] copy is 400 MiB; large tracked files slow every proof");
+		expect(text).toContain("verdict: KILLED");
+		expect(exitCodeFor(warned)).toBe(PROVE_KILL_EXIT.proven);
+	});
+});

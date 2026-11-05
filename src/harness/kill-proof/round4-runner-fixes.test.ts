@@ -5,14 +5,16 @@
 // this checkout's entries, so anything a run writes under node_modules shows up in the fixture.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { PRIVATE_VITEST_ARGS, runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
+import { createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { testsReachingByRelativeImport } from "./bound-imports.js";
-import { KILL_REPEATS, proveKill } from "./run.js";
+import { COPY_BUDGET_BYTES, copySizeWarning, KILL_REPEATS, proveKill } from "./run.js";
+
 
 
 const COMMENT_FAULT = { kind: "explicit", file: "src/math.ts", find: "// helper: add two numbers", replace: "// helper: add 2 numbers" } as const;
@@ -191,5 +193,31 @@ describe("M3/M4 — canary per file, canary completion, and attribution to the t
 		});
 		const reaching = testsReachingByRelativeImport(root, ["test/via-helper.test.ts", "test/abs.test.ts"], "src/math.ts");
 		expect([...reaching]).toEqual(["test/via-helper.test.ts"]);
+	});
+});
+
+describe("M10 — the git-visible copy has a size budget; over it the proof WARNS, never blocks", () => {
+	it("P1: the warning names the size in MiB above 256 MiB and is silent at or below it", () => {
+		expect(COPY_BUDGET_BYTES).toBe(256 * 1024 * 1024);
+		expect(copySizeWarning(COPY_BUDGET_BYTES)).toBeNull();
+		expect(copySizeWarning(COPY_BUDGET_BYTES + 1)).toBe("[interlinked:kill-proof] copy is 256 MiB; large tracked files slow every proof");
+		expect(copySizeWarning(400 * 1024 * 1024)).toBe("[interlinked:kill-proof] copy is 400 MiB; large tracked files slow every proof");
+	});
+	it("P2: createProjectCopy reports the regular-file bytes it copied (links and overrides excluded)", () => {
+		const root = makeRepo({ "data/big.bin": "x".repeat(10_000) });
+		const files = gitVisibleFiles(root) ?? [];
+		const expected = files.reduce((sum, rel) => sum + statSync(join(root, rel)).size, 0);
+		const copy = createProjectCopy(root, files, new Map([["src/math.ts", "replaced\n"]]));
+		try {
+			expect(copy.bytes).toBe(expected);
+			expect(copy.bytes).toBeGreaterThan(10_000);
+		} finally { copy.cleanup(); }
+	});
+	it("P3: a small repository's result carries no warnings; a scripted proof is unchanged by the budget", async () => {
+		const root = makeRepo({ [ADDS_TEST]: RELATIVE });
+		const { runner } = scripted(BOTH_PASS, okRun([fail(ADDS_TEST, "adds", "AssertionError: expected -1 to be 3"), pass(ADDS_TEST, "typed")]), BOTH_BROKEN, CONTROL_OK);
+		const result = await proveKill({ root, spec: MINUS_FAULT, tests: [ADDS_TEST], budgetMs: 1000, runner, persist: false });
+		expect(result.ok && result.receipt.verdict).toBe("killed");
+		expect("warnings" in result).toBe(false);
 	});
 });
