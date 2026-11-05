@@ -6,12 +6,14 @@
 // caches) is never copied: the coverage overlay copies it, which costs gigabytes on this repository.
 
 import { execFileSync } from "node:child_process";
-import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, promises as fsp, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 /** `bytes`: the regular-file bytes the copy holds (what each proof copies again and again; kill-proof review round 4, M10). */
 export interface ProjectCopy { dir: string; bytes: number; cleanup(): void; }
+/** The async copy's handle: `cleanup` returns the removal so a caller can overlap it with the next run and await it later. */
+export interface AsyncProjectCopy { dir: string; bytes: number; cleanup(): Promise<void>; }
 
 
 /** Project-relative paths git shows (tracked + untracked, ignored excluded); null outside a git work tree. */
@@ -62,8 +64,8 @@ function copyEntry(root: string, dir: string, rel: string): number {
     return stat.size;
 }
 
-
-function applyOverrides(dir: string, overrides: ReadonlyMap<string, string | null>): void {
+/** Writes each override into an existing copy (null removes the file); every target goes through `copyWriteTarget`. */
+export function applyOverrides(dir: string, overrides: ReadonlyMap<string, string | null>): void {
     for (const [rel, content] of overrides) {
         const target = copyWriteTarget(dir, rel);
         if (content === null) { rmSync(target, { force: true }); continue; }
@@ -89,4 +91,53 @@ export function createProjectCopy(root: string, files: readonly string[], overri
     }
     return { dir, bytes, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 
+}
+
+/** Regular files in flight at once. Copying is bound by per-file create latency, not bytes (2026-11-05, 5,990 files on
+ *  ext4: 0.4 ms median per `copyFileSync`); 64 concurrent copies cut one tree from ~2.2 s to ~0.65 s
+ *  (`docs/reviews/kill-proof-performance.md`). */
+const COPY_CONCURRENCY = 64;
+
+/**
+ * `createProjectCopy` with the regular-file copies issued concurrently. The resulting tree is the same: the same
+ * entries are visited in the same order, directories and links are created synchronously exactly as `copyEntry`
+ * does, only the byte copies run in parallel, and the node_modules link and the overrides are written after every
+ * copy has finished (an override may replace a copied file).
+ */
+export async function createProjectCopyAsync(root: string, files: readonly string[], overrides: ReadonlyMap<string, string | null>): Promise<AsyncProjectCopy> {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "interlinked-fail-before-fix-")));
+    const rootReal = realpathSync(root);
+    let bytes = 0;
+    try {
+        const made = new Set<string>(), pending: string[] = [];
+        for (const rel of files) {
+            const source = join(rootReal, rel), target = join(dir, rel), link = isLink(source);
+            if (!link && !existsSync(source)) continue;
+            const parent = dirname(target);
+            if (!made.has(parent)) { mkdirSync(parent, { recursive: true }); made.add(parent); }
+            if (link) symlinkSync(copiedLinkTarget(rootReal, dir, source, target), target);
+            else {
+                const stat = lstatSync(source);
+                if (stat.isFile()) { pending.push(rel); bytes += stat.size; }
+            }
+        }
+        let next = 0;
+        const worker = async (): Promise<void> => {
+            while (next < pending.length) {
+                const rel = pending[next++] ?? "";
+                await fsp.copyFile(join(rootReal, rel), join(dir, rel), constants.COPYFILE_FICLONE);
+            }
+        };
+        const workers = Array.from({ length: Math.min(COPY_CONCURRENCY, pending.length) }, worker);
+        const settled = await Promise.allSettled(workers);
+        const failed = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
+        if (failed) throw failed.reason;
+        const modules = join(root, "node_modules");
+        if (existsSync(modules) && !existsSync(join(dir, "node_modules"))) symlinkSync(modules, join(dir, "node_modules"));
+        applyOverrides(dir, overrides);
+    } catch (error) {
+        rmSync(dir, { recursive: true, force: true });
+        throw error;
+    }
+    return { dir, bytes, cleanup: () => fsp.rm(dir, { recursive: true, force: true }) };
 }

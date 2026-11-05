@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -168,6 +168,22 @@ describe("proveKill — negative (must not fire)", () => {
 		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner, persist: false });
 		expect(result.ok && result.receipt.verdict).toBe("inconclusive");
 		expect(result.ok && result.receipt.underMutant.cases[0]?.reason).toBe("runner timed out after 1000 ms");
+	});
+	it("N18: every copy is gone when the proof returns, including the prefetched mutant copy an early end never took (performance pass)", async () => {
+		const red = okRun([failing("caps", "AssertionError: x")]);
+		const { runner, calls } = fakeRunner(red, red);
+		const before = new Set(readdirSync(tmpdir()).filter(name => name.startsWith("interlinked-fail-before-fix-")));
+		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner });
+		expect(result).toMatchObject({ ok: false, verdict: "not-passing-now" });
+		expect(calls.every(call => !existsSync(call.dir))).toBe(true);
+		expect(readdirSync(tmpdir()).filter(name => name.startsWith("interlinked-fail-before-fix-") && !before.has(name))).toEqual([]);
+	});
+	it("N19: a stage's copy holds only that stage's override — a canary copy built ahead of time carries no mutant (performance pass)", async () => {
+		const { runner, calls } = fakeRunner(okRun([passing("caps")]), okRun([passing("caps")]));
+		await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner, persist: false });
+		expect(calls.map(call => call.source)).toEqual([SOURCE, SOURCE.replace("n > max", "n >= max"), expect.stringContaining("kill-proof canary")]);
+		expect(new Set(calls.map(call => call.dir)).size).toBe(3);
+		expect(calls.every(call => !existsSync(call.dir))).toBe(true);
 	});
 	it("N4: a case that fails in the baseline copy for its own reason is not-passing-now; no mutant run, no receipt, no live run", async () => {
 		const red = okRun([failing("caps", "AssertionError: x")]);

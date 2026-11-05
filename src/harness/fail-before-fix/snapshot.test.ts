@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createProjectCopy, gitVisibleFiles } from "./snapshot.js";
+import { createProjectCopy, createProjectCopyAsync, gitVisibleFiles } from "./snapshot.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -35,6 +35,49 @@ describe("project copy — positive", () => {
             expect(readFileSync(join(root, "src/a.ts"), "utf8")).toBe("a\n"); // the live tree is only read
         } finally { copy.cleanup(); }
         expect(existsSync(copy.dir)).toBe(false);
+    });
+});
+
+/** Every entry under `dir`: kind, mode, bytes or link target — the tree a run would see. */
+function tree(dir: string, at = dir): string[] {
+    return readdirSync(at).sort().flatMap(name => {
+        const path = join(at, name), rel = relative(dir, path), st = lstatSync(path);
+        if (st.isSymbolicLink()) return [`link ${rel} -> ${readlinkSync(path)}`];
+        if (st.isDirectory()) return [`dir ${rel}`, ...tree(dir, path)];
+        return [`file ${rel} ${(statSync(path).mode & 0o777).toString(8)} ${readFileSync(path, "base64")}`];
+    });
+}
+
+describe("async project copy — positive", () => {
+    it("P2: the async copy builds the same tree as the sync copy (links, in-repo absolute links, nested dirs, modes, a deleted tracked file, overrides)", async () => {
+        const root = repo();
+        mkdirSync(join(root, "src/deep/er"), { recursive: true });
+        writeFileSync(join(root, "src/deep/er/x.ts"), "x\n");
+        writeFileSync(join(root, "src/run.sh"), "#!/bin/sh\n", { mode: 0o755 });
+        symlinkSync(join(root, "src/a.ts"), join(root, "src/absolute.ts"));
+        writeFileSync(join(root, "src/gone.ts"), "g\n");
+        execFileSync("git", ["-C", root, "add", "-A"]);
+        rmSync(join(root, "src/gone.ts"));
+        const files = gitVisibleFiles(root) ?? [];
+        const overrides = new Map<string, string | null>([["src/a.ts", "pre-session a\n"], ["src/b.ts", null], ["src/new/c.ts", "c\n"]]);
+        const sync = createProjectCopy(root, files, overrides), copy = await createProjectCopyAsync(root, files, overrides);
+        try {
+            const expected = tree(sync.dir).map(line => line.split(sync.dir).join("<copy>"));
+            expect(tree(copy.dir).map(line => line.split(copy.dir).join("<copy>"))).toEqual(expected);
+            expect(expected).toContain("link src/absolute.ts -> a.ts");
+        } finally { sync.cleanup(); await copy.cleanup(); }
+        expect(existsSync(copy.dir)).toBe(false);
+    });
+});
+
+describe("async project copy — negative", () => {
+    it("N2: an override through an absolute link to the live tree is refused and the partial copy is removed", async () => {
+        const root = repo();
+        symlinkSync(join(root, "src/a.ts"), join(root, "src/absolute.ts"));
+        const before = new Set(readdirSync(tmpdir()));
+        await expect(createProjectCopyAsync(root, gitVisibleFiles(root) ?? [], new Map([["src/absolute.ts", "changed"]]))).rejects.toThrow(/symlink/);
+        expect(readdirSync(tmpdir()).filter(name => name.startsWith("interlinked-fail-before-fix-") && !before.has(name))).toEqual([]);
+        expect(readFileSync(join(root, "src/a.ts"), "utf8")).toBe("a\n");
     });
 });
 

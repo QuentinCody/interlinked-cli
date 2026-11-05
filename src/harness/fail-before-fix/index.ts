@@ -21,7 +21,7 @@ import { CAUSE_REPORTER, CAUSE_SIDECAR, causeReporterSource, parseCauseSidecar }
 import { classifyTest, isNewTest, parseVitestReport, type TestVerdict, type VitestCase } from "./classify.js";
 import { readEditEvents } from "./edit-log.js";
 import { replayFile, type FileReplay, type FileState } from "./replay.js";
-import { createProjectCopy, gitVisibleFiles } from "./snapshot.js";
+import { createProjectCopyAsync, gitVisibleFiles } from "./snapshot.js";
 
 export interface FailBeforeFixOptions { root: string; session: string; budgetMs: number; }
 export interface FileReport { path: string; role: FileRole; state: "reverted" | "unavailable"; reason?: string; }
@@ -185,7 +185,8 @@ export async function failBeforeFix(options: FailBeforeFixOptions): Promise<Fail
 async function judge(report: FailBeforeFixReport, rows: readonly FileReplay[], tests: readonly string[], options: FailBeforeFixOptions): Promise<void> {
     const overrides = preOverrides(rows, tests);
     const baselines = tests.map(baselinePath).filter((path): path is string => path !== null && overrides.has(path));
-    const copy = createProjectCopy(options.root, gitVisibleFiles(options.root) ?? [], overrides);
+    // Built before the live run, as before: the copy must not pick up what the live run writes into the tree.
+    const copy = await createProjectCopyAsync(options.root, gitVisibleFiles(options.root) ?? [], overrides);
     report.copyDir = copy.dir;
     try {
         const post = await runVitest(options.root, tests, options.budgetMs), pre = await runVitest(copy.dir, [...tests, ...baselines], options.budgetMs);
@@ -198,5 +199,5 @@ async function judge(report: FailBeforeFixReport, rows: readonly FileReplay[], t
                 report.reasons.push(`${side} run produced no executed test evidence for: ${missing.join(", ")}`);
             }
         }
-    } finally { copy.cleanup(); }
+    } finally { await copy.cleanup(); }
 }

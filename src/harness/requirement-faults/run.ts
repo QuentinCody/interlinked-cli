@@ -13,7 +13,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { describeFailure, failedByOwnCheck, type VitestCase } from "../fail-before-fix/classify.js";
 import { runVitest } from "../fail-before-fix/index.js";
-import { copyWriteTarget, createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
+import { copyWriteTarget, createProjectCopyAsync, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { summarizeKills, type FaultOutcome, type RequirementFault, type RequirementKills } from "./corpus.js";
 
 export interface FaultRunOptions { root: string; faults: readonly RequirementFault[]; budgetMs: number; }
@@ -53,7 +53,7 @@ export async function runFaults(options: FaultRunOptions): Promise<FaultRunRepor
     if (!options.faults.length) return { faults: [], requirements: [] };
     const files = [...new Set(options.faults.flatMap(row => row.tests))];
     const passing = new Set((await runVitest(options.root, files, options.budgetMs)).filter(row => row.status === "passed").map(key));
-    const copy = createProjectCopy(options.root, gitVisibleFiles(options.root) ?? [], new Map());
+    const copy = await createProjectCopyAsync(options.root, gitVisibleFiles(options.root) ?? [], new Map());
     const outcomes: FaultOutcome[] = [];
     try {
         for (const fault of options.faults) {
@@ -68,6 +68,6 @@ export async function runFaults(options: FaultRunOptions): Promise<FaultRunRepor
                 ? { fault: fault.id, requirement: fault.requirement.id, status: "invalid", killedBy: [], inconclusive: [], reason: under }
                 : judge(fault, passing, under));
         }
-    } finally { copy.cleanup(); }
+    } finally { await copy.cleanup(); }
     return { faults: outcomes, requirements: summarizeKills(outcomes), copyDir: copy.dir };
 }

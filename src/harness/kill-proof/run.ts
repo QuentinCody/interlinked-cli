@@ -20,8 +20,7 @@
 // Every vitest run is private (round 4, M2): `--no-cache` (vitest's results cache would land in the LIVE
 // node_modules through the copy's link and reorder files between runs) and a fresh TMPDIR per run
 // (`fail-before-fix/index.ts runVitestDetailed`), so no run can see the previous run's tmpdir state.
-// The live tree is only read. Every copy is removed before this returns.
-
+// The live tree is only read. Every copy (including a prefetched one no stage took) is removed before this returns.
 
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -30,7 +29,7 @@ import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { isTestPath } from "../coverage-test-selector.js";
 import { describeFailure, failedByOwnCheck, judgedFailure, type VitestCase } from "../fail-before-fix/classify.js";
 import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
-import { createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
+import { applyOverrides, type AsyncProjectCopy, createProjectCopyAsync, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
 import { boundImportClosure, testsReachingByRelativeImport } from "./bound-imports.js";
@@ -202,6 +201,8 @@ function judgeCases(passing: readonly VitestCase[], under: VitestRun): CaseOutco
 	});
 }
 
+type RunIn = (overrides: ReadonlyMap<string, string>, another?: boolean) => Promise<VitestRun>;
+
 /** How many unmutated copies must pass again after a kill (round-4 M1). */
 export const KILL_REPEATS = 2;
 
@@ -214,12 +215,12 @@ export const KILL_REPEATS = 2;
  * guide's Limits: state with period 3 or longer, and probabilistic flakiness — repeats lower the odds, they do not
  * end them. The copies' own tmpdir and vitest cache are private per run (M2), so this covers what is left.
  */
-async function confirmKills(cases: readonly CaseOutcome[], passing: readonly VitestCase[], runIn: (overrides: ReadonlyMap<string, string>) => Promise<VitestRun>): Promise<CaseOutcome[]> {
+async function confirmKills(cases: readonly CaseOutcome[], passing: readonly VitestCase[], runIn: RunIn): Promise<CaseOutcome[]> {
 	let out = [...cases];
 	// `cases` is in `passing` order, so the same-name ordinals (review M3) re-derive from the same rows.
 	const keys = withOrdinals(passing).map(entry => entry.key);
 	for (let repeat = 1; repeat <= KILL_REPEATS && out.some(row => row.verdict === "killed"); repeat++) {
-		const again = await runIn(new Map());
+		const again = await runIn(new Map(), repeat < KILL_REPEATS);
 		const repeats = keyedRows(again.cases);
 		out = out.map((row, index) => {
 			if (row.verdict !== "killed") return row;
@@ -232,7 +233,6 @@ async function confirmKills(cases: readonly CaseOutcome[], passing: readonly Vit
 	return out;
 }
 
-type RunIn = (overrides: ReadonlyMap<string, string>) => Promise<VitestRun>;
 
 /**
  * Reachability (reviews N6/N7; round-4 M3/M4). A survivor means something only if the named tests loaded the
@@ -247,7 +247,8 @@ type RunIn = (overrides: ReadonlyMap<string, string>) => Promise<VitestRun>;
  * Returns the `unavailable` reasons, or null when the survivor is attributable to the copy's file.
  */
 async function canaryProblem(root: string, mutant: ResolvedMutant, tests: readonly string[], passing: readonly VitestCase[], runIn: RunIn): Promise<string[] | null> {
-	const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]));
+	const reaching = testsReachingByRelativeImport(root, tests, mutant.file);
+	const canary = await runIn(new Map([[mutant.file, CANARY_SOURCE]]), !tests.every(test => reaching.has(test)));
 	if (canary.error !== undefined || canary.timedOut) return [`${CANARY_INCOMPLETE} (${canary.timedOut ? `timed out after ${canary.durationMs} ms` : canary.error})`];
 	const canaryRows = keyedRows(canary.cases);
 	const stillPassing = withOrdinals(passing).filter(({ key }) => canaryRows.get(key)?.status === "passed").map(entry => entry.row);
@@ -257,7 +258,6 @@ async function canaryProblem(root: string, mutant: ResolvedMutant, tests: readon
 			"A mock, an alias, an absolute path or a link into the live tree bypasses the copy.",
 		];
 	}
-	const reaching = testsReachingByRelativeImport(root, tests, mutant.file);
 	if (tests.every(test => reaching.has(test))) return null;
 	const control = await runIn(new Map([[mutant.file, CANARY_SOURCE], ...tests.map(test => [test, CONTROL_TEST] as const)]));
 	if (control.error !== undefined || control.timedOut) return [`${CANARY_INCOMPLETE} (control run: ${control.timedOut ? `timed out after ${control.durationMs} ms` : control.error})`];
@@ -351,6 +351,17 @@ function explainBaselineFailure(root: string, copyDir: string, problem: Baseline
 
 /** Run the proof. Reads the live tree, writes only under `.interlinked/test-runs/kill-proofs/` (when `persist`). */
 export async function proveKill(options: ProveKillOptions): Promise<ProveKillResult> {
+	const removals: Promise<void>[] = [], copies: Promise<AsyncProjectCopy>[] = [];
+	try {
+		return await proveKillWith(options, removals, copies);
+	} finally {
+		// A prefetched copy no stage took (the proof ended early) is removed too; removing a taken one twice is a no-op.
+		for (const copy of await Promise.allSettled(copies)) if (copy.status === "fulfilled") removals.push(copy.value.cleanup());
+		await Promise.allSettled(removals);
+	}
+}
+
+async function proveKillWith(options: ProveKillOptions, removals: Promise<void>[], copies: Promise<AsyncProjectCopy>[]): Promise<ProveKillResult> {
 	const root = realpathSync(options.root), runner = options.runner ?? runVitestDetailed, now = options.now ?? (() => new Date());
 	const tests = normalizeTestPaths(root, options.tests);
 	if (tests === null) return unavailable(["a --test path escapes the project root"]);
@@ -373,24 +384,45 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	if (!files.includes(mutant.file)) return unavailable([`${mutant.file} is not visible to git (ignored or outside the work tree), so it cannot be mutated in a copy`], mutant);
 	const content = readFileSync(join(root, mutant.file), "utf8");
 	if (!content.startsWith(mutant.originalLexeme, mutant.offset)) return unavailable([`${mutant.file} changed between resolution and the run`], mutant);
+	// The baseline copy starts building now, so its file copies overlap the parse check (loading TypeScript).
+	const startCopy = (): Promise<AsyncProjectCopy> => {
+		const pending = createProjectCopyAsync(root, files, new Map());
+		pending.catch(() => undefined); // a failed build surfaces when a stage takes it, not as an unhandled rejection
+		copies.push(pending);
+		return pending;
+	};
+	let prefetched: Promise<AsyncProjectCopy> | null = startCopy();
 	const mutated = applyMutant(content, mutant.offset, mutant.originalLexeme, mutant.replacement);
 	const parse = mutantParses(mutant.file, mutated);
 	const configPath = resolveVitestConfig(root, options.vitestConfig);
 	if (options.vitestConfig !== undefined && !existsSync(join(root, options.vitestConfig))) return unavailable([`--vitest-config ${options.vitestConfig} does not exist`], mutant);
 	const vitestArgs = configPath !== null ? ["--config", configPath] : [];
+	// Speed (docs/reviews/kill-proof-performance.md): each copy is a fresh UNMUTATED copy of the git-visible tree
+	// with the stage's overrides written into it — the same steps, in the same order, `createProjectCopy` takes.
+	// The first one is started (`startCopy`) before the parse check.
+	// While a stage's vitest runs, the next stage's copy is built from the live tree (which no stage writes), and a
+	// finished copy is removed while the next stage runs. `proveKill` awaits every build and removal before it returns.
 	const warnings: string[] = [];
-	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun & { dir: string }> => {
-		const copy = createProjectCopy(root, files, overrides);
+	const runIn = async (overrides: ReadonlyMap<string, string>, another = false): Promise<VitestRun & { dir: string }> => {
+		const pending = prefetched ?? startCopy();
+		prefetched = null;
+		const copy = await pending;
 		try {
 			const sizeWarning = copySizeWarning(copy.bytes);
 			if (sizeWarning !== null && !warnings.includes(sizeWarning)) warnings.push(sizeWarning);
-			return { ...(await runner(copy.dir, tests, options.budgetMs, vitestArgs)), dir: copy.dir };
+			applyOverrides(copy.dir, overrides);
+			// vitest is spawned first (synchronously inside the runner call), so the next copy's synchronous
+			// directory walk does not delay this stage's run.
+			const run = runner(copy.dir, tests, options.budgetMs, vitestArgs);
+			if (another) prefetched = startCopy();
+			return { ...(await run), dir: copy.dir };
 		} finally {
-			copy.cleanup();
+			removals.push(copy.cleanup());
 		}
 	};
 
-	const baseline = await runIn(new Map());
+	const mutantWillRun = parse === null || parse.ok;
+	const baseline = await runIn(new Map(), mutantWillRun);
 	const baseProblem = baselineProblems(tests, baseline);
 	if (baseProblem !== null) return withWarnings(explainBaselineFailure(root, baseline.dir, baseProblem, mutant), warnings);
 
@@ -398,7 +430,7 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 
 	const under: VitestRun = parse !== null && !parse.ok
 		? { cases: [], timedOut: false, error: parse.reason, exitCode: null, durationMs: 0 }
-		: await runIn(new Map([[mutant.file, mutated]]));
+		: await runIn(new Map([[mutant.file, mutated]]), true);
 	let cases = judgeCases(passing, under);
 	if (cases.some(row => row.verdict === "killed")) cases = await confirmKills(cases, passing, runIn);
 	const { verdict, reasons } = overallVerdict(cases);
