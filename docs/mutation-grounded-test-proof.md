@@ -77,7 +77,9 @@ below a few seconds stops the CLI before any verdict (exit 75).
 
 1. **Resolve the mutant.** A manifest id is re-located in the *current* source
    through the manifest identity (symbol, operator, lexeme, ordinal). If the
-   source drifted so the identity no longer resolves, the run is `unavailable`.
+   source drifted so the identity no longer resolves, the run is `unavailable`;
+   so is a re-location the ordinal cannot settle (the symbol's body changed and
+   the lexeme now occurs a different number of times in it — see Limits).
    An explicit `--find` must occur exactly once in `--file`.
 2. **Baseline.** The named test files run UNMUTATED in a fresh disposable copy
    of the project as git sees it (tracked plus untracked-not-ignored files,
@@ -227,3 +229,27 @@ sees the PostToolUse line; the human sees the Stop line.
   either; a syntax error in the file's own dialect is.
 - A receipt rewritten from scratch with a recomputed digest, through the shell
   rather than the edit tools, is not detectable from its bytes.
+- **`--mutant` re-location is an ordinal rule.** A manifest mutant is the
+  N-th occurrence (ascending offset) of its lexeme, under its operator, inside
+  its symbol — never a line or an offset. The manifest records a `symbolHash`
+  per symbol (identity.ts's normalized-token hash of the function body) and an
+  ordinal per mutant, but no site count; the proof reads the measured count
+  back off the symbol's own ordinals (highest ordinal + 1 over the records
+  sharing operator and lexeme). Re-location then goes one of three ways:
+  - symbol hash unchanged → the ordinal is trusted (an inserted comment, or an
+    edit elsewhere in the file, lands here);
+  - symbol hash changed, same count → the ordinal is still trusted (an
+    unrelated statement added to the body); the ordinal rule cannot tell this
+    from a rewrite that kept the count, so re-measure when the body changed
+    around the site;
+  - symbol hash changed AND the count changed → `unavailable` with
+    `ambiguous re-location: <lexeme> now occurs N times in <symbol> (was M);
+    re-measure the file`. No ordinal is picked. This is the C24 drift case
+    (`docs/reviews/kill-proof-manifest-route.md` §3): an identical lexeme
+    inserted earlier in the body took ordinal 0 — and with it the mutant id —
+    so the proof mutated the new dead-code site and wrote `survived` under an
+    id that had been killed. A lexeme that no longer occurs in the symbol is
+    plain drift (`no site among …`), and a symbol that no longer exists is
+    `source drift: symbol <name> not found (mutant <id>)`.
+  `interlinked mutation measure <file>` re-measures; the ids then rank against
+  the current body.

@@ -94,6 +94,22 @@ re-location) instead of ordinal N.
 The rename message says "1 candidate token(s)" although the symbol it names
 no longer exists; "symbol not found" would be clearer.
 
+Fixed on `cloud/relocation-ambiguity` (2026-11-05): the §3 identical-earlier-
+lexeme drift now returns `unavailable` with `ambiguous re-location: ms <
+firstMs now occurs 2 times in updateSeenBounds (was 1); re-measure the file`
+(reproduced first with the current code against a fresh Stryker manifest of
+`recurrence-time.ts`: resolved to line 66 `const probeEarlier = ms < firstMs;`
+and wrote `survived` receipt 0c0a118226fdadfc under the killed id, the §3
+defect again; after the fix, exit 2 with that reason and no receipt; the
+restored file re-locates to the real `if` and is `killed`).
+`locateMutantOffset` is the seam: the target now carries the manifest's `symbolHash` and the measured site count (derived from the symbol's
+own ordinals — the manifest stores none), and refuses when the hash AND the
+count changed; an unchanged hash, or a changed hash with the same count, keeps
+the ordinal rule. The rename row now reads `source drift: symbol
+updateSeenBounds not found (mutant 91a09824f621fd65)`; the lexeme-removed row
+is unchanged. Pinned by `src/harness/kill-proof/resolve.test.ts` and
+`differential-fuzz-locate.test.ts` P9–P11 / N9–N12.
+
 Gotcha: when the target module is imported by the CLI itself (`recurrence.ts`,
 `metrics-coupling.ts`), running the CLI through `npx tsx src/index.ts` crashes
 at import on a rename/delete. The rename and delete rows were measured with

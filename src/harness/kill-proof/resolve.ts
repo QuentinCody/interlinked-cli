@@ -4,8 +4,12 @@
 // A manifest survivor is re-located in the CURRENT source through
 // `differential-fuzz-locate.ts`'s `locateMutantOffset` (identity.ts's own ordinal
 // rule, never re-implemented here). Source that drifted so the identity no longer
-// resolves is `unavailable`, not a guess. An explicit fault's anchor must occur
-// exactly once (the plan 31 / requirement-faults rule).
+// resolves is `unavailable`, not a guess — and so is a re-location the ordinal
+// cannot settle: the manifest's `symbolHash` and the site count its ordinals
+// imply travel with the target, so a body edit that changed how often the
+// lexeme occurs in the symbol is refused rather than ranked
+// (docs/reviews/kill-proof-manifest-route.md §3). An explicit fault's anchor
+// must occur exactly once (the plan 31 / requirement-faults rule).
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,7 +17,7 @@ import { loadTsModule } from "../mutation/differential-fuzz-deps.js";
 import { locateMutantOffset } from "../mutation/differential-fuzz-locate.js";
 import type { FuzzMutantTarget } from "../mutation/differential-fuzz-types.js";
 import { loadManifestState } from "../mutation/manifest.js";
-import type { MutantRecord, MutationManifest } from "../mutation/types.js";
+import type { MutantRecord, MutationManifest, SymbolRecord } from "../mutation/types.js";
 import type { MutantSpec, ResolvedMutant } from "./types.js";
 
 export type Resolved = { ok: true; mutant: ResolvedMutant } | { ok: false; reason: string };
@@ -22,6 +26,7 @@ interface ManifestHit {
 	file: string;
 	symbolId: string;
 	qualifiedName: string;
+	symbol: SymbolRecord;
 	record: MutantRecord;
 }
 
@@ -30,10 +35,28 @@ function findInManifest(manifest: MutationManifest, mutantId: string, file: stri
 		if (file !== undefined && path !== file) continue;
 		for (const [symbolId, symbol] of Object.entries(symbols)) {
 			const record = symbol.mutants[mutantId];
-			if (record) return { file: path, symbolId, qualifiedName: symbol.qualifiedName, record };
+			if (record) return { file: path, symbolId, qualifiedName: symbol.qualifiedName, symbol, record };
 		}
 	}
 	return null;
+}
+
+/**
+ * The population `record.ordinalWithinSymbol` ranked against at measurement
+ * time. The manifest records a `symbolHash` per symbol and an ordinal per
+ * mutant but no site count, so the count is read back off the ordinals: the
+ * highest ordinal + 1 over the symbol's records that share the mutant's mutator
+ * and lexeme (identity.ts's own grouping). Exact whenever every measured mutant
+ * of that group is recorded — a full run records them all; under a partial run
+ * the symbol keeps its prior records, so the count stays the prior one.
+ */
+export function measuredSites(symbol: SymbolRecord, record: MutantRecord): number {
+	let highest = record.ordinalWithinSymbol;
+	for (const m of Object.values(symbol.mutants)) {
+		if (m.mutator !== record.mutator || m.originalLexeme !== record.originalLexeme) continue;
+		if (m.ordinalWithinSymbol > highest) highest = m.ordinalWithinSymbol;
+	}
+	return highest + 1;
 }
 
 /** The full source line that contains `offset`. */
@@ -79,6 +102,8 @@ function resolveFromManifest(root: string, spec: Extract<MutantSpec, { kind: "ma
 		originalLexeme: hit.record.originalLexeme,
 		replacement: hit.record.replacement,
 		ordinalWithinSymbol: hit.record.ordinalWithinSymbol,
+		symbolHash: hit.symbol.symbolHash,
+		measuredSites: measuredSites(hit.symbol, hit.record),
 	};
 	const located = locateMutantOffset(ts, target, content);
 	if (!located.ok) return { ok: false, reason: located.reason };
