@@ -138,6 +138,38 @@ function registerFaults(tests: Command): void {
             await testsFaultsRunCommand(options);
         });
 }
+/** Verification-efficiency step 1: one trace explains a push — owners, phases, the fallback cause, fresh runs. */
+function registerTrace(tests: Command): void {
+    tests.command("trace")
+        .description("Explain one verification request (the newest push by default) from the stage ledger: owners, phase costs, the wall-clock wait, the handoff fallback cause, and every check that ran fresh or produced no verdict")
+        .option("--cwd <path>", "Project root")
+        .option("--trace <id>", "Correlation id (printed by the pre-push hook; INTERLINKED_VERIFICATION_TRACE)")
+        .option("--json", "Machine-readable summary")
+        .addHelpText("after", `
+Exit codes: 0 explained; 2 when the ledger holds no such trace. Rows of one request share a trace; the daemon
+mints it when it judges a push and the pinned hook inherits it, so a legacy push from a plain shell has a hook-only trace.`)
+        .action(async (options: OptionValues) => {
+            const { testsTraceCommand } = await import("../commands/tests-trace.js");
+            testsTraceCommand(options);
+        });
+}
+
+/** Verification-efficiency step 1: which modules make test results non-reusable, ranked by the execution time they affect. */
+function registerOpacity(tests: Command): void {
+    tests.command("opacity")
+        .description("Rank the modules whose unhashed reads or unresolved imports make test results non-reusable, by the recorded execution time of the tests that reach them, with one import chain each")
+        .option("--cwd <path>", "Project root")
+        .option("--limit <n>", "Causes to show (default 25)")
+        .option("--json", "Machine-readable report")
+        .addHelpText("after", `
+Durations come from the coverage index's accepted manifest; a test without one is counted as unmeasured, never as
+free. Opaque stays opaque: this ranking changes no selection or reuse decision.`)
+        .action(async (options: OptionValues) => {
+            const { testsOpacityCommand } = await import("../commands/tests-opacity.js");
+            await testsOpacityCommand(options);
+        });
+}
+
 /** Plan 32 item 6: the session's tests against its pre-change code, rebuilt from the harness edit log. */
 function registerFailBeforeFix(tests: Command): void {
     tests.command("fail-before-fix")
@@ -156,6 +188,8 @@ export function registerTestsCommands(program: Command): void {
     const tests = program.command("tests").description("Explain and run affected tests with bounded scheduling and snapshot validation");
     registerContracts(tests);
     registerE2e(tests);
+    registerTrace(tests);
+    registerOpacity(tests);
     tests.command("review [paths...]")
         .description("Review changed source, behavioral obligations and bounded simplification candidates without running tests")
         .option("--cwd <path>", "Project root")

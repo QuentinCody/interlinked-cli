@@ -9,6 +9,9 @@ For duplicated push checks, early E2E preflight, resource waits and retained tes
 obligations, use **interlinked-verify**. Managed push command handoff belongs to
 **interlinked-harness**; timing/RSS evidence belongs to **interlinked-observability**.
 These optimizations do not enable general past-result reuse or relax coverage floors.
+Use **interlinked-verify** for `tests trace` and `tests opacity`; use
+**interlinked-observability** to interpret missing test counts and trace coverage.
+Missing reports are not zero executed tests.
 
 For the internal, default-off `claims --receipt-shadow` observer and its explicit receipt
 links, use **interlinked-observability** and `docs/internal/jev.md`. It logs comparisons only;

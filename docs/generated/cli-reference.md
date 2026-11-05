@@ -2393,6 +2393,16 @@ Commands:
   e2e                             Project-aware end-to-end scenarios: declared
                                   policy, supervised runs, receipts and one
                                   qualification verdict
+  trace [options]                 Explain one verification request (the newest
+                                  push by default) from the stage ledger:
+                                  owners, phase costs, the wall-clock wait, the
+                                  handoff fallback cause, and every check that
+                                  ran fresh or produced no verdict
+  opacity [options]               Rank the modules whose unhashed reads or
+                                  unresolved imports make test results
+                                  non-reusable, by the recorded execution time
+                                  of the tests that reach them, with one import
+                                  chain each
   review [options] [paths...]     Review changed source, behavioral obligations
                                   and bounded simplification candidates without
                                   running tests

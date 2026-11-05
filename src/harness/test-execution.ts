@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isJsonObject } from "../lib/json-types.js";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { hashBytes } from "../lib/metrics/inventory.js";
 import { createRequire } from "node:module";
@@ -101,10 +102,37 @@ function claimLaunchedMemory(runId: string): StageMemory {
     return memory;
 }
 
+/** File-level "passed" also includes wholly skipped files in Vitest; count only files with completed cases. */
+function observedTestFiles(report: string): number | undefined {
+    try {
+        const value: unknown = JSON.parse(readFileSync(report, "utf8"));
+        if (!isJsonObject(value) || !Array.isArray(value.testResults)) return undefined;
+        const files = new Set<string>();
+        for (const file of value.testResults) {
+            if (!isJsonObject(file) || typeof file.name !== "string" || !file.name || !Array.isArray(file.assertionResults)) return undefined;
+            let completed = false;
+            for (const test of file.assertionResults) {
+                if (!isJsonObject(test) || typeof test.status !== "string" || !["passed", "failed", "pending", "skipped", "todo"].includes(test.status)) return undefined;
+                completed ||= test.status === "passed" || test.status === "failed";
+            }
+            if (completed) files.add(file.name);
+        }
+        return files.size;
+    } catch { return undefined; }
+}
+
 /** One ledger row per execution attempt: what happened, how long each phase took, and why nothing could be reused. */
 function recordExecution(options: TestRunOptions, execution: TestExecution, outcome: StageOutcome): TestExecution {
     const input: VerificationStageInput = { stage: options.stage ?? "cli", check: `vitest:${execution.plan.mode}`, identity: outcome.identity, status: execution.status, reused: execution.reused, ...claimLaunchedMemory(execution.runId) };
     if (execution.runId) input.run_id = execution.runId;
+    const observed = observedTestFiles(join(receiptStorePath(options.root, options.receiptStore), execution.runId, "report.json"));
+    if (execution.reused) {
+        input.tests_executed = 0;
+        if (observed !== undefined) input.tests_reused = observed;
+    } else {
+        input.tests_reused = 0;
+        if (observed !== undefined) input.tests_executed = observed;
+    }
     if (outcome.denied) input.reuse_denied_reason = outcome.denied;
     if (options.session) input.session = options.session;
     if (options.waitCapacityMs !== undefined) input.wait_capacity_ms = options.waitCapacityMs;

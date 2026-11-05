@@ -732,8 +732,28 @@ Waiting supplies no verdict. The bounded wrapper preserves smaller absolute
 For this repository's protected pushes, the managed push handoff can make the
 exact-revision Git gate the single validation owner on native clients that support
 command replacement. Unknown hooks, unsupported commands or an unavailable handoff
-retain the legacy checks. See **interlinked-harness** and
+retain the legacy checks, and a fallback of a recognized push is recorded with its
+cause and shown to the agent. See **interlinked-harness** and
 `docs/verification-efficiency.md` for the recognition and fallback boundaries.
+
+Two read-only commands explain verification cost (2026-11-05):
+
+- `interlinked tests trace [--trace <id>] [--json]` folds one request's stage-ledger
+  rows (joined on `INTERLINKED_VERIFICATION_TRACE`, which the daemon mints for a
+  judged push, hands to the native command, and the pre-push hook prints and
+  exports) into owners, phase costs, the wall-clock wait (overlapping waits counted
+  once), the handoff fallback cause, and every check that ran fresh or produced no
+  verdict. Default: the newest push trace; exit 2 when none exists. A push from a
+  plain shell, or a client that never received the native replacement, has a
+  hook-only trace. Test-file counts come from runner reports, not planned scope;
+  `unmeasured_runs` retains missing counts in JSON and the human summary.
+- `interlinked tests opacity [--limit n] [--json]` ranks the modules whose unhashed
+  reads or unresolved imports make test results non-reusable by the recorded
+  duration of the tests that reach them, with one import chain each. Durations come
+  from the coverage index's accepted manifest; a test without one is unmeasured,
+  never free. Native Vitest discovery supplies the test universe and shared setup
+  and configuration inputs. Discovery unavailable means exit 2, not zero opaque
+  tests. It changes no selection or reuse decision.
 
 The repository gate builds the E2E-capable CLI once, then runs
 `node scripts/e2e-preflight.mjs` before the full unit suite. This checks inventory,

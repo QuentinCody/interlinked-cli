@@ -489,7 +489,19 @@ above 85%), `heap_limit_mb` (the `--max-old-space-size` the command started
 with), `reused` and
 `reuse_denied_reason` (`no-receipt`, `plan-not-reusable:<issue>`,
 `stale-inputs`, `budget-exceeded`, `capacity-timeout`,
-`memory-budget-unavailable`, `interrupted`, `empty-selection`). A dry run
+`memory-budget-unavailable`, `interrupted`, `empty-selection`,
+`handoff-fallback:<cause>`). Since 2026-11-05 a row may also carry `trace` (the
+request's correlation id, `INTERLINKED_VERIFICATION_TRACE`: minted by the daemon
+for a judged push, inherited by the native command and the pre-push hook, or
+minted by the hook when none is inherited), `owner` (`daemon`, `git-hook`, …,
+`INTERLINKED_VERIFICATION_OWNER`), and for test runs `tests_executed` /
+`tests_reused`. `interlinked tests trace [--trace <id>]` folds one trace's rows
+into owners, phase costs, the wall-clock wait and the fallback cause. File counts
+come from completed runner file results; a missing or malformed report leaves the
+count absent. The summary exposes `tests.unmeasured_runs` alongside observed counts.
+A native replacement carries the trace for delegated and recognized fallback pushes;
+if a client disconnects before receiving it, the hook mints a separate trace and the
+join is incomplete. Do not merge those rows by temporal proximity alone. A dry run
 never writes a row; a write failure is silent. Rows the pre-push hook writes
 inside its disposable export land in the source checkout through
 `INTERLINKED_STAGES_LEDGER`.
@@ -507,6 +519,8 @@ interlinked query stages --where check=coverage:index    # Unit 7: the index rou
 interlinked query coverage-compare                       # pre-push comparison mode: full vs index verdict per pushed sha, `agree`
 interlinked query stages --by check --sum exec_ms        # where the minutes go
 interlinked query stages --where stage=push              # one push's timeline
+interlinked query stages --where trace=<id>              # every row of one request (daemon + hook)
+interlinked tests trace                                  # the newest push, explained from its trace
 ```
 
 ## `interlinked recurrence` — repeating-pattern aggregation

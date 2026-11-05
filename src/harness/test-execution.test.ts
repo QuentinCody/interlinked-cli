@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,6 +43,53 @@ function stageRows(root: string): Array<Record<string, unknown>> {
 const selectedPlan: TestPlan = { version: 1, snapshot: "x", changedPaths: ["a.ts"], tests: [{ path: "a.test.ts", reasons: ["Test changed: a.ts"], durationMs: null }], omitted: [], mode: "selected", reasons: [], estimatedSerialMs: 0, reusable: true, runtimeHash: "h" };
 const VALIDATION_MS = 30;
 const priorReceipt = { key: "k", runId: "prior-run", durationMs: 1, identity: "k", platform: "test", toolchain: { node: "22", vitest: null, typescript: null }, stages: { exec_ms: 1, post_ms: 0 } };
+
+describe("observed execution counts", () => {
+    // test-contract: public-api — planned files are not evidence that startup, failed, or full-suite attempts executed them.
+    it.each([
+        { name: "missing startup report", code: 1, report: undefined, count: undefined },
+        { name: "unrecognized report", code: 1, report: { output: "configuration failed" }, count: undefined },
+        { name: "malformed report", code: 1, report: { testResults: [{ name: "a.test.ts" }] }, count: undefined },
+        { name: "malformed case result", code: 1, report: { testResults: [{ name: "a.test.ts", assertionResults: [{ status: "unknown" }] }] }, count: undefined },
+        { name: "startup report with no files", code: 1, report: { testResults: [] }, count: 0 },
+        { name: "import failure before any case", code: 1, report: { testResults: [{ name: "a.test.ts", status: "failed", assertionResults: [] }] }, count: 0 },
+        { name: "skipped file reported as passed by Vitest", code: 0, report: { testResults: [{ name: "a.test.ts", status: "passed", assertionResults: [{ status: "skipped" }, { status: "todo" }] }] }, count: 0 },
+        { name: "partial failure", code: 1, report: { testResults: [{ name: "a.test.ts", status: "failed", assertionResults: [{ status: "failed" }] }, { name: "b.test.ts", status: "passed", assertionResults: [{ status: "pending" }] }] }, count: 1 },
+        { name: "full run with a different observed scope", code: 0, report: { testResults: [{ name: "a.test.ts", status: "passed", assertionResults: [{ status: "passed" }] }, { name: "b.test.ts", status: "passed", assertionResults: [{ status: "passed" }] }] }, count: 2 },
+    ])("records only observed files for $name", async ({ code, report, count }) => {
+        const root = fixture(), store = join(root, "store"), stub = join(root, "node_modules", "vitest");
+        mkdirSync(stub, { recursive: true });
+        writeFileSync(join(stub, "package.json"), JSON.stringify({ name: "vitest", exports: { "./node": "./node.js" } }));
+        writeFileSync(join(stub, "node.js"), "");
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h" });
+        vi.mocked(readTestReceipt).mockReturnValue(null);
+        vi.mocked(runProcessAsync).mockImplementation(async () => {
+            if (report) writeFileSync(join(store, nonNull(readdirSync(store)[0]), "report.json"), JSON.stringify(report));
+            return { code, killed: false, timedOut: false, stdout: "", stderr: "" };
+        });
+        await executeTestPlan({ ...selectedPlan, mode: "full" }, { root, deadline: Date.now() + 5000, receiptStore: store });
+        expect(stageRows(root)[0]?.tests_executed).toBe(count);
+        expect(stageRows(root)[0]?.tests_reused).toBe(0);
+    });
+
+    // test-contract: public-api — a receipt launches no test, and its producer report, when retained, determines the reused file count.
+    it.each([false, true])("keeps reused counts unknown without the producer report (report=%s)", async retained => {
+        const root = fixture(), store = join(root, "store");
+        if (retained) {
+            mkdirSync(join(store, priorReceipt.runId), { recursive: true });
+            writeFileSync(join(store, priorReceipt.runId, "report.json"), JSON.stringify({ testResults: [
+                { name: "a.test.ts", status: "passed", assertionResults: [{ status: "passed" }] },
+                { name: "b.test.ts", status: "passed", assertionResults: [{ status: "passed" }] },
+            ] }));
+        }
+        vi.mocked(captureTestRuntime).mockResolvedValue({ hash: "h" });
+        vi.mocked(readTestReceipt).mockReturnValue(priorReceipt);
+        await executeTestPlan({ ...selectedPlan, mode: "full" }, { root, deadline: Date.now() + 5000, receiptStore: store });
+        expect(stageRows(root)[0]?.tests_executed).toBe(0);
+        expect(stageRows(root)[0]?.tests_reused).toBe(retained ? 2 : undefined);
+        expect(runProcessAsync).not.toHaveBeenCalled();
+    });
+});
 /** Runtime validation that takes a measurable time before answering. */
 function slowRuntime(answer: TestRuntime): void {
     const answerLater = (resolve: (value: TestRuntime) => void) => { global.setTimeout(() => resolve(answer), VALIDATION_MS); };

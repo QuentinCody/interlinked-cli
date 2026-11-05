@@ -48,7 +48,8 @@ export function changedTestInputs(root: string, base = "HEAD"): string[] {
     return [...new Set([...git(["diff", "--name-only", "-z", revision, "--"]), ...git(["ls-files", "--others", "--exclude-standard", "-z"])])].sort();
 }
 
-function historicalTests(root: string): NonNullable<TestPlanInput["historical"]> {
+/** Recorded per-test durations and dependencies from the coverage index's accepted manifest; empty without one. */
+export function historicalTests(root: string): NonNullable<TestPlanInput["historical"]> {
     const manifest = readAcceptedManifest(indexStore(root)), result: NonNullable<TestPlanInput["historical"]> = {};
     for (const shard of Object.values(manifest?.shards ?? {})) {
         for (const test of shard.testPaths) result[test] = { dependencies: Object.keys(shard.dependencyHashes), durationMs: shard.lastDurationMs };
