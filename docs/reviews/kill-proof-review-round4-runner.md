@@ -179,3 +179,23 @@ tests do not load src/math.ts from the copy". The tests DO load it; the canary t
 - vitest 2/3/4 on the same fixture (`adds`, own-thrown `Error`, skip, todo, inline snapshot) under `a - b`: three
   `killed` cases each, skip/todo excluded, environment records the right version.
 - `pool: "threads"` vs default forks: M2 reproduces on both.
+
+## Resolution (branch `cloud/fix-round4-runner`, 2026-11-05)
+
+Fixes are pinned by `src/harness/kill-proof/round4-runner-fixes.test.ts` (mechanism) and
+`review-regressions-round4-runner.test.ts` (the red cases above). M5 is fixed on the sibling branch
+`cloud/fix-round4-receipts` (its M3) and is NOT touched here: N7 stays red on this branch until that merge.
+
+| id | status | fix | pin |
+|---|---|---|---|
+| M1 | FIXED | two unmutated repeats after a kill (pass, FAIL, pass, pass): any period-2 pattern fails the second repeat → "not repeatable" (`run.ts confirmKills`, `KILL_REPEATS = 2`). Residual stated in the guide's Limits: period-3 state, `$HOME`/`/var` state, probabilistic flakiness ((1−f)³·f). | N1, N2; fixes M1 N1/P1; `kill-proof.test.ts` fourth-run pin |
+| M2 | FIXED | every vitest run is private: `--no-cache` (verified accepted by 2.1.9, 3.2.7, 4.1.11; `--cache.dir` throws on all three; no `.vite` directory is created) and `TMPDIR`/`TMP`/`TEMP` → a fresh directory removed with the run (`fail-before-fix/index.ts runVitestDetailed`). Node_modules stays linked; the live tree gains nothing. | N3, N4; fixes M2 P1/P2 |
+| M3 | FIXED | per file, every baseline-passing case must stop passing under the canary (a still-passing case is named); a test whose static RELATIVE imports reach the file is evidence by itself, every other named test needs a control copy (canary + trivial stand-in tests) to PASS — a control that breaks too means a setup file or the config loads the file (`run.ts canaryProblem`, `bound-imports.ts testsReachingByRelativeImport`). | N5; fixes M3/M4 N2/N3/P1/P2/P3 |
+| M4 | FIXED | a canary (or control) run that times out or errors is `unavailable`: "canary run did not complete; cannot show the tests load the copy". | N6; fixes M3/M4 N1/N4 |
+| M5 | OPEN here (sibling) | `judgeCases` duplicate full names — fixed on `cloud/fix-round4-receipts`. | N7 (red on this branch by design) |
+| M6 | FIXED | `runArgvInOverlay` spawns POSIX children `detached` (own process group); timeout SIGTERMs then SIGKILLs `-pid` and settles only when no member is left; the parent exiting or receiving SIGINT/SIGTERM/SIGHUP SIGKILLs the group first. | N8; `overlay-command-runner.test.ts` process-group block |
+| M7 | FIXED | `--timeout <ms>` registered on `prove-kill` (supervisor semantics documented in `--help`); `--timeout`/`--run-timeout` validated as positive integers; `exitOverride` makes any commander usage error exit 2, never 1. | N9; `tests-prove-kill.test.ts timeoutProblem` |
+| M8 | POLICY | two repeats lower the odds ((1−f)³·f per proof) but cannot beat probabilistic flakiness; documented in Limits with the shuffle case. | — (flaky by construction) |
+| M9 | FIXED | `Error: STACK_TRACE_ERROR` (vitest 3/4 test or hook timeout placeholder) → `test timed out (vitest testTimeout or hookTimeout; reported as Error: STACK_TRACE_ERROR)` (`classify.ts`); verdict unchanged (inconclusive). | `classify.test.ts` M9 block |
+| M10 | FIXED | `createProjectCopy` reports copied bytes; above 256 MiB the result carries `[interlinked:kill-proof] copy is N MiB; large tracked files slow every proof` in `warnings` (`--json`) and a `warning:` line; no verdict changes. | fixes M10 P1–P3; `tests-prove-kill.test.ts` warnings block |
+| M11 | POLICY | a test that catches its own import swallows the canary; the reason now says "never load … or catch its import error" and the guide's Limits explain why that is `unavailable` by design. | fixes M3/M4 N2 |
