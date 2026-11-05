@@ -178,6 +178,8 @@ scripts/*
 !scripts/antithesis-terminal-pilot.mts
 !scripts/antithesis-terminal-pilot.test.mts
 !scripts/skill-token-cost.py
+# claim_liveness spike measurement (docs/reviews/claim-liveness-spike.md).
+!scripts/scan-claim-liveness.mts
 !scripts/fixtures/
 scripts/fixtures/*
 !scripts/fixtures/wizard-evidence.spec.ts
