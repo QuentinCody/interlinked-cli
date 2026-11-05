@@ -16,7 +16,11 @@
 //    `node:assert` raised from product code (review R4); `survived` when it still
 //    passes; else `inconclusive` with its first failure line. A runner that times
 //    out or fails to launch makes every case inconclusive — never a kill.
-// The live tree is only read. Both copies are removed before this returns.
+// Every vitest run is private (round 4, M2): `--no-cache` (vitest's results cache would land in the LIVE
+// node_modules through the copy's link and reorder files between runs) and a fresh TMPDIR per run
+// (`fail-before-fix/index.ts runVitestDetailed`), so no run can see the previous run's tmpdir state.
+// The live tree is only read. Every copy is removed before this returns.
+
 
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
