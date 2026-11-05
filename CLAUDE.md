@@ -1795,7 +1795,12 @@ named tests run unmutated in a fresh git-visible copy (`fail-before-fix/snapshot
 a copy-only failure is re-checked on the live tree and reported `unavailable`,
 a live failure `not-passing-now`), then once more in a SECOND fresh copy holding
 the mutated file (nothing the baseline left behind can fail the mutant run); a
-replacement that does not parse is `inconclusive` without running. A case is
+replacement that does not parse in the file's own dialect is `inconclusive`
+without running; a kill is accepted only after a third unmutated copy passes
+again (state left outside the copies — the shared `node_modules` link, the OS
+temp dir — makes it "not repeatable" → `inconclusive`); a survivor is accepted
+only after a canary copy (module-level throw in the file's place) breaks the
+tests, else `unavailable` (the tests never loaded the copy's file). A case is
 `killed` only when it fails BY ITS OWN CHECK (`fail-before-fix/classify.ts
 failedByOwnCheck`, minus a `node:assert` raised from product code); a product
 crash, a load error, a runner timeout or a missing result is `inconclusive`; an
@@ -1813,15 +1818,19 @@ runtime and the mutant location. Surfaces: PostToolUse `[interlinked:kill-proof]
 the model on Claude Code and Codex (`src/harness/adapters/kill-proof-nudge-encoding.test.ts`,
 `docs/reviews/kill-proof-adapter-matrix.md`); Stop warnings are stderr-only on
 every runner, and the Stop check (`mutation-kill-evidence-stop-check.ts`) accepts
-a receipt only when one of the session's NEWLY added case titles is among its
-killed cases; `mutation survivors --file` names the command. Measured 2026-11-04:
-two review rounds (`docs/reviews/kill-proof-review-round2.md`, 13 findings, 7
-reproduced → fixed and pinned by `review-regressions-round2.test.ts`); real kills
+a receipt only when EVERY newly added case title (file grew; literal titles) is
+among its killed cases, and the nudge applies the same rule against HEAD; Write/
+Edit under `.interlinked/test-runs/kill-proofs/` are refused (`protected_files`);
+`mutation survivors --file` names the command. Measured 2026-11-04:
+three adversarial rounds plus a git/platform round (`docs/reviews/kill-proof-review-round{2,3}.md`,
+`kill-proof-git-edge-cases.md`: every reproduced false-pass fixed and pinned by
+`review-regressions-{round2,round3,git}.test.ts`; policy todos: byte-level receipt
+rewrite, binder-level early errors, type-only errors); real kills
 on this repo (`docs/reviews/kill-proof-real-kills.md`: 6/8 explicit faults
-survived existing tests, 5 new mutation-kill files each proven); foreign vitest
-repos defu/ufo/antfu-utils/tinyexec 49/52 author-predicted (2 product crashes →
-inconclusive by rule, 1 wrong prediction); one proof ≈ 3.6 s here (copy-on-write
-clones). No model anywhere; the in-process differential-fuzz engine stays OFF this
+survived existing tests, 5 new mutation-kill files each proven); ten foreign
+vitest repos / 130 authored faults: 104 as predicted, 11 wrong predictions, 3
+library crashes (inconclusive by rule), 13 monorepo-root `unavailable`; one proof
+≈ 4–5 s here (copy-on-write clones; two or three copies per run). No model anywhere; the in-process differential-fuzz engine stays OFF this
 path. Guide: `docs/mutation-grounded-test-proof.md`.
 
 ## E2E lane

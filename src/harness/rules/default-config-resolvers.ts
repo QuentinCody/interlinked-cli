@@ -73,6 +73,15 @@ export const HIGH_PRECISION_OPF_CALIBRATION_PATH =
 /** Built-in protected-file glob catalog consumed by DEFAULT_CONFIG. */
 export const DEFAULT_PROTECTED_FILES: ProtectedFileRule[] = [
 	{
+		// Kill-proof receipts are evidence a gated agent is judged against; only
+		// `interlinked tests prove-kill` writes them (kill-proof review L2: a receipt
+		// rewritten with a recomputed digest passes every reader). Edit tools are
+		// refused here; shell writes are the harness's redirect/tee guards' job.
+		glob: "**/.interlinked/test-runs/kill-proofs/**",
+		operations: ["Write", "Edit", "Delete"],
+		reason: "Kill-proof receipts are executed evidence; only `interlinked tests prove-kill` writes them",
+	},
+	{
 		glob: "**/*.env*",
 		operations: ["Write", "Edit"],
 		check: "secrets",

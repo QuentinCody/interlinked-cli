@@ -47,13 +47,14 @@ type Case = VitestRun["cases"][number];
 const okRun = (cases: Case[]): VitestRun => ({ cases, timedOut: false, exitCode: 0, durationMs: 10 });
 const pass = (file: string, name: string): Case => ({ file, name, title: name, status: "passed" });
 const fail = (file: string, name: string): Case => ({ file, name, title: name, status: "failed", message: "AssertionError: expected 5 to be 3" });
-/** Baseline copy, mutant copy, then the reachability canary (every case fails: the tests DID load the file). */
+/** Answers by what the copy holds: unmutated → baseline (also the repeat baseline after a kill), mutated → mutated,
+ *  the reachability canary → every case fails (the tests DID load the file). */
 function scripted(baseline: VitestRun, mutated: VitestRun) {
-	let calls = 0;
 	const loaded: VitestRun = okRun(baseline.cases.map(row => ({ ...row, status: "failed", message: "Error: interlinked kill-proof canary" })));
-	return async (): Promise<VitestRun> => {
-		calls += 1;
-		return calls === 1 ? baseline : calls === 2 ? mutated : loaded;
+	return async (dir: string): Promise<VitestRun> => {
+		const source = readFileSync(join(dir, "src/clamp.ts"), "utf8");
+		if (source.includes("kill-proof canary")) return loaded;
+		return source === UNIT_SOURCE ? baseline : mutated;
 	};
 }
 

@@ -371,14 +371,19 @@ export function killedCaseNames(receipt: KillProofReceipt, testPath: string): st
 	return receipt.underMutant.cases.filter(row => row.verdict === "killed" && row.test.startsWith(`${testPath} › `)).map(row => row.test.slice(testPath.length + 3));
 }
 
-export type Certification = { certified: true; receipt: KillProofReceipt } | { certified: false; receipt: KillProofReceipt | null; reasons: string[] };
+export type Certification = { certified: true; receipt: KillProofReceipt } | { certified: false; receipt: KillProofReceipt | null; reasons: string[]; uncovered?: string[] };
+
+/** A killed case's full name (vitest joins describe blocks with spaces) ends with the case title. */
+export function caseNameMatches(name: string, title: string): boolean {
+	return name === title || name.endsWith(` ${title}`) || name.endsWith(` > ${title}`);
+}
 
 /**
  * Does receipt `id` certify `testPath` NOW? Read from the receipt FILE: integrity,
  * verdict `killed` through this file, the source and THIS test file's bytes, the
- * runtime (review K2, K13). With `requireCases` (the Stop check's newly added case
- * titles), at least one of them must be a killed case — an old strong case does not
- * certify a new weak one (review K4).
+ * runtime (review K2, K13). With `requireCases` (the newly added case titles), EVERY
+ * one of them must be a killed case — an old strong case, or one strong new case,
+ * never certifies another new case that killed nothing (reviews K4, L3).
  */
 export function receiptCertifies(root: string, id: string, testPath: string, requireCases?: readonly string[]): Certification {
 	const receipt = readKillProof(root, id);
@@ -388,11 +393,13 @@ export function receiptCertifies(root: string, id: string, testPath: string, req
 	const own = receipt.tests.filter(test => test.path === testPath);
 	if (own.length === 0) reasons.push(`receipt does not name ${testPath}`);
 	reasons.push(...hashMismatches(root, [receipt.source], "source"), ...hashMismatches(root, own, "test"), ...environmentReasons(root, receipt.environment));
+	let uncovered: string[] = [];
 	if (requireCases !== undefined && requireCases.length > 0) {
 		const killed = killedCaseNames(receipt, testPath);
-		if (!requireCases.some(title => killed.some(name => name.includes(title)))) reasons.push("none of the newly added cases is a killed case in this receipt");
+		uncovered = requireCases.filter(title => !killed.some(name => caseNameMatches(name, title)));
+		if (uncovered.length) reasons.push(`newly added case(s) not among this receipt's killed cases: ${uncovered.join(", ")}`);
 	}
-	return reasons.length === 0 ? { certified: true, receipt } : { certified: false, receipt, reasons };
+	return reasons.length === 0 ? { certified: true, receipt } : { certified: false, receipt, reasons, ...(uncovered.length ? { uncovered } : {}) };
 }
 
 /** Receipts that certify `testPath` now (see `receiptCertifies`). The Stop check's and the nudge's whole question. */

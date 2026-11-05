@@ -36,16 +36,17 @@ const failing = (name: string, message: string, extra: Partial<Case> = {}): Case
 const okRun = (cases: Case[]): VitestRun => ({ cases, timedOut: false, exitCode: 0, durationMs: 10 });
 const SPEC = { kind: "explicit", file: "src/clamp.ts", find: "n > max", replace: "n >= max" } as const;
 
-/** A fake runner answering in call order: the baseline copy, the mutant copy, then the reachability canary
- *  (a copy whose source is a module-level throw: every case fails, i.e. the tests DID load the file), then the live tree. */
+/** A fake runner that answers by what the copy holds: the unmutated source → `baseline` (also the repeat baseline
+ *  after a kill), the mutated source → `mutated`, the reachability canary → `canary` (default: every case fails,
+ *  i.e. the tests DID load the file). */
 function fakeRunner(baseline: VitestRun, mutated: VitestRun, canary?: VitestRun) {
 	const calls: { dir: string; source: string }[] = [];
 	const loaded: VitestRun = okRun(baseline.cases.map(row => ({ ...row, status: "failed", message: "Error: interlinked kill-proof canary" })));
 	const runner = async (dir: string): Promise<VitestRun> => {
-		calls.push({ dir, source: readFileSync(join(dir, "src/clamp.ts"), "utf8") });
-		if (calls.length === 1) return baseline;
-		if (calls.length === 2) return mutated;
-		return canary ?? loaded;
+		const source = readFileSync(join(dir, "src/clamp.ts"), "utf8");
+		calls.push({ dir, source });
+		if (source.includes("kill-proof canary")) return canary ?? loaded;
+		return source === SOURCE ? baseline : mutated;
 	};
 	return { runner, calls };
 }
@@ -97,10 +98,11 @@ describe("proveKill — positive (must fire)", () => {
 		expect(result.receipt.environment.node).toBe(process.version);
 		expect(readKillProof(root, result.receipt.id)).toEqual(result.receipt);
 		expect(readKillProofIndex(root).receipts.map(row => row.id)).toEqual([result.receipt.id]);
-		// two FRESH copies, never the live tree: baseline sees the original bytes, the mutant copy the replacement (review K1)
-		expect(calls).toHaveLength(2);
+		// fresh copies, never the live tree: baseline, the mutant copy, then the repeat baseline after a kill (reviews K1, L1)
+		expect(calls).toHaveLength(3);
 		expect(calls.every(call => call.dir !== root)).toBe(true);
-		expect(calls[0]?.dir).not.toBe(calls[1]?.dir);
+		expect(new Set(calls.map(call => call.dir)).size).toBe(3);
+		expect(calls[2]?.source).toBe(SOURCE);
 		expect(result.receipt.digest).toHaveLength(64);
 		expect(calls[0]?.source).toBe(SOURCE);
 		expect(calls[1]?.source).toBe(SOURCE.replace("n > max", "n >= max"));
@@ -142,13 +144,13 @@ describe("proveKill — negative (must not fire)", () => {
 		expect(result.ok && result.receipt.verdict).toBe("inconclusive");
 		expect(result.ok && result.receipt.underMutant.cases[0]?.reason).toBe("runner timed out after 1000 ms");
 	});
-	it("N4: a case that fails in the copy AND on the live tree is not-passing-now; no mutant run, no receipt", async () => {
+	it("N4: a case that fails in the baseline copy for its own reason is not-passing-now; no mutant run, no receipt, no live run", async () => {
 		const red = okRun([failing("caps", "AssertionError: x")]);
 		const { runner, calls } = fakeRunner(red, red);
 		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner });
 		expect(result).toMatchObject({ ok: false, verdict: "not-passing-now", reasons: [`${TEST_FILE} › caps: failed — AssertionError: x`] });
-		expect(calls).toHaveLength(2);
-		expect(calls[1]?.dir).toBe(root);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.dir).not.toBe(root);
 		expect(readKillProofIndex(root).receipts).toEqual([]);
 	});
 	it("N16: a survivor whose tests never load the copy's file is unavailable, not survived (review N6/N7 canary)", async () => {
@@ -159,12 +161,31 @@ describe("proveKill — negative (must not fire)", () => {
 		expect(calls).toHaveLength(3);
 		expect(calls[2]?.source).toMatch(/kill-proof canary/);
 	});
-	it("N13: a case that fails in the copy but passes on the live tree is unavailable (an ignored fixture), not the test's fault (review K6)", async () => {
-		const { runner, calls } = fakeRunner(okRun([failing("caps", "Error: ENOENT fixtures/case.json")]), okRun([passing("caps")]));
+	it("N13: a case that fails because the copy lacks an ignored fixture the live tree has is unavailable, decided without a live run (reviews K6, L8)", async () => {
+		write("fixtures/case.json", "[]");
+		write(".gitignore", "fixtures/\nnode_modules\n");
+		const calls: string[] = [];
+		const runner = async (dir: string): Promise<VitestRun> => {
+			calls.push(dir);
+			return okRun([failing("caps", `Error: ENOENT: no such file or directory, open '${join(dir, "fixtures/case.json")}'`)]);
+		};
 		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner });
 		expect(!result.ok && result.verdict).toBe("unavailable");
-		expect(!result.ok && result.reasons[0]).toMatch(/pass on the live tree but fail in the isolated git-visible copy/);
-		expect(calls).toHaveLength(2);
+		expect(!result.ok && result.reasons[0]).toMatch(/the isolated git-visible copy lacks fixtures\/case\.json/);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).not.toBe(root);
+	});
+	it("N17: a kill that is not repeatable on an unmutated copy is inconclusive, never a kill (review L1)", async () => {
+		const red = okRun([failing("caps", "AssertionError: marker already present")]);
+		let seen = 0;
+		const runner = async (dir: string): Promise<VitestRun> => {
+			seen += 1;
+			const source = readFileSync(join(dir, "src/clamp.ts"), "utf8");
+			return seen === 1 ? okRun([passing("caps")]) : source === SOURCE ? red : red;
+		};
+		const result = await proveKill({ root, spec: SPEC, tests: [TEST_FILE], budgetMs: 1000, runner, persist: false });
+		expect(result.ok && result.receipt.verdict).toBe("inconclusive");
+		expect(result.ok && result.receipt.underMutant.cases[0]?.reason).toMatch(/not repeatable/);
 	});
 	it("N14: a replacement that does not parse is inconclusive, never a kill (review K5)", async () => {
 		const { runner, calls } = fakeRunner(okRun([passing("caps")]), KILLED);

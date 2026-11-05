@@ -20,6 +20,7 @@
 
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import type * as TS from "typescript";
 import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { isTestPath } from "../coverage-test-selector.js";
 import { failedByOwnCheck, type VitestCase } from "../fail-before-fix/classify.js";
@@ -96,11 +97,30 @@ export function killedByOwnCheck(row: VitestCase): boolean {
 export function mutantParses(file: string, mutated: string): { ok: true } | { ok: false; reason: string } | null {
 	const ts = loadTsModule();
 	if (ts === null) return null;
-	const out = ts.transpileModule(mutated, { fileName: file, reportDiagnostics: true, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-	const syntax = (out.diagnostics ?? []).find(d => d.category === ts.DiagnosticCategory.Error);
-	if (syntax === undefined) return { ok: true };
-	const text = ts.flattenDiagnosticMessageText(syntax.messageText, " ");
-	return { ok: false, reason: `the mutated ${file} does not parse (${text}); a compile error is not a kill` };
+	// Parse in the file's OWN dialect (review L6: JSX in a `.js` file is not JavaScript); binder-level early
+	// errors (a redeclared `let`) need a program and are not checked — vitest's transpiler does not check them either.
+	const ext = getExtension(file);
+	const kind = ext === ".tsx" ? ts.ScriptKind.TSX : ext === ".jsx" ? ts.ScriptKind.JSX : ext.startsWith(".ts") || ext === ".mts" || ext === ".cts" ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+	const sf = ts.createSourceFile(file, mutated, ts.ScriptTarget.ES2022, true, kind);
+	const syntax = (sf as unknown as { parseDiagnostics?: TS.Diagnostic[] }).parseDiagnostics?.find(d => d.category === ts.DiagnosticCategory.Error);
+	if (syntax !== undefined) {
+		const text = ts.flattenDiagnosticMessageText(syntax.messageText, " ");
+		return { ok: false, reason: `the mutated ${file} does not parse (${text}); a compile error is not a kill` };
+	}
+	// TypeScript's parser accepts JSX in any file and leaves the complaint to the checker; a `.js`/`.ts` file is not JSX.
+	if ((kind === ts.ScriptKind.JS || kind === ts.ScriptKind.TS) && containsJsx(ts, sf)) {
+		return { ok: false, reason: `the mutated ${file} contains JSX, which ${ext} files cannot hold; a compile error is not a kill` };
+	}
+	return { ok: true };
+}
+
+function containsJsx(ts: NonNullable<ReturnType<typeof loadTsModule>>, node: TS.Node): boolean {
+	if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node)) return true;
+	let found = false;
+	ts.forEachChild(node, child => {
+		if (!found && containsJsx(ts, child)) found = true;
+	});
+	return found;
 }
 
 type BaselineProblem = { kind: "unavailable" | "not-passing-now"; reasons: string[]; failing: VitestCase[] };
@@ -184,14 +204,26 @@ function targetProblem(mutant: ResolvedMutant, tests: readonly string[]): string
 	return null;
 }
 
-/** A copy-only baseline failure (ignored fixture, environment) is not the test's fault: check the live tree, read only (review K6). */
-async function explainBaselineFailure(root: string, problem: BaselineProblem, tests: readonly string[], runner: NonNullable<ProveKillOptions["runner"]>, budgetMs: number, vitestArgs: readonly string[], mutant: ResolvedMutant): Promise<ProveKillResult> {
+/** Paths a failure message names (ENOENT, "Cannot find module", open/read errors), as written. */
+function pathsInMessage(message: string): string[] {
+	return [...message.matchAll(/(?:ENOENT|Cannot find module|no such file|Failed to resolve import)[^'"`\n]*['"`]([^'"`]+)['"`]/g)].map(m => m[1] ?? "").filter(Boolean);
+}
+
+/**
+ * A copy-only baseline failure is not the test's fault: a failing case that names a
+ * file the COPY lacks but the live tree has (an ignored fixture) is `unavailable`
+ * (review K6). Decided from the failure text, with no run on the live tree — a live
+ * run writes caches into the live tree and changed the next verdict (review L8).
+ */
+function explainBaselineFailure(root: string, copyDir: string, problem: BaselineProblem, mutant: ResolvedMutant): ProveKillResult {
 	if (problem.kind === "unavailable") return unavailable(problem.reasons, mutant);
-	const live = await runner(root, tests, budgetMs, vitestArgs);
-	const liveFailing = problem.failing.filter(row => live.cases.find(c => caseKey(c) === caseKey(row))?.status !== "passed");
-	if (live.error === undefined && !live.timedOut && liveFailing.length === 0) {
+	const lacking = problem.failing.flatMap(row => pathsInMessage(row.message ?? "")).map(path => {
+		const inCopy = path.startsWith(copyDir) ? relative(copyDir, path) : isAbsolute(path) ? null : path;
+		return inCopy !== null && !existsSync(join(copyDir, inCopy)) && existsSync(join(root, inCopy)) ? inCopy : null;
+	}).filter((p): p is string => p !== null);
+	if (lacking.length) {
 		return unavailable([
-			`${problem.failing.length} case(s) pass on the live tree but fail in the isolated git-visible copy (ignored or untracked files are not copied):`,
+			`the isolated git-visible copy lacks ${[...new Set(lacking)].join(", ")} (ignored or untracked files are not copied), so the baseline cannot run there:`,
 			...problem.reasons,
 		], mutant);
 	}
@@ -227,10 +259,10 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 	const configPath = resolveVitestConfig(root, options.vitestConfig);
 	if (options.vitestConfig !== undefined && !existsSync(join(root, options.vitestConfig))) return unavailable([`${options.vitestConfig} does not exist`], mutant);
 	const vitestArgs = configPath !== null ? ["--config", configPath] : [];
-	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun> => {
+	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun & { dir: string }> => {
 		const copy = createProjectCopy(root, files, overrides);
 		try {
-			return await runner(copy.dir, tests, options.budgetMs, vitestArgs);
+			return { ...(await runner(copy.dir, tests, options.budgetMs, vitestArgs)), dir: copy.dir };
 		} finally {
 			copy.cleanup();
 		}
@@ -238,13 +270,25 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 
 	const baseline = await runIn(new Map());
 	const baseProblem = baselineProblems(tests, baseline);
-	if (baseProblem !== null) return explainBaselineFailure(root, baseProblem, tests, runner, options.budgetMs, vitestArgs, mutant);
+	if (baseProblem !== null) return explainBaselineFailure(root, baseline.dir, baseProblem, mutant);
 	const passing = baseline.cases.filter(row => tests.includes(row.file) && row.status === "passed");
 
 	const under: VitestRun = parse !== null && !parse.ok
 		? { cases: [], timedOut: false, error: parse.reason, exitCode: null, durationMs: 0 }
 		: await runIn(new Map([[mutant.file, mutated]]));
-	const cases = judgeCases(passing, under);
+	let cases = judgeCases(passing, under);
+	if (cases.some(row => row.verdict === "killed")) {
+		// Repeat baseline (review L1): a kill must be REPEATABLE. State a run leaves outside the copy (the shared
+		// node_modules link, os.tmpdir()) can fail the second run of a test whatever the mutant did; an unmutated
+		// third copy must pass again, or the case is "not repeatable", never a kill.
+		const again = await runIn(new Map());
+		cases = cases.map(row => {
+			if (row.verdict !== "killed") return row;
+			const repeat = again.cases.find(c => caseKey(c) === row.test);
+			if (again.error === undefined && !again.timedOut && repeat?.status === "passed") return row;
+			return { test: row.test, verdict: "inconclusive", reason: `not repeatable: the case also fails on an unmutated copy after the mutant run (${repeat?.message ?? again.error ?? repeat?.status ?? "no result"}); a run left state outside the copy` };
+		});
+	}
 	const { verdict, reasons } = overallVerdict(cases);
 	if (verdict === "survived") {
 		// Reachability canary (review N6/N7): a survivor only means something if the tests loaded the COPY's file.

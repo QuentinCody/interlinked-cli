@@ -203,10 +203,20 @@ interface DetectMutationKillEvidenceGapsOpts {
 /** Titles of `it`/`test` cases present now but not in the baseline bytes (review K4: an old strong case must not
  *  certify a new weak one). A regex over quoted first arguments; generated titles (loops, `it.each`) are not literal
  *  and simply do not constrain the receipt. */
+const CASE_TITLE_RE = /\b(?:it|test)(?:\.(?:only|skip|todo|concurrent|each))*\s*(?:\([^)]*\))?\s*\(\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/g;
+
+function caseTitles(text: string): string[] {
+	return [...text.matchAll(CASE_TITLE_RE)].map(m => m[2] ?? "").filter(title => title.length > 0);
+}
+
+/** Literal case titles in `text` (counted with duplicates). */
+export function countCaseTitles(text: string): number {
+	return caseTitles(text).length;
+}
+
 export function newCaseTitles(current: string, baseline: string): string[] {
-	const titles = (text: string): string[] => [...text.matchAll(/\b(?:it|test)(?:\.(?:only|skip|todo|concurrent))*\s*\(\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/g)].map(m => m[2] ?? "");
-	const before = new Set(titles(baseline));
-	return [...new Set(titles(current).filter(title => title.length > 0 && !before.has(title)))];
+	const before = new Set(caseTitles(baseline));
+	return [...new Set(caseTitles(current).filter(title => !before.has(title)))];
 }
 
 /**
@@ -315,10 +325,14 @@ function evaluateMutationKillEvidence(
 	const relPath = relative(ctx.cwd, abs).replace(/\\/g, "/");
 	const baselineContent = ctx.gitShow(ctx.cwd, `${ctx.gitHeadSha}:${relPath}`) ?? "";
 
-	const newCaseCount = Math.max(
-		0,
-		countTestCaseOpeners(currentContent) - countTestCaseOpeners(baselineContent),
-	);
+	// A file GREW when it holds more case openers or more literal titles than the baseline. The line-based opener
+	// count misses a title on the line after `it(` (review L4); the title count does not. A file that did not grow
+	// (a rename, a reworded title) adds no claim and stays silent; when it grew, every title absent from the baseline
+	// is a new claim — a renamed old case included, since a rename cannot be told from a new case (review L3).
+	const titleGrowth = countCaseTitles(currentContent) - countCaseTitles(baselineContent);
+	const openerGrowth = countTestCaseOpeners(currentContent) - countTestCaseOpeners(baselineContent);
+	const newTitles = titleGrowth > 0 || openerGrowth > 0 ? newCaseTitles(currentContent, baselineContent) : [];
+	const newCaseCount = Math.max(newTitles.length, openerGrowth, titleGrowth, 0);
 	if (newCaseCount === 0) return null; // no new cases — maintenance edit, stay silent
 
 	const measurementMs = resolveMeasurementMs(ctx.cwd, ctx.loadMutationManifest, ctx.measurementCache);
@@ -330,7 +344,7 @@ function evaluateMutationKillEvidence(
 	// A kill proof (`interlinked tests prove-kill`) whose source AND test bytes are
 	// the ones on disk now is per-file executed evidence, newer by construction
 	// than any write it hashes; it discharges the manifest-timestamp proxy.
-	const staleMeasurement = staleByManifest && ctx.freshKillProofs(ctx.cwd, relPath, newCaseTitles(currentContent, baselineContent)) === 0;
+	const staleMeasurement = staleByManifest && ctx.freshKillProofs(ctx.cwd, relPath, newTitles) === 0;
 
 	const missingContractCount = newMissingContractCount(currentContent, baselineContent, abs);
 

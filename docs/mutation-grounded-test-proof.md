@@ -81,21 +81,26 @@ below a few seconds stops the CLI before any verdict (exit 75).
    An explicit `--find` must occur exactly once in `--file`.
 2. **Baseline.** The named test files run UNMUTATED in a fresh disposable copy
    of the project as git sees it (tracked plus untracked-not-ignored files,
-   `node_modules` linked). Every case must pass. A case that fails in the copy
-   is re-run on the live tree, read only: passing there means the copy lacks
-   something the test needs (an ignored fixture) and the run is `unavailable`;
-   failing there too is `not-passing-now`.
+   `node_modules` linked). Every case must pass. A case that fails because the
+   copy lacks a file the live tree has (an ignored fixture named in the failure)
+   makes the run `unavailable`; any other failure is `not-passing-now`. Nothing
+   ever runs on the live tree: a live run writes tool caches there.
 3. **Mutant.** A SECOND fresh copy receives the one mutated source file, so
    nothing the baseline run left behind (a marker file, a snapshot, a log) can
    fail the second run. A replacement that does not parse is `inconclusive`
    without running: a compile error is not behaviour. The same tests run in the
    copy with vitest's JSON reporter.
-4. **Canary** (only when every case survived). A third copy holds a
+4. **Repeat baseline** (only when a case was killed). A third fresh,
+   unmutated copy runs the tests again. A killed case must pass there; one
+   that fails again was broken by state a run left OUTSIDE the copies (the
+   shared `node_modules` link, the OS temp directory) and is `inconclusive`
+   ("not repeatable"), never a kill.
+5. **Canary** (only when every case survived). A third copy holds a
    module-level `throw` in the mutated file's place. If the named tests still
    pass, they never loaded the copy's file (a mock, an absolute import, an
    alias or a link into the live tree) and the run is `unavailable`, not
    `survived`.
-5. **Verdict per case**, then overall:
+6. **Verdict per case**, then overall:
 
 | Verdict | Meaning | Exit |
 |---|---|---|
@@ -138,7 +143,9 @@ re-checks the digest, re-hashes the files, compares the runtime, and re-resolves
 the mutant; any difference is `STALE` with the reasons named. A `survived` or
 `inconclusive` receipt is kept (it records what was tried) but never counts as
 evidence of a kill. Every decision (the Stop check, the nudge, the list) reads
-the receipt FILE; `index.json` is only a locator. `--verify` lists a receipt as
+the receipt FILE; `index.json` is only a locator. The harness refuses Write and
+Edit tool calls under `.interlinked/test-runs/kill-proofs/` (a `protected_files`
+rule): only the command writes there. `--verify` lists a receipt as
 `UNCOMMITTED` (exit 0) when the bound source or test bytes differ from HEAD or
 the index: the proof is about work-tree bytes, and a commit-time reader must
 know they are not the committed ones. Receipts are tamper-evident,
@@ -156,10 +163,13 @@ not a security boundary.
   that test file and the runtime are unchanged. Cost: one index read plus the
   hashes of the matching receipts.
 - **Stop** (human-visible stderr): `[interlinked:mutation-kill-evidence]`
-  accepts a receipt as measurement evidence only when one of the NEWLY added
-  cases (titles present now, absent at session start) is among its killed
-  cases, so an old strong case cannot certify a new weak one; a missing
-  `test-contract` marker still fires.
+  accepts a receipt as measurement evidence only when EVERY newly added case
+  (a literal title present now and absent at session start, in a file that
+  grew) is among its killed cases; an old strong case, or one strong new case,
+  never certifies another new case that killed nothing. The PostToolUse nudge
+  applies the same rule against `HEAD`. A missing `test-contract` marker still
+  fires. Titles that are not literals (`it.each`, template strings) never
+  match, so such a file stays flagged until the proof names a literal case.
 - `interlinked mutation survivors --file <src>` names the command.
 
 Stop-time warnings reach no agent as context on any runner (Claude Code, Codex,
@@ -195,3 +205,9 @@ sees the PostToolUse line; the human sees the Stop line.
 - No model is involved anywhere. The differential-fuzz engine (which can
   propose a counterexample input) is a separate, manual tool and executes
   target code in-process; it is not on this path.
+- Neither the proof nor vitest type-checks: a replacement that parses but
+  fails the type check runs, and the tests judge it like any other mutant. A
+  binder-level early error (a redeclared `let`) is not caught before the run
+  either; a syntax error in the file's own dialect is.
+- A receipt rewritten from scratch with a recomputed digest, through the shell
+  rather than the edit tools, is not detectable from its bytes.

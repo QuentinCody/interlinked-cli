@@ -14,11 +14,14 @@
 // evidence. Paths resolve against the PROJECT root (`findRepoRoot`), not the tool
 // call's cwd (review R13).
 
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { findRepoRoot } from "../../lib/interlinked-root.js";
 import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { MUTATION_DIRECTED_PATH } from "../checks/test-legitimacy.js";
 import { type Certification, readKillProofIndex, receiptCertifies } from "../kill-proof/receipt.js";
+import { newCaseTitles } from "../mutation-kill-evidence-stop-check.js";
 import type { HarnessEvent } from "../types.js";
 import { isFileWrite } from "./tool-classifiers.js";
 import { readToolString } from "./tool-input-values.js";
@@ -29,18 +32,39 @@ export interface KillProofNudgeInput {
 	root: string;
 	/** Repo-relative POSIX path of the written test file. */
 	relPath: string;
+	/** Case titles added since HEAD (review L5: the nudge applies the same new-case rule as the Stop check); default: computed from `git show HEAD:<file>`. */
+	newCases?: readonly string[];
 	/** Injected for tests; defaults to the real index + receipt-file certification. */
 	readIndex?: typeof readKillProofIndex;
-	certify?: (root: string, id: string, relPath: string) => Certification;
+	certify?: (root: string, id: string, relPath: string, requireCases?: readonly string[]) => Certification;
+}
+
+/** Titles present in the written file but not in HEAD's version (an unborn file: every title). Null when git cannot say. */
+export function newCasesSinceHead(root: string, relPath: string): string[] | null {
+	let current: string;
+	try { current = readFileSync(resolve(root, relPath), "utf8"); } catch { return null; }
+	let base = "";
+	try {
+		base = execFileSync("git", ["-C", root, "show", `HEAD:${relPath}`], { encoding: "utf8", timeout: 1500, stdio: ["ignore", "pipe", "ignore"] });
+	} catch {
+		base = "";
+	}
+	return newCaseTitles(current, base);
 }
 
 /** The nudge text for one mutation-directed test file, or null when a receipt certifies it now. */
 export function killProofNudge(input: KillProofNudgeInput): string | null {
 	const readIndex = input.readIndex ?? readKillProofIndex, certify = input.certify ?? receiptCertifies;
+	const newCases = input.newCases ?? newCasesSinceHead(input.root, input.relPath) ?? [];
 	const rows = readIndex(input.root).receipts.filter(row => row.tests.some(test => test.path === input.relPath));
-	const results = rows.map(row => certify(input.root, row.id, input.relPath));
+	const results = rows.map(row => certify(input.root, row.id, input.relPath, newCases));
 	if (results.some(result => result.certified)) return null;
 	const command = `interlinked tests prove-kill --mutant <id> --test ${input.relPath}`;
+	const uncoveredOnly = results.filter(result => !result.certified && result.uncovered !== undefined && result.reasons.length === 1);
+	if (uncoveredOnly.length > 0) {
+		const titles = [...new Set(uncoveredOnly.flatMap(result => (result.certified ? [] : result.uncovered ?? [])))];
+		return `[interlinked:${KILL_PROOF_TAG}] ${input.relPath}: a fresh kill proof covers this file, but not the newly added case(s): ${titles.join(", ")}. A new case is a claim of its own; prove it: ${command}`;
+	}
 	// A receipt that once killed through this file but is stale now (its reasons name bytes or runtime).
 	const staleKills = results.filter(result => !result.certified && result.receipt?.verdict === "killed" && result.receipt.killedTests.includes(input.relPath));
 	if (staleKills.length > 0) {
