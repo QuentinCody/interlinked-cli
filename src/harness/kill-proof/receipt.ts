@@ -44,12 +44,28 @@ export interface KillProofIndexRow {
 	tests: HashedFile[];
 	killedTests: string[];
 	mutant: string;
+	/** Review M8: the id of the NEWEST receipt with the same proof key (`proofKey`); this row is history and is never evidence. */
+	supersededBy?: string;
 }
 
 export interface KillProofIndex { version: 1; receipts: KillProofIndexRow[]; }
 
 export function killProofsDir(root: string): string {
 	return join(root, KILL_PROOFS_DIR);
+}
+
+/**
+ * The proof a receipt is one attempt at: the source file, the mutant's identity (manifest
+ * id, or for an explicit fault its file, lexeme and replacement — an explicit `--find`
+ * occurs exactly once, so the offset is not part of the identity and a proof renewed
+ * after an edit above the fault is the same proof) and the named test set. The newest
+ * receipt (`provedAt`) for a key is the proof's current state; every older one is
+ * SUPERSEDED (review M8): kept on disk as history, marked in the index, skipped by every
+ * evidence reader and never a `--verify` failure.
+ */
+export function proofKey(receipt: Pick<KillProofReceipt, "source" | "mutant" | "tests">): string {
+	const mutant = receipt.mutant.mutantId !== undefined ? `manifest:${receipt.mutant.mutantId}` : `explicit:${receipt.mutant.file}\u0000${receipt.mutant.originalLexeme}\u0000${receipt.mutant.replacement}`;
+	return [receipt.source.path, mutant, ...receipt.tests.map(test => test.path).sort()].join("\u0001");
 }
 
 export function sha256Text(text: string): string {
@@ -255,24 +271,31 @@ export function parseKillProofIndex(value: unknown): KillProofIndex | null {
 	for (const row of value.receipts) {
 		if (!isJsonObject(row) || typeof row.id !== "string" || !ID_RE.test(row.id) || typeof row.verdict !== "string" || !VERDICTS.has(row.verdict as KillProofReceipt["verdict"])) return null;
 		if (typeof row.provedAt !== "string" || typeof row.mutant !== "string") return null;
+		if (row.supersededBy !== undefined && (typeof row.supersededBy !== "string" || !ID_RE.test(row.supersededBy))) return null;
 		const source = parseHashed(row.source), tests = parseHashedList(row.tests), killedTests = parseStringList(row.killedTests);
 		if (source === null || tests === null || killedTests === null) return null;
-		receipts.push({ id: row.id, verdict: row.verdict as KillProofReceipt["verdict"], provedAt: row.provedAt, source, tests, killedTests, mutant: row.mutant });
+		receipts.push({ id: row.id, verdict: row.verdict as KillProofReceipt["verdict"], provedAt: row.provedAt, source, tests, killedTests, mutant: row.mutant, ...(typeof row.supersededBy === "string" ? { supersededBy: row.supersededBy } : {}) });
 	}
 	return { version: 1, receipts };
 }
 
 // ---- store ----
 
-export function readKillProof(root: string, id: string): KillProofReceipt | null {
+function readReceiptAt(dir: string, id: string): KillProofReceipt | null {
 	if (!ID_RE.test(id)) return null;
-	const path = join(killProofsDir(root), `${id}.json`);
+	const path = join(dir, `${id}.json`);
 	if (!existsSync(path)) return null;
 	try {
-		return parseKillProof(JSON.parse(readFileSync(path, "utf8")));
+		const receipt = parseKillProof(JSON.parse(readFileSync(path, "utf8")));
+		return receipt !== null && receipt.id === id ? receipt : null;
 	} catch {
 		return null;
 	}
+}
+
+/** The receipt at `<id>.json`, only when it says it IS `id` (review M11: a copied file is not a second receipt). */
+export function readKillProof(root: string, id: string): KillProofReceipt | null {
+	return readReceiptAt(killProofsDir(root), id);
 }
 
 export function listKillProofIds(root: string): string[] {
@@ -281,14 +304,31 @@ export function listKillProofIds(root: string): string[] {
 	return readdirSync(dir).filter(name => /^[0-9a-f]{16}\.json$/.test(name)).map(name => name.slice(0, 16)).sort();
 }
 
+/** The newest receipt per proof key (review M8); the receipts to judge a proof by. */
+export function newestPerProofKey<T extends Pick<KillProofReceipt, "id" | "provedAt" | "source" | "mutant" | "tests">>(receipts: readonly T[]): Map<string, T> {
+	const newest = new Map<string, T>();
+	for (const receipt of receipts) {
+		const key = proofKey(receipt), known = newest.get(key);
+		if (known === undefined || receipt.provedAt > known.provedAt || (receipt.provedAt === known.provedAt && receipt.id < known.id)) newest.set(key, receipt);
+	}
+	return newest;
+}
+
 function indexRow(receipt: KillProofReceipt): KillProofIndexRow {
 	return { id: receipt.id, verdict: receipt.verdict, provedAt: receipt.provedAt, source: receipt.source, tests: receipt.tests, killedTests: receipt.killedTests, mutant: mutantLabel(receipt.mutant) };
 }
 
 /** The index is a projection of the receipt FILES: rebuilt, never patched, so a concurrent writer loses nothing. */
 export function rebuildKillProofIndex(root: string): KillProofIndex {
-	const receipts = listKillProofIds(root).map(id => readKillProof(root, id)).filter((r): r is KillProofReceipt => r !== null).map(indexRow);
-	return { version: 1, receipts };
+	const receipts = listKillProofIds(root).map(id => readKillProof(root, id)).filter((r): r is KillProofReceipt => r !== null);
+	const newest = newestPerProofKey(receipts);
+	return {
+		version: 1,
+		receipts: receipts.map(receipt => {
+			const current = newest.get(proofKey(receipt));
+			return current !== undefined && current.id !== receipt.id ? { ...indexRow(receipt), supersededBy: current.id } : indexRow(receipt);
+		}),
+	};
 }
 
 export function readKillProofIndex(root: string): KillProofIndex {
@@ -318,6 +358,7 @@ export function writeKillProof(root: string, receipt: KillProofReceipt): string 
 	writeAtomic(path, `${JSON.stringify(receipt, null, 1)}\n`);
 	const indexPath = join(dir, INDEX_FILE);
 	try {
+		// The rebuild also marks every older receipt of this receipt's proof key as superseded (review M8).
 		withFileMutationLock(indexPath, () => writeAtomic(indexPath, `${JSON.stringify(rebuildKillProofIndex(root), null, 1)}\n`), INDEX_LOCK);
 	} catch {
 		// Contended or unlockable: the next writer rebuilds the index from every receipt file, this one included.
@@ -402,14 +443,29 @@ export function verifyKillProof(root: string, receipt: KillProofReceipt): Freshn
 	return reasons.length === 0 ? { fresh: true } : { fresh: false, reasons };
 }
 
-/** Bound files whose work-tree bytes differ from HEAD or the index, or that are untracked (review N8). Empty outside git. */
-export function uncommittedPaths(root: string, paths: readonly string[]): string[] {
+/** sha256 of the blob git holds at `<rev>:<path>` (HEAD, or the index for `:`); null when there is none. */
+function gitBlobSha256(root: string, rev: string, path: string): string | null {
 	try {
-		const out = execFileSync("git", ["-C", root, "status", "--porcelain", "--untracked-files=all", "--", ...paths], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-		return out.split("\n").filter(Boolean).map(line => line.slice(3).trim().replace(/^"|"$/g, ""));
+		const bytes = execFileSync("git", ["-C", root, "show", `${rev}:${path}`], { stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 });
+		return createHash("sha256").update(bytes).digest("hex");
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Bound files whose PROVEN bytes are not the committed ones: the receipt's recorded sha256
+ * is compared with the sha256 of the HEAD blob and of the index blob (review N8, M9) — never
+ * with `git status`, which hides a `--skip-worktree` / `--assume-unchanged` path. An untracked
+ * or unstaged file is uncommitted. Empty outside git (nothing to compare against).
+ */
+export function uncommittedPaths(root: string, files: readonly HashedFile[]): string[] {
+	try {
+		execFileSync("git", ["-C", root, "rev-parse", "--verify", "HEAD"], { stdio: ["ignore", "pipe", "ignore"] });
 	} catch {
 		return [];
 	}
+	return files.filter(file => gitBlobSha256(root, "HEAD", file.path) !== file.sha256 || gitBlobSha256(root, "", file.path) !== file.sha256).map(file => file.path);
 }
 
 /** Every recorded case of one test file, name (after ` › `) and verdict, in report order; a duplicated full name yields one row per case. */
@@ -457,9 +513,9 @@ export function receiptCertifies(root: string, id: string, testPath: string, req
 
 /** Receipts that certify `testPath` now (see `receiptCertifies`). The Stop check's and the nudge's whole question. */
 export function freshKillsForTest(root: string, testPath: string, requireCases?: ReadonlyArray<string | CaseRequirement>): KillProofReceipt[] {
-	// Only rows naming this test file are read (review M10): the index is the locator, the receipt file the record.
+	// Only CURRENT rows naming this test file are read (review M8, M10): the index is the locator, the receipt file the record.
 	const envCache: EnvironmentCache = new Map();
-	return readKillProofIndex(root).receipts.filter(row => row.tests.some(test => test.path === testPath)).flatMap(row => {
+	return readKillProofIndex(root).receipts.filter(row => row.supersededBy === undefined && row.tests.some(test => test.path === testPath)).flatMap(row => {
 		const result = receiptCertifies(root, row.id, testPath, requireCases, envCache);
 		return result.certified ? [result.receipt] : [];
 	});

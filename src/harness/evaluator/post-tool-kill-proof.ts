@@ -57,7 +57,8 @@ export function newCasesSinceHead(root: string, relPath: string): CaseRequiremen
 export function killProofNudge(input: KillProofNudgeInput): string | null {
 	const readIndex = input.readIndex ?? readKillProofIndex, certify = input.certify ?? receiptCertifies;
 	const newCases = input.newCases ?? newCasesSinceHead(input.root, input.relPath) ?? [];
-	const rows = readIndex(input.root).receipts.filter(row => row.tests.some(test => test.path === input.relPath));
+	// Superseded rows are history (review M8): a newer proof of the same source × mutant × test set exists.
+	const rows = readIndex(input.root).receipts.filter(row => row.supersededBy === undefined && row.tests.some(test => test.path === input.relPath));
 	const envCache: EnvironmentCache = new Map();
 	const results = rows.map(row => certify(input.root, row.id, input.relPath, newCases, envCache));
 	if (results.some(result => result.certified)) return null;

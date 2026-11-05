@@ -1820,9 +1820,16 @@ runtime and the mutant location. Surfaces: PostToolUse `[interlinked:kill-proof]
 the model on Claude Code and Codex (`src/harness/adapters/kill-proof-nudge-encoding.test.ts`,
 `docs/reviews/kill-proof-adapter-matrix.md`); Stop warnings are stderr-only on
 every runner, and the Stop check (`mutation-kill-evidence-stop-check.ts`) accepts
-a receipt only when EVERY newly added case title (file grew; literal titles) is
-among its killed cases, and the nudge applies the same rule against HEAD; Write/
-Edit under `.interlinked/test-runs/kill-proofs/` are refused (`protected_files`);
+a receipt only when EVERY newly added case — derived from the TypeScript AST
+(`kill-proof/source-cases.ts`: exact vitest full names, `.each`/template titles
+as prefix families, computed titles unresolvable, a same-body retitle is a
+rename, a new body is a new case even at the same count) — is covered by its
+killed cases (every recorded case of that name killed), and the nudge applies
+the same rule against HEAD; a re-proof retires older receipts of the same
+source × mutant × test set under `kill-proofs/superseded/` and `--verify`
+judges the newest per key (round 4, `kill-proof-review-round4-receipts.md`);
+Write/Edit/NotebookEdit under `.interlinked/test-runs/kill-proofs/` are refused
+(`protected_files`, matched on the real path);
 `mutation survivors --file` names the command. Measured 2026-11-04:
 three adversarial rounds plus a git/platform round (`docs/reviews/kill-proof-review-round{2,3}.md`,
 `kill-proof-git-edge-cases.md`: every reproduced false-pass fixed and pinned by

@@ -10,7 +10,7 @@
 
 import { realpathSync } from "node:fs";
 import { proveKill } from "../harness/kill-proof/run.js";
-import { listKillProofIds, mutantLabel, readKillProof, readKillProofIndex, uncommittedPaths, verifyKillProof } from "../harness/kill-proof/receipt.js";
+import { listKillProofIds, mutantLabel, newestPerProofKey, proofKey, readKillProof, readKillProofIndex, uncommittedPaths, verifyKillProof } from "../harness/kill-proof/receipt.js";
 import type { KillProofReceipt, MutantSpec, ProveKillResult } from "../harness/kill-proof/types.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 
@@ -98,38 +98,72 @@ export async function testsProveKillCommand(options: ProveKillCliOptions): Promi
 
 export interface KillProofsCliOptions { cwd?: string; verify?: boolean; json?: boolean; }
 
-export interface KillProofRow { id: string; verdict: KillProofReceipt["verdict"]; provedAt: string; mutant: string; tests: string[]; killedTests: string[]; freshness?: "fresh" | "uncommitted" | "stale" | "unreadable"; reasons?: string[]; }
+export interface KillProofRow {
+	id: string;
+	verdict: KillProofReceipt["verdict"];
+	provedAt: string;
+	mutant: string;
+	tests: string[];
+	killedTests: string[];
+	freshness?: "fresh" | "uncommitted" | "stale" | "unreadable";
+	reasons?: string[];
+	/** Review M8: the newer receipt that proves the same source × mutant × test set. History; never fails `--verify`. */
+	supersededBy?: string;
+}
 
+/** The human listing shows at most this many rows (review M11); `--json` stays complete. */
+export const KILL_PROOFS_LIST_CAP = 200;
+
+interface ReceiptEntry { id: string; receipt: KillProofReceipt | null }
+
+const receiptEntries = (root: string): ReceiptEntry[] => listKillProofIds(root).map(id => ({ id, receipt: readKillProof(root, id) }));
+
+function freshnessOf(root: string, receipt: KillProofReceipt): Pick<KillProofRow, "freshness" | "reasons"> {
+	const freshness = verifyKillProof(root, receipt);
+	if (!freshness.fresh) return { freshness: "stale", reasons: freshness.reasons };
+	// The proof certifies WORK-TREE bytes; a commit-time reader must know when those are not the committed ones (review N8).
+	const uncommitted = uncommittedPaths(root, [receipt.source, ...receipt.tests, ...receipt.boundImports]);
+	return uncommitted.length ? { freshness: "uncommitted", reasons: uncommitted.map(path => `${path}: the proven bytes are not the ones in HEAD and the index`) } : { freshness: "fresh" };
+}
+
+/** Every receipt, newest `provedAt` first (review M11); superseded ones carry `supersededBy`. */
 export function listKillProofs(root: string, verify: boolean): KillProofRow[] {
 	const index = new Map(readKillProofIndex(root).receipts.map(row => [row.id, row]));
-	return listKillProofIds(root).map(id => {
+	const entries = receiptEntries(root);
+	const newest = newestPerProofKey(entries.flatMap(entry => (entry.receipt === null ? [] : [entry.receipt])));
+	const rows = entries.map(({ id, receipt }): KillProofRow => {
 		// The receipt FILE is the record; the index row is only a locator (review K2).
-		const indexed = index.get(id), receipt = readKillProof(root, id);
+		const indexed = index.get(id);
 		const base: KillProofRow = receipt
 			? { id, verdict: receipt.verdict, provedAt: receipt.provedAt, mutant: mutantLabel(receipt.mutant), tests: receipt.tests.map(test => test.path), killedTests: receipt.killedTests }
 			: indexed
 				? { id, verdict: indexed.verdict, provedAt: indexed.provedAt, mutant: indexed.mutant, tests: indexed.tests.map(test => test.path), killedTests: [], freshness: "unreadable" }
 				: { id, verdict: "inconclusive", provedAt: "", mutant: "unreadable receipt", tests: [], killedTests: [], freshness: "unreadable" };
+		if (receipt !== null) {
+			const current = newest.get(proofKey(receipt));
+			if (current !== undefined && current.id !== id) base.supersededBy = current.id;
+		}
 		if (!verify || base.freshness === "unreadable") return base;
 		if (receipt === null) return { ...base, freshness: "unreadable" };
-		const freshness = verifyKillProof(root, receipt);
-		if (!freshness.fresh) return { ...base, freshness: "stale", reasons: freshness.reasons };
-		// The proof certifies WORK-TREE bytes; a commit-time reader must know when those are not the committed ones (review N8).
-		const uncommitted = uncommittedPaths(root, [receipt.source.path, ...receipt.tests.map(test => test.path), ...receipt.boundImports.map(file => file.path)]);
-		return uncommitted.length ? { ...base, freshness: "uncommitted", reasons: uncommitted.map(path => `${path}: work tree differs from HEAD or the index (the proven bytes are not committed)`) } : { ...base, freshness: "fresh" };
+		return { ...base, ...freshnessOf(root, receipt) };
 	});
+	return rows.sort((a, b) => (a.provedAt === b.provedAt ? a.id.localeCompare(b.id) : a.provedAt > b.provedAt ? -1 : 1));
 }
 
 export function renderKillProofs(rows: readonly KillProofRow[]): string {
 	if (rows.length === 0) return "No kill proofs recorded yet. Make one with `interlinked tests prove-kill --help`.";
-	return rows.map(row => {
+	const shown = rows.slice(0, KILL_PROOFS_LIST_CAP);
+	const lines = shown.map(row => {
 		const head = `${row.id} ${row.verdict.toUpperCase().padEnd(12)} ${row.provedAt} ${row.mutant}`;
 		// Name the killing files only when a multi-file receipt did not kill through every named file (review K10).
 		const partial = row.tests.length > 1 && row.killedTests.length !== row.tests.length;
 		const tests = `  tests: ${row.tests.join(", ")}${partial ? ` — killed through: ${row.killedTests.join(", ") || "none"}` : ""}`;
+		const superseded = row.supersededBy === undefined ? null : `  SUPERSEDED by ${row.supersededBy}`;
 		const fresh = row.freshness ? `  ${row.freshness.toUpperCase()}${row.reasons ? `: ${row.reasons.join("; ")}` : ""}` : null;
-		return [head, tests, ...(fresh ? [fresh] : [])].join("\n");
-	}).join("\n");
+		return [head, tests, ...(superseded ? [superseded] : []), ...(fresh ? [fresh] : [])].join("\n");
+	});
+	if (rows.length > shown.length) lines.push(`… and ${rows.length - shown.length} more (--json lists every receipt)`);
+	return lines.join("\n");
 }
 
 export function testsKillProofsCommand(options: KillProofsCliOptions): void {
@@ -137,9 +171,10 @@ export function testsKillProofsCommand(options: KillProofsCliOptions): void {
 	try {
 		const rows = listKillProofs(realpathSync(options.cwd ?? process.cwd()), options.verify === true);
 		output(mode, { receipts: rows }, { normal: () => renderKillProofs(rows) });
-		// Only a KILLED receipt carries evidence, so only a stale or unreadable killed receipt fails the check.
-		// `uncommitted` is fresh bytes that are not the committed ones: reported, never a failure.
-		process.exitCode = options.verify && rows.some(row => row.verdict === "killed" && (row.freshness === "stale" || row.freshness === "unreadable")) ? 1 : 0;
+		// Only a KILLED, CURRENT receipt carries evidence, so only a stale or unreadable one fails the check; a
+		// superseded receipt is history (review M8). `uncommitted` is fresh bytes that are not the committed ones:
+		// reported, never a failure.
+		process.exitCode = options.verify && rows.some(row => row.verdict === "killed" && row.supersededBy === undefined && (row.freshness === "stale" || row.freshness === "unreadable")) ? 1 : 0;
 	} catch (error) {
 		outputError(mode, error instanceof Error ? error.message : "kill proofs unavailable");
 		process.exitCode = PROVE_KILL_EXIT.undecided;

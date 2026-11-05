@@ -40,9 +40,11 @@ describe("protected_files — kill-proof receipts — positive (must block)", ()
 		expect(decision?.decision).toBe("block");
 	});
 
-	it("P4: a receipt under the superseded/ subfolder is protected too", () => {
-		const decision = evaluateProtectedFilesGuard("Write", { file_path: "/repo/.interlinked/test-runs/kill-proofs/superseded/0123456789abcdef.json", content: "{}" }, DEFAULT_CONFIG, []);
+	it("P4: the index and any nested path under the receipts folder are protected too", () => {
+		const decision = evaluateProtectedFilesGuard("Write", { file_path: "/repo/.interlinked/test-runs/kill-proofs/index.json", content: "{}" }, DEFAULT_CONFIG, []);
 		expect(decision?.decision).toBe("block");
+		const nested = evaluateProtectedFilesGuard("Write", { file_path: "/repo/.interlinked/test-runs/kill-proofs/sub/0123456789abcdef.json", content: "{}" }, DEFAULT_CONFIG, []);
+		expect(nested?.decision).toBe("block");
 	});
 });
 
