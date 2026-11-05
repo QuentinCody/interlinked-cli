@@ -9,7 +9,8 @@
 // reference where the original embedded it; control-flow order is unchanged.
 
 import { readToolString } from "./tool-input-values.js";
-import { isAbsolute, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { loadAllowlist } from "../package-allowlist.js";
 import { type InstallCommand, parseInstallCommands } from "../package-install-parser.js";
 import { checkSupermodelShardWrite } from "../supermodel-shard-write-guard.js";
@@ -189,24 +190,65 @@ export function evaluateGitScopeGate(
  * those two write-family tools) closes the hole without dropping any read
  * tool, so read-protection is preserved.
  */
+/**
+ * The paths a protected-file glob is tried against for one write: the path as
+ * written and, when it can be resolved, its REAL location — the deepest existing
+ * ancestor realpath'd plus the unresolved tail — so a symlinked directory (a
+ * `kill-proofs` link pointing at the real receipts folder) cannot slip past a
+ * rule that names the real path (kill-proof review M1). Backslashes are
+ * normalized so the glob's `/` segments match on every platform.
+ */
+export function protectedFileCandidates(filePath: string, cwd?: string): string[] {
+	const out = new Set<string>([filePath.replace(/\\/g, "/")]);
+	const abs = isAbsolute(filePath) ? filePath : cwd ? resolve(cwd, filePath) : null;
+	if (abs !== null) {
+		out.add(abs.replace(/\\/g, "/"));
+		const real = realpathDeepest(abs);
+		if (real !== null) out.add(real.replace(/\\/g, "/"));
+	}
+	return [...out];
+}
+
+/** Realpath of the deepest existing ancestor joined with the rest; null when nothing resolves. */
+function realpathDeepest(abs: string): string | null {
+	let dir = abs;
+	const tail: string[] = [];
+	for (let i = 0; i < 64; i++) {
+		try {
+			const real = realpathSync(dir);
+			return tail.length === 0 ? real : join(real, ...tail);
+		} catch {
+			const parent = dirname(dir);
+			if (parent === dir) return null;
+			tail.unshift(basename(dir));
+			dir = parent;
+		}
+	}
+	return null;
+}
+
 export function evaluateProtectedFilesGuard(
 	toolName: string,
 	toolInput: ToolInput,
 	rules: GuardRulesConfig,
 	warnings: string[],
+	cwd?: string,
 ): HarnessDecision | null {
 	if (isFileOperation(toolName) || isFileWrite(toolName)) {
-		const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
+		// NotebookEdit maps to the Write operation but carries its target in `notebook_path` (kill-proof review M1).
+		const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path) || readToolString(toolInput.notebook_path);
 		if (filePath) {
-			const content = readToolString(toolInput.content) || readToolString(toolInput.new_string);
-			const pfDecision = evaluateProtectedFiles({
-				toolName,
-				filePath,
-				content,
-				protectedFiles: rules.protected_files,
-				containsSecrets,
-			});
-			if (pfDecision) return { ...pfDecision, warnings };
+			const content = readToolString(toolInput.content) || readToolString(toolInput.new_string) || readToolString(toolInput.new_source);
+			for (const candidate of protectedFileCandidates(filePath, cwd)) {
+				const pfDecision = evaluateProtectedFiles({
+					toolName,
+					filePath: candidate,
+					content,
+					protectedFiles: rules.protected_files,
+					containsSecrets,
+				});
+				if (pfDecision) return { ...pfDecision, warnings };
+			}
 		}
 	}
 	return null;

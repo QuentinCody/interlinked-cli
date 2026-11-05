@@ -123,11 +123,18 @@ function matchesExtensionSuffix(filePath: string, suffix: string): boolean {
 }
 
 /** The remainder of a `**​/` pattern with the `**​/` prefix already stripped.
- *  `*.ext` degrades to an extension match; anything else matches the path's
- *  final segment (or the whole path when it has no directory part). */
+ *  `*.ext` degrades to an extension match; `dir/**` matches any path with
+ *  `dir` as a segment run anywhere (kill-proof review M1: the trailing `**`
+ *  used to be compared literally, so `**​/.circleci/**`, `**​/migrations/**`
+ *  and the receipt rule matched NO real path); anything else matches the
+ *  path's final segment (or the whole path when it has no directory part). */
 function matchesRecursivePattern(filePath: string, rest: string): boolean {
 	if (rest.startsWith("*.")) {
 		return matchesExtensionSuffix(filePath, rest.slice(1)); // e.g., ".env*"
+	}
+	if (rest.endsWith("/**")) {
+		const dir = rest.slice(0, -3);
+		return dir.length > 0 && (filePath === dir || filePath.startsWith(`${dir}/`) || filePath.endsWith(`/${dir}`) || filePath.includes(`/${dir}/`));
 	}
 	return filePath.endsWith(`/${rest}`) || filePath === rest;
 }
