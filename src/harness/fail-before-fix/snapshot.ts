@@ -15,6 +15,15 @@ export interface ProjectCopy { dir: string; bytes: number; cleanup(): void; }
 /** The async copy's handle: `cleanup` returns the removal so a caller can overlap it with the next run and await it later. */
 export interface AsyncProjectCopy { dir: string; bytes: number; cleanup(): Promise<void>; }
 
+/**
+ * Where the project sits inside its copy when its `vitest` is HOISTED to an enclosing workspace root (kill-proof
+ * review round 4 layouts, M5): the project is copied to `<copy>/<prefix>` (its path below the hoist root, e.g.
+ * `packages/a`) and the hoist root's `node_modules` is linked at `<copy>/node_modules`, so Node's upward resolution
+ * from the copied tests finds the hoisted packages exactly as it does in the live tree. The project's own
+ * `node_modules`, when present, is still linked beside its files. `dir` on the handle is `<copy>/<prefix>`.
+ */
+export interface HoistedModules { prefix: string; hoistedModules: string; }
+
 
 /** Project-relative paths git shows (tracked + untracked, ignored excluded); null outside a git work tree. */
 export function gitVisibleFiles(root: string): string[] | null {
@@ -104,11 +113,16 @@ const COPY_CONCURRENCY = 64;
  * does, only the byte copies run in parallel, and the node_modules link and the overrides are written after every
  * copy has finished (an override may replace a copied file).
  */
-export async function createProjectCopyAsync(root: string, files: readonly string[], overrides: ReadonlyMap<string, string | null>): Promise<AsyncProjectCopy> {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), "interlinked-fail-before-fix-")));
+export async function createProjectCopyAsync(root: string, files: readonly string[], overrides: ReadonlyMap<string, string | null>, hoist?: HoistedModules): Promise<AsyncProjectCopy> {
+    const top = realpathSync(mkdtempSync(join(tmpdir(), "interlinked-fail-before-fix-")));
+    const dir = hoist === undefined ? top : join(top, hoist.prefix);
     const rootReal = realpathSync(root);
     let bytes = 0;
     try {
+        if (hoist !== undefined) {
+            mkdirSync(dir, { recursive: true });
+            symlinkSync(hoist.hoistedModules, join(top, "node_modules"));
+        }
         const made = new Set<string>(), pending: string[] = [];
         for (const rel of files) {
             const source = join(rootReal, rel), target = join(dir, rel), link = isLink(source);
@@ -136,8 +150,8 @@ export async function createProjectCopyAsync(root: string, files: readonly strin
         if (existsSync(modules) && !existsSync(join(dir, "node_modules"))) symlinkSync(modules, join(dir, "node_modules"));
         applyOverrides(dir, overrides);
     } catch (error) {
-        rmSync(dir, { recursive: true, force: true });
+        rmSync(top, { recursive: true, force: true });
         throw error;
     }
-    return { dir, bytes, cleanup: () => fsp.rm(dir, { recursive: true, force: true }) };
+    return { dir, bytes, cleanup: () => fsp.rm(top, { recursive: true, force: true }) };
 }

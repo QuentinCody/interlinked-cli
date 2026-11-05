@@ -12,7 +12,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { isTestSourcePath } from "../checks/shared-test-classification.js";
 import { runArgvInOverlay } from "../overlay-command-runner.js";
 import { parseImports } from "../project-graph/parser-imports.js";
@@ -94,6 +94,26 @@ export function privateRunEnv(tmp: string): Record<string, string> {
     return { ...base, CI: "1", NO_COLOR: "1", TMPDIR: tmp, TMP: tmp, TEMP: tmp };
 }
 
+/**
+ * The `vitest` executable Node resolution would reach from `dir` (kill-proof review round 4 layouts, M5): the nearest
+ * `node_modules/.bin/vitest` walking UP from `dir`, as `npx vitest` from a hoisted workspace package finds the root's.
+ * The walk stops at the directory that holds `.git` (the repository root; a hoisted install never sits above it),
+ * at the OS temp dir (a copy's ancestors are not a project) and at the file system root. Null when none exists;
+ * the runner then falls back to `vitest` on PATH, exactly as before.
+ */
+export function nearestVitestBin(dir: string): string | null {
+    const stopBelow = tmpdir();
+    let current = resolve(dir);
+    for (;;) {
+        const bin = join(current, "node_modules", ".bin", "vitest");
+        if (existsSync(bin)) return bin;
+        if (existsSync(join(current, ".git")) || current === stopBelow) return null;
+        const parent = dirname(current);
+        if (parent === current) return null;
+        current = parent;
+    }
+}
+
 /** Runs `files` with vitest's JSON reporter in `dir` (a project root or a copy); no report = no rows, never a pass. */
 export async function runVitestDetailed(dir: string, files: readonly string[], budgetMs: number, vitestArgs: readonly string[] = []): Promise<VitestRun> {
     const missing = files.filter(file => !existsSync(join(dir, file)));
@@ -103,7 +123,7 @@ export async function runVitestDetailed(dir: string, files: readonly string[], b
     const sidecar = join(reports, CAUSE_SIDECAR), reporter = join(reports, CAUSE_REPORTER);
     try {
         writeFileSync(reporter, causeReporterSource(sidecar));
-        const result = await runArgvInOverlay(["vitest", "run", ...files, ...vitestArgs, ...PRIVATE_VITEST_ARGS, "--reporter=json", `--outputFile=${report}`, `--reporter=${reporter}`], dir, budgetMs, undefined, privateRunEnv(tmp));
+        const result = await runArgvInOverlay([nearestVitestBin(dir) ?? "vitest", "run", ...files, ...vitestArgs, ...PRIVATE_VITEST_ARGS, "--reporter=json", `--outputFile=${report}`, `--reporter=${reporter}`], dir, budgetMs, undefined, privateRunEnv(tmp));
         const base = { timedOut: result.timedOut, exitCode: result.exitCode, durationMs: result.durationMs };
         const head = stderrHead(result.stderr);
         const withHead = head === undefined ? {} : { stderrHead: head };
