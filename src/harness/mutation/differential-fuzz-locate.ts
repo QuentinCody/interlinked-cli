@@ -7,6 +7,13 @@
 //      `qualifiedName`, `ordinalWithinSymbol`) and the offset is re-derived by
 //      running identity.ts's OWN `deriveIdentities` over every node whose text
 //      equals the lexeme — so the ordinal rule is never re-implemented here.
+//      The ordinal is trusted only while it ranks the SAME population it was
+//      measured against: when the target carries the manifest's `symbolHash`
+//      and the symbol's body changed AND the lexeme's site count inside it
+//      changed, the re-location is ambiguous and refused (a newly inserted
+//      identical lexeme earlier in the body takes ordinal 0 — and with it the
+//      mutant id — so neither lookup can tell the sites apart;
+//      docs/reviews/kill-proof-manifest-route.md §3).
 //   2. Find the top-level function the site lives in and the name the module
 //      exports it under (a non-exported one gets a synthetic export, see below). A mutant nested in a closure is fuzzed through its
 //      outermost top-level function (the closure is not callable by itself).
@@ -14,7 +21,7 @@
 import type * as TS from "typescript";
 import type { TsModule } from "./differential-fuzz-deps.js";
 import type { FuzzMutantTarget } from "./differential-fuzz-types.js";
-import { deriveIdentities } from "./identity.js";
+import { computeSymbolHashes, deriveIdentities, type SymbolHashEntry } from "./identity.js";
 
 export type FnNode = TS.FunctionDeclaration | TS.ArrowFunction | TS.FunctionExpression;
 
@@ -65,6 +72,33 @@ function driftReason(target: FuzzMutantTarget, detail: string): string {
 	return `source drift: ${detail} (mutant ${target.mutantId} in ${target.qualifiedName})`;
 }
 
+/** The target's symbol as the CURRENT source hashes it: by `symbolId` (file,
+ *  qualified name, arity), else by qualified name alone — an arity change
+ *  re-keys the symbol while its body may still hold the site. `undefined` when
+ *  no symbol of that name exists any more (renamed / deleted); `null` when the
+ *  TypeScript API is unavailable. */
+function currentSymbol(target: FuzzMutantTarget, content: string): SymbolHashEntry | null | undefined {
+	const hashes = computeSymbolHashes(target.file, content);
+	if (hashes === null) return null;
+	const byId = hashes.get(target.symbolId);
+	if (byId !== undefined) return byId;
+	for (const entry of hashes.values()) if (entry.qualifiedName === target.qualifiedName) return entry;
+	return undefined;
+}
+
+/** The ambiguity refusal (header note). `null` ⇒ the ordinal rule still ranks
+ *  the population it was measured against (same body, or a body edit that left
+ *  the lexeme's site count alone — an unrelated statement, a comment), or the
+ *  target carries nothing to compare. A count of 0 is not ambiguity: the site is
+ *  gone, and the ordinal lookup below reports that as drift. */
+function ambiguousRelocation(target: FuzzMutantTarget, symbol: SymbolHashEntry, sitesNow: number): string | null {
+	const was = target.measuredSites;
+	if (target.symbolHash === undefined || was === undefined) return null;
+	if (target.symbolHash === symbol.symbolHash || sitesNow === 0 || sitesNow === was) return null;
+	const times = (n: number): string => `${n} time${n === 1 ? "" : "s"}`;
+	return `ambiguous re-location: ${target.originalLexeme} now occurs ${times(sitesNow)} in ${target.qualifiedName} (was ${was}); re-measure the file`;
+}
+
 /** Resolve the mutated token's offset: explicit, else re-derived from identity. */
 export function locateMutantOffset(
 	ts: TsModule,
@@ -79,6 +113,9 @@ export function locateMutantOffset(
 		}
 		return { ok: true, offset: explicit };
 	}
+	const symbol = currentSymbol(target, content);
+	if (symbol === null) return { ok: false, reason: "typescript unavailable for identity derivation" };
+	if (symbol === undefined) return { ok: false, reason: `source drift: symbol ${target.qualifiedName} not found (mutant ${target.mutantId})` };
 	const candidates = lexemeCandidates(parseSource(ts, target.file, content), content, lexeme);
 	const raws = candidates.map((startOffset) => ({
 		file: target.file,
@@ -89,6 +126,9 @@ export function locateMutantOffset(
 	}));
 	const identities = deriveIdentities(target.file, content, raws);
 	if (identities === null) return { ok: false, reason: "typescript unavailable for identity derivation" };
+	const sitesNow = identities.filter((id) => id.qualifiedName === target.qualifiedName).length;
+	const ambiguous = ambiguousRelocation(target, symbol, sitesNow);
+	if (ambiguous !== null) return { ok: false, reason: ambiguous };
 	const byId = identities.findIndex((id) => id.mutantId === target.mutantId);
 	const byOrdinal = identities.findIndex(
 		(id) => id.qualifiedName === target.qualifiedName && id.ordinalWithinSymbol === target.ordinalWithinSymbol,

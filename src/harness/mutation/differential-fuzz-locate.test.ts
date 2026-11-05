@@ -10,6 +10,7 @@ import {
 	syntheticExportSuffix,
 } from "./differential-fuzz-locate.js";
 import type { FuzzMutantTarget } from "./differential-fuzz-types.js";
+import { computeSymbolHashes } from "./identity.js";
 
 function requireTs() {
 	const ts = loadTsModule();
@@ -119,6 +120,74 @@ describe("differential-fuzz-locate — positive (must fire)", () => {
 		const out = applyMutant(SOURCE, offset, "a < b", "a <= b");
 		expect(out).toContain("return a <= b;");
 		expect(out.length).toBe(SOURCE.length + 1);
+	});
+});
+
+describe("differential-fuzz-locate — re-location after a body edit — positive (must fire)", () => {
+	const symbolHashOf = (content: string, qn: string): string => {
+		const entry = [...(computeSymbolHashes("fixture.ts", content)?.values() ?? [])].find((e) => e.qualifiedName === qn);
+		if (entry === undefined) throw new Error(`${qn} not hashed`);
+		return entry.symbolHash;
+	};
+
+	it("P9: a changed symbol hash AND a changed site count is refused as ambiguous, never ranked", () => {
+		const ts = requireTs();
+		const drifted = SOURCE.replace("\treturn a < b;", "\tconst probe = a < b;\n\tvoid probe;\n\treturn a < b;");
+		const target = targetFor({ symbolHash: symbolHashOf(SOURCE, "lt"), measuredSites: 1 });
+		expect(locateMutantOffset(ts, target, drifted)).toEqual({
+			ok: false,
+			reason: "ambiguous re-location: a < b now occurs 2 times in lt (was 1); re-measure the file",
+		});
+	});
+
+	it("P10: a symbol that no longer exists is named instead of counted as candidate tokens", () => {
+		const ts = requireTs();
+		const renamed = SOURCE.replace("export function lt(", "export function lessThan(");
+		const res = locateMutantOffset(ts, targetFor({ mutantId: "91a09824f621fd65" }), renamed);
+		expect(res).toEqual({ ok: false, reason: "source drift: symbol lt not found (mutant 91a09824f621fd65)" });
+	});
+
+	it("P11: a shrunken site count is refused too (one occurrence of two was removed)", () => {
+		const ts = requireTs();
+		const two = SOURCE.replace("\treturn a < b;", "\tvoid (a < b);\n\treturn a < b;");
+		const target = targetFor({ symbolHash: symbolHashOf(two, "lt"), measuredSites: 2, ordinalWithinSymbol: 1 });
+		const res = locateMutantOffset(ts, target, SOURCE);
+		expect(!res.ok && res.reason).toBe("ambiguous re-location: a < b now occurs 1 time in lt (was 2); re-measure the file");
+	});
+});
+
+describe("differential-fuzz-locate — re-location after a body edit — negative (must not fire)", () => {
+	const currentHash = (): string => {
+		const entry = [...(computeSymbolHashes("fixture.ts", SOURCE)?.values() ?? [])].find((e) => e.qualifiedName === "lt");
+		if (entry === undefined) throw new Error("lt not hashed");
+		return entry.symbolHash;
+	};
+
+	it("N9: an unchanged symbol hash keeps the ordinal rule whatever the recorded count says", () => {
+		const ts = requireTs();
+		const res = locateMutantOffset(ts, targetFor({ symbolHash: currentHash(), measuredSites: 7 }), SOURCE);
+		expect(res).toEqual({ ok: true, offset: SOURCE.indexOf("a < b") });
+	});
+
+	it("N10: a target without symbolHash / measuredSites (the fuzz engine's own targets) is re-located as before", () => {
+		const ts = requireTs();
+		const drifted = SOURCE.replace("\treturn a < b;", "\tconst probe = a < b;\n\tvoid probe;\n\treturn a < b;");
+		const res = locateMutantOffset(ts, targetFor({}), drifted);
+		expect(res).toEqual({ ok: true, offset: drifted.indexOf("a < b") });
+	});
+
+	it("N11: a changed hash with the SAME site count (an unrelated statement) still re-locates", () => {
+		const ts = requireTs();
+		const edited = SOURCE.replace("\treturn a < b;", "\tconst unrelated = a + b;\n\tvoid unrelated;\n\treturn a < b;");
+		const target = targetFor({ symbolHash: currentHash(), measuredSites: 1 });
+		expect(locateMutantOffset(ts, target, edited)).toEqual({ ok: true, offset: edited.indexOf("a < b") });
+	});
+
+	it("N12: a count of 0 is drift (no site), not ambiguity", () => {
+		const ts = requireTs();
+		const gone = SOURCE.replace("\treturn a < b;", "\treturn a <= b;");
+		const res = locateMutantOffset(ts, targetFor({ symbolHash: currentHash(), measuredSites: 1 }), gone);
+		expect(!res.ok && res.reason).toContain("no site among");
 	});
 });
 
