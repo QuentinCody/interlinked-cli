@@ -20,6 +20,9 @@
 // node_modules through the copy's link and reorder files between runs) and a fresh TMPDIR per run
 // (`fail-before-fix/index.ts runVitestDetailed`), so no run can see the previous run's tmpdir state.
 // The live tree is only read. Every copy is removed before this returns.
+// The flow is split in two so `batch.ts` can prove every survivor of a file against ONE baseline:
+// `openProofContext` validates the tests and the project once and memoizes the shared copies (baseline,
+// canary, control); `proveResolved` runs the per-mutant part. `proveKill` is the two in sequence.
 
 
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
@@ -36,7 +39,7 @@ import { boundImportClosure, testsReachingByRelativeImport } from "./bound-impor
 
 import { captureEnvironment, hashFile, receiptId, resolveVitestConfig, sealReceipt, writeKillProof } from "./receipt.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
-import type { CaseOutcome, HashedFile, KillProofReceipt, MutantSpec, ProveKillResult, ResolvedMutant } from "./types.js";
+import type { CaseOutcome, HashedFile, KillProofReceipt, MutantSpec, ProofEnvironment, ProveKillResult, ResolvedMutant } from "./types.js";
 
 export interface ProveKillOptions {
 	root: string;
@@ -324,34 +327,53 @@ function explainBaselineFailure(root: string, copyDir: string, problem: Baseline
 	return { ok: false, verdict: "not-passing-now", reasons: problem.reasons, mutant };
 }
 
-/** Run the proof. Reads the live tree, writes only under `.interlinked/test-runs/kill-proofs/` (when `persist`). */
-export async function proveKill(options: ProveKillOptions): Promise<ProveKillResult> {
-	const root = realpathSync(options.root), runner = options.runner ?? runVitestDetailed, now = options.now ?? (() => new Date());
+export type ProofContextOptions = Omit<ProveKillOptions, "spec">;
+
+/**
+ * What every mutant of one file shares, opened ONCE: the validated test files, the git-visible file list, the
+ * vitest config, the copy runner, and the memoized shared copies — the unmutated BASELINE (identical for every
+ * mutant of the file: same tests, same tree), and the reachability canary with its control (identical for every
+ * mutant of the same file and tests). `proveKill` opens one per mutant; `batch.ts` opens one per file and proves
+ * every survivor against it, so a batch of n mutants runs one baseline, not n. The per-kill repeats stay per
+ * mutant: a kill is the sequence pass, FAIL, pass, pass around THAT mutant run.
+ */
+export interface ProofContext {
+	root: string;
+	tests: string[];
+	testHashes: HashedFile[];
+	files: string[];
+	configPath: string | null;
+	budgetMs: number;
+	now: () => Date;
+	persist: boolean;
+	/** Run-level notes shared by every proof of the context (the copy-size budget). */
+	warnings: string[];
+	runIn: (overrides: ReadonlyMap<string, string>) => Promise<VitestRun & { dir: string }>;
+	/** The shared unmutated baseline run; executed on first use. */
+	baseline: () => Promise<VitestRun & { dir: string }>;
+	/** The reachability canary (and control) for a file; executed on first use per file. */
+	canary: (mutant: ResolvedMutant, passing: readonly VitestCase[]) => Promise<string[] | null>;
+	environment: () => ProofEnvironment;
+}
+
+export type OpenedProofContext = { ok: true; context: ProofContext } | { ok: false; reasons: string[] };
+
+/** Validate the tests and the project once and build the shared runner; no vitest run happens here. */
+export function openProofContext(options: ProofContextOptions): OpenedProofContext {
+	const root = realpathSync(options.root), runner = options.runner ?? runVitestDetailed;
 	const tests = normalizeTestPaths(root, options.tests);
-	if (tests === null) return unavailable(["a --test path escapes the project root"]);
-	if (tests.length === 0) return unavailable(["name at least one test file (--test <file>)"]);
-	const resolved = resolveMutant(root, options.spec);
-	if (!resolved.ok) return unavailable([resolved.reason]);
-	const mutant = resolved.mutant;
-	const problem = targetProblem(mutant, tests);
-	if (problem !== null) return unavailable([problem], mutant);
+	if (tests === null) return { ok: false, reasons: ["a --test path escapes the project root"] };
+	if (tests.length === 0) return { ok: false, reasons: ["name at least one test file (--test <file>)"] };
 	const testProblems = tests.map(test => testFileProblem(root, test)).filter((p): p is string => p !== null);
-	if (testProblems.length) return unavailable(testProblems, mutant);
+	if (testProblems.length) return { ok: false, reasons: testProblems };
 	const testHashes = hashAll(root, tests);
-	if (typeof testHashes === "string") return unavailable([testHashes], mutant);
-	const source = hashFile(root, mutant.file);
-	if (source === null) return unavailable([`${mutant.file} does not exist`], mutant);
+	if (typeof testHashes === "string") return { ok: false, reasons: [testHashes] };
 	const runnerProblem = options.runner ? null : missingVitest(root);
-	if (runnerProblem !== null) return unavailable([runnerProblem], mutant);
+	if (runnerProblem !== null) return { ok: false, reasons: [runnerProblem] };
 	const files = gitVisibleFiles(root);
-	if (files === null) return unavailable([`${root} is not a git work tree; the mutant cannot be isolated in a copy`], mutant);
-	if (!files.includes(mutant.file)) return unavailable([`${mutant.file} is not visible to git (ignored or outside the work tree), so it cannot be mutated in a copy`], mutant);
-	const content = readFileSync(join(root, mutant.file), "utf8");
-	if (!content.startsWith(mutant.originalLexeme, mutant.offset)) return unavailable([`${mutant.file} changed between resolution and the run`], mutant);
-	const mutated = applyMutant(content, mutant.offset, mutant.originalLexeme, mutant.replacement);
-	const parse = mutantParses(mutant.file, mutated);
+	if (files === null) return { ok: false, reasons: [`${root} is not a git work tree; the mutant cannot be isolated in a copy`] };
+	if (options.vitestConfig !== undefined && !existsSync(join(root, options.vitestConfig))) return { ok: false, reasons: [`--vitest-config ${options.vitestConfig} does not exist`] };
 	const configPath = resolveVitestConfig(root, options.vitestConfig);
-	if (options.vitestConfig !== undefined && !existsSync(join(root, options.vitestConfig))) return unavailable([`--vitest-config ${options.vitestConfig} does not exist`], mutant);
 	const vitestArgs = configPath !== null ? ["--config", configPath] : [];
 	const warnings: string[] = [];
 	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun & { dir: string }> => {
@@ -364,8 +386,48 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 			copy.cleanup();
 		}
 	};
+	let baseline: Promise<VitestRun & { dir: string }> | null = null;
+	const canaries = new Map<string, Promise<string[] | null>>();
+	let environment: ProofEnvironment | null = null;
+	return {
+		ok: true,
+		context: {
+			root, tests, testHashes, files, configPath, budgetMs: options.budgetMs, now: options.now ?? (() => new Date()), persist: options.persist !== false, warnings, runIn,
+			baseline: () => (baseline ??= runIn(new Map())),
+			canary: (mutant, passing) => {
+				const memo = canaries.get(mutant.file) ?? canaryProblem(root, mutant, tests, passing, runIn);
+				canaries.set(mutant.file, memo);
+				return memo;
+			},
+			environment: () => (environment ??= captureEnvironment(root, configPath ?? undefined)),
+		},
+	};
+}
 
-	const baseline = await runIn(new Map());
+/** The per-mutant source checks: the file exists, git sees it, and the lexeme is still at the resolved offset. */
+function mutantSite(context: ProofContext, mutant: ResolvedMutant): { source: HashedFile; content: string; mutated: string } | ProveKillResult {
+	const problem = targetProblem(mutant, context.tests);
+	if (problem !== null) return unavailable([problem], mutant);
+	const source = hashFile(context.root, mutant.file);
+	if (source === null) return unavailable([`${mutant.file} does not exist`], mutant);
+	if (!context.files.includes(mutant.file)) return unavailable([`${mutant.file} is not visible to git (ignored or outside the work tree), so it cannot be mutated in a copy`], mutant);
+	const content = readFileSync(join(context.root, mutant.file), "utf8");
+	if (!content.startsWith(mutant.originalLexeme, mutant.offset)) return unavailable([`${mutant.file} changed between resolution and the run`], mutant);
+	return { source, content, mutated: applyMutant(content, mutant.offset, mutant.originalLexeme, mutant.replacement) };
+}
+
+/**
+ * Prove one RESOLVED mutant against an open context: the shared baseline, then the mutant copy, the repeats
+ * (on a kill) or the canary (on a survivor), then the receipt. Every verdict rule lives here, once, so a mutant
+ * proved inside a batch gets exactly the result `proveKill` gives it alone.
+ */
+export async function proveResolved(context: ProofContext, mutant: ResolvedMutant): Promise<ProveKillResult> {
+	const { root, tests, warnings } = context;
+	const site = mutantSite(context, mutant);
+	if ("ok" in site) return site;
+	const parse = mutantParses(mutant.file, site.mutated);
+
+	const baseline = await context.baseline();
 	const baseProblem = baselineProblems(tests, baseline);
 	if (baseProblem !== null) return withWarnings(explainBaselineFailure(root, baseline.dir, baseProblem, mutant), warnings);
 
@@ -373,30 +435,38 @@ export async function proveKill(options: ProveKillOptions): Promise<ProveKillRes
 
 	const under: VitestRun = parse !== null && !parse.ok
 		? { cases: [], timedOut: false, error: parse.reason, exitCode: null, durationMs: 0 }
-		: await runIn(new Map([[mutant.file, mutated]]));
+		: await context.runIn(new Map([[mutant.file, site.mutated]]));
 	let cases = judgeCases(passing, under);
-	if (cases.some(row => row.verdict === "killed")) cases = await confirmKills(cases, runIn);
+	if (cases.some(row => row.verdict === "killed")) cases = await confirmKills(cases, context.runIn);
 	const { verdict, reasons } = overallVerdict(cases);
 
 	if (verdict === "survived") {
-		const problem = await canaryProblem(root, mutant, tests, passing, runIn);
+		const problem = await context.canary(mutant, passing);
 		if (problem !== null) return withWarnings(unavailable(problem, mutant), warnings);
 	}
 
-
-	const environment = captureEnvironment(root, configPath ?? undefined);
-	const boundMutant: ResolvedMutant = { ...mutant, lineText: lineTextAt(content, mutant.offset) };
+	const environment = context.environment();
+	const boundMutant: ResolvedMutant = { ...mutant, lineText: lineTextAt(site.content, mutant.offset) };
 	const boundImports = boundImportClosure(root, tests, mutant.file);
 	const receipt = sealReceipt({
 		version: 1,
-		id: receiptId({ source, mutant: boundMutant, tests: testHashes, boundImports, environment }),
+		id: receiptId({ source: site.source, mutant: boundMutant, tests: context.testHashes, boundImports, environment }),
 		digest: "",
-		verdict, reasons, provedAt: now().toISOString(), root, source, mutant: boundMutant, tests: testHashes, boundImports, killedTests: killedTestFiles(cases),
+		verdict, reasons, provedAt: context.now().toISOString(), root, source: site.source, mutant: boundMutant, tests: context.testHashes, boundImports, killedTests: killedTestFiles(cases),
 		baseline: { cases: passing.length, durationMs: baseline.durationMs },
 		underMutant: { durationMs: under.durationMs, timedOut: under.timedOut, cases, ...(under.error !== undefined ? { error: under.error } : {}) },
 		environment,
 	});
-	const receiptPath = options.persist === false ? "" : writeKillProof(root, receipt);
+	const receiptPath = context.persist ? writeKillProof(root, receipt) : "";
 	return withWarnings({ ok: true, receipt, receiptPath }, warnings);
+}
 
+/** Run the proof. Reads the live tree, writes only under `.interlinked/test-runs/kill-proofs/` (when `persist`). */
+export async function proveKill(options: ProveKillOptions): Promise<ProveKillResult> {
+	const root = realpathSync(options.root);
+	const resolved = resolveMutant(root, options.spec);
+	if (!resolved.ok) return unavailable([resolved.reason]);
+	const opened = openProofContext({ ...options, root });
+	if (!opened.ok) return unavailable(opened.reasons, resolved.mutant);
+	return proveResolved(opened.context, resolved.mutant);
 }
