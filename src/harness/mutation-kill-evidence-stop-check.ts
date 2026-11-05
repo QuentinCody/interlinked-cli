@@ -72,6 +72,7 @@ import { join, relative, resolve } from "node:path";
 import { countTestCaseOpeners } from "./check-evidence/case-parser.js";
 import { getExtension, JS_TS_EXTS } from "./checks/shared.js";
 import { checkTestLegitimacy, MUTATION_DIRECTED_PATH } from "./checks/test-legitimacy.js";
+import { knownSurvivorsFor, proveKillCommandFor, type SurvivorsLookup } from "./kill-proof/prove-command.js";
 import { freshKillsForTest } from "./kill-proof/receipt.js";
 import { loadSurvivorsIndex } from "./mutation/survivors-index.js";
 import { splitIntroduced } from "./pre-block-gate.js";
@@ -155,6 +156,9 @@ export interface MutationKillEvidenceHit {
 	staleMeasurement: boolean;
 	/** Newly-introduced case lines still missing an adjacent test-contract marker. */
 	missingContractCount: number;
+	/** The prove-kill command for this file: the batch form when the survivors sidecar knows more than one
+	 *  survivor of the companion source, else the single-mutant form. Printed, never a rule. */
+	proveCommand?: string;
 }
 
 /** Newly-introduced "missing test-contract" findings only — pre-existing
@@ -198,6 +202,8 @@ interface DetectMutationKillEvidenceGapsOpts {
 	 *  bytes match the files on disk now (kill-proof/receipt.ts; index read + two
 	 *  hashes, never the manifest). */
 	freshKillProofs?: (cwd: string, relPath: string, newCases: readonly string[]) => number;
+	/** Injected for testing. Defaults to the survivors sidecar; decides only the printed command's form. */
+	knownSurvivors?: SurvivorsLookup;
 }
 
 /** Titles of `it`/`test` cases present now but not in the baseline bytes (review K4: an old strong case must not
@@ -237,6 +243,7 @@ export function detectMutationKillEvidenceGaps(
 		readFile = defaultReadFile,
 		loadMutationManifest = defaultLoadMeasurement,
 		freshKillProofs = (root, relPath, newCases) => freshKillsForTest(root, relPath, newCases).length,
+		knownSurvivors = knownSurvivorsFor,
 	} = opts;
 	if (!gitHeadSha) return [];
 
@@ -259,6 +266,7 @@ export function detectMutationKillEvidenceGaps(
 			loadMutationManifest,
 			measurementCache,
 			freshKillProofs,
+			knownSurvivors,
 		});
 		if (hit !== null) hits.push(hit);
 	}
@@ -317,6 +325,7 @@ function evaluateMutationKillEvidence(
 		loadMutationManifest: NonNullable<DetectMutationKillEvidenceGapsOpts["loadMutationManifest"]>;
 		measurementCache: { value: number | null | undefined };
 		freshKillProofs: NonNullable<DetectMutationKillEvidenceGapsOpts["freshKillProofs"]>;
+		knownSurvivors: SurvivorsLookup;
 	},
 ): MutationKillEvidenceHit | null {
 	const currentContent = ctx.readFile(abs);
@@ -349,7 +358,7 @@ function evaluateMutationKillEvidence(
 	const missingContractCount = newMissingContractCount(currentContent, baselineContent, abs);
 
 	if (staleMeasurement || missingContractCount > 0) {
-		return { file: relPath, newCaseCount, staleMeasurement, missingContractCount };
+		return { file: relPath, newCaseCount, staleMeasurement, missingContractCount, proveCommand: proveKillCommandFor(relPath, ctx.knownSurvivors(ctx.cwd, relPath)) };
 	}
 	return null;
 }
@@ -369,7 +378,8 @@ export function formatMutationKillEvidenceWarning(
 		if (h.missingContractCount > 0) {
 			reasons.push(`${h.missingContractCount} new case(s) missing a test-contract marker`);
 		}
-		return `  - ${h.file}: +${h.newCaseCount} new case(s) — ${reasons.join("; ")}`;
+		const head = `  - ${h.file}: +${h.newCaseCount} new case(s) — ${reasons.join("; ")}`;
+		return h.proveCommand === undefined ? head : `${head}\n    prove it: ${h.proveCommand}`;
 	});
 	const more =
 		hits.length > MUTATION_KILL_EVIDENCE_MAX_SHOWN

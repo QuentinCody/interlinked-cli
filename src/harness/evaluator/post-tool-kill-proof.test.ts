@@ -66,3 +66,23 @@ describe("collectKillProofWriteWarning — scope", () => {
 		expect(warnings[0]).toContain(`[interlinked:kill-proof] ${REL}: no executed kill proof`);
 	});
 });
+
+describe("killProofNudge — command form (batch when several survivors are known)", () => {
+	it("P6: more than one known survivor of the companion source prints the --all-survivors command and drops the ids hint", () => {
+		const text = killProofNudge({ root: "/repo", relPath: REL, readIndex: () => index(), certify: certified, knownSurvivors: () => ({ source: "src/lib/clamp.ts", count: 3 }) });
+		expect(text).toContain(`prove it: interlinked tests prove-kill --file src/lib/clamp.ts --test ${REL} --all-survivors.`);
+		expect(text).not.toContain("--mutant <id>");
+		expect(text).not.toContain("ids: interlinked mutation survivors");
+	});
+	it("P7: the stale-proof wording uses the same batch command", () => {
+		const text = killProofNudge({ root: "/repo", relPath: REL, readIndex: () => index(row("killed")), certify: () => stale(), knownSurvivors: () => ({ source: "src/lib/clamp.ts", count: 2 }) });
+		expect(text).toContain(`Re-run: interlinked tests prove-kill --file src/lib/clamp.ts --test ${REL} --all-survivors`);
+	});
+	it("N3: one known survivor, or none known, keeps the single-mutant command with the ids hint; the firing rule is unchanged", () => {
+		for (const known of [{ source: "src/lib/clamp.ts", count: 1 }, null]) {
+			const text = killProofNudge({ root: "/repo", relPath: REL, readIndex: () => index(), certify: certified, knownSurvivors: () => known });
+			expect(text).toContain(`prove it: interlinked tests prove-kill --mutant <id> --test ${REL} (ids: interlinked mutation survivors --file <source>).`);
+		}
+		expect(killProofNudge({ root: "/repo", relPath: REL, readIndex: () => index(row("killed")), certify: certified, knownSurvivors: () => ({ source: "src/lib/clamp.ts", count: 9 }) })).toBeNull();
+	});
+});
