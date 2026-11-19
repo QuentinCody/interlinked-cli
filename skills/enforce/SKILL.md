@@ -25,9 +25,23 @@ description: "Distill imperative guidance in AGENTS.md, CLAUDE.md, .clinerules/,
 
 **Where output goes.** Live rules: `.interlinked/distilled-rules.json` (pristine, regenerated each run). User mods: `.interlinked/distilled-rules.overrides.json` (removals, disables, modifications — survives re-distillation). The harness watches both files via `watchFile` and reloads automatically within ~2s — there is no `interlinked harness reload` command. If a daemon is in a degraded state and not picking up changes, `interlinked harness restart` is the only recourse.
 
-**Execution order** (distill path; lifecycle verbs jump straight to §14):
+**Execution order** (distill path; lifecycle verbs jump straight to [step 14]):
 
-1. Pre-flight (§11) → 2. Parse args (§1) → 3. Read overrides (§9) → 4. Read prior `distilled-rules.json` (§3) → 5. Discover / resolve targets (§2) → 6. Read each file once (§3) → 7. Classify paragraphs (§4) → 8. Lexical ladder (§5) → 9. Triggers (§6) → 10. Build rule object (§7) → 11. Apply user modifications (§9) → 12. Resolve conflicts (§10) → 13. Self-checks (§12) → 14. Write output (§8) → 15. Print summary (§13).
+1. [Run the pre-flight checks][step 11]
+2. [Parse arguments][step 1]
+3. [Read overrides][step 9]
+4. [Read the prior `distilled-rules.json`][step 3]
+5. [Discover and resolve targets][step 2]
+6. [Read each file once][step 3]
+7. [Classify paragraphs][step 4]
+8. [Apply the lexical strength ladder][step 5]
+9. [Extract triggers][step 6]
+10. [Build each rule object][step 7]
+11. [Apply user modifications][step 9]
+12. [Resolve conflicts][step 10]
+13. [Run self-checks][step 12]
+14. [Write the output][step 8]
+15. [Print the summary][step 13]
 
 ---
 
@@ -35,11 +49,11 @@ description: "Distill imperative guidance in AGENTS.md, CLAUDE.md, .clinerules/,
 
 Agent-instruction markdown files (AGENTS.md, CLAUDE.md, .clinerules/, .windsurf/rules/, GEMINI.md, etc.) are loaded into the model's context window as hopeful prose. Today the model may or may not follow them. This skill walks the source tree (or just the targets the user named), extracts every concrete imperative from those files, and distills them into typed `GuardRule` entries that the Interlinked harness enforces deterministically at runtime — meaning the agent literally cannot bypass them, regardless of which underlying coding agent is running.
 
-**Distillation, not strict compilation.** The §5 lexical ladder + §6 trigger inference + §12 validation are deterministic — typed inputs, typed outputs, no LLM calls. But §4 paragraph classification (is this prose a hard imperative, soft preference, hedged statement, descriptive context?) requires LLM judgment because there's no formal grammar for "is this an imperative." So the operation is honest extraction-and-codification with provenance, not parser-style mechanical translation. The earlier name "compile" was a generous shorthand; "distill" reflects what's actually happening. The lexical ladder is the deterministic gate: if a paragraph contains no §5 marker, the classifier MUST drop it. The distiller never invents a rule from unmarked prose, and every rule carries a verbatim `source.quote` so the entire pipeline is auditable.
+**Distillation, not strict compilation.** The [step 5] lexical ladder + [step 6] trigger inference + [step 12] validation are deterministic — typed inputs, typed outputs, no LLM calls. But [step 4] paragraph classification (is this prose a hard imperative, soft preference, hedged statement, descriptive context?) requires LLM judgment because there's no formal grammar for "is this an imperative." So the operation is honest extraction-and-codification with provenance, not parser-style mechanical translation. The earlier name "compile" was a generous shorthand; "distill" reflects what's actually happening. The lexical ladder is the deterministic gate: if a paragraph contains no [step 5] marker, the classifier MUST drop it. The distiller never invents a rule from unmarked prose, and every rule carries a verbatim `source.quote` so the entire pipeline is auditable.
 
 The harness fans rules out across every configured runner via `src/harness/adapters/`. Your job is to produce one canonical artifact at `.interlinked/distilled-rules.json` plus an overrides file at `.interlinked/distilled-rules.overrides.json`. The harness handles distribution.
 
-**Coupling and scope.** This skill produces an artifact whose schema (`GuardRule`, defined at `src/harness/types.ts` in `interlinked-cli`) is Interlinked's. Enforcement at runtime requires a hook engine that understands that schema — Interlinked is the canonical one, and currently the only one expressive enough to encode regex on `tool_input` fields, the six action types, severity, keyword quick-reject, role scoping, and exception patterns. The skill does NOT ship multi-backend adapters (Claude Code permissions, Cursor `.mdc`, Codex deny configs) because every alternative is strictly less expressive — lossy translation creates user confusion ("why doesn't my rule work in X?"). However, distillation itself does not require Interlinked installed: the artifact is a standalone JSON file you can audit, version-control, share, or wire into any compatible engine. See §11 for fallback-mode behavior when `.interlinked/` is missing.
+**Coupling and scope.** This skill produces an artifact whose schema (`GuardRule`, defined at `src/harness/types.ts` in `interlinked-cli`) is Interlinked's. Enforcement at runtime requires a hook engine that understands that schema — Interlinked is the canonical one, and currently the only one expressive enough to encode regex on `tool_input` fields, the six action types, severity, keyword quick-reject, role scoping, and exception patterns. The skill does NOT ship multi-backend adapters (Claude Code permissions, Cursor `.mdc`, Codex deny configs) because every alternative is strictly less expressive — lossy translation creates user confusion ("why doesn't my rule work in X?"). However, distillation itself does not require Interlinked installed: the artifact is a standalone JSON file you can audit, version-control, share, or wire into any compatible engine. See [step 11] for fallback-mode behavior when `.interlinked/` is missing.
 
 ## Invocation patterns (what `/enforce <args>` means)
 
@@ -51,7 +65,7 @@ The harness fans rules out across every configured runner via `src/harness/adapt
 | `/enforce .claude/skills/tdd/` | Distill every .md under the directory |
 | `/enforce mattpocock/skills/tdd` | Treat as `gh:mattpocock/skills/tdd` — fetch + distill (review-mode) |
 | `/enforce https://raw.githubusercontent.com/.../SKILL.md` | Fetch + distill (review-mode) |
-| `/enforce list` | Lifecycle: print rules grouped by source — see §13 |
+| `/enforce list` | Lifecycle: print rules grouped by source — see [step 13] |
 | `/enforce show <id>` | Lifecycle: full detail for one rule |
 | `/enforce remove --source <group_id>` | Lifecycle: bulk-remove from one source |
 | `/enforce remove <id>` | Lifecycle: remove a single rule |
@@ -63,14 +77,14 @@ The harness fans rules out across every configured runner via `src/harness/adapt
 | `/enforce --review` | Distill-then-pause: write to `.interlinked/distilled-rules.review.json`, no activation until accepted |
 | `/enforce --accept` | Activate review-mode output |
 
-If the first argument is one of `list`, `show`, `remove`, `disable`, `enable`, `modify`, `add`, `reset`, treat it as a lifecycle verb (jump to §14). Otherwise treat arguments as distill targets.
+If the first argument is one of `list`, `show`, `remove`, `disable`, `enable`, `modify`, `add`, `reset`, treat it as a lifecycle verb (jump to [step 14]). Otherwise treat arguments as distill targets.
 
 ## Operating principles (NON-NEGOTIABLE)
 
 1. **Manual invocation only.** This skill runs only when the user (or an agent acting on the user's explicit request) types `/enforce ...`. Do not wire it into SessionStart, PreCompact, file watchers, hook events, scheduled jobs, or any other auto-trigger. Surprise enforcement — the model suddenly being unable to do something it could yesterday because a doc changed — is the failure mode this rule prevents.
 2. **Verbatim source provenance is required.** Every distilled rule must carry the source file path, line range, and exact verbatim quote. A rule whose `source.quote` does not appear in `source.file` at `source.lines` is hallucination — drop it.
-3. **Lexical strength is binding** (see §5 ladder). Don't soften, don't escalate.
-4. **Deterministic at evaluation time; semi-deterministic at distill time.** The harness must remain deterministic at runtime — never generate rules that require LLM evaluation to check. The distill step itself is partly LLM-driven (paragraph classification in §4 needs a model to decide "is this prose a hard imperative, soft preference, hedged, or descriptive"), but the lexical ladder (§5) is the deterministic gate: if a paragraph contains no §5 marker, the classifier must drop it. The distiller never invents a rule from unmarked prose. Provenance (§7 `source.quote` verbatim) is what makes the distill-time step auditable rather than opaque.
+3. **Lexical strength is binding** (see [step 5] ladder). Don't soften, don't escalate.
+4. **Deterministic at evaluation time; semi-deterministic at distill time.** The harness must remain deterministic at runtime — never generate rules that require LLM evaluation to check. The distill step itself is partly LLM-driven (paragraph classification in [step 4] needs a model to decide "is this prose a hard imperative, soft preference, hedged, or descriptive"), but the lexical ladder ([step 5]) is the deterministic gate: if a paragraph contains no [step 5] marker, the classifier must drop it. The distiller never invents a rule from unmarked prose. Provenance ([step 7] `source.quote` verbatim) is what makes the distill-time step auditable rather than opaque.
 5. **Default-skip when uncertain.** Far better to skip a borderline imperative than to emit a wrong one.
 6. **Never overwrite hand-curated rules.** Output goes only to `.interlinked/distilled-rules.json` and `.interlinked/distilled-rules.overrides.json`. The user's hand-curated rules live in `guard-rules.json` and `guard-rules.local.json`. Never touch those.
 7. **Idempotent across runs.** Hash inputs; skip unchanged files; preserve user overrides.
@@ -80,7 +94,7 @@ If the first argument is one of `list`, `show`, `remove`, `disable`, `enable`, `
 
 ## Step 1 — Argument parsing
 
-Parse the invocation arguments. The first arg, if it's one of the lifecycle verbs (`list`, `show`, `remove`, `disable`, `enable`, `modify`, `add`, `reset`), routes to §14. Otherwise:
+Parse the invocation arguments. The first arg, if it's one of the lifecycle verbs (`list`, `show`, `remove`, `disable`, `enable`, `modify`, `add`, `reset`), routes to [step 14]. Otherwise:
 
 For each remaining argument, classify it:
 
@@ -123,7 +137,7 @@ Sections 2a (project tree), 2b (user home) and 2c (skills as scan-only sources) 
 | `PRD.md`, `SPEC.md`, `ROADMAP.md`, `TASKS.md`, `TODO.md` | Forward-looking. |
 | `README.md` | Human-facing overview. |
 | `TOOLS.md` | Tool inventory. |
-| `.agent.md`, `.prompt.md`, `*.prompt`, `.github/agents/*.agent.md`, `.github/prompts/*.prompt.md` | Capability bundles — same treatment as SKILL.md per §2c. `*.prompt` covers bare-extension role/capability prompts (e.g. SwarmForge `<role>.prompt`). |
+| `.agent.md`, `.prompt.md`, `*.prompt`, `.github/agents/*.agent.md`, `.github/prompts/*.prompt.md` | Capability bundles — same treatment as SKILL.md per [step 2c]. `*.prompt` covers bare-extension role/capability prompts (e.g. SwarmForge `<role>.prompt`). |
 | Any `SKILL.md` whose frontmatter `name` is `enforce` | Self-reference. The distiller must not distill its own imperatives — they describe how to distill, not what the agent should do. Drop the file silently regardless of which install path it lives at (`skills/`, `.claude/skills/`, `.agents/skills/`, `.interlinked/skills/`, `.gemini/skills/`, `.github/skills/`, `.cursor/skills/`, etc.). |
 | Any `SKILL.md` whose frontmatter `name` is `tdd`, starts with `tdd-`, or ends with `-tdd`; any path matching `**/tdd/SKILL.md` or `**/*-tdd/SKILL.md` | TDD enforcement is owned by the harness's native primitives — `tdd_new_file_gate`, `tdd_cycle_violation`, `tdd_regression`, `tdd_commit_gate`, `tdd_green_confirmation` — driven by the deterministic `tdd_cycles` state machine in `SessionTrajectory`. Distilling a competing TDD skill (Matt Pocock's, gstack's, anyone else's) would either over-fire (always-on rules duplicating our gates) or shadow (action downgraded to `ask`). Drop these files silently. If a project legitimately needs a different TDD policy, edit `structural_checks.test_first_mode` in `guard-rules.local.json`, not via /enforce. |
 
@@ -137,7 +151,7 @@ Use the Read tool with the full path. Cache contents. SHA-256 each file.
 
 If `.interlinked/distilled-rules.json` already exists, compare each file's hash to the previous run's `source_hashes` map. **Unchanged files: skip extraction; copy their previous distilled rules verbatim into the new output.** Only re-extract files whose hash changed or which are new.
 
-**Subset distillation preserves other sources.** When the user runs `/enforce <single-target>` (a path, a directory, a remote URL), the distiller MUST merge with the prior `distilled-rules.json`: rules from sources NOT in the current invocation are copied through unchanged, with their original `source_hashes` entries preserved. This is the natural extension of the unchanged-files rule: out-of-scope sources are unchanged by definition. Only `/enforce` (no arg, project walk) is allowed to fully regenerate. If you need a hard rebuild from a subset invocation, the user must `rm .interlinked/distilled-rules.json` first — the §"Throw it all away and start fresh" workflow.
+**Subset distillation preserves other sources.** When the user runs `/enforce <single-target>` (a path, a directory, a remote URL), the distiller MUST merge with the prior `distilled-rules.json`: rules from sources NOT in the current invocation are copied through unchanged, with their original `source_hashes` entries preserved. This is the natural extension of the unchanged-files rule: out-of-scope sources are unchanged by definition. Only `/enforce` (no arg, project walk) is allowed to fully regenerate. If you need a hard rebuild from a subset invocation, the user must `rm .interlinked/distilled-rules.json` first — the [“Throw it all away and start fresh”][restart distillation] workflow.
 
 For files with frontmatter, parse it and use machine-readable fields directly:
 
@@ -253,7 +267,7 @@ interface RulePattern {
 }
 ```
 
-Distilled rules ALSO carry a `source` sidecar field — see §7. The harness ignores unknown fields; the CLI lifecycle ops use them.
+Distilled rules ALSO carry a `source` sidecar field — see [step 7]. The harness ignores unknown fields; the CLI lifecycle ops use them.
 
 ### Pattern semantics (binding)
 
@@ -278,7 +292,7 @@ Practical consequence: **you cannot AND two positive patterns together.** If you
 | MCP tool prohibition | `trigger: "PreToolUse"`, `tool_match: ["<exact-mcp-tool-name>"]`, `patterns: []` (exact `tool_match` alone fires the rule via the vacuous-OR; `field: "*"` + `.*` would fail self-check #3) |
 | Tool-class prohibition | `tool_match: ["Bash"]`, `keywords: [<token>]`, `patterns: [{ field: "command", regex: "<pattern>" }]` |
 
-‡ Sequential preconditions ("Always X before Y") are not directly representable in `GuardRule`. Emit a Pass 2 `policy.md` entry (see §15.2) where `trigger_signal` describes the precondition in natural language; the Tier 2 LLM gate evaluates it from trajectory. Do NOT downgrade to `ask` in `distilled-rules.json` — `ask` is removed per §15.1 (PreToolUse user-prompts created fatigue; the Tier 2 gate handles the same job without interrupting).
+‡ Sequential preconditions ("Always X before Y") are not directly representable in `GuardRule`. Emit a Pass 2 `policy.md` entry (see [step 15.2]) where `trigger_signal` describes the precondition in natural language; the Tier 2 LLM gate evaluates it from trajectory. Do NOT downgrade to `ask` in `distilled-rules.json` — `ask` is removed per [step 15.1] (PreToolUse user-prompts created fatigue; the Tier 2 gate handles the same job without interrupting).
 
 ### Pattern hygiene (mandatory)
 
@@ -335,10 +349,10 @@ Read [references/rule-schema.md](references/rule-schema.md) before you write out
   - **Preferred path** (Interlinked installed): `.interlinked/` exists. Output goes to `.interlinked/distilled-rules.json`; the harness watches the file and picks up changes within ~2s automatically.
   - **Fallback path** (Interlinked not installed): `.interlinked/` is missing. **Warn — do not abort.** Write the artifact to `./distilled-rules.json` next to the user's CWD (the same location for the overrides file: `./distilled-rules.overrides.json`). Print a clear message:
 
-    > No `.interlinked/` directory found. Distilled rules written to `./distilled-rules.json`. To enforce them, install Interlinked (`npm install -g github:QuentinCody/interlinked-cli && interlinked enable`) — Interlinked's harness reads exactly this file from `.interlinked/`. Or wire the JSON into your own hook engine using the `GuardRule` schema documented in §7. Distillation does NOT require Interlinked; enforcement does.
+    > No `.interlinked/` directory found. Distilled rules written to `./distilled-rules.json`. To enforce them, install Interlinked (`npm install -g github:QuentinCody/interlinked-cli && interlinked enable`) — Interlinked's harness reads exactly this file from `.interlinked/`. Or wire the JSON into your own hook engine using the `GuardRule` schema in the enforce skill’s `references/rule-schema.md`. Distillation does NOT require Interlinked; enforcement does.
 
     This separates **producing the artifact** (this skill's scope, no runtime dependency) from **enforcing it** (Interlinked's scope, runtime dependency). Users without the harness still get a tangible, version-controllable, auditable file they can share or migrate later.
-- The directory is a git repo. If not, warn but continue — treat CWD itself as the project root for both the §1 outside-CWD check and the §7 `local:<path>` relative-path computation.
+- The directory is a git repo. If not, warn but continue — treat CWD itself as the project root for both the [step 1] outside-CWD check and the [step 7] `local:<path>` relative-path computation.
 - Read `.interlinked/config.json` if present; warn if `version < 2` (distilled rules may not load on older harness builds).
 - **Never** write to `.interlinked/guard-rules.json` or `.interlinked/guard-rules.local.json`.
 - **Never** modify any source `.md` file. Read-only.
@@ -426,11 +440,11 @@ On a distill run, read [references/companion-artifacts.md](references/companion-
 | Failure | Detection | Fix |
 |---|---|---|
 | Hallucinated rule | `source.quote` does not appear verbatim in `source.file` | Drop the rule; log to `extraction_errors[]`. |
-| Hedged distilled to block | marker is `usually`/`prefer`/`try` but `action=block` | Re-classify per §5. |
+| Hedged distilled to block | marker is `usually`/`prefer`/`try` but `action=block` | Re-classify per [step 5]. |
 | Trigger too broad | regex is `.*` with no anchors | Reject; downgrade to advisory. |
 | Trigger too narrow | matches only literal command without escaping | Add `\b` boundaries. |
-| Persona file got distilled | source path matches §2d skip list | Drop everything from that file. |
-| Same imperative in two files | both distilled with same trigger | Merge per §10. |
+| Persona file got distilled | source path matches [step 2d] skip list | Drop everything from that file. |
+| Same imperative in two files | both distilled with same trigger | Merge per [step 10]. |
 | Out-of-date previous distillation | source hash mismatch | Re-extract that file; preserve unchanged. |
 | User-removed group reappeared | overrides not applied | Always read overrides BEFORE extracting. |
 | Catastrophic-backtracking regex | nested unbounded quantifiers | Reject; rewrite. |
@@ -462,14 +476,14 @@ If the user wants per-runner overrides ("only enforce this in Codex, not Claude"
 ## Final reminders (read before writing output)
 
 - Verbatim source quotes are non-negotiable.
-- Lexical strength is binding (§5 ladder).
+- Lexical strength is binding ([step 5] ladder).
 - `never` / `MUST NOT` / `forbidden` / `shall not` → **block**, no exceptions.
-- `active_when` population is binding (§7 source-location table). Skill-body rules ALWAYS carry `active_when.skill = "<skill-name>"`. Project-wide rules (CLAUDE.md, AGENTS.md, etc.) ALWAYS omit `active_when` (always-on). Skip is always safer than mis-scoping.
-- TDD-themed skills are skipped (§2d). Don't distill them — TDD enforcement is owned by harness primitives.
+- `active_when` population is binding ([step 7] source-location table). Skill-body rules ALWAYS carry `active_when.skill = "<skill-name>"`. Project-wide rules (CLAUDE.md, AGENTS.md, etc.) ALWAYS omit `active_when` (always-on). Skip is always safer than mis-scoping.
+- TDD-themed skills are skipped ([step 2d]). Don't distill them — TDD enforcement is owned by harness primitives.
 - Skip is always safer than mis-distill.
 - Output goes only to `.interlinked/distilled-rules.json` (or `.review.json`) and `.interlinked/distilled-rules.overrides.json`.
 - Read the overrides file BEFORE extracting; honor `removed_groups`, `removed_rule_ids`, `disabled_rule_ids`, and `modifications`.
-- End every run with the §13 summary table.
+- End every run with the [step 13] summary table.
 - Every rule has provenance, or it doesn't exist.
 
 ## References
@@ -479,3 +493,23 @@ If the user wants per-runner overrides ("only enforce this in Codex, not Claude"
 - [references/companion-artifacts.md](references/companion-artifacts.md): Step 15. Every distill run needs it.
 - [references/lifecycle.md](references/lifecycle.md): common workflows and the Step 14 lifecycle verbs.
 - [references/examples.md](references/examples.md): eight worked examples.
+
+[restart distillation]: references/lifecycle.md#throw-it-all-away-and-start-fresh
+[step 1]: #step-1--argument-parsing
+[step 2]: #step-2--discover-sources-no-arg-or-directory-walk
+[step 2c]: references/discovery.md#2c--skills-as-scan-only-sources
+[step 2d]: #2d--skip-list-do-not-extract-from-these--confirm-kind-then-skip
+[step 3]: #step-3--read-each-file-once
+[step 4]: #step-4--per-paragraph-classification
+[step 5]: #step-5--lexical-strength--action-ladder-binding
+[step 6]: #step-6--trigger-extraction-real-guardrule-schema
+[step 7]: references/rule-schema.md#step-7--build-the-distilled-rule-one-entry-per-imperative
+[step 8]: references/rule-schema.md#step-8--output-schema
+[step 9]: references/rule-schema.md#step-9--overrides-file-the-users-mods
+[step 10]: references/rule-schema.md#step-10--conflict-resolution
+[step 11]: #step-11--pre-flight-checks-run-before-writing-anything
+[step 12]: #step-12--self-checks-run-before-writing-output
+[step 13]: #step-13--final-summary-required-print-to-user-at-end-of-run
+[step 14]: #step-14-lifecycle-operations
+[step 15.1]: references/companion-artifacts.md#151--three-pass-routing-binding
+[step 15.2]: references/companion-artifacts.md#152--pass-2-policy-doc-format-groupidpolicymd

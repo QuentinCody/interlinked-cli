@@ -50,6 +50,8 @@ precondition from trajectory. Emit a Pass 2 entry instead — no `ask`.
 
 ### 15.2 — Pass 2: Policy doc format (`<group_id>.policy.md`)
 
+<a name="152--pass-2-policy-doc-format-groupidpolicymd"></a>
+
 Markdown with structured per-imperative entries. The Tier 2 LLM loads this
 file as system-prompt context when its `active_when` scope matches.
 
