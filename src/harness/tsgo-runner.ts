@@ -282,6 +282,45 @@ function createEditSimulator(
 	};
 }
 
+function createFileCheckCache(maxEntries: number, isAvailable: boolean, diagnose: (path: string) => Promise<TsgoDiagnostic[]>) {
+	const cache = new Map<string, CacheEntry>();
+	function cachePut(path: string, entry: CacheEntry): void {
+		if (maxEntries <= 0) return;
+		if (!cache.has(path) && cache.size >= maxEntries) {
+			const oldest = cache.keys().next().value;
+			if (oldest !== undefined) cache.delete(oldest);
+		}
+		// In-memory result cache; bounded by maxEntries with FIFO eviction
+		// above, so no unbounded growth (this is not a Redis key).
+		cache.set(path, entry);
+	}
+
+	async function check(path: string): Promise<{
+		diagnostics: TsgoDiagnostic[];
+		cached: boolean;
+		elapsed_ms: number;
+	}> {
+		if (!isAvailable || !existsSync(path)) return { diagnostics: [], cached: false, elapsed_ms: 0 };
+
+		const key = computeCacheKey(path);
+		const cached = cache.get(path) ?? null;
+		if (cached && cached.key === key) {
+			return { diagnostics: cached.diagnostics, cached: true, elapsed_ms: 0 };
+		}
+
+		const started = nowMs();
+		const diagnostics = await diagnose(path);
+		const elapsed_ms = nowMs() - started;
+		cachePut(path, { key, diagnostics });
+		return { diagnostics, cached: false, elapsed_ms };
+	}
+
+	function invalidate(path: string): void {
+		cache.delete(path);
+	}
+	return { check, invalidate, size: () => cache.size };
+}
+
 export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 	const executable = opts.executable ?? locateTsgo();
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_COLD_TIMEOUT_MS;
@@ -289,7 +328,6 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 	const extraArgs: readonly string[] = opts.extraArgs ?? ["--noEmit"];
 	const watchIdleMs = opts.watchIdleMs ?? DEFAULT_WATCH_IDLE_MS;
 	const watchEnabled = !opts.disableWatch;
-	const cache = new Map<string, CacheEntry>();
 	const isAvailable = executable !== null;
 
 	// One warm `tsgo --watch` child per discovered project root. Lazy: nothing
@@ -306,43 +344,7 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 		watchers,
 	};
 
-	function cachePut(path: string, entry: CacheEntry): void {
-		if (cache.size >= maxEntries) {
-			const oldest = cache.keys().next().value;
-			if (oldest !== undefined) cache.delete(oldest);
-		}
-		// In-memory result cache; bounded by maxEntries with FIFO eviction
-		// above, so no unbounded growth (this is not a Redis key).
-		cache.set(path, entry);
-	}
-
-	async function check(path: string): Promise<{
-		diagnostics: TsgoDiagnostic[];
-		cached: boolean;
-		elapsed_ms: number;
-	}> {
-		if (!isAvailable) return { diagnostics: [], cached: false, elapsed_ms: 0 };
-		if (!existsSync(path)) return { diagnostics: [], cached: false, elapsed_ms: 0 };
-
-		const key = computeCacheKey(path);
-		const cached = cache.get(path) ?? null;
-		if (cached && cached.key === key) {
-			return { diagnostics: cached.diagnostics, cached: true, elapsed_ms: 0 };
-		}
-
-		const started = nowMs();
-		// Warm path: read the watch child's latest completed pass. Falls back
-		// to the cold one-shot when the warm child is unavailable / raced.
-		const diagnostics = await checkViaWarmOrCold(path, watcherContext, extraArgs, timeoutMs);
-		const elapsed_ms = nowMs() - started;
-		cachePut(path, { key, diagnostics });
-		return { diagnostics, cached: false, elapsed_ms };
-	}
-
-
-	function invalidate(path: string): void {
-		cache.delete(path);
-	}
+	const cache = createFileCheckCache(maxEntries, isAvailable, path => checkViaWarmOrCold(path, watcherContext, extraArgs, timeoutMs));
 
 	function stats(): {
 		cache_size: number;
@@ -350,7 +352,7 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 		watch_process?: WatchProcessState;
 	} {
 		return {
-			cache_size: cache.size,
+			cache_size: cache.size(),
 			available: isAvailable,
 			watch_process: summarizeWatchers(isAvailable, watchEnabled, watchers),
 		};
@@ -382,9 +384,9 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 
 	return {
 		available: () => isAvailable,
-		checkFile: check,
+		checkFile: cache.check,
 		simulateEdit: createEditSimulator(executable, extraArgs, timeoutMs),
-		invalidate,
+		invalidate: cache.invalidate,
 		stats,
 		dispose,
 	};

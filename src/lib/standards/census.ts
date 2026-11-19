@@ -43,21 +43,24 @@ function countOccurrence(counts: StandardsCounts, row: StandardsOccurrence): voi
 	if (row.suppressed) counts.suppressedMatches++;
 }
 
-function groupCounts(occurrences: StandardsOccurrence[], cases: StandardsDiscovery["cases"], inventory: StandardsInventory) {
+type FileRoles = ReadonlyMap<string, StandardsInventory["files"][number]["role"]>;
+
+function groupCounts(occurrences: StandardsOccurrence[], cases: StandardsDiscovery["cases"], roles: FileRoles) {
 	const counts = emptyCounts(), byRole: Record<string, StandardsCounts> = {};
 	for (const row of occurrences) { countOccurrence(counts, row); countOccurrence(byRole[row.role] ??= emptyCounts(), row); }
 	for (const candidate of cases) {
 		counts.semanticCandidates++; counts.discoveryCandidates++;
-		const role = inventory.files.find(file => file.path === candidate.sources[0]?.file)?.role;
+		const source = candidate.sources[0];
+		const role = source && roles.get(source.file);
 		if (role) { const roleCounts = byRole[role] ??= emptyCounts(); roleCounts.semanticCandidates++; roleCounts.discoveryCandidates++; }
 	}
 	return { counts, byRole };
 }
 
-function measureGroup(group: StandardsGroup, inventory: StandardsInventory, evidence: StandardsEvidence, discovery: StandardsDiscovery, compiler: ReturnType<typeof measureStandardsCompiler>): StandardsMeasurement {
+function measureGroup(group: StandardsGroup, roles: FileRoles, evidence: StandardsEvidence, discovery: StandardsDiscovery, compiler: ReturnType<typeof measureStandardsCompiler>): StandardsMeasurement {
 	const occurrences = evidence.occurrences.filter(row => row.determinism === null ? group.syntaxRules.includes(row.rule) : group.checkIds.includes(row.rule));
 	const cases = discovery.cases.filter(row => group.discoveryFamilies.includes(row.family));
-	const { counts, byRole } = groupCounts(occurrences, cases, inventory);
+	const { counts, byRole } = groupCounts(occurrences, cases, roles);
 	const hasCompiler = group.id === "s25", checks = evidence.checks.filter(row => group.checkIds.includes(row.id));
 	if (hasCompiler) counts.configurationObservations = compiler.configs.reduce((sum, config) => sum + Object.values(config.settings).filter(value => value !== null).length, 0);
 	const measured = group.syntaxRules.length > 0 && evidence.syntax.measuredFiles > 0 || checks.some(check => check.measuredFiles > 0)
@@ -83,6 +86,15 @@ function captureSuppressionPolicy(root: string): { identity: SuppressionIdentity
 	}
 }
 
+function compareSuppressionPolicy(root: string, captured: SuppressionIdentity) {
+	const final = captureSuppressionPolicy(root).identity;
+	const consistency = captured.state === "invalid" || final.state === "invalid" ? "inconclusive"
+		: captured.state === final.state && captured.sha256 === final.sha256 ? "stable_capture" : "changed";
+	return { ...captured, final, consistency };
+}
+
+const LIMITATIONS = ["Counts describe overlapping evidence populations and cannot be summed into unique defects or guideline compliance.", "AST patterns establish written syntax. Identifier names alone do not establish bindings or behavior.", "All discovered source roles remain in the denominator. Only selected readable JS/TS text receives syntax, detector and discovery passes.", "Filesystem fallback follows the shared inventory's dependency, build, vendor and metadata directory exclusions.", "Detector counts are observed matches and remain lower bounds wherever a detector retains traversal or result limits. measuredFiles records detector execution, not complete recognized-site reporting or semantic coverage.", "Detector matches retain raw and suppressed occurrences. Suppression changes affect presentation metadata and establish no policy adoption."];
+
 /** Measure the pinned advisory guidance locally. This operation never adopts policy or requests inference. */
 export function collectStandardsReport(directory: string, options: { profile?: string; scope?: string } = {}) {
 	const startedAt = new Date().toISOString();
@@ -97,19 +109,17 @@ export function collectStandardsReport(directory: string, options: { profile?: s
 	attachStandardsUnitIds(evidence.occurrences, unitEvidence.units);
 	const discovery = collectStandardsDiscovery(inventory.root, inventory.files);
 	const compiler = measureStandardsCompiler(inventory.root, inventory.entries.filter(entry => /(?:^|\/)tsconfig(?:\.[^/]*)?\.json$/.test(entry.path)).map(entry => entry.path));
-	const standards = profile.standards.map(group => measureGroup(group, inventory, evidence, discovery, compiler));
-	const limitations = ["Counts describe overlapping evidence populations and cannot be summed into unique defects or guideline compliance.", "AST patterns establish written syntax. Identifier names alone do not establish bindings or behavior.", "All discovered source roles remain in the denominator. Only selected readable JS/TS text receives syntax, detector and discovery passes.", "Filesystem fallback follows the shared inventory's dependency, build, vendor and metadata directory exclusions.", "Detector counts are observed matches and remain lower bounds wherever a detector retains traversal or result limits. measuredFiles records detector execution, not complete recognized-site reporting or semantic coverage.", "Detector matches retain raw and suppressed occurrences. Suppression changes affect presentation metadata and establish no policy adoption.", ...compiler.limitations, ...discovery.limitations];
+	const roles = new Map(inventory.files.map(file => [file.path, file.role]));
+	const standards = profile.standards.map(group => measureGroup(group, roles, evidence, discovery, compiler));
 	const sourceConsistency = compareStandardsSnapshot(inventory, inventoryOptions);
-	const finalSuppression = captureSuppressionPolicy(inventory.root).identity;
-	const suppressionConsistency = suppressions.identity.state === "invalid" || finalSuppression.state === "invalid" ? "inconclusive"
-		: suppressions.identity.state === finalSuppression.state && suppressions.identity.sha256 === finalSuppression.sha256 ? "stable_capture" : "changed";
+	const suppressionPolicy = compareSuppressionPolicy(inventory.root, suppressions.identity);
 	const report = { schema: "interlinked.standards-report/1" as const, modelCalls: 0 as const, profile, profileHash: hashBytes(JSON.stringify(profile)),
 		provenance: { startedAt, finishedAt: new Date().toISOString(), sourceConsistency }, units: unitEvidence.units,
 		inventory: { root: inventory.root, version: inventory.version, scope: inventory.scope, discovery: inventory.discovery, entries: inventory.entries, byRole: inventory.byRole,
 			inputHash: inventory.inputHash, selectedFiles: inventory.files.length, gaps: inventory.gaps, issues: inventory.issues },
 		standards, occurrences: evidence.occurrences, checks: evidence.checks, syntax: evidence.syntax, discovery, compiler,
-		suppressionPolicy: { ...suppressions.identity, final: finalSuppression, consistency: suppressionConsistency },
-		notMeasured: [...evidence.notMeasured, ...unitEvidence.notMeasured], limitations };
+		suppressionPolicy,
+		notMeasured: [...evidence.notMeasured, ...unitEvidence.notMeasured], limitations: [...LIMITATIONS, ...compiler.limitations, ...discovery.limitations] };
 	return { ...report, actions: standardsActions(report) };
 }
 

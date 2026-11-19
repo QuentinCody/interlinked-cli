@@ -34,14 +34,31 @@ function metricAdvice(metric: string): { nextStep: string; validation: string } 
 		validation: "Run affected behavioral tests and remeasure the same metric on the changed source." };
 }
 
+function deletionKey(candidate: CompositeActionInput["deletionCandidates"][number]): string {
+	return JSON.stringify(["deletion_review", candidate.file, candidate.line]);
+}
+
 /** The report already joins these findings into a removal review; preserve that explicit relationship. */
 function deletionLinks(candidates: CompositeActionInput["deletionCandidates"]): Map<string, string> {
 	const links = new Map<string, string>();
 	for (const candidate of candidates) for (const id of candidate.evidenceIds) {
 		links.set(JSON.stringify([id, candidate.file, candidate.line, candidate.sourceSha256]),
-			JSON.stringify(["deletion_review", candidate.file, candidate.line]));
+			deletionKey(candidate));
 	}
 	return links;
+}
+
+function* metricObservations(report: CompositeActionInput): Generator<ActionObservation> {
+	for (const metric of report.metrics) {
+		if (metric.state === "not-applicable") continue;
+		const missing = metric.state !== "measured";
+		if (!missing && !(metric.score !== null && metric.score > 0)) continue;
+		yield { policyHash: report.rulesHash, detectorHash: report.registryHash, check: metric.id, file: "<repository>", line: 0,
+			sourceHash: report.sourceHash, classification: missing ? "evidence_gap" : "measurement", evidence: "proven",
+			message: `${metric.id}: ${metric.state}; value ${metric.value ?? "unavailable"}, profile burden ${metric.score ?? "unavailable"}; ${metric.measuredEntities}/${metric.eligibleEntities} entities measured. ${metric.limitations.join(" ")}`,
+			evidenceRefs: metric.evidenceIds, ...metricAdvice(metric.id),
+		};
+	}
 }
 
 /** Complete projection of an existing composite report; never recollect source or evidence. */
@@ -58,18 +75,9 @@ export function compositeScoreActions(report: CompositeActionInput): ActionInven
 		...metricAdvice(finding.metric),
 		});
 	}
-	for (const metric of report.metrics) {
-		if (metric.state === "not-applicable") continue;
-		const missing = metric.state !== "measured";
-		if (!missing && !(metric.score !== null && metric.score > 0)) continue;
-		rows.push({ ...provenance, check: metric.id, file: "<repository>", line: 0,
-			sourceHash: report.sourceHash, classification: missing ? "evidence_gap" : "measurement", evidence: "proven",
-			message: `${metric.id}: ${metric.state}; value ${metric.value ?? "unavailable"}, profile burden ${metric.score ?? "unavailable"}; ${metric.measuredEntities}/${metric.eligibleEntities} entities measured. ${metric.limitations.join(" ")}`,
-			evidenceRefs: metric.evidenceIds, ...metricAdvice(metric.id),
-		});
-	}
+	for (const row of metricObservations(report)) rows.push(row);
 	for (const candidate of report.deletionCandidates) rows.push({ ...provenance,
-		actionKey: JSON.stringify(["deletion_review", candidate.file, candidate.line]),
+		actionKey: deletionKey(candidate),
 		check: "deletion_review", file: candidate.file, line: candidate.line, endLine: candidate.endLine, classification: "candidate", evidence: "heuristic",
 		sourceHash: candidate.sourceSha256, evidenceRefs: [candidate.id, ...candidate.evidenceIds],
 		message: `${candidate.signals.join("; ")}. Review blockers: ${candidate.blockers.length ? candidate.blockers.join("; ") : "none retained; review still required"}.`,

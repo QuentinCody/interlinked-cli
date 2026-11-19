@@ -412,6 +412,27 @@ describe("createTsgoRunner — available()", () => {
 });
 
 describe("createTsgoRunner — cache FIFO eviction", () => {
+	it("retains no results with a zero-entry cache", async () => {
+		const runner = createTsgoRunner({ executable: "/bin/true", disableWatch: true, maxCacheEntries: 0 });
+		const file = join(tmp, "uncached.ts");
+		writeFileSync(file, "export {};\n");
+		try {
+			await runner.checkFile(file);
+			expect((await runner.checkFile(file)).cached).toBe(false);
+			expect(runner.stats().cache_size).toBe(0);
+		} finally { disposeRunner(runner); }
+	});
+	it("refreshing a cached path preserves its older neighbour", async () => {
+		const runner = createTsgoRunner({ executable: "/bin/true", disableWatch: true, maxCacheEntries: 2 });
+		const older = join(tmp, "first.ts"), newer = join(tmp, "second.ts");
+		writeFileSync(older, "export {};\n"); writeFileSync(newer, "export {};\n");
+		try {
+			await runner.checkFile(older); await runner.checkFile(newer);
+			writeFileSync(newer, "export const changed = true;\n");
+			expect((await runner.checkFile(newer)).cached).toBe(false);
+			expect((await runner.checkFile(older)).cached).toBe(true);
+		} finally { disposeRunner(runner); }
+	});
 	it("evicts the oldest entry once the cache exceeds maxCacheEntries", async () => {
 		const runner = createTsgoRunner({ executable: "/bin/true", timeoutMs: 200, maxCacheEntries: 1 });
 		const pathA = join(tmp, "a.ts");
