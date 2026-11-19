@@ -43,6 +43,16 @@ function runDetectorForFile(root: string, check: CheckRegistration, file: Invent
 	}
 }
 
+function scopeGaps(rule: ProfileRule, context: RuleEvaluationContext): string[] {
+	const scope = rule.scope ?? {};
+	const selectedReasons = (entries: readonly InventoryGap[] = []) => entries
+		.filter(entry => metricPolicyApplies(scope, entry.path, entry.role))
+		.map(entry => `${entry.path}: ${entry.reason}`);
+	const gaps = [...context.discoveryIssues ?? [], ...selectedReasons(context.gaps)];
+	if (scope.paths !== undefined || scope.roles !== undefined) gaps.push(...selectedReasons(context.excluded));
+	return gaps;
+}
+
 /** Explicit registry execution retains detector matches and their own missing-evidence notices. */
 export function evaluateProfileRules(root: string, rules: Record<string, ProfileRule>, files: readonly InventoryFile[], context: RuleEvaluationContext = {}): ProfileRuleResult[] {
 	return Object.keys(rules).sort().map(id => {
@@ -51,10 +61,7 @@ export function evaluateProfileRules(root: string, rules: Record<string, Profile
 		const check = CHECK_REGISTRY.find(check => check.id === rule.check);
 		if (!check) throw new Error(`Unknown profile detector ${rule.check}`);
 		const selected = files.filter(file => metricPolicyApplies(rule.scope ?? {}, file.path, file.role));
-		const notMeasured = [...context.discoveryIssues ?? [], ...context.gaps?.filter(gap => metricPolicyApplies(rule.scope ?? {}, gap.path, gap.role)).map(gap => `${gap.path}: ${gap.reason}`) ?? []];
-		if (rule.scope?.paths !== undefined || rule.scope?.roles !== undefined) {
-			notMeasured.push(...context.excluded?.filter(file => metricPolicyApplies(rule.scope ?? {}, file.path, file.role)).map(file => `${file.path}: ${file.reason}`) ?? []);
-		}
+		const notMeasured = scopeGaps(rule, context);
 		const result: ProfileRuleResult = { id, check: check.id, mode: rule.mode, state: "completed", selectedFiles: selected.length,
 			completedFiles: 0, findings: [], notMeasured, warning: false };
 		if (rule.mode === "off") return { ...result, state: "off" };

@@ -14,7 +14,17 @@
 // `signatures-patterns-secrets.ts`.
 
 import { createHash } from "node:crypto";
+import type { Verdict } from "./types.js";
 import { shellUnits, splitSegments as shellSegments } from "../evaluator/commit-parse-shell.js";
+
+/** Shared verdicts for rules which report feedback without blocking a tool call. */
+export function nudge(ruleId: string, severity: Verdict["severity"], reason: string): Verdict {
+	return { ruleId, action: "nudge", severity, reason };
+}
+
+export function metric(ruleId: string, reason: string): Verdict {
+	return { ruleId, action: "silent_metric", severity: "low", reason };
+}
 
 // ===========================================
 // Hashing

@@ -266,7 +266,7 @@ For OS-denied connections, DNS/HTTPS failures, `interlinked network check`, or r
 an allowed Interlinked decision cannot grant access denied by the host sandbox.
 
 Use **interlinked-setup** for init preview/sync validation, strict uninstall runner
-filters, cleanup preview precedence, and reload restart outcomes. Local checkpoint
+filters, cleanup previews and removal outcomes, and reload restart outcomes. Local checkpoint
 restore failures and archive retention belong to **interlinked-coordination**.
 Environment display masking and shell completion setup belong to **interlinked-setup**.
 Structure-doctor failure exits and TDD cycle inspection/clearing belong to

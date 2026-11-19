@@ -1,3 +1,5 @@
+import { compareCodeUnits as compareFunctionTokenText } from "../lib/compare-code-units.js";
+export { compareFunctionTokenText };
 import { readFileSync, realpathSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import {
@@ -135,11 +137,6 @@ interface MeasuredSource {
 
 function slashPath(path: string): string {
     return path.replace(/\\/g, "/");
-}
-
-export function compareFunctionTokenText(a: string, b: string): number {
-    if (a < b) return -1;
-    return a > b ? 1 : 0;
 }
 
 function isInsideResolvedRoot(root: string, file: string): boolean {

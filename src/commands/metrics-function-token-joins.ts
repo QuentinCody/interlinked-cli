@@ -1,3 +1,4 @@
+export { compareCodeUnits as compareMetricText } from "../lib/compare-code-units.js";
 import type { FnMetric } from "./metrics-renderers.js";
 
 function metricIdentity(file: string, name: string, line: number): string {
@@ -23,9 +24,4 @@ export function uniqueMetricComplexities(functions: FnMetric[]): Map<string, num
     const collisions = new Set<string>();
     for (const row of functions) recordUniqueComplexity({ values, collisions, row });
     return values;
-}
-
-export function compareMetricText(a: string, b: string): number {
-    if (a < b) return -1;
-    return a > b ? 1 : 0;
 }

@@ -396,7 +396,9 @@ confirmation preserves those files for inspection and retry.
 `uninstall-hooks --runner` rejects empty and unknown selections before removal.
 Omitting the filter or supplying `all` selects every manifest runner.
 `clean` previews by default. `clean --force` performs cleanup, and an explicit
-`--dry-run` preserves preview behavior when both flags are supplied.
+`--dry-run` preserves preview behavior when both flags are supplied. If a stale
+session file cannot be deleted, the text output identifies its path as
+`could not remove`. The JSON `removed` list contains successful removals.
 
 > A valid stand-down marker suppresses hook self-heal. If `disable` reports the old daemon is
 > still running, run `interlinked harness stop`: that already-running process may continue to

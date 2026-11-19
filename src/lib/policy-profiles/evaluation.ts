@@ -6,7 +6,7 @@ import { collectRepositoryInventory } from "../metrics/inventory.js";
 import { assessMetricPolicies, type MetricPolicyAssessment } from "./assessment.js";
 import { policyProfileHash, type PolicyProfile } from "./profile.js";
 import { buildStructuralPolicyProposal } from "./proposal.js";
-import { evaluateProfileRules } from "./rules.js";
+import { evaluateProfileRules, type ProfileRuleResult } from "./rules.js";
 
 function metricObservation(row: MetricPolicyAssessment, sourceHash: string, policyHash: string): ActionObservation | null {
 	if (row.mode === "off" || row.status === "compared" && !row.exceedsTarget || row.status === "no-target" || row.status === "not-applicable") return null;
@@ -16,6 +16,22 @@ function metricObservation(row: MetricPolicyAssessment, sourceHash: string, poli
 		message: `${row.id} ${row.status}. Reporting target ${row.reportingTarget ?? "absent"}. ${row.issues.join(" ")}`,
 		nextStep: gap ? "Resolve the measurement or scope gap before comparing this reporting target." : "Inspect this measured reporting-target exceedance against the intended design.",
 		validation: "Repeat the same source-bound measurement and inspect its denominator and limitations." };
+}
+
+function appendRuleObservations(observations: ActionObservation[], rules: ProfileRuleResult[], profileHash: string, registryHash: string): void {
+	for (const rule of rules) for (const finding of rule.findings) observations.push({
+		check: `profile-rule:${rule.id}`, subject: rule.check, file: finding.file, line: finding.line,
+		classification: "candidate", evidence: finding.evidence, enforcement: rule.mode,
+		sourceHash: finding.sourceHash, policyHash: profileHash, message: finding.text,
+		nextStep: "Review the detector match against the source and its supported exceptions.",
+		validation: "Validate the behavior and rerun this detector on the changed source.",
+	});
+	for (const rule of rules) if (rule.mode !== "off") for (const gap of rule.notMeasured) observations.push({
+		check: `profile-rule:${rule.id}`, subject: gap, file: "<repository>", line: 0, classification: "evidence_gap",
+		evidence: "proven", enforcement: rule.mode, sourceHash: null, policyHash: profileHash, detectorHash: registryHash, message: gap,
+		nextStep: "Resolve detector source eligibility or missing evidence before interpreting this selection.",
+		validation: "Rerun the same profile and inspect its completed and unmeasured source coverage.",
+	});
 }
 
 /** Explicit local measurement reuses fixed adapters and selected registry detectors. */
@@ -32,19 +48,7 @@ export function evaluatePolicyProfile(root: string, profile: PolicyProfile) {
 	});
 	const rules = evaluateProfileRules(root, profile.rules, inventory.files, { gaps: inventory.gaps, excluded: inventory.excluded, discoveryIssues: inventory.issues });
 	const observations = metricPolicies.map(row => metricObservation(row, inventory.sourceHash, profileHash)).filter((row): row is ActionObservation => row !== null);
-	for (const rule of rules) for (const finding of rule.findings) observations.push({
-		check: `profile-rule:${rule.id}`, subject: rule.check, file: finding.file, line: finding.line,
-		classification: "candidate", evidence: finding.evidence, enforcement: rule.mode,
-		sourceHash: finding.sourceHash, policyHash: profileHash, message: finding.text,
-		nextStep: "Review the detector match against the source and its supported exceptions.",
-		validation: "Validate the behavior and rerun this detector on the changed source.",
-	});
-	for (const rule of rules) if (rule.mode !== "off") for (const gap of rule.notMeasured) observations.push({
-		check: `profile-rule:${rule.id}`, subject: gap, file: "<repository>", line: 0, classification: "evidence_gap",
-		evidence: "proven", enforcement: rule.mode, sourceHash: null, policyHash: profileHash, detectorHash: measurements.registryHash, message: gap,
-		nextStep: "Resolve detector source eligibility or missing evidence before interpreting this selection.",
-		validation: "Rerun the same profile and inspect its completed and unmeasured source coverage.",
-	});
+	appendRuleObservations(observations, rules, profileHash, measurements.registryHash);
 	const limitations = ["Profile evaluation is read-only. Reporting targets supply advisory comparisons and no adopted runtime enforcement.",
 		"Detector completion describes execution of its existing contract. Missing notices, language support and internal finding limits constrain coverage.",
 		"Aggregate subsets require fresh scoped measurements. Source snapshots and retained evidence carry separate hashes."];
