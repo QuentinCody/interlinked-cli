@@ -39,7 +39,7 @@ async function bashComplete(words: string[], program = fixture()): Promise<strin
 	// Positional arguments are inert fixture input. Only the generated completion
 	// function runs. No CLI handlers or daemon operations are invoked.
 	const runner = generated + '\nCOMP_WORDS=("$@")\nCOMP_CWORD=$(($# - 1))\n_interlinked_completions\nprintf \'%s\\n\' "${COMPREPLY[@]}"';
-	return execFileSync("bash", ["-c", runner, "completion-fixture", ...words], { encoding: "utf8" })
+	return execFileSync("bash", ["-s", "--", ...words], { input: runner, encoding: "utf8" })
 		.trim().split("\n").filter(Boolean);
 }
 
@@ -60,7 +60,7 @@ describe("completion scripts derived from active Commander metadata", () => {
 
 	it("registers zsh completion when evaluated using documented setup", async () => {
 		const generated = await script("zsh", fixture());
-		const result = execFileSync("zsh", ["-f", "-c", 'compdef() { print -r -- "$*"; }\n' + generated], { encoding: "utf8" });
+		const result = execFileSync("zsh", ["-f", "-s"], { input: 'compdef() { print -r -- "$*"; }\n' + generated, encoding: "utf8" });
 		expect(result.trim()).toBe("_interlinked interlinked");
 	});
 
@@ -68,7 +68,7 @@ describe("completion scripts derived from active Commander metadata", () => {
 		const generated = await script("zsh", fixture());
 		const runner = 'compdef() { :; }\ncompadd() { shift; print -rl -- "$@"; }\n' + generated
 			+ '\nwords=(interlinked g leaf --en)\nCURRENT=4\noriginal_path="$PATH"\n_interlinked\n[[ "$PATH" == "$original_path" ]]';
-		const result = execFileSync("zsh", ["-f", "-c", runner], { encoding: "utf8" });
+		const result = execFileSync("zsh", ["-f", "-s"], { input: runner, encoding: "utf8" });
 		expect(result.split("\n")).toContain("--enabled");
 	});
 
