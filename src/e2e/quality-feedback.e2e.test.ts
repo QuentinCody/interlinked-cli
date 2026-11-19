@@ -25,6 +25,7 @@ it("reports a Commander option mismatch across a registrar and an atomically edi
     const after = 'export function run(opts) { return opts["dry-run"]; }';
     const owned = await createFixture({ prepare(cwd) {
         mkdirSync(join(cwd, "src"));
+        symlinkSync(join(PROJECT_ROOT, "node_modules"), join(cwd, "node_modules"), "dir");
         writeFileSync(join(cwd, "package.json"), '{"name":"fixture","type":"module"}');
         writeFileSync(join(cwd, "src/handler.ts"), before + "\n");
         writeFileSync(join(cwd, "src/registrar.ts"), 'import { Command } from "commander";\nimport { run } from "./handler.js";\nnew Command().option("--dry-run").action(run);\n');
@@ -32,7 +33,16 @@ it("reports a Commander option mismatch across a registrar and an atomically edi
     } });
     try {
         const handler = join(owned.cwd, "src/handler.ts"), companion = join(owned.cwd, "src/handler.test.ts");
-        const testBody = 'import { run } from "./handler.js";\nif (run({ dryRun: true }) !== true) throw new Error("dry-run should be enabled");';
+        const testBody = [
+            'import { Command } from "commander";',
+            'import { expect, it } from "vitest";',
+            'import { run } from "./handler.js";',
+            'it("reproduces the reported mismatch using the parsed Commander flags", () => {',
+            '  const options = new Command().option("--dry-run").parse(["--dry-run"], { from: "user" }).opts();',
+            '  expect(options.dryRun).toBe(true);',
+            '  expect(run(options)).toBeUndefined();',
+            '});',
+        ].join("\n");
         const input = { command: ["*** Begin Patch", "*** Update File: " + handler, "@@", "-" + before, "+" + after,
             "*** Add File: " + companion, ...testBody.split("\n").map(line => "+" + line), "*** End Patch"].join("\n") };
         const sessionId = "handler-update", id = "handler-and-test";
