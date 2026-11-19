@@ -119,6 +119,8 @@ over 250,000 records / 64 MiB instead of exhausting application memory.
 | `compact [--dry-run --keep-recent-mb --all]` | Lossless gzip + rotate `activity.jsonl` (safe prefix ≤ sync cursor, audit-chain-aware) PLUS `collection.jsonl` / `timeline.jsonl` (plain recent-tail rotation, per-log `manifest-<log>.json`). Appenders and rotation share a cross-process lock, so appends made during compaction survive. A durable per-log claim precedes final segment publication; retry verifies its source identity, recorded prefix, gzip size, and SHA-256 before completing the SAME segment, even when the process died before the manifest write. Unknown or mismatched segment bytes stay untouched and stop that recovery. While either a durable claim or a legacy claim-less pending manifest row exists, `clean` and whole-file timeline rebuilds refuse to replace that log; ordinary appends remain allowed so recovery includes later rows. Activity recovery also refuses any recorded sync cursor beyond the retained suffix. Activity compaction refuses a sync cursor beyond the current EOF (unless `--all` explicitly bypasses sync bounds). All bytes remain recoverable via `gunzip` in manifest order. |
 | `sync [--dry-run --limit]` | Push buffered events to the server (`POST /api/hooks/activity/batch`, secret+PII scrubbed at egress). Network — use `--dry-run` for a safe pending count. |
 
+Compaction can start a new archive when its directory is missing. If an existing archive directory cannot be listed, compaction stops before allocating a segment number.
+
 `interlinked metrics` (whole-repo code-quality scan) lives in **interlinked-quality-gates**;
 `interlinked context` (effective config) in **interlinked-setup**.
 
