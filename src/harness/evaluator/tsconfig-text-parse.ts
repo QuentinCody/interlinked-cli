@@ -15,7 +15,7 @@
 // object, and treat an existing parseable tsconfig whose post-image is
 // unparseable as a loosening (`unparseablePostImage`).
 
-import { createRequire } from "node:module";
+import { optionalTypescript } from "../../lib/optional-typescript.js";
 import type * as TS from "typescript";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 
@@ -41,23 +41,11 @@ export function safeJsonParse(text: string): unknown {
 	}
 }
 
-let tsCache: TsModule | null | undefined;
-
-/** `typescript`, resolved once; `null` when the optional dependency is absent. */
-function loadTs(): TsModule | null {
-	if (tsCache !== undefined) return tsCache;
-	try {
-		// SAFETY: the installed TypeScript package exposes the compiler API described by the erased TS module import.
-		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
-	} catch {
-		tsCache = null;
-	}
-	return tsCache;
-}
+const { load: loadTs, set: setTsModule } = optionalTypescript(import.meta.url);
 
 /** Test-only: force the TypeScript module (`null` = unavailable); `undefined` re-resolves. */
 export function __setTsconfigTypescriptForTesting(mod: TsModule | null | undefined): void {
-	tsCache = mod;
+	setTsModule(mod);
 }
 
 /** Which reader decides tsconfig texts in this process. */

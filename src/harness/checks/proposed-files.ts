@@ -21,6 +21,7 @@
 // synchronous, so a scoped stack is exact. Nothing here is async-safe and
 // nothing here needs to be.
 
+import type * as TS from "typescript";
 import { dirname, resolve as toAbsolutePath } from "node:path";
 
 /** Absolute path → proposed bytes, or `null` for a deletion. */
@@ -97,6 +98,16 @@ export function proposedFileContent(path: string): string | null | undefined {
 		if (frame?.files.has(absolute)) return frame.files.get(absolute);
 	}
 	return undefined;
+}
+
+export function fileExistsInView(ts: typeof TS, path: string): boolean {
+	return proposedFileExists(path) ?? ts.sys.fileExists(path);
+}
+
+export function readFileInView(ts: typeof TS, path: string): string | undefined {
+	const proposed = proposedFileContent(path);
+	if (proposed === null) return undefined;
+	return proposed ?? ts.sys.readFile(path);
 }
 
 /** Whether `path` exists as a FILE in the proposed tree, or `undefined` when

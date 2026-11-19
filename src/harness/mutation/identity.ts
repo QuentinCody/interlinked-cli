@@ -14,7 +14,7 @@
 // Stable mutant identity: the key that lets a manifest compare runs over time,
 // across reorderings, and across unrelated edits made elsewhere in that file.
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
+import { optionalTypescript } from "../../lib/optional-typescript.js";
 import type * as TS from "typescript";
 import { nonNull } from "../../lib/non-null.js";
 import { isFunctionLike, parseTsSourceWith } from "../checks/cyclomatic-ast.js";
@@ -22,18 +22,7 @@ import type { MutantIdentity, RawMutant, StableId } from "./types.js";
 
 type TsModule = typeof TS;
 
-let tsCache: TsModule | null | undefined;
-
-function loadTs(): TsModule | null {
-	if (tsCache !== undefined) return tsCache;
-	try {
-		// SAFETY: the runtime package is TypeScript itself; TS describes its published compiler API.
-		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
-	} catch {
-		tsCache = null;
-	}
-	return tsCache;
-}
+const { load: loadTs } = optionalTypescript(import.meta.url);
 
 /** True when the optional `typescript` dep is resolvable (→ identity available). */
 export function mutationIdentityAvailable(): boolean {

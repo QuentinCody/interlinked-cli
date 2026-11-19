@@ -21,7 +21,8 @@
 // loader reports the standard `[interlinked:<check>] NOT MEASURED` line and
 // returns null: the detector then returns [] and says so, never in silence.
 
-import { createRequire } from "node:module";
+import { requireTypescriptFrom } from "../../lib/optional-typescript.js";
+export { requireTypescriptFrom } from "../../lib/optional-typescript.js";
 import { join } from "node:path";
 import type * as TS from "typescript";
 import { parseTsSourceWith } from "./cyclomatic-ast.js";
@@ -31,16 +32,6 @@ type TsModule = typeof TS;
 
 let harnessTs: TsModule | null = null;
 const projectTs = new Map<string, TsModule>();
-
-/** `typescript` resolved from `base` (a file URL or path), or null. */
-export function requireTypescriptFrom(base: string): TsModule | null {
-	try {
-		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
-		return createRequire(base)("typescript") as TsModule;
-	} catch {
-		return null;
-	}
-}
 
 /** The harness's own `typescript`, else the check root's copy, else null. Caches successes only. */
 function resolveTypescript(root: string): TsModule | null {

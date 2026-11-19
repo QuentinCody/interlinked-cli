@@ -33,7 +33,7 @@
 // public entry points) to stay under the per-file line cap.
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { createRequire } from "node:module";
+import { optionalTypescript } from "../../lib/optional-typescript.js";
 import { basename, dirname, extname, resolve as toAbsolutePath } from "node:path";
 import type * as TS from "typescript";
 import { proposedDirectoryExists, proposedFileContent, proposedFileExists } from "./proposed-files.js";
@@ -45,19 +45,7 @@ type TsModule = typeof TS;
 // introverted-test.ts. The dep is an optionalDependency: under
 // `--omit=optional` there is no resolver, and the check is NOT MEASURED rather
 // than guessed (`selfImportMeasurable` in self-import-scan.ts discloses it).
-let tsCache: TsModule | null | undefined;
-
-function loadTs(): TsModule | null {
-	if (tsCache !== undefined) return tsCache;
-	try {
-		// An absent dep throws and is cached as null below.
-		// SAFETY: `require("typescript")` returns that module's namespace object, which is exactly `typeof import("typescript")`.
-		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
-	} catch {
-		tsCache = null;
-	}
-	return tsCache;
-}
+const { load: loadTs } = optionalTypescript(import.meta.url);
 
 /** How the resolver asks whether a sibling file is on disk. Injectable so a test
  *  can drive a virtual tree, and so no caller is forced to touch the filesystem. */

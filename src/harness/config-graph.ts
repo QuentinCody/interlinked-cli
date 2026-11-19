@@ -24,10 +24,10 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { optionalTypescript } from "../lib/optional-typescript.js";
 import { dirname, resolve } from "node:path";
 import type * as TS from "typescript";
-import { proposedFileContent, proposedFileExists } from "./checks/proposed-files.js";
+import { fileExistsInView, readFileInView } from "./checks/proposed-files.js";
 import { governingCompilerOptions, type OptionsResolutionReason } from "./checks/self-import-project.js";
 
 type TsModule = typeof TS;
@@ -35,31 +35,10 @@ type TsModule = typeof TS;
 // Self-contained `typescript` loader — the same idiom as self-import-resolve.ts.
 // The dep is an optionalDependency: without it there is no config parser, and
 // the graph is empty (the gate's filename rule still applies).
-let tsCache: TsModule | null | undefined;
-
-function loadTs(): TsModule | null {
-	if (tsCache !== undefined) return tsCache;
-	try {
-		// SAFETY: `require("typescript")` returns that module's namespace object, which is exactly `typeof import("typescript")`.
-		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
-	} catch {
-		tsCache = null;
-	}
-	return tsCache;
-}
+const { load: loadTs } = optionalTypescript(import.meta.url);
 
 /** The legacy fallback walk: `tsconfig.json` at the project root or up to four levels above it. */
 const CONFIG_WALK_LEVELS = 5;
-
-function fileExistsInView(ts: TsModule, path: string): boolean {
-	return proposedFileExists(path) ?? ts.sys.fileExists(path);
-}
-
-function readFileInView(ts: TsModule, path: string): string | undefined {
-	const proposed = proposedFileContent(path);
-	if (proposed === null) return undefined;
-	return proposed ?? ts.sys.readFile(path);
-}
 
 /** The project root's own tsconfig, or null — the fallback for a file with no config above it. */
 function rootConfigPath(ts: TsModule, projectRoot: string): string | null {
