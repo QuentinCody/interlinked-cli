@@ -32,6 +32,8 @@ import { TEST_QUALITY_ADVISORY_IDS } from "./advisory-test-quality.js";
 export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// Resolved same-file Commander evidence remains advisory pending cross-repository precision review.
 	"commander_option_attribute",
+	// Visible omitted arguments justify a contract review; intended flexibility may be deliberate.
+	"omitted_private_parameter",
     // Project documentation/configuration and recorded Stop coverage are audit-only.
     "readme_command_drift",
     "unread_config_key",
@@ -469,6 +471,8 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// top_level_side_effect: AST separates initialization from deferred code,
 	// but call names and entrypoint exemptions do not establish effect policy.
 	"top_level_side_effect",
+	// top_level_burden: the limit (500 tokens of import-time work) is a taste threshold; the check counts work only, not data or declarations.
+	"top_level_burden",
 	// === Type-discipline wave (2026-08-14) — ported from dmmulroy/anti-slop,
 	// detection algorithm only (docs/external-pulse/anti-slop.md) ===
 	// conditional_empty_object_spread: exact ternary-with-empty-object-branch

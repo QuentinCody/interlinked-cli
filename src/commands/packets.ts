@@ -10,7 +10,7 @@
 // `--dry` prints the replay table and writes nothing. `status` lists packets.
 // Nothing here calls Jev.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type CalibrationResult, calibratePacket, type Label } from "../harness/packets/calibrate.js";
 import { compilePacketFile } from "../harness/packets/compile.js";
@@ -27,7 +27,8 @@ import { parsePacketFile } from "../harness/packets/schema.js";
 import { resolveSourcePath } from "../harness/packets/source-path.js";
 import { acquirePacketLock, lockRefusal, sweepStaleTemps, writeAtomic } from "./packets-release-io.js";
 import { pairPostToPre, readCallRows } from "./packets-replay.js";
-import { PACKET_FILE_BASENAME, type PacketFile } from "../harness/packets/types.js";
+import type { PacketFile } from "../harness/packets/types.js";
+import { DEFAULT_TAIL_MB, loadPacketFileOrNull, packetPath, readLedger, readOrNull } from "./packets-read.js";
 
 export interface PacketsCalibrateExportOpts {
 	out: string;
@@ -60,20 +61,7 @@ export interface PacketsStatusOpts {
 	cwd?: string;
 }
 
-export const DEFAULT_TAIL_MB = 256;
 const DEFAULT_RUNNER = "claude-code";
-
-function packetPath(cwd: string): string {
-	return join(cwd, ".interlinked", PACKET_FILE_BASENAME);
-}
-
-function readOrNull(path: string): string | null {
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		return null;
-	}
-}
 
 function replayLine(r: DryRunRow): string {
 	const flags = [r.cold ? "COLD" : null, r.too_wide ? "TOO WIDE" : null, r.support.supported ? null : `UNSUPPORTED: ${r.support.reason}`].filter(Boolean).join("; ");
@@ -148,23 +136,6 @@ export async function packetsCompileCommand(opts: PacketsCompileOpts): Promise<n
 	return 0;
 }
 
-export function readLedger(cwd: string): PacketJudgmentRow[] | null {
-	const text = readOrNull(join(cwd, ".interlinked", PACKET_LEDGER));
-	if (text === null) return null;
-	const rows: PacketJudgmentRow[] = [];
-	let torn = 0;
-	for (const line of text.split("\n")) {
-		if (!line) continue;
-		try {
-			rows.push(JSON.parse(line) as PacketJudgmentRow);
-		} catch {
-			torn++;
-		}
-	}
-	if (torn > 0) console.error(`packets: ${torn} unreadable line(s) in ${PACKET_LEDGER} skipped`);
-	return rows;
-}
-
 /** Window judgments (the trajectory layer's ledger); a torn line is skipped. */
 export function readWindowLedger(cwd: string): WindowJudgmentRow[] {
 	const text = readOrNull(join(cwd, ".interlinked", WINDOW_LEDGER));
@@ -179,13 +150,6 @@ export function readWindowLedger(cwd: string): WindowJudgmentRow[] {
 		}
 	}
 	return rows;
-}
-
-export function loadPacketFileOrNull(cwd: string): PacketFile | null {
-	const text = readOrNull(packetPath(cwd));
-	if (text === null) return null;
-	const parsed = parsePacketFile(text);
-	return parsed.ok ? parsed.value : null;
 }
 
 /** Exit codes: 0 sheet written, 1 packet file missing or invalid, 2 no judgments. */

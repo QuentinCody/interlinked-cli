@@ -111,6 +111,7 @@ const CI_STEPS: readonly CiStep[] = [
 	// is still the unsharded full suite — a superset of every shard.
 	{ name: "Test (unit lane, shard ${{ matrix.shard }})", mirror: "pre-push", command: "npm test" },
 	{ name: "Test (integration lane)", mirror: "pre-push", command: "npm test" },
+	{ name: "Test Python sidecar protocol", mirror: "pre-push", command: "python3 -B -m unittest discover -s test -p 'test_*.py'" },
 	{
 		name: "Pack tarball",
 		mirror: "skip",

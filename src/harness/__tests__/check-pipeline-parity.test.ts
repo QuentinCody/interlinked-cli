@@ -227,7 +227,7 @@ function extractAgentSafetyCheckNames(source: string, registrySource?: string): 
 /** Extract check names used in toIssues() calls in verify.ts */
 function extractVerifyCheckNames(source: string): Set<string> {
 	const names = new Set<string>();
-	for (const m of source.matchAll(/toIssues\(\s*["'](\w+)["']/g)) {
+	for (const m of source.matchAll(/\b(?:toIssues|runCheck)\(\s*["'](\w+)["']/g)) {
 		names.add(nonNull(m[1]));
 	}
 	return names;
@@ -276,6 +276,9 @@ function extractJsonOutputProps(source: string): Set<string> {
 		}
 	}
 	// Post-refactor: outputJson reads `cq.X` directly across the build object.
+	for (const m of source.matchAll(/\["\w+", "(\w+)", summarize(?:WithDetails)?\]/g)) {
+		names.add(nonNull(m[1]));
+	}
 	for (const m of source.matchAll(/\bcq\.(\w+)/g)) {
 		names.add(nonNull(m[1]));
 	}
@@ -475,6 +478,10 @@ const POSTTOOLUSE_ONLY_CHECKS = new Set([
 	"process_env_outside_config",
 	"findTopLevelSideEffects",
 	"top_level_side_effect",
+	// top_level_burden (G7, judgment of metric file.top_level): an advisory with no verify result key;
+	// `interlinked verify --all-checks` runs it through the registry sweep (registry-sweep.ts).
+	"findTopLevelBurden",
+	"top_level_burden",
 	// cjs_in_esm_module (CommonJS-in-ESM): a default-gate edit-time correctness
 	// check. Load-bearing surface is WRITE TIME — the PostToolUse warning the
 	// moment an agent writes require()/module.exports/__dirname into an ESM file.
@@ -754,6 +761,7 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 			"newExportWithoutImporter",
 			"extractedHelperDuplicate",
 			"singleUseTrivialHelper",
+			"deadLiteralStore", // G7: reported through the aggregated code-quality results, like singleUseTrivialHelper
 			"snapshotHygiene",
 			"handRolledLexer",
 			"designSlop",

@@ -42,7 +42,9 @@
 // `checkSelfImport` entry point): the AST pass does not fit under the 500-line
 // per-file cap alongside the dependency-hygiene checks.
 
+import { dirname } from "node:path";
 import type * as TS from "typescript";
+import { isRepoScratchPath } from "../large-file-policy.js";
 import { astComplexityAvailable, parseTsSource, type TsModule } from "./cyclomatic-ast.js";
 import {
 	type ExistsProbe,
@@ -182,6 +184,9 @@ export function selfImportNotMeasuredWarning(filePath: string): string | null {
 	}
 	const resolution = selfImportOptionsResolution(filePath);
 	if (resolution === null || resolution.ok) return null;
+	if (resolution.reason === "project_orphan" && isRepoScratchPath(filePath.replace(/\\/g, "/"), dirname(resolution.configPath))) {
+		return `${NOT_MEASURED_PREFIX}${filePath}: scratch probe, outside every tsconfig project by design, so the self-import check did not run. No action is needed.`;
+	}
 	if (resolution.reason === "graph_truncated" || resolution.reason === "project_orphan") {
 		return (
 			`${NOT_MEASURED_PREFIX}${filePath}: ${resolution.detail}, so the owning project — and its ` +

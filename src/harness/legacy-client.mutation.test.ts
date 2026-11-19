@@ -127,6 +127,62 @@ describe("toLegacyHarnessEvent hook event name", () => {
 	});
 });
 
+describe("toLegacyHarnessEvent failure facts", () => {
+	const failureAction = {
+		kind: "tool_call" as const,
+		tool_name: "bash",
+		tool_class: "side-effect" as const,
+		tool_input: { command: "false" },
+		tool_input_redacted: { command: "false" },
+		tool_error: "Exit code 1",
+	};
+
+	it("carries the adapter's tool_error as error_message on a post-tool call", () => {
+		const legacy = toLegacyHarnessEvent(
+			makeEvent({ runner_native_event: "PostToolUseFailure", phase: "post-tool", action: failureAction }),
+		);
+		expect(legacy.error_message).toBe("Exit code 1");
+		expect(legacy.tool_outcome).toBeUndefined();
+	});
+
+	it("marks an interrupted PostToolUseFailure as interrupted", () => {
+		const legacy = toLegacyHarnessEvent(
+			makeEvent({
+				runner_native_event: "PostToolUseFailure",
+				phase: "post-tool",
+				action: failureAction,
+				raw: { is_interrupt: true },
+			}),
+		);
+		expect(legacy.tool_outcome).toBe("interrupted");
+	});
+
+	it("N: a regular PostToolUse with an is_interrupt field keeps its outcome open", () => {
+		const legacy = toLegacyHarnessEvent(
+			makeEvent({ runner_native_event: "PostToolUse", phase: "post-tool", action: failureAction, raw: { is_interrupt: true } }),
+		);
+		expect(legacy.tool_outcome).toBeUndefined();
+	});
+
+	it("N: a pre-tool call never carries error text", () => {
+		const legacy = toLegacyHarnessEvent(makeEvent({ action: failureAction }));
+		expect(legacy.error_message).toBeUndefined();
+	});
+
+	it("N: a post-tool non-tool action carries no failure facts", () => {
+		const legacy = toLegacyHarnessEvent(
+			makeEvent({
+				runner_native_event: "PostToolUseFailure",
+				phase: "post-tool",
+				action: { kind: "shell_command", command: "false", cwd: "/repo", tool_class: "side-effect" },
+				raw: { is_interrupt: true },
+			}),
+		);
+		expect(legacy.error_message).toBeUndefined();
+		expect(legacy.tool_outcome).toBeUndefined();
+	});
+});
+
 describe("toLegacyHarnessEvent tool naming for Claude-style runners", () => {
 	it("crush events use the Claude-style name of the normalized tool, ignoring raw.tool_name", () => {
 		const legacy = toLegacyHarnessEvent(

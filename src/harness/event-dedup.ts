@@ -150,7 +150,37 @@ function appendShadowRecord(event: HarnessEvent, dk: DedupKey, prior: SeenEntry)
 	if (!appendCapturedData({ cwd: event.cwd, producer: "harness/event-dedup", session: event.session_id }, "dedup-shadow", [record])) throw new Error("shadow observation write failed");
 }
 
+// ===========================================
+// Completion claim — LIVE, cross-event only
+// ===========================================
+// Claude Code can report one failed tool call twice under DIFFERENT event
+// names: a folded PostToolUse (`tool_response.is_error`) and a dedicated
+// PostToolUseFailure. Both carry the same `tool_use_id`. The first completion
+// to reach the daemon claims the call; a later completion under another name
+// is skipped before it touches the session, the ledgers or the checks.
+// Redundant deliveries under the SAME name stay in shadow mode above.
+
+const POST_COMPLETION_EVENTS = new Set(["PostToolUse", "AfterTool", "PostToolUseFailure"]);
+const completionClaims = new Map<string, string>();
+
+/** Claim the completion of one tool call. Returns false only when another
+ *  completion event name already claimed this session's `tool_use_id`. */
+export function claimToolCompletion(event: HarnessEvent): boolean {
+	if (!event.tool_use_id || event.dry_run || !POST_COMPLETION_EVENTS.has(event.hook_event)) return true;
+	const key = `${event.session_id}|${event.tool_use_id}`;
+	const claimedBy = completionClaims.get(key);
+	if (claimedBy !== undefined) return claimedBy === event.hook_event;
+	completionClaims.set(key, event.hook_event);
+	// tool_use_ids never repeat, so only memory needs a bound: drop the oldest.
+	if (completionClaims.size > MAX_TRACKED_KEYS) {
+		const oldest = completionClaims.keys().next().value;
+		if (oldest !== undefined) completionClaims.delete(oldest);
+	}
+	return true;
+}
+
 /** Test hook — clears the in-memory window between cases. */
 export function __resetDedupForTesting(): void {
 	seen.clear();
+	completionClaims.clear();
 }

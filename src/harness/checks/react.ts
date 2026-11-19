@@ -1,6 +1,7 @@
 // React / frontend checks.
 // Extracted from generic-checks.ts.
 
+import { rawBraceDelta } from "./shared-text-utils-brace-scan.js";
 import { nonNull } from "../../lib/non-null.js";
 import { DSIH_USAGE_RE, DSIH_WINDOW_LINES, isStaticDsihValue } from "./react-dsih-value.js";
 import {
@@ -114,16 +115,6 @@ const EFFECT_OPENER_RE = /\b(?:useEffect|useLayoutEffect)\s*\(/;
 // createPortal's second argument is legitimately a DOM node (the portal target).
 const CREATE_PORTAL_RE = /\bcreatePortal\s*\(/;
 
-/** Net `{` minus `}` on a single stripped line (strings/comments already blanked). */
-function netBraceDelta(line: string): number {
-	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		else if (ch === "}") delta--;
-	}
-	return delta;
-}
-
 /**
  * Carry the effect-callback brace depth across one stripped line. A line inside
  * an open effect callback adjusts the running depth (floored at 0); otherwise an
@@ -131,11 +122,11 @@ function netBraceDelta(line: string): number {
  */
 function nextEffectDepth(strippedLine: string, effectDepth: number): number {
 	if (effectDepth > 0) {
-		const carried = effectDepth + netBraceDelta(strippedLine);
+		const carried = effectDepth + rawBraceDelta(strippedLine);
 		return carried < 0 ? 0 : carried;
 	}
 	if (EFFECT_OPENER_RE.test(strippedLine)) {
-		const delta = netBraceDelta(strippedLine);
+		const delta = rawBraceDelta(strippedLine);
 		if (delta > 0) return delta;
 	}
 	return effectDepth;

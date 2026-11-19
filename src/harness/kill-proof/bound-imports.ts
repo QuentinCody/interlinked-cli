@@ -30,8 +30,14 @@ import { join, relative } from "node:path";
 import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { parseImports } from "../project-graph/parser-imports.js";
 import { resolveImportPath } from "../project-graph/resolve.js";
-import { hashFile } from "./receipt.js";
-import type { BoundImport } from "./types.js";
+import { sha256File } from "../../lib/bounded-file-io.js";
+import type { BoundImport, HashedFile } from "./types.js";
+
+/** Bind a repository-relative input to its exact bytes for a proof receipt. */
+export function hashFile(root: string, path: string): HashedFile | null {
+	const absolute = join(root, path);
+	return existsSync(absolute) ? { path, sha256: sha256File(absolute) } : null;
+}
 
 export const MAX_BOUND_IMPORTS = 200;
 

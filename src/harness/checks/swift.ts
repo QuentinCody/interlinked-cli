@@ -1,6 +1,7 @@
 // Swift-specific checks (Apple API Design Guidelines + Memory Safety + Concurrency).
 // Extracted from generic-checks.ts.
 
+import { rawBraceDelta } from "./shared-text-utils-brace-scan.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	getExtension,
@@ -137,16 +138,6 @@ export function checkSwiftTaskDetached(content: string, filePath: string): Inlin
 	return scanLinesStripped(originalLines, strippedLines, /\bTask\s*\.\s*detached\s*[({]/, 10);
 }
 
-/** Net brace-depth change contributed by a single (comment-stripped) line. */
-function braceDeltaForLine(line: string): number {
-	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		if (ch === "}") delta--;
-	}
-	return delta;
-}
-
 /** Is there a `catch` on a line strictly after `fromIndex`, within `bound`? */
 function hasCatchAfter(strippedLines: string[], fromIndex: number, bound: number): boolean {
 	for (let k = fromIndex + 1; k < bound; k++) {
@@ -166,7 +157,7 @@ function taskBodyHasUnhandledTry(strippedLines: string[], startIndex: number): b
 	let hasDoCatch = false;
 	for (let j = startIndex; j < bound; j++) {
 		const bodyLine = nonNull(strippedLines[j]);
-		depth += braceDeltaForLine(bodyLine);
+		depth += rawBraceDelta(bodyLine);
 		if (/\btry\b/.test(bodyLine) && !/\btry[?!]/.test(bodyLine)) hasTry = true;
 		if (/\bdo\s*\{/.test(bodyLine) && hasCatchAfter(strippedLines, j, bound)) hasDoCatch = true;
 		if (depth <= 0 && j > startIndex) break;
@@ -226,10 +217,7 @@ function processSwiftGlobalVarLine(
 ): number {
 	const line = nonNull(strippedLines[i]);
 
-	for (const ch of line) {
-		if (ch === "{") braceDepth++;
-		if (ch === "}") braceDepth--;
-	}
+	braceDepth += rawBraceDelta(line);
 
 	// Only check file-scope (depth 0) var declarations
 	if (braceDepth !== 0) return braceDepth;

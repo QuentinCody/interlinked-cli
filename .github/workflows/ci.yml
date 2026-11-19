@@ -119,6 +119,9 @@ jobs:
           sudo apt-get update -q && sudo apt-get install -y -q ripgrep
           rg --version
 
+      - name: Test Python sidecar protocol
+        run: python3 -B -m unittest discover -s test -p 'test_*.py'
+
       - name: Test (integration lane)
         run: npm run test:integration -- --reporter=default --reporter=github-actions --reporter=json --outputFile.json=test-report/integration.json
 

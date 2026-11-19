@@ -438,14 +438,18 @@ function emitTestRunIfApplicable(sessionId, agentName, event) {
         stderr = typeof tr.stderr === "string" ? tr.stderr : "";
         interrupted = tr.interrupted === true;
     }
-    // Heuristic outcome: explicit interrupt → interrupted; non-empty stderr
-    // OR known-failure marker in stdout → fail; otherwise pass. Imperfect
-    // (npm prints to stderr on success sometimes), but better than nothing
-    // and consumers can re-derive from the source command if they want.
+    // Claude Code's PostToolUseFailure has no tool_response: the normalizer's
+    // stderr (the error text) and exit_code are the only evidence.
+    if (!stderr && typeof event.stderr === "string") stderr = event.stderr;
+    const exitCode = typeof event.exit_code === "number" ? event.exit_code : null;
+    // Outcome: explicit interrupt → interrupted; an explicit exit code decides;
+    // else a known-failure marker → fail, a pass marker → pass, else the
+    // normalizer's tool_outcome. Consumers can re-derive from the command.
     const failureMarkers = /(?:^|\\n)\\s*(?:FAIL|FAILED|✘|error TS\\d+|error:|Test (?:Suites|Files): \\d+ failed)/m;
     const passMarkers = /(?:^|\\n)\\s*(?:PASS|✓|passed|OK\\b|0 errors|all clean|Tests: \\d+ passed)/m;
     let outcome = "unknown";
-    if (interrupted) outcome = "interrupted";
+    if (interrupted || event.tool_outcome === "interrupted") outcome = "interrupted";
+    else if (exitCode !== null) outcome = exitCode === 0 ? "pass" : "fail";
     else if (failureMarkers.test(stdout) || failureMarkers.test(stderr)) outcome = "fail";
     else if (passMarkers.test(stdout) || passMarkers.test(stderr)) outcome = "pass";
     else if (event.tool_outcome === "error") outcome = "fail";
@@ -456,6 +460,7 @@ function emitTestRunIfApplicable(sessionId, agentName, event) {
         kind,
         command: cmd ? (cmd.length > 400 ? cmd.slice(0, 400) + "..." : cmd) : null,
         outcome,
+        exit_code: exitCode,
         duration_ms: event.duration_ms || null,
         session_id: sessionId || null,
         agent: agentName || null,

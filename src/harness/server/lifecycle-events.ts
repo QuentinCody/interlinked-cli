@@ -43,6 +43,7 @@ import {
 	formatSessionReworkNudge,
 	sessionReworkSummary,
 } from "../trajectory/session-rework.js";
+import { recordObservedOnly } from "../observed-files.js";
 import { buildTurnEndSummary, formatTurnEndWarnings } from "../turn-end.js";
 import type { HarnessDecision, HarnessEvent, SessionTrajectory } from "../types.js";
 import {
@@ -265,7 +266,9 @@ function reconcileStopWorkspaceEffects(
 	// event.cwd may be a subdirectory, so using it here would compare unrelated
 	// relative-path namespaces and manufacture create/delete residue.
 	const residue = consumeWorkspaceResidue(event.session_id, ctx.cwd);
-	for (const effect of residue?.files ?? []) session.files_written.add(effect.path);
+	// Rescan them (backstop for a missed PostToolUse), but as writer unknown:
+	// no tool call of this session declared these paths.
+	recordObservedOnly(session, (residue?.files ?? []).map((effect) => effect.path), ctx.cwd);
 	const warning = residue ? formatWorkspaceResidueWarning(residue) : null;
 	return warning ? [warning] : [];
 }

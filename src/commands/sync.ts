@@ -9,7 +9,8 @@ import {
 	getLocalStats,
 	readSyncState,
 } from "../lib/local-activity.js";
-import { getOutputMode, output, outputError } from "../lib/output.js";
+import type { SyncState } from "../lib/local-activity-types.js";
+import { getOutputMode, output, outputError, type OutputMode } from "../lib/output.js";
 import {
 	fmtTime,
 	formatUpToDate,
@@ -18,7 +19,10 @@ import {
 } from "./sync-format.js";
 import {
 	SYNC_SUMMARY_RETAINED_KEY_LIMIT,
+	type BoundedSyncContext,
 	type SummaryOmissions,
+	type SyncPreview,
+	type SyncProgress,
 	readSyncPreview,
 	runBoundedSync,
 	summaryIsComplete,
@@ -65,15 +69,7 @@ export async function syncCommand(opts: {
 		const initialState = readSyncState();
 		assertActivitySyncCursor(initialState.synced_through_bytes, stats.file_size_bytes);
 		if (stats.pending_sync === 0) {
-			output(
-				mode,
-				{},
-				{
-					json: () => ({ synced: 0, pending: 0, message: "Already up to date" }),
-					normal: () => formatUpToDate(),
-				},
-			);
-			return;
+			return showUpToDate(mode);
 		}
 		const basis = captureActivitySyncBasis(initialState.synced_through_bytes);
 
@@ -83,38 +79,7 @@ export async function syncCommand(opts: {
 				start: initialState.synced_through_bytes,
 				basis,
 			});
-			if (preview.events === 0) {
-				output(
-					mode,
-					{},
-					{
-						json: () => ({ synced: 0, pending: 0, message: "Already up to date" }),
-						normal: () => formatUpToDate(),
-					},
-				);
-				return;
-			}
-			output(mode, preview, {
-				json: () => ({
-					dry_run: true,
-					pending_events: preview.events,
-					batches: Math.ceil(preview.events / BATCH_SIZE),
-					sync_state: initialState,
-				}),
-				normal: () => {
-					const lines: string[] = [];
-					lines.push(header("Sync (dry-run)"));
-					lines.push(kvLine("Pending events", String(preview.events)));
-					lines.push(
-						kvLine("Batches needed", String(Math.ceil(preview.events / BATCH_SIZE))),
-					);
-					lines.push(kvLine("New offset", `${preview.newOffset} bytes`));
-					lines.push("");
-					lines.push(c.dim("  Run 'interlinked sync' (without --dry-run) to push."));
-					return lines.join("\n");
-				},
-			});
-			return;
+			return showSyncPreview(mode, preview, initialState);
 		}
 
 		// Resolve server URL + auth + workspace targeting (dev-guard inside).
@@ -133,104 +98,119 @@ export async function syncCommand(opts: {
 			outputError(mode, "Authentication failed. Run 'interlinked login' to re-authenticate.");
 			return;
 		}
-		const { progress } = run;
-		if (progress.eventsTotal === 0 && progress.errors === 0) {
-			output(
-				mode,
-				{},
-				{
-					json: () => ({ synced: 0, pending: 0, message: "Already up to date" }),
-					normal: () => formatUpToDate(),
-				},
-			);
-			return;
-		}
-		const { serverUrl, workspaceId } = ctx;
-		const { byType, byAgent, byTool, sessions, earliest, latest } = progress.summary;
-		const summaryComplete = summaryIsComplete(progress.summaryOmissions);
-		const renderedTopTools = topTools(progress.summary);
-
-		output(
-			mode,
-			{},
-			{
-				json: () => ({
-					server_url: serverUrl,
-					workspace_id: workspaceId || null,
-					accepted: progress.accepted,
-					skipped: progress.skipped,
-					errors: progress.errors,
-					scrubbed: progress.scrubbed,
-					batches_sent: progress.batchesSent,
-					retries: progress.retriesUsed,
-					new_offset: progress.cursor,
-					breakdown: {
-						by_type: byType,
-						by_agent: byAgent,
-						top_tools: renderedTopTools,
-						sessions: sessions.size,
-					},
-					breakdown_complete: summaryComplete,
-					summary_truncated: summaryTruncation(progress.summaryOmissions),
-					time_range: { earliest, latest },
-				}),
-				normal: () => {
-					const lines: string[] = [];
-					lines.push(header("Sync Complete"));
-					lines.push(kvLine("Server", c.cyan(serverUrl)));
-					if (workspaceId) {
-						lines.push(kvLine("Workspace", c.cyan(workspaceId)));
-					}
-					lines.push(
-						kvLine(
-							"Events",
-							`${progress.eventsTotal} total (${c.green(String(progress.accepted))} new, ${progress.skipped} dedup)`,
-						),
-					);
-					if (progress.scrubbed > 0) {
-						lines.push(
-							kvLine(
-								"Scrubbed",
-								c.yellow(`${progress.scrubbed} events had secrets redacted`),
-							),
-						);
-					}
-					if (progress.errors > 0) {
-						lines.push(kvLine("Errors", c.red(String(progress.errors))));
-					}
-					lines.push(kvLine("Batches", String(progress.batchesSent)));
-					if (progress.retriesUsed > 0) {
-						lines.push(kvLine("Retries", String(progress.retriesUsed)));
-					}
-
-					// Time range
-					lines.push(...renderTimeRangeLines(earliest, latest));
-
-					// Event type breakdown
-					const typeEntries = Object.entries(byType).sort((a, b) => b[1] - a[1]);
-					lines.push(
-						...renderCountSection("Event Types", typeEntries, (t) => t.replace(/_/g, " ")),
-					);
-
-					// Agent breakdown
-					const agentEntries = Object.entries(byAgent).sort((a, b) => b[1] - a[1]);
-					lines.push(...renderCountSection("Agents", agentEntries));
-
-					// Top tools
-					lines.push(...renderTopToolsSection(renderedTopTools, byTool));
-
-					// Sessions
-					lines.push(...renderSessionsLines(sessions.size, progress.summaryOmissions));
-					lines.push(...renderSummaryTruncation(progress.summaryOmissions));
-
-					lines.push(...renderErrorsFooterLines(progress.errors));
-					return lines.join("\n");
-				},
-			},
-		);
+		showSyncResult(mode, ctx, run.progress);
 	} catch (err) {
 		outputError(mode, err instanceof Error ? err.message : String(err));
 	}
+}
+
+function showUpToDate(mode: OutputMode): void {
+	output(mode, {}, {
+		json: () => ({ synced: 0, pending: 0, message: "Already up to date" }),
+		normal: formatUpToDate,
+	});
+}
+
+function showSyncPreview(mode: OutputMode, preview: SyncPreview, initialState: SyncState): void {
+	if (preview.events === 0) return showUpToDate(mode);
+	const batches = Math.ceil(preview.events / BATCH_SIZE);
+	output(mode, preview, {
+		json: () => ({ dry_run: true, pending_events: preview.events, batches, sync_state: initialState }),
+		normal: () => [
+			header("Sync (dry-run)"),
+			kvLine("Pending events", String(preview.events)),
+			kvLine("Batches needed", String(batches)),
+			kvLine("New offset", `${preview.newOffset} bytes`),
+			"",
+			c.dim("  Run 'interlinked sync' (without --dry-run) to push."),
+		].join("\n"),
+	});
+}
+
+function showSyncResult(mode: OutputMode, ctx: BoundedSyncContext, progress: SyncProgress): void {
+	if (progress.eventsTotal === 0 && progress.errors === 0) return showUpToDate(mode);
+	output(mode, progress, {
+		json: () => syncResultJson(ctx, progress),
+		normal: () => formatSyncResult(ctx, progress),
+	});
+}
+
+function syncResultJson({ serverUrl, workspaceId }: BoundedSyncContext, progress: SyncProgress) {
+	const { byType, byAgent, sessions, earliest, latest } = progress.summary;
+	return {
+		server_url: serverUrl,
+		workspace_id: workspaceId || null,
+		accepted: progress.accepted,
+		skipped: progress.skipped,
+		errors: progress.errors,
+		scrubbed: progress.scrubbed,
+		batches_sent: progress.batchesSent,
+		retries: progress.retriesUsed,
+		new_offset: progress.cursor,
+		breakdown: {
+			by_type: byType,
+			by_agent: byAgent,
+			top_tools: topTools(progress.summary),
+			sessions: sessions.size,
+		},
+		breakdown_complete: summaryIsComplete(progress.summaryOmissions),
+		summary_truncated: summaryTruncation(progress.summaryOmissions),
+		time_range: { earliest, latest },
+	};
+}
+
+function formatSyncResult({ serverUrl, workspaceId }: BoundedSyncContext, progress: SyncProgress): string {
+	const { byType, byAgent, byTool, sessions, earliest, latest } = progress.summary;
+	const lines: string[] = [];
+	lines.push(header("Sync Complete"));
+	lines.push(kvLine("Server", c.cyan(serverUrl)));
+	if (workspaceId) {
+		lines.push(kvLine("Workspace", c.cyan(workspaceId)));
+	}
+	lines.push(
+		kvLine(
+			"Events",
+			`${progress.eventsTotal} total (${c.green(String(progress.accepted))} new, ${progress.skipped} dedup)`,
+		),
+	);
+	if (progress.scrubbed > 0) {
+		lines.push(
+			kvLine(
+				"Scrubbed",
+				c.yellow(`${progress.scrubbed} events had secrets redacted`),
+			),
+		);
+	}
+	if (progress.errors > 0) {
+		lines.push(kvLine("Errors", c.red(String(progress.errors))));
+	}
+	lines.push(kvLine("Batches", String(progress.batchesSent)));
+	if (progress.retriesUsed > 0) {
+		lines.push(kvLine("Retries", String(progress.retriesUsed)));
+	}
+
+	// Time range
+	lines.push(...renderTimeRangeLines(earliest, latest));
+
+	// Event type breakdown
+	const typeEntries = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+	lines.push(
+		...renderCountSection("Event Types", typeEntries, (t) => t.replace(/_/g, " ")),
+	);
+
+	// Agent breakdown
+	const agentEntries = Object.entries(byAgent).sort((a, b) => b[1] - a[1]);
+	lines.push(...renderCountSection("Agents", agentEntries));
+
+	// Top tools
+	lines.push(...renderTopToolsSection(topTools(progress.summary), byTool));
+
+	// Sessions
+	lines.push(...renderSessionsLines(sessions.size, progress.summaryOmissions));
+	lines.push(...renderSummaryTruncation(progress.summaryOmissions));
+
+	lines.push(...renderErrorsFooterLines(progress.errors));
+	return lines.join("\n");
 }
 
 function renderTimeRangeLines(earliest: string | undefined, latest: string | undefined): string[] {

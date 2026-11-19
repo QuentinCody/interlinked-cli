@@ -6,7 +6,7 @@
 // and locate the package boundary a relative specifier crosses.
 
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 
 /**
@@ -61,23 +61,24 @@ function isProjectRootPackage(pkgPath: string): boolean {
 	return pkg !== null && Boolean(pkg.private || pkg.workspaces);
 }
 
-/**
- * Walk from the importing file's directory up one level per `..` segment,
- * returning the first non-project-root package.json directory crossed.
- */
-export function findCrossPackageBoundary(
-	filePath: string,
-	fileDir: string,
-	specifier: string,
-): string | null {
-	const steps = specifier.split("/").filter((s) => s === "..").length;
-	let dir = fileDir;
-	for (let i = 0; i < steps && i < 10; i++) {
-		dir = dirname(dir);
-		const pkgPath = join(dir, "package.json");
-		// A different package: only flag it when it is not the project root.
-		if (!existsSync(pkgPath) || dir === dirname(filePath)) continue;
-		if (!isProjectRootPackage(pkgPath)) return dir;
+function packageOwner(dir: string, cache: Map<string, string | null>): string | null {
+	const cached = cache.get(dir);
+	if (cached !== undefined) return cached;
+	const parent = dirname(dir);
+	const owner = existsSync(join(dir, "package.json")) ? dir : parent === dir ? null : packageOwner(parent, cache);
+	cache.set(dir, owner);
+	return owner;
+}
+
+/** A resolved relative edge crosses a boundary when its endpoints have different owners. */
+export function findCrossPackageBoundary(fromDir: string, toDir: string, cache = new Map<string, string | null>()): string | null {
+	const from = packageOwner(fromDir, cache);
+	const to = packageOwner(toDir, cache);
+	if (from === to) return null;
+	if (from !== null && to !== null) {
+		// Report the child when leaving it for its parent, otherwise the package entered.
+		return relative(to, from).split(sep)[0] === ".." ? to : from;
 	}
-	return null;
+	const boundary = from ?? to;
+	return boundary !== null && !isProjectRootPackage(join(boundary, "package.json")) ? boundary : null;
 }

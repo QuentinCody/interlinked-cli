@@ -37,16 +37,65 @@ export type VerificationSignal =
  *  Word-boundary anchored so `tsconfig` / `tsc-multi-watch` don't match. */
 const TYPECHECK_RE = /(?:^|[\s;&|])(?:tsc|tspc|ttsc)(?:\s|$|--)/;
 
+/** Start of a tool NAME used as a command word: not part of a longer word,
+ *  path, or option (`eslint.config`, `src/jest`, `--vitest`), unless reached
+ *  through a `node_modules/.bin/` prefix. */
+const TOOL_START = "(?<![\\w./-])(?:[\\w.~/-]*node_modules/\\.bin/)?";
+
+/** A tool name followed by `.word` is a file name (`ruff.toml`, `jest.config.ts`). */
+const TOOL_END = "(?!\\.\\w)";
+
+/** Commands that only read or search; a tool name after one is an argument. */
+const READ_COMMANDS: ReadonlySet<string> = new Set([
+	"rg", "grep", "egrep", "fgrep", "sed", "cat", "head", "tail", "ls", "wc", "find", "awk", "echo",
+]);
+
+const SEGMENT_SPLIT_RE = /"[^"]*"|'[^']*'|\|\||&&|[|;\n]/g;
+
+/** First word of a pipeline segment, skipping env assignments and `time`. */
+function segmentCommandWord(segment: string): string {
+	for (const word of segment.trim().split(/\s+/)) {
+		if (/^[A-Za-z_]\w*=/.test(word) || word === "time") continue;
+		return word;
+	}
+	return "";
+}
+
+/**
+ * Same-length copy of `cmd` with every pipeline segment that starts with a
+ * read/search command blanked, so a tool name that is only an argument
+ * (`rg jest src`, `ls eslint.config.*`) is not read as a tool run. Spans in
+ * the result line up with spans in `cmd`.
+ */
+export function blankReadSegments(cmd: string): string {
+	let out = "";
+	let segStart = 0;
+	const flush = (end: number): void => {
+		const segment = cmd.slice(segStart, end);
+		out += READ_COMMANDS.has(segmentCommandWord(segment)) ? " ".repeat(segment.length) : segment;
+	};
+	for (const m of cmd.matchAll(SEGMENT_SPLIT_RE)) {
+		if (m[0].length > 0 && (m[0][0] === '"' || m[0][0] === "'")) continue;
+		flush(m.index);
+		out += m[0];
+		segStart = m.index + m[0].length;
+	}
+	flush(cmd.length);
+	return out;
+}
+
 /** Test runners across JS/TS, Python, Rust, Go, Bun, Deno, plus the
  *  generic `npm/bun/pnpm/yarn run test` and `script test`. */
-const TEST_RE =
-	/\b(?:vitest|jest|mocha|tap|ava|pytest|nose2|tox|cargo\s+(?:test|nextest)|go\s+test|bun\s+test|deno\s+test|rspec|phpunit|gradle\s+test|mvn\s+test)\b|\b(?:npm|bun|pnpm|yarn)\s+(?:run\s+)?test\b/;
+const TEST_RE = new RegExp(
+	`${TOOL_START}(?:vitest|jest|mocha|tap|ava|pytest|nose2|tox|cargo\\s+(?:test|nextest)|go\\s+test|bun\\s+test|deno\\s+test|rspec|phpunit|gradle\\s+test|mvn\\s+test|node(?:\\s+--?[\\w=.:/-]+(?:\\s+[^\\s;|&-][^\\s;|&]*)?)*?\\s+--test)\\b${TOOL_END}|\\b(?:npm|bun|pnpm|yarn)\\s+(?:run\\s+)?test\\b`,
+);
 
 /** Linters / formatters that double as correctness signals.
  *  `cargo check` is treated as a typecheck above? Actually it's neither —
  *  but it IS a correctness gate. Treat as lint for simplicity. */
-const LINT_RE =
-	/\b(?:biome(?:\s+(?:check|lint|ci))?|eslint|oxlint|ruff|clippy|tslint|stylelint|cargo\s+check|cargo\s+clippy)\b|\b(?:npm|bun|pnpm|yarn)\s+run\s+lint\b/;
+const LINT_RE = new RegExp(
+	`${TOOL_START}(?:biome(?:\\s+(?:check|lint|ci))?|eslint|oxlint|ruff|clippy|tslint|stylelint|cargo\\s+check|cargo\\s+clippy)\\b${TOOL_END}|\\b(?:npm|bun|pnpm|yarn)\\s+run\\s+lint\\b`,
+);
 
 /** Project-wide build commands. Excludes `tsc --watch` (development) and
  *  `bun build <file>` (one-off compile) — those don't prove the full
@@ -89,7 +138,8 @@ const VERIFY_SUITE_RE =
  * doesn't get misclassified as just `tsc` because verify spawns tsc
  * internally — the suite signal is strictly more informative.
  */
-export function classifyVerificationCommand(cmd: string): VerificationSignal | null {
+export function classifyVerificationCommand(rawCmd: string): VerificationSignal | null {
+	const cmd = blankReadSegments(rawCmd);
 	if (VERIFY_SUITE_RE.test(cmd)) return "verify-suite";
 	if (TYPECHECK_RE.test(cmd)) return "typecheck";
 	if (TEST_RE.test(cmd)) return "test";
@@ -98,6 +148,34 @@ export function classifyVerificationCommand(cmd: string): VerificationSignal | n
 	if (BROWSER_CLI_RE.test(cmd)) return "browser";
 	if (DEV_SERVER_RE.test(cmd)) return "dev-server";
 	return null;
+}
+
+/** The pass/fail command kinds and the pattern that locates each one. */
+const KIND_PATTERNS: Partial<Record<VerificationSignal, RegExp>> = {
+	"verify-suite": new RegExp(VERIFY_SUITE_RE.source, "g"),
+	typecheck: new RegExp(TYPECHECK_RE.source, "g"),
+	test: new RegExp(TEST_RE.source, "g"),
+	lint: new RegExp(LINT_RE.source, "g"),
+	build: new RegExp(BUILD_RE.source, "g"),
+};
+
+/**
+ * Where the LAST invocation of one verification kind sits in `cmd`, or null.
+ * `test-outcome-evidence.ts` uses the span to decide if the shell's exit status
+ * belongs to that invocation. The kinds with no pass/fail meaning (`browser`,
+ * `dev-server`) have no pattern here and always give null.
+ */
+export function lastInvocationOfKind(
+	cmd: string,
+	kind: VerificationSignal,
+): { start: number; end: number } | null {
+	const pattern = KIND_PATTERNS[kind];
+	if (!pattern) return null;
+	let last: { start: number; end: number } | null = null;
+	for (const match of blankReadSegments(cmd).matchAll(pattern)) {
+		last = { start: match.index, end: match.index + match[0].length };
+	}
+	return last;
 }
 
 /**

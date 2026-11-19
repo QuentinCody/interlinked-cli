@@ -1,5 +1,5 @@
 import { readResourceBudget, resourceBudgetSnapshot, type ResourceBudget } from "./resource-budget.js";
-import { runProcessAsync } from "./check-engine/spawn-async.js";
+import { runProcessAsync, type RunProcessResult } from "./check-engine/spawn-async.js";
 import { elapsedMs, recordVerificationStage, stageFromEnvironment } from "./verification-stages.js";
 import { resolve } from "node:path";
 import { withProcessCancellation } from "./check-engine/process-cancellation.js";
@@ -82,6 +82,35 @@ function commandTimeout(argv: string[]): number | null {
     return timeout;
 }
 
+interface SupervisedRun {
+    argv: string[];
+    started: number;
+    wait_capacity_ms: number;
+    resourceBudget: ResourceBudget | undefined;
+    heapMb: number | undefined;
+}
+
+function recordManagedVerify(run: SupervisedRun, result: RunProcessResult, interrupted: boolean): void {
+    appendVerifyTiming(ledgerRoot(run.argv), { run_id: `process:${randomUUID()}`,
+        check: "managed_process_tree", duration_ms: elapsedMs(run.started), calls: 1,
+        status: interrupted ? "interrupted" : "complete", peak_rss_bytes: result.peakRssBytes ?? null,
+        rss_budget_bytes: run.resourceBudget?.maxRssBytes ?? null, reserve_bytes: run.resourceBudget?.reserveBytes ?? null,
+        heap_limit_mb: run.heapMb ?? null, exit_code: result.code });
+}
+
+function reportInterruptedCli(run: SupervisedRun, result: RunProcessResult): void {
+    const { argv, started, resourceBudget, heapMb, wait_capacity_ms } = run;
+    process.stderr.write(`[resources] ${result.resourceReason ?? "CLI interrupted"}; no verification verdict.\n`);
+    if (resourceBudget) process.stderr.write(`[resources] MEMORY: peak_rss_bytes=${result.peakRssBytes ?? "unavailable"} rss_budget_bytes=${resourceBudget.maxRssBytes} reserve_bytes=${resourceBudget.reserveBytes} heap_limit_mb=${heapMb}.\n`);
+    // The child may be killed before finishing telemetry; this outer row carries no passing check identity.
+    recordVerificationStage(ledgerRoot(argv), { stage: stageFromEnvironment("cli"), check: `cli:${argv[2]}`,
+        identity: null, status: "deferred", reused: false, reuse_denied_reason: "interrupted", wait_capacity_ms, exec_ms: elapsedMs(started),
+        ...(resourceBudget ? { rss_budget_bytes: resourceBudget.maxRssBytes } : {}),
+        ...(heapMb === undefined ? {} : { heap_limit_mb: heapMb }),
+        ...(result.peakRssBytes === undefined ? {} : { peak_rss_bytes: result.peakRssBytes }),
+    });
+}
+
 async function runSupervisedCli(argv: string[], signal: AbortSignal, resourceBudget: ResourceBudget | undefined, timeout: number | null, wait_capacity_ms: number): Promise<void> {
     const heapMb = resourceBudget
         ? boundedNodeHeap([process.env.NODE_OPTIONS ?? "", ...process.execArgv].join(" "), Math.min(1536, Math.floor(resourceBudget.maxRssBytes / 1024 ** 2 / 2)))
@@ -98,24 +127,13 @@ async function runSupervisedCli(argv: string[], signal: AbortSignal, resourceBud
         ...(argv[2] === "verify" ? { reapDescendantGroups: true } : {}),
         env: { [SUPERVISOR]: String(process.pid), GOMAXPROCS: "2", UV_THREADPOOL_SIZE: "2" },
     });
-    process.exitCode = result.code ?? 75;
-    if (argv[2] === "verify") appendVerifyTiming(ledgerRoot(argv), { run_id: `process:${randomUUID()}`,
-        check: "managed_process_tree", duration_ms: elapsedMs(started), calls: 1,
-        status: result.killed || result.timedOut || result.code === null ? "interrupted" : "complete",
-        peak_rss_bytes: result.peakRssBytes ?? null, rss_budget_bytes: resourceBudget?.maxRssBytes ?? null,
-        reserve_bytes: resourceBudget?.reserveBytes ?? null, heap_limit_mb: heapMb ?? null, exit_code: result.code });
+    const run = { argv, started, wait_capacity_ms, resourceBudget, heapMb };
     // An external signal can leave code null without setting a local cancellation flag.
-    if (result.code !== null && !result.killed && !result.timedOut && !signal.aborted) return;
-    process.stderr.write(`[resources] ${result.resourceReason ?? "CLI interrupted"}; no verification verdict.\n`);
-    if (resourceBudget) process.stderr.write(`[resources] MEMORY: peak_rss_bytes=${result.peakRssBytes ?? "unavailable"} rss_budget_bytes=${resourceBudget.maxRssBytes} reserve_bytes=${resourceBudget.reserveBytes} heap_limit_mb=${heapMb}.\n`);
-    // The child may be killed before finishing telemetry; this outer row carries no passing check identity.
-    recordVerificationStage(ledgerRoot(argv), { stage: stageFromEnvironment("cli"), check: `cli:${argv[2]}`,
-        identity: null, status: "deferred", reused: false, reuse_denied_reason: "interrupted", wait_capacity_ms, exec_ms: elapsedMs(started),
-        ...(resourceBudget ? { rss_budget_bytes: resourceBudget.maxRssBytes } : {}),
-        ...(heapMb === undefined ? {} : { heap_limit_mb: heapMb }),
-        ...(result.peakRssBytes === undefined ? {} : { peak_rss_bytes: result.peakRssBytes }),
-    });
-    process.exitCode = 75;
+    const exitCode = result.killed || result.timedOut || signal.aborted ? null : result.code;
+    const interrupted = exitCode === null;
+    process.exitCode = exitCode ?? 75;
+    if (argv[2] === "verify") recordManagedVerify(run, result, interrupted);
+    if (interrupted) reportInterruptedCli(run, result);
 }
 
 async function admitCli(argv: string[], signal: AbortSignal): Promise<void> {

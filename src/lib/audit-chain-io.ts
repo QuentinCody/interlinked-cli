@@ -78,12 +78,50 @@ class SegmentReadError extends ArchiveEvidenceError {
 
 function* iterateBufferLines(buffer: Buffer): Generator<string> {
 	let start = 0;
-	for (let index = 0; index < buffer.length; index++) {
-		if (buffer[index] !== 0x0a) continue;
+	for (let index = buffer.indexOf(0x0a); index !== -1; index = buffer.indexOf(0x0a, start)) {
 		yield buffer.toString("utf-8", start, index);
 		start = index + 1;
 	}
 	if (start < buffer.length) yield buffer.toString("utf-8", start);
+}
+
+/** Scan each incoming byte once. Only a line spanning chunks needs owned storage. */
+class AuditLineReader {
+	private carry = Buffer.alloc(0);
+	private length = 0;
+
+	private append(piece: Buffer): void {
+		const needed = this.length + piece.length;
+		assertAuditLineLength(needed);
+		if (needed > this.carry.length) {
+			const capacity = Math.min(MAX_AUDIT_LINE_BYTES, Math.max(needed, this.carry.length * 2));
+			const next = Buffer.allocUnsafe(capacity);
+			this.carry.copy(next, 0, 0, this.length);
+			this.carry = next;
+		}
+		piece.copy(this.carry, this.length);
+		this.length = needed;
+	}
+
+	*lines(chunk: Buffer): Generator<string> {
+		let start = 0;
+		for (let end = chunk.indexOf(0x0a); end !== -1; end = chunk.indexOf(0x0a, start)) {
+			if (this.length === 0) {
+				assertAuditLineLength(end - start);
+				yield chunk.toString("utf8", start, end);
+			} else {
+				this.append(chunk.subarray(start, end));
+				yield this.carry.toString("utf8", 0, this.length);
+				this.length = 0;
+			}
+			start = end + 1;
+		}
+		if (start < chunk.length) this.append(chunk.subarray(start));
+	}
+
+	*finalLine(): Generator<string> {
+		if (this.length > 0) yield this.carry.toString("utf8", 0, this.length);
+	}
 }
 
 /** Stream a file's lines via bounded chunk reads. */
@@ -94,22 +132,13 @@ export function* iterateFileLines(
 	const fd = openSync(path, "r");
 	try {
 		const chunk = Buffer.allocUnsafe(chunkBytes);
-		let carry = Buffer.alloc(0);
+		const reader = new AuditLineReader();
 		for (;;) {
 			const read = readSync(fd, chunk, 0, chunk.length, null);
 			if (read <= 0) break;
-			const data = Buffer.concat([carry, chunk.subarray(0, read)]);
-			let start = 0;
-			for (let index = 0; index < data.length; index++) {
-				if (data[index] !== 0x0a) continue;
-				assertAuditLineLength(index - start);
-				yield data.toString("utf-8", start, index);
-				start = index + 1;
-			}
-			carry = data.subarray(start);
-			assertAuditLineLength(carry.length);
+			yield* reader.lines(chunk.subarray(0, read));
 		}
-		if (carry.length > 0) yield carry.toString("utf-8");
+		yield* reader.finalLine();
 	} finally {
 		closeSync(fd);
 	}
@@ -179,21 +208,12 @@ function* iterateArchivedAuditLines(cwd: string): Generator<string> {
 async function* iterateReadableLines(
 	readable: AsyncIterable<Buffer | string>,
 ): AsyncGenerator<string> {
-	let carry = Buffer.alloc(0);
+	const reader = new AuditLineReader();
 	for await (const value of readable) {
 		const chunk = typeof value === "string" ? Buffer.from(value) : value;
-		const data = carry.length === 0 ? chunk : Buffer.concat([carry, chunk]);
-		let start = 0;
-		for (let index = 0; index < data.length; index++) {
-			if (data[index] !== 0x0a) continue;
-			assertAuditLineLength(index - start);
-			yield data.toString("utf-8", start, index);
-			start = index + 1;
-		}
-		carry = Buffer.from(data.subarray(start));
-		assertAuditLineLength(carry.length);
+		yield* reader.lines(chunk);
 	}
-	if (carry.length > 0) yield carry.toString("utf-8");
+	yield* reader.finalLine();
 }
 
 async function* iterateGzipFileLines(path: string): AsyncGenerator<string> {

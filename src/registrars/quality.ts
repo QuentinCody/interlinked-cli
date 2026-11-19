@@ -14,7 +14,7 @@ import { registerTestsCommands } from "./tests.js";
 const VERIFY_DESCRIPTION =
 	"Run the default high-signal external catalog plus diff-safe inline checks. Target can be a local path, GitHub URL, or any git remote URL.";
 const VERIFY_ONLY_DESCRIPTION =
-	"Run one named external check (for example: tsc, biome, oxlint, eslint, semgrep, gitleaks, knip, docs-check, sca)";
+	"Run one named external check (e.g. tsc, biome, gitleaks, sca). Semgrep requires --only semgrep.";
 
 function parseVerifyTimeout(value: string): number {
 	const milliseconds = Number(value);
@@ -101,7 +101,7 @@ function registerVerifyCommand(program: Command): void {
 		.option("--subdir <path>", "Only scan a subdirectory (useful for monorepos)")
 		.option(
 			"--skip <checks>",
-			"Skip specific checks (comma-separated: semgrep,knip,complexity,silent_catches,...)",
+			"Skip specific checks (comma-separated: gitleaks,knip,complexity,silent_catches,...)",
 		)
 		.option("--suppress <entries...>", "Suppress a finding: file:check or file:check:reason")
 		.option("--show-suppressions", "List all active suppressions")

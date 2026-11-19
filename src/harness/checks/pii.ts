@@ -1,6 +1,7 @@
 // PII detection + mixed error strategy check.
 // Extracted from generic-checks.ts.
 
+import { rawBraceDelta } from "./shared-text-utils-brace-scan.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	getExtension,
@@ -174,16 +175,6 @@ function startsFunctionBody(line: string): boolean {
 	return MIXED_STRATEGY_FUNC_START.test(line) && line.includes("{");
 }
 
-/** Net brace-depth change contributed by a single (comment-stripped) line. */
-function braceDeltaForLine(line: string): number {
-	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		if (ch === "}") delta--;
-	}
-	return delta;
-}
-
 /**
  * Records a throw / return-error occurrence on `line`, but only within the
  * function's own body (depth 1) or one level in — if/else/try blocks at
@@ -261,7 +252,7 @@ export function checkMixedErrorStrategy(content: string, filePath: string): Inli
 			returnErrorLines = [];
 		}
 
-		funcDepth += braceDeltaForLine(line);
+		funcDepth += rawBraceDelta(line);
 		trackErrorExitAtDepth(line, i, funcDepth, throwLines, returnErrorLines);
 
 		// Function ended

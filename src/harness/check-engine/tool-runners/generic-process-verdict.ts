@@ -2,9 +2,9 @@ import { isJsonObject } from "../../../lib/json-types.js";
 import { parseSemgrepJson } from "../output-parsers-semgrep.js";
 import { parseGitleaksJson } from "../output-parsers.js";
 import type { RunProcessResult } from "../spawn-async.js";
-import { PartialToolReportError } from "../tool-errors.js";
+import { PartialToolReportError, ToolDeadlineError } from "../tool-errors.js";
 import type { CheckResult } from "../types.js";
-import { requireFileProcessVerdict } from "./file-process-verdict.js";
+import { incompleteProcessReason, requireFileProcessVerdict } from "./file-process-verdict.js";
 
 function validGitleaksRow(row: unknown): boolean {
 	return isJsonObject(row) && typeof row.File === "string" && row.File.length > 0
@@ -62,4 +62,26 @@ export function requireGenericProcessVerdict(tool: string, result: RunProcessRes
 	catch (error) {
 		throw new PartialToolReportError(error instanceof Error ? error.message : String(error), results, { cause: error });
 	}
+}
+
+/** Retain readable positives while reporting the cause of an incomplete capture. */
+export function readGenericProcessReport(tool: string, result: RunProcessResult, parse: (output: string) => CheckResult[]): CheckResult[] {
+	const incomplete = incompleteProcessReason(result);
+	let findings: CheckResult[];
+	try { findings = parse(result.stdout); }
+	catch (error) {
+		findings = error instanceof PartialToolReportError ? error.results : [];
+		if (!incomplete) {
+			if (result.code !== 0 && result.code !== 1 && error instanceof PartialToolReportError) {
+				throw new PartialToolReportError(`${tool}: process exited ${result.code}; ${error.message}`, findings, { cause: error });
+			}
+			throw error;
+		}
+	}
+	if (incomplete) {
+		const Failure = result.timedOut ? ToolDeadlineError : PartialToolReportError;
+		throw new Failure(`${tool}: ${incomplete}; no check verdict`, findings);
+	}
+	requireGenericProcessVerdict(tool, result, findings);
+	return findings;
 }

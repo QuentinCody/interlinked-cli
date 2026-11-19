@@ -127,7 +127,7 @@ vi.mock("../harness/suppressions.js", () => ({
 
 // --- verify/advisory -------------------------------------------------------
 const getEffectiveSkipChecksMock = vi.fn<
-	(skip: string | undefined, all: boolean | undefined) => Set<string>
+	typeof import("./verify/advisory-skips.js").getEffectiveSkipChecks
 >(() => new Set<string>());
 const getSkipToolsMock = vi.fn<(skip: Set<string>) => string[]>(() => []);
 vi.mock("./verify/advisory.js", () => ({
@@ -772,11 +772,12 @@ describe("runVerify — streaming output path", () => {
 
 	it("opts a human --only advisory tool in while retaining explicit exclusions", async () => {
 		const { verifyCommand } = await importVerify();
-		getEffectiveSkipChecksMock.mockImplementation((skip, all) => new Set(all ? skip?.split(",") : ["knip"]));
+		const selection = await vi.importActual<typeof import("./verify/advisory-skips.js")>("./verify/advisory-skips.js");
+		getEffectiveSkipChecksMock.mockImplementation(selection.getEffectiveSkipChecks);
 		try {
 			await verifyCommand({ cwd: "/repo", only: "knip", skip: "semgrep" });
 			expect(streamExternalToolsMock.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ skipChecks: new Set(["semgrep"]) }));
-			expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith("semgrep", true);
+			expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith("semgrep", undefined, "knip");
 		} finally {
 			getEffectiveSkipChecksMock.mockImplementation(() => new Set());
 		}
@@ -787,7 +788,7 @@ describe("runVerify — streaming output path", () => {
 		await verifyCommand({ cwd: "/repo" });
 
 		// skip-check resolution + propagation
-		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith(undefined, false);
+		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith(undefined, undefined, undefined);
 		expect(setActiveSkipChecksMock).toHaveBeenCalledTimes(1);
 
 		// header + the four project-level streams
@@ -836,7 +837,7 @@ describe("runVerify — streaming output path", () => {
 	it("emits all-checks mode in the run record under --all-checks", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo", allChecks: true });
-		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith(undefined, true);
+		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith(undefined, true, undefined);
 		const runArg = parseWire(emitVerifyRunMock.mock.calls[0]?.[1], wireObject({ "mode": wireString }), "test JSON value");
 		expect(runArg.mode).toBe("all-checks");
 	});
@@ -844,7 +845,7 @@ describe("runVerify — streaming output path", () => {
 	it("forwards the --skip arg into skip-check resolution", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo", skip: "complexity,magic_number" });
-		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith("complexity,magic_number", false);
+		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith("complexity,magic_number", undefined, undefined);
 	});
 
 	it("runs the suggestions summary when --suggestions is set", async () => {
@@ -1070,7 +1071,7 @@ describe("runVerifyBatchJson — json output path", () => {
 	it("treats an explicitly requested advisory tool as opted in", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo", json: true, only: "knip" });
-		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith(undefined, true);
+		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith(undefined, undefined, "knip");
 		expect(runChecksMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ tools: ["knip"] }));
 	});
 

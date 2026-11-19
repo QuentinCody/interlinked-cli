@@ -6,15 +6,27 @@ import type { EngineSpec, RelationMeasurement, RelationJob, RelationPacket, Rela
 import { makeRelationPacket } from "./relation-packet.js";
 import { relationRequest } from "../../lib/decision-metrics/relation-engines.js";
 
+function engineTransport(r: ReturnType<typeof record>): Pick<EngineSpec, "backend" | "command" | "endpoint" | "effort"> {
+    const backend = r.backend, effort = r.effort ?? null;
+    if (backend !== "ollama" && backend !== "typesafe" && backend !== "haiku") throw new Error("unknown relation backend");
+    if (effort !== "low" && effort !== null) throw new Error("invalid relation engine effort");
+    const command = r.command === null ? null : text(r.command);
+    const endpoint = r.endpoint === null ? null : text(r.endpoint);
+    if (endpoint !== null) loopbackUrl(endpoint, backend === "typesafe");
+    if (backend === "haiku" && (effort !== "low" || !command)) throw new Error("H requires a command and low effort");
+    if (backend === "ollama" && (!command || !endpoint)) throw new Error("D requires ThinkThen and a loopback endpoint");
+    return { backend, command, endpoint, effort };
+}
+
 export function parseEngine(value: unknown): EngineSpec {
     const r = record(value);
-    if (!["ollama", "typesafe", "haiku"].includes(String(r.backend))) throw new Error("unknown relation backend");
-    if (r.command !== null) text(r.command);
-    if (r.endpoint !== null) loopbackUrl(text(r.endpoint), r.backend === "typesafe");
-    if (r.backend === "haiku" && (r.effort !== "low" || !r.command)) throw new Error("H requires a command and low effort");
-    if (r.backend === "ollama" && (!r.command || !r.endpoint)) throw new Error("D requires ThinkThen and a loopback endpoint");
+    const transport = engineTransport(r);
     if (typeof r.maxUsd !== "number" || !Number.isFinite(r.maxUsd) || r.maxUsd <= 0 || r.maxUsd > 100) throw new Error("invalid spend cap");
-    return { id: text(r.id), backend: r.backend as EngineSpec["backend"], model: text(r.model), identity: text(r.identity), command: r.command as string | null, endpoint: r.endpoint as string | null, effort: r.effort === "low" ? "low" : null, maxCalls: integer(r.maxCalls, 1, 10000), maxUsd: r.maxUsd, timeoutMs: integer(r.timeoutMs, 100, 300000), band: parseBand(r.band) };
+    return {
+        id: text(r.id), model: text(r.model), identity: text(r.identity), ...transport,
+        maxCalls: integer(r.maxCalls, 1, 10000), maxUsd: r.maxUsd,
+        timeoutMs: integer(r.timeoutMs, 100, 300000), band: parseBand(r.band),
+    };
 }
 export function validateSnapshot(snapshot: RelationSnapshot): void {
     const { digest, ...body } = snapshot;
@@ -88,18 +100,30 @@ export function parseRelationRun(value: unknown): RelationRun {
     return run;
 }
 
-function validateMeasurementEvidence(m: RelationMeasurement, job: RelationJob, packet: RelationPacket) {
-    const contract = RELATION_CONTRACTS[m.recordKind];
+function validateMeasurementEvidence(m: RelationMeasurement, job: RelationJob, packet: RelationPacket): void {
+    const contractHash = hash(RELATION_CONTRACTS[m.recordKind]);
     if (m.snapshotDigest !== undefined && m.snapshotDigest !== job.snapshot.digest) throw new Error("measurement snapshot mismatch");
-    if (m.contractHash !== hash(contract) || m.engineIdentity !== job.engine.identity || m.requestedModel !== job.engine.model || m.fingerprint !== hash({ packet: packet.evidenceHash, request: relationRequest(packet), contractHash: hash(contract), engine: job.engine, ...(m.snapshotDigest ? { snapshot: m.snapshotDigest } : {}) })) throw new Error("measurement configuration/fingerprint mismatch");
-    for (const amount of [m.calls, m.durationMs, m.costUsd, m.inputTokens]) if (amount !== null && (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0)) throw new Error("invalid measurement accounting");
+    const fingerprint = hash({ packet: packet.evidenceHash, request: relationRequest(packet), contractHash,
+        engine: job.engine, ...(m.snapshotDigest ? { snapshot: m.snapshotDigest } : {}) });
+    if (m.contractHash !== contractHash || m.engineIdentity !== job.engine.identity || m.requestedModel !== job.engine.model || m.fingerprint !== fingerprint) throw new Error("measurement configuration/fingerprint mismatch");
+    validateMeasurementAccounting(m);
+    validateMeasurementAnswer(m, job.engine);
+}
+
+function validateMeasurementAccounting(m: RelationMeasurement): void {
+    const amounts = [m.calls, m.durationMs, m.costUsd, m.inputTokens];
+    if (amounts.some(amount => amount !== null && (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0))) throw new Error("invalid measurement accounting");
     integer(m.calls, 0, 10000);
     if (typeof m.cached !== "boolean" || !["backend_distribution", "self_report", "unavailable"].includes(m.probabilitySource)) throw new Error("invalid measurement provenance");
-    if (m.raw) parseAnswer(m.raw, RELATION_CONTRACTS[m.recordKind]);
-    if (!["failed", "unassessed"].includes(m.status)) {
-        if (!m.raw) throw new Error("assessed measurement requires raw answer");
-        const interpreted = interpretAnswer(contract, m.raw, job.engine.band);
-        if (m.status !== interpreted.status || m.choice !== (typeof interpreted.value === "string" ? interpreted.value : null)) throw new Error("interpretation differs from retained probabilities/band");
-        if (job.engine.backend !== "ollama" && m.servedModel !== job.engine.model) throw new Error("served model differs from pinned release");
-    }
+}
+
+function validateMeasurementAnswer(m: RelationMeasurement, engine: EngineSpec): void {
+    const contract = RELATION_CONTRACTS[m.recordKind];
+    if (m.raw) parseAnswer(m.raw, contract);
+    if (m.status === "failed" || m.status === "unassessed") return;
+    if (!m.raw) throw new Error("assessed measurement requires raw answer");
+    const interpreted = interpretAnswer(contract, m.raw, engine.band);
+    const choice = typeof interpreted.value === "string" ? interpreted.value : null;
+    if (m.status !== interpreted.status || m.choice !== choice) throw new Error("interpretation differs from retained probabilities/band");
+    if (engine.backend !== "ollama" && m.servedModel !== engine.model) throw new Error("served model differs from pinned release");
 }

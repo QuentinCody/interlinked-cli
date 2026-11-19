@@ -52,6 +52,21 @@ describe("mcpStdioCommand", () => {
         ).rejects.toThrow('invalid --inline-limit "-1"; expected a non-negative integer');
     });
 
+    it.each(["8bytes", "1.5", "1e3", "0x10", "", "9007199254740993"])(
+        "rejects invalid byte count %j before launching the server", async (inlineLimit) => {
+            await expect(mcpStdioCommand("node", ["server.js"], { server: "filesystem", inlineLimit }))
+                .rejects.toThrow("invalid --inline-limit");
+            expect(mockRunMcpStdioProxy).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([["0", 0], ["002048", 2048], ["9007199254740991", Number.MAX_SAFE_INTEGER]] as const)(
+        "passes the exact byte count %s to the recorder", async (inlineLimit, expected) => {
+            await mcpStdioCommand("node", ["server.js"], { server: "filesystem", inlineLimit });
+            expect(mockRunMcpStdioProxy).toHaveBeenCalledWith(expect.objectContaining({ inlineLimitBytes: expected }));
+        },
+    );
+
     it("writes the proxy's failure message to stderr and sets a non-zero exit code", async () => {
         mockRunMcpStdioProxy.mockRejectedValue(new Error("stdio proxy handshake failed"));
         const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);

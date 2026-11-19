@@ -373,13 +373,13 @@ export const AGENT_CLARITY_ENTRIES: CheckRegistration[] = [
 		phase: "post",
 		name: "Many Optional Params",
 		description:
-			"Detects function signatures with 3+ optional parameters (`?:` TS markers or `=` defaults combined). Each optional doubles the call-shape surface — 3 optionals = 8 untested call shapes, and a default change becomes a silent semantic API break.",
+			"Detects function signatures with 3+ optional parameters (TypeScript optional markers or default values). The signature alone cannot establish which defaults callers use or which combinations have tests.",
 		tier: 2,
 		determinism: "heuristic",
 		severity: "warning",
 		pipeline: "agent_safety",
 		fix_instruction:
-			"Replace the optional positional params with a single options-object parameter so the call shapes collapse into one and defaults are visible at the schema level: `function build(name: string, opts: { cache?: boolean; retries?: number; timeout?: number } = {})`. Cold readers see every knob in one place, and adding a new option doesn't reorder or expand the signature.",
+			"Inspect callers and tests for each optional input. Preserve public contracts and meaningful overrides. Remove a private override when callers only use the default, preserving its evaluation. Named options can clarify the settings callers actually use.",
 		fn: checkManyOptionalParams,
 		resultsPropName: "manyOptionalParams",
 	},

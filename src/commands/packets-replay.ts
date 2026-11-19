@@ -23,7 +23,7 @@ import { matchesTrigger } from "../harness/packets/trigger.js";
 import { readWindowSources, turnWindows } from "../harness/packets/window-source.js";
 import { loadRules } from "../harness/rules-loader.js";
 import type { GuardRulesConfig, HarnessEvent } from "../harness/types.js";
-import { DEFAULT_TAIL_MB, loadPacketFileOrNull, readLedger } from "./packets.js";
+import { DEFAULT_TAIL_MB, loadPacketFileOrNull, readLedger } from "./packets-read.js";
 
 export interface PacketsReplayOpts {
 	/** Newest N sessions of the collection log to replay. */

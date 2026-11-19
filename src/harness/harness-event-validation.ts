@@ -8,7 +8,7 @@ const isFileEffect = wireObject<WorkspaceFileEffect>({
 	before_sha256: wireNullable(wireString), after_sha256: wireNullable(wireString),
 	before_mode: wireAbsentOptional(wireNullable(wireNumber)), after_mode: wireAbsentOptional(wireNullable(wireNumber)),
 	attribution: wireAbsentOptional(wireLiteral("declared-target", "observed-in-window", "shadow")),
-	shadow_reason: wireAbsentOptional(wireLiteral("read-only-tool", "not-declared-target", "in-flight-target-of-other-actor", "attributed-to-other-actor", "changed-before-call")),
+	shadow_reason: wireAbsentOptional(wireLiteral("read-only-tool", "read-only-command", "not-declared-target", "in-flight-target-of-other-actor", "attributed-to-other-actor", "changed-before-call")),
 });
 const isChangeSet = wireObject<WorkspaceChangeSet>({
 	source: wireLiteral("filesystem-observation"), complete: wireBoolean,

@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { checkActions } from "./check-actions.js";
 
 describe("runtime and verify action projection", () => {
+	it("honors producer identity precedence and retains the suggested fix on unavailable rows", () => {
+		const result = checkActions([
+			{ check: "chosen", name: "alternate", tool: "fallback", message: "pending", status: "not_measured", fix: "Restore input", policyHash: "captured" },
+			{ check: 4, name: "alternate", tool: "fallback", message: "observed" },
+			{ check: "", name: "alternate", message: "invalid explicit identity" },
+		], "override");
+		expect(result.projection).toEqual({ supplied: 3, accepted: 2, rejected: 1 });
+		const evidence = result.actions.flatMap(action => action.evidence);
+		expect(evidence.map(row => row.check).sort()).toEqual(["alternate", "chosen"]);
+		expect(evidence.find(row => row.check === "chosen")).toMatchObject({ classification: "evidence_gap", nextStep: "Restore input", policyHash: "override" });
+	});
+
 	it("preserves every diagnostic without inferring a defect from severity alone", () => {
 		const result = checkActions([
 			{ check: "floating_promises", file: "index.ts", line: 4, message: "Inspect this unhandled result" },

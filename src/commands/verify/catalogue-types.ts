@@ -10,7 +10,16 @@ export interface CatalogueResult {
     findings: CatalogueFinding[];
     examined: number;
     unavailable: number;
+    unavailable_inputs?: CatalogueInputGap[];
+    /** Inputs excluded by the check's documented scope. */
+    out_of_scope?: number;
     durationMs: number;
+}
+export interface CatalogueInputGap {
+    file: string;
+    reason: string;
+    line?: number;
+    key?: string;
 }
 export const VERIFY_ADVISORY_CATALOGUE = [
     { id: "readme_command_drift", phase: "verify", description: "Documented CLI commands or flags absent from the current help tree" },

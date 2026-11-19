@@ -21,7 +21,6 @@ import type {
 } from "../../harness/check-engine/types.js";
 import { nonNull } from "../../lib/non-null.js";
 import { withProcessCancellation } from "../../harness/check-engine/process-cancellation.js";
-vi.mock("../../harness/check-engine/tool-applicability.js", async original => ({ ...await original<typeof import("../../harness/check-engine/tool-applicability.js")>(), projectToolInputMissing: () => false }));
 // This suite owns streaming scheduling and rendering. Preserve its programmable
 // process fixture behind the new dedicated audit boundary; backend contracts
 // and genuine unavailable outcomes live in dependency-audit.test.ts.
@@ -85,6 +84,7 @@ vi.mock("../../harness/check-engine/tool-runners/biome-process-verdict.js", () =
 // real non-empty array because the parallel path indexes it modulo length.
 interface RunArgs {
 	cmd: string[];
+	run?: () => Promise<unknown[]>;
 	cwd?: string;
 	timeoutMs?: number;
 	parseOutput: (output: string, exitCode: number | null) => unknown[];
@@ -194,6 +194,7 @@ function fakeEngine(ids: string[], probeErrors: Partial<Record<ToolAvailability[
 
 interface RunOpts {
 	available: string[];
+	cwd?: string;
 	only?: string;
 	toolTimeout?: number;
 	skip?: string[];
@@ -215,7 +216,7 @@ async function run(opts: RunOpts): Promise<{
 	const flagged = new Set<string>();
 	const p = streamExternalTools({
 		engine: fakeEngine(opts.available, opts.probeErrors),
-		cwd: "/proj",
+		cwd: opts.cwd ?? "/proj",
 		opts: { ...(opts.only !== undefined ? { only: opts.only } : {}), ...(opts.toolTimeout !== undefined ? { toolTimeout: opts.toolTimeout } : {}) },
 		skipChecks: new Set(opts.skip ?? []),
 		summary,
@@ -551,22 +552,20 @@ describe("streamExternalTools — parseToolOutput status short-circuits", () => 
 		expect(summary[0]).toMatchObject({ label: "1 eslint issues" });
 	});
 
-	it("tseslint-types non-zero status dispatches to parseEslintJson tagged 'tseslint-types' (not the bare eslint arrow)", async () => {
-		// tseslint-types shares the same npx-verb runner key as "eslint"
-		// ("npx eslint --config ...") — availability is scoped to
-		// tseslint-types alone so the shared runnerScript.eslint entry can
-		// only be reached through the tseslint-types dispatch arrow.
-		runnerScript.eslint = { output: "typed-out", status: 1 };
-		parserReturn = [result({ tool: "tseslint-types", file: "t.ts", message: "no-unnecessary-condition" })];
+	it("tseslint-types streams findings from its dedicated typed runner", async () => {
+		const generic = await import("../../harness/check-engine/tool-runners/generic.js");
+		const typed = vi.spyOn(generic, "runTypedEslintForeground").mockResolvedValue([result({ tool: "tseslint-types", file: "t.ts", message: "no-unnecessary-condition" })]);
+		runToolWithSpinner.mockImplementationOnce(async args => ({ items: await nonNull(args.run)(), elapsedMs: "0.1s" }));
 		const { summary } = await run({ available: ["tseslint-types"], skip: ["sca", "dep-audit"] });
-		expect(parseEslintJson).toHaveBeenCalledWith("typed-out", "tseslint-types");
+		expect(typed).toHaveBeenCalledWith({ scope: { projectRoot: "/proj", mode: "project" }, timeoutMs: 0, resourcePolicy: "foreground-verify" });
+		typed.mockRestore();
 		expect(summary[0]).toMatchObject({ label: "1 tseslint-types (typed inert code) type-proven inert constructs" });
 	});
 
 	it("docs-check non-zero status dispatches to parseDocsCheckOutput", async () => {
 		runnerScript["docs-check"] = { output: "drift!", status: 1 };
 		parserReturn = [result({ file: "README.md", message: "gen marker drift" })];
-		const { summary } = await run({ available: ["docs-check"], skip: ["sca", "dep-audit"] });
+		const { summary } = await run({ cwd: process.cwd(), available: ["docs-check"], skip: ["sca", "dep-audit"] });
 		expect(parseDocsCheckOutput).toHaveBeenCalledWith("drift!");
 		expect(summary[0]).toMatchObject({ label: "1 docs:check (gen-marker drift) drifts" });
 	});
@@ -622,6 +621,13 @@ describe("streamExternalTools — tool selection", () => {
 		});
 		expect(out).toBe("");
 		expect(runToolWithSpinner).not.toHaveBeenCalled();
+	});
+
+	it("runs the same catalog alias as JSON and honors that alias in --skip", async () => {
+		await run({ available: ["tsc", "biome"], only: "biome_lint" });
+		expect(runToolWithSpinner.mock.calls.map(([tool]) => tool.cmd)).toEqual([expect.arrayContaining(["biome"])]);
+		await run({ available: ["biome"], only: "biome", skip: ["biome_lint"] });
+		expect(runToolWithSpinner).toHaveBeenCalledTimes(1);
 	});
 
 	it("skipChecks removes a tool from the available set", async () => {

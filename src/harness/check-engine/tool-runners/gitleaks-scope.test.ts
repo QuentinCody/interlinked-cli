@@ -38,6 +38,25 @@ it("retains ignored working inputs, tracked exceptions and safe directory groups
 	expect(scope.unavailable).toEqual([]);
 });
 
+it("excludes untracked dependency links and retains evidence gaps for tracked inputs", async () => {
+	execFileSync("git", ["init", "--quiet", root]);
+	put("node_modules/pkg/index.js");
+	put("replaced/node_modules/tracked.js");
+	put("sandbox/.env");
+	mkdirSync(join(root, "tracked"));
+	symlinkSync("../node_modules", join(root, "sandbox/node_modules"));
+	symlinkSync("../node_modules", join(root, "tracked/node_modules"));
+	execFileSync("git", ["-C", root, "add", "--force", "tracked/node_modules", "replaced/node_modules/tracked.js"]);
+	rmSync(join(root, "replaced/node_modules"), { recursive: true });
+	symlinkSync("../node_modules", join(root, "replaced/node_modules"));
+
+	const scope = await collectGitleaksScope(root, () => 0);
+	expect(scope.excluded).toContain("sandbox/node_modules");
+	expect(scope.files).toEqual(["sandbox/.env"]);
+	expect(scope.targets).toEqual(["sandbox/.env"]);
+	expect(scope.unavailable.map(input => input.file)).toEqual(["replaced/node_modules", "tracked/node_modules"]);
+});
+
 it("records symlinks as unsupported and never follows them", async () => {
 	put("source.txt"); symlinkSync("source.txt", join(root, "alias.txt"));
 	const scope = await collectGitleaksScope(root, () => 0);

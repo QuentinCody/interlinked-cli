@@ -71,42 +71,46 @@ export function attachSentenceCitations(rows: SpecSentence[], sources: Iterable<
     return unavailable;
 }
 
-function attachCitationLine(source: CitationSource, line: ReturnType<typeof citationLines>[number], byId: Map<string, SpecSentence[]>, byDoc: Map<string, SpecSentence[]>, add: (target: SpecSentence, citation: SentenceCitation) => void): void {
+type CitationLine = ReturnType<typeof citationLines>[number];
+type AddCitation = (target: SpecSentence, citation: SentenceCitation) => void;
+
+function attachCitationLine(source: CitationSource, line: CitationLine, byId: Map<string, SpecSentence[]>, byDoc: Map<string, SpecSentence[]>, add: AddCitation): void {
     const text = line.text.replace(/https?:\/\/[^\s)<>]+/g, value => " ".repeat(value.length));
+    const links = [...text.matchAll(LOCAL_REF)].map(match => ({
+        match, paths: localPaths(source.file, match[1]!).filter(path => byDoc.has(path)),
+    }));
+    const qualifiedDocs = new Set(links.flatMap(link => link.paths));
     for (const match of text.matchAll(ID_TOKEN)) {
-        let targets = byId.get(match[0]);
-        // Compact IDs recur across plans, sessions and test suites. A unique
-        // definition in this subset does not establish a global namespace.
-        if (/^(?:REQ|INV|R|B)\d+$/.test(match[0])) {
-            const documents = referencedSentenceDocuments(text, source, byDoc);
-            targets = targets?.filter(target => documents.has(target.doc));
-        }
-        if (targets?.length === 1) add(targets[0]!, { file: source.file, line: line.line, kind: line.kind, scope: "sentence", reference: match[0] });
+        const id = match[0], definitions = byId.get(id);
+        // Compact IDs have document-local meaning even when this subset contains just one definition.
+        const targets = /^(?:REQ|INV|R|B)\d+$/.test(id) ? definitions?.filter(row => qualifiedDocs.has(row.doc)) : definitions;
+        if (targets?.length === 1) add(targets[0]!, { file: source.file, line: line.line, kind: line.kind, scope: "sentence", reference: id });
     }
-    for (const match of text.matchAll(LOCAL_REF)) {
-        const path = match[1]!;
-        if (isAbsolute(path)) continue;
-        const candidates = [posix.normalize(posix.join(dirname(source.file), path)), posix.normalize(path)];
-        const doc = candidates.find(candidate => !candidate.startsWith("../") && byDoc.has(candidate));
-        if (!doc) continue;
-        let anchor: string | undefined;
-        try { anchor = match[2] ? decodeURIComponent(match[2]) : undefined; } catch { continue; }
-        if (!anchor && !/\b(?:fixes|plan)\b/i.test(text)) continue;
-        for (const row of byDoc.get(doc)!) {
-            const direct = anchor && (row.id === anchor || row.sentenceAnchors.includes(anchor));
-            if (anchor && !direct && !row.anchors.includes(anchor)) continue;
-            add(row, { file: source.file, line: line.line, kind: line.kind,
-                scope: direct ? "sentence" : anchor ? "section" : "document", reference: match[0] });
-        }
+    for (const { match, paths } of links) {
+        const doc = paths.find(path => !path.startsWith("../"));
+        if (!doc || isAbsolute(match[1]!)) continue;
+        attachDocumentReference(byDoc.get(doc)!, match, /\b(?:fixes|plan)\b/i.test(text), { file: source.file, line: line.line, kind: line.kind }, add);
     }
 }
 
-function referencedSentenceDocuments(text: string, source: CitationSource, byDoc: Map<string, SpecSentence[]>) {
-    const documents = new Set<string>();
-    for (const ref of text.matchAll(LOCAL_REF)) {
-        for (const path of [posix.normalize(posix.join(dirname(source.file), ref[1]!)), posix.normalize(ref[1]!)]) {
-            if (byDoc.has(path)) documents.add(path);
-        }
+function localPaths(sourceFile: string, path: string): string[] {
+    return [posix.normalize(posix.join(dirname(sourceFile), path)), posix.normalize(path)];
+}
+
+function attachDocumentReference(rows: SpecSentence[], link: RegExpMatchArray, wholeDocument: boolean,
+    location: Pick<SentenceCitation, "file" | "line" | "kind">, add: AddCitation): void {
+    let anchor: string | undefined;
+    try { anchor = link[2] ? decodeURIComponent(link[2]) : undefined; } catch { return; }
+    if (!anchor && !wholeDocument) return;
+    for (const row of rows) {
+        const scope = referenceScope(row, anchor);
+        if (scope) add(row, { ...location, scope, reference: link[0] });
     }
-    return documents;
+}
+
+function referenceScope(row: SpecSentence, anchor: string | undefined): SentenceCitation["scope"] | undefined {
+    if (!anchor) return "document";
+    if (row.id === anchor || row.sentenceAnchors.includes(anchor)) return "sentence";
+    if (row.anchors.includes(anchor)) return "section";
+    return undefined;
 }

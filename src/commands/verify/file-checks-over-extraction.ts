@@ -5,6 +5,7 @@
 // file-checks-agent-safety.ts is at the file line cap). Called from
 // `collectPerFileFindings` alongside `runAgentSafetyChecks`.
 
+import { findDeadLiteralStores } from "../../harness/checks/dead-literal-store.js";
 import { checkSingleUseTrivialHelper } from "../../harness/checks/over-extraction.js";
 import { checkPythonSimplification } from "../../harness/checks/python-simplification.js";
 import { checkRepeatedImplementation } from "../../harness/generic-checks.js";
@@ -24,4 +25,6 @@ export function runOverExtractionChecks(ctx: FileCheckContext): void {
 	r.singleUseTrivialHelper.push(
 		...toIssues("single_use_trivial_helper", relPath, checkSingleUseTrivialHelper, content, file),
 	);
+	// dead_literal_store: judgment of metric redundancy.dead_stores (default gate, pre_warn).
+	r.deadLiteralStore.push(...toIssues("dead_literal_store", relPath, findDeadLiteralStores, content, file));
 }

@@ -1,6 +1,7 @@
 // Deletion hygiene — zombie code detectors.
 // Extracted from generic-checks.ts.
 
+import { rawBraceDelta } from "./shared-text-utils-brace-scan.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	getExtension,
@@ -190,19 +191,6 @@ export function checkEmptyFunctionBody(content: string, filePath: string): Inlin
 }
 
 /**
- * Net brace-depth change across one line: each `{` adds one, each `}` subtracts
- * one. Pure helper for {@link countFnBodyLines}.
- */
-function braceDelta(line: string): number {
-	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		if (ch === "}") delta--;
-	}
-	return delta;
-}
-
-/**
  * True when a body line counts toward the function's size — a blank line or a
  * lone `}` does not. Pure helper for {@link countFnBodyLines}.
  */
@@ -223,7 +211,7 @@ function countFnBodyLines(lines: string[], fnIndex: number): number {
 	for (let k = fnIndex; k < Math.min(fnIndex + 8, lines.length); k++) {
 		const text = nonNull(lines[k]);
 		if (text.includes("{")) bodyStarted = true;
-		braceDepth += braceDelta(text);
+		braceDepth += rawBraceDelta(text);
 		if (bodyStarted && k > fnIndex && isCountableBodyLine(text)) bodyLines++;
 		if (bodyStarted && braceDepth === 0) break;
 	}

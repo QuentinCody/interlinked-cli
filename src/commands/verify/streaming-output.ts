@@ -12,6 +12,7 @@
 import { runProcessAsync } from "../../harness/check-engine/spawn-async.js";
 
 import { SECTIONS } from "./section-table.js";
+import { incompleteProcessReason } from "../../harness/check-engine/tool-runners/file-process-verdict.js";
 import type { CodeQualityIssue, CodeQualityResults } from "./tool-results-types.js";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -150,6 +151,8 @@ interface RunToolArgs<T> {
 	parseOutput: (output: string, exitCode: number | null) => T[];
 	reportStream?: "stdout" | "combined";
 	recoverPartial?: (error: unknown) => T[] | undefined;
+	/** Only strict machine-report parsers may recover positives from interrupted output. */
+	recoverInterruptedReport?: boolean;
 }
 
 interface RunToolWithSpinnerArgs<T> extends RunToolArgs<T> {
@@ -193,8 +196,14 @@ export async function runToolSilent<T>(args: RunToolArgs<T>): Promise<ToolRun<T>
 	if (bin === undefined) return { items: [], elapsedMs: "0.0s", unavailable: "Tool command is empty; no complete verdict" };
 	const result = await runProcessAsync(bin, cmd.slice(1), { cwd, timeout: timeoutMs, maxBufferBytes: null });
 	const elapsedMs = `${((Date.now() - start) / 1000).toFixed(1)}s`;
-	if (result.killed || result.timedOut || result.code === null || result.stdoutTruncated || result.stderrTruncated) {
-		return { items: [], elapsedMs, unavailable: "Tool failed to start, was interrupted or produced incomplete output; no complete verdict" };
+	const incomplete = incompleteProcessReason(result);
+	if (incomplete) {
+		let items: T[] = [];
+		if (args.recoverInterruptedReport) {
+			try { items = parseOutput(result.stdout, result.code); }
+			catch (error) { items = args.recoverPartial?.(error) ?? []; }
+		}
+		return { items, elapsedMs, unavailable: `Tool ${incomplete}; no complete verdict` };
 	}
 	try {
 		const items = parseOutput(args.reportStream === "stdout" ? result.stdout : result.stdout + result.stderr, result.code);

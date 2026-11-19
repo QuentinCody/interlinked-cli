@@ -30,7 +30,7 @@ function touch(path: string, atMs: number): void {
 }
 
 function base(toolName: string, declaredTargets: string[] = []) {
-	return { root, actorKey: me, toolName, declaredTargets, beforeCapturedAt: BEFORE, inFlightTargetsOfOthers: new Set<string>(), nowMs: NOW };
+	return { root, actorKey: me, toolName, declaredTargets, command: undefined, beforeCapturedAt: BEFORE, inFlightTargetsOfOthers: new Set<string>(), nowMs: NOW };
 }
 
 beforeEach(() => {
@@ -66,6 +66,13 @@ describe("attributeWorkspaceEffects — positive (must fire: row is a shadow)", 
 	it("P5: every effect seen during a read-only tool call is a shadow", () => {
 		const rows = attributeWorkspaceEffects({ ...base("Grep"), effects: [effect("src/a.ts")] });
 		expect(rows[0]).toMatchObject({ attribution: "shadow", shadow_reason: "read-only-tool" });
+	});
+	// 2026-11-17: `rg` and `sed -n` calls were recorded as the writer of files that
+	// other sessions changed in the same checkout while the command ran.
+	it("P6: every effect seen during a provably read-only shell command is a shadow", () => {
+		touch("src/a.ts", NOW - 500);
+		const rows = attributeWorkspaceEffects({ ...base("Bash"), command: "rg -n foo src | head -5", effects: [effect("src/a.ts")] });
+		expect(rows[0]).toMatchObject({ attribution: "shadow", shadow_reason: "read-only-command" });
 	});
 });
 

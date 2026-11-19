@@ -18,6 +18,8 @@ export interface LintInventory {
     warnings: string[];
     complete: boolean;
     invocations?: LintInvocationCandidate[];
+    /** Dependency context files (lockfiles and similar) left unread because they exceed the input limit. Not a gap: they are not lint configuration. */
+    skipped?: Array<{ file: string; reason: string }>;
 }
 
 export type LintCadence = "hook" | "audit";

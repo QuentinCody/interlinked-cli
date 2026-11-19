@@ -1,5 +1,13 @@
+import { relative, resolve } from "node:path";
 import { wireAbsentOptional, wireNullable, wireNumber, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import type { CoverageMetric, FileCoverageEntry } from "./coverage-ratchet.js";
+
+/** Resolve a coverage-summary entry to its repository-relative POSIX path. */
+export function normalizePath(rawPath: string, repoRoot: string): string | null {
+	if (!rawPath || rawPath === "total") return null;
+	const rel = relative(repoRoot, resolve(repoRoot, rawPath)).replace(/\\/g, "/");
+	return rel.startsWith("..") || !rel ? null : rel;
+}
 
 export interface IstanbulLoc {
 	line: number;

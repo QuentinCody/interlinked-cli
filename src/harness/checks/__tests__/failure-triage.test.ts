@@ -49,6 +49,36 @@ describe("classifyFailure — agent-error / TS errors", () => {
 	});
 });
 
+// A command that reached its own deadline printed "interrupted"; the classifier
+// then told the agent that the USER interrupted it and to wait for instructions.
+describe("classifyFailure — own deadline versus user interrupt", () => {
+	const ownDeadline = [
+		"[resources] Verification interrupted; no verification verdict.\n[resources] CLI interrupted; no verification verdict.",
+		'unavailable "<project>" — Verification cancelled by SIGTERM',
+		"[resources] CLI interrupted; no verification verdict.",
+	];
+	it.each(ownDeadline)("classifies a command's own deadline as own-timeout: %s", (stderr) => {
+		const r = classifyFailure(makeEvent({ tool_name: "Bash", stderr }));
+		expect([r.label, r.category]).toEqual(["transient", "own-timeout"]);
+	});
+
+	const namesTheUser = ["[Request interrupted by user]", "Operation was user cancelled", "user aborted the request"];
+	it.each(namesTheUser)("keeps user-interrupt for text that names the user: %s", (stderr) => {
+		const r = classifyFailure(makeEvent({ tool_name: "Bash", stderr }));
+		expect([r.label, r.category]).toEqual(["transient", "user-interrupt"]);
+	});
+
+	const programText = [
+		"error: Your local changes would be overwritten by merge. Aborting",
+		"interrupt handler installed; build failed with 2 errors",
+		"Transaction aborted: constraint violation",
+	];
+	it.each(programText)("does not read program output as a user interrupt: %s", (stderr) => {
+		const r = classifyFailure(makeEvent({ tool_name: "Bash", stderr }));
+		expect(r.category).not.toBe("user-interrupt");
+	});
+});
+
 describe("classifyFailure — environmental / filesystem", () => {
 	it("classifies ENOENT as filesystem-missing", () => {
 		const r = classifyFailure(makeEvent({

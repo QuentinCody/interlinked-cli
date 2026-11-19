@@ -36,6 +36,7 @@ export interface CodeQualityIssue {
  */
 export interface CodeQualityResults {
 	commanderOptionAttribute: CodeQualityIssue[];
+	omittedPrivateParameter: CodeQualityIssue[];
     expressionSize: CodeQualityIssue[];
     inlineCallbackCount: CodeQualityIssue[];
     controlFlowDepth: CodeQualityIssue[];
@@ -72,6 +73,8 @@ export interface CodeQualityResults {
 	extractedHelperDuplicate: CodeQualityIssue[];
 	/** Private, single-call-site, <=3-statement helpers with an uninformative name. */
 	singleUseTrivialHelper: CodeQualityIssue[];
+	/** A local literal initial value that the next statement overwrites (metric `redundancy.dead_stores`). */
+	deadLiteralStore: CodeQualityIssue[];
     pythonSimplification: CodeQualityIssue[];
     repeatedImplementation: CodeQualityIssue[];
 	circularImports: CodeQualityIssue[];

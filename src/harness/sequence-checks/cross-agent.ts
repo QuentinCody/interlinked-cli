@@ -17,6 +17,7 @@ import {
 	loadRecentWorkspaceEvents,
 	type WorkspaceActivityEvent,
 } from "../cross-session.js";
+import { isObservedOnly } from "../observed-files.js";
 import type { SessionTrajectory } from "../types.js";
 import type { SequenceDetector, SequenceMatch } from "./types.js";
 
@@ -291,6 +292,9 @@ export const subagentDivergedEdit: SequenceDetector = {
 		// one match per actual file.
 		const reportedFiles = new Set<string>();
 		for (const filePath of trajectory.files_written) {
+			// "Both this session and X wrote" needs a write that this session
+			// declared. A change that was only observed in the workspace is not one.
+			if (isObservedOnly(trajectory, filePath, cwd)) continue;
 			const match = findDivergedEditForFile(
 				filePath,
 				cwd,

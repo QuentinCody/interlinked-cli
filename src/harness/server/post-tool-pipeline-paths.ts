@@ -105,7 +105,10 @@ function resolveDeclaredPaths(event: HarnessEvent, isDirectFileEdit: boolean, in
  */
 function observedPaths(event: HarnessEvent, includeGenerated: boolean): string[] {
 	if (isReadOnlyToolName(event.tool_name)) return [];
+	// A shadow is, by the attribution rule, somebody else's change: another
+	// actor's write, or a change seen during a provably read-only command.
 	return (event.change_set?.files ?? [])
+		.filter((effect) => effect.attribution !== "shadow")
 		.map((effect) => effect.path)
 		.filter((path) => includeGenerated || !isGeneratedArtifactPath(path));
 }

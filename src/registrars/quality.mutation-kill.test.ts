@@ -112,14 +112,14 @@ describe("registerQualityCommands — command + option descriptions (mutation-ki
 			"--tool-timeout": "External analyzer deadline in milliseconds (default: no deadline; 0 disables)",
 			"--gitleaks-scope": "Secret scan inputs: working-tree includes ignored files; git-visible excludes them (default: working-tree)",
 			"--only":
-				"Run one named external check (for example: tsc, biome, oxlint, eslint, semgrep, gitleaks, knip, docs-check, sca)",
+				"Run one named external check (e.g. tsc, biome, gitleaks, sca). Semgrep requires --only semgrep.",
 			"--suggestions": "Also run scored regex heuristics (sql-injection, perf, quality)",
 			"--json": "Machine-readable output",
 			"--details": "Show per-file details for all findings",
 			"--cwd": "Project root (default: current directory)",
 			"--branch": "Branch, tag, or commit to check (remote repos)",
 			"--subdir": "Only scan a subdirectory (useful for monorepos)",
-			"--skip": "Skip specific checks (comma-separated: semgrep,knip,complexity,silent_catches,...)",
+			"--skip": "Skip specific checks (comma-separated: gitleaks,knip,complexity,silent_catches,...)",
 			"--suppress": "Suppress a finding: file:check or file:check:reason",
 			"--show-suppressions": "List all active suppressions",
 			"--structure": "Include generic artifact structure checks",
@@ -269,7 +269,7 @@ describe("registerQualityCommands — command + option descriptions (mutation-ki
 		);
 		expect(optionDescriptions(cmd)).toEqual({
 			"--cwd": "Project root (default: current directory)",
-			"--top": "Number of function/file token and CRAP hotspots to show (default: 25)",
+			"--top": "Number of function/file token and CRAP hotspots to show, 1 to 200 (default: 25)",
 			"--include-tests": "Include test/spec functions as advisory token measurements",
 			"--json": "Machine-readable output (full per-file + per-function)",
 			"--short": "One-line summary",

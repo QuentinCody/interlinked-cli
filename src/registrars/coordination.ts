@@ -8,6 +8,15 @@ import { type Command, type OptionValues } from "commander";
 import { attachCommand } from "../commands/attach.js";
 
 export function registerCoordinationCommands(program: Command): void {
+	registerAttachment(program);
+	registerReminders(program);
+	registerSkillTracking(program);
+	registerAgentMessages(program);
+	registerTasks(program);
+	registerWorkspaces(program);
+}
+
+function registerAttachment(program: Command): void {
 	program
 		.command("attach")
 		.description("Attach local CLI settings to workspace/agent and link remote identity")
@@ -19,7 +28,9 @@ export function registerCoordinationCommands(program: Command): void {
 		.option("--auto", "Derive workspace_key/project from git repo")
 		.option("--json", "Machine-readable output")
 		.action(attachCommand);
+}
 
+function registerReminders(program: Command): void {
 	const reminderCmd = program
 		.command("reminder")
 		.description("File reminder management (warnings when files are touched)");
@@ -61,7 +72,9 @@ export function registerCoordinationCommands(program: Command): void {
 			const { reminderRemoveCommand } = await import("../commands/reminder.js");
 			reminderRemoveCommand(idOrGlob, opts);
 		});
+}
 
+function registerSkillTracking(program: Command): void {
 	const skillCmd = program
 		.command("skill")
 		.description("Skill marker management (scopes distilled rules via active_when)");
@@ -97,7 +110,9 @@ export function registerCoordinationCommands(program: Command): void {
 			const { skillListCommand } = await import("../commands/skill.js");
 			await skillListCommand(opts);
 		});
+}
 
+function registerAgentMessages(program: Command): void {
 	program
 		.command("handoff <from-agent> <to-agent>")
 		.description("Explicit agent-to-agent handoff with context transfer")
@@ -118,7 +133,9 @@ export function registerCoordinationCommands(program: Command): void {
 			const { sendCommand } = await import("../commands/send.js");
 			await sendCommand(to, message, opts);
 		});
+}
 
+function registerTasks(program: Command): void {
 	const tasksCmd = program
 		.command("tasks")
 		.description("Task management via the server");
@@ -176,7 +193,9 @@ export function registerCoordinationCommands(program: Command): void {
 			const { tasksCompleteCommand } = await import("../commands/tasks.js");
 			await tasksCompleteCommand(id, opts);
 		});
+}
 
+function registerWorkspaces(program: Command): void {
 	const wsCmd = program.command("workspace").description("Registry workspace management (ws_ IDs)");
 
 	wsCmd

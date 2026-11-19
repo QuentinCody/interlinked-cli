@@ -5,6 +5,8 @@
 // lane. A local detector may suggest work, but it must not imply semantic
 // certainty or validation that did not occur.
 
+import type { PopulationSummary } from "./metrics/role-population.js";
+
 export const SIMPLIFICATION_REPORT_SCHEMA_VERSION = 1 as const;
 export const SIMPLIFICATION_HANDOFF_SCHEMA_VERSION = 1 as const;
 
@@ -200,4 +202,6 @@ export interface SimplificationReport {
 	coverage: SimplificationCoverageReceipt;
 	deep_handoff: SimplificationDeepHandoffRequest | null;
 	read_only: true;
+	/** Source roles v5: files per role, and the generated or vendored files set aside before detection, with the reason. Not persisted by `--record`. */
+	population?: PopulationSummary;
 }

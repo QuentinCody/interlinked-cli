@@ -3,6 +3,7 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
+import { typedEslintArgs } from "../../../lib/lint-import/builtin-profiles.js";
 import { hasErrorCode, PartialToolReportError } from "../tool-errors.js";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -16,12 +17,12 @@ import {
 	parseOxlintJson,
 	parseSemgrepJson,
 } from "../output-parsers.js";
-import { parseEslintJson } from "../output-parsers-eslint-json.js";
+import { parseCompleteEslintJson, parseEslintJson } from "../output-parsers-eslint-json.js";
 import { interlinkedSemgrepConfigArgs } from "../semgrep-rules.js";
 import { runProcessAsync } from "../spawn-async.js";
 import { readResourceBudget } from "../../resource-budget.js";
 import type { AuditResult, CheckResult, ToolRunnerInput } from "../types.js";
-import { parseCompleteGitleaksReport, parseCompleteSemgrepReport, requireGenericProcessVerdict } from "./generic-process-verdict.js";
+import { parseCompleteGitleaksReport, parseCompleteSemgrepReport, readGenericProcessReport, requireGenericProcessVerdict } from "./generic-process-verdict.js";
 import { runGitleaksForeground } from "./gitleaks-foreground.js";
 
 // -------------------------------------------
@@ -257,6 +258,11 @@ export function runGitleaks(input: ToolRunnerInput): CheckResult[] {
 // differs — `runProcessAsync` doesn't block the event loop, letting the
 // limiter actually run subprocesses concurrently.
 
+export async function runTypedEslintForeground({ scope, timeoutMs }: ToolRunnerInput): Promise<CheckResult[]> {
+	const result = await runProcessAsync("npx", typedEslintArgs(), { cwd: scope.projectRoot, timeout: timeoutMs, maxBufferBytes: null });
+	return readGenericProcessReport("tseslint-types", result, stdout => parseCompleteEslintJson(stdout, "tseslint-types"));
+}
+
 export async function runEslintAsync(input: ToolRunnerInput): Promise<CheckResult[]> {
 	const { scope, timeoutMs } = input;
 	if (!findEslintConfig(scope.projectRoot)) return [];
@@ -319,9 +325,7 @@ export async function runSemgrepAsync(input: ToolRunnerInput): Promise<CheckResu
 		],
 		{ cwd: scope.projectRoot, timeout: timeoutMs },
 	);
-	const results = parseCompleteSemgrepReport(result.stdout, scope.projectRoot);
-	requireGenericProcessVerdict("semgrep", result, results);
-	return results;
+	return readGenericProcessReport("semgrep", result, stdout => parseCompleteSemgrepReport(stdout, scope.projectRoot));
 }
 
 export async function runGitleaksAsync(input: ToolRunnerInput): Promise<CheckResult[]> {
@@ -352,8 +356,7 @@ export async function runGitleaksAsync(input: ToolRunnerInput): Promise<CheckRes
 	});
 	// An interrupted scan provides no security verdict. Throw so the engine
 	// records an unavailable check and recovery can avoid repeating the failure.
-	const results = parseCompleteGitleaksReport(result.stdout);
-	requireGenericProcessVerdict("gitleaks", result, results);
+	const results = readGenericProcessReport("gitleaks", result, parseCompleteGitleaksReport);
 	if (/\bFTL\b|no such file/i.test(result.stderr)) throw new PartialToolReportError("Gitleaks failed-scope diagnostic; no complete security verdict", results);
 	return results;
 }

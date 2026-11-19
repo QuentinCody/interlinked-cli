@@ -82,6 +82,22 @@ describe("proof protocol compatibility", () => {
 		expect(parseKillProof(current)).toEqual(current);
 		for (const version of [0, 3, "2", null]) expect(parseKillProof({ ...current, version })).toBeNull();
 	});
+	it("accepts zero counts and fractional elapsed times but rejects impossible run measurements", async () => {
+		const proof = await prove("n < lo", false);
+		for (const version of [1, 2] as const) {
+			const baseline = { cases: 0, durationMs: 0.125 };
+			const underMutant = { cases: [], durationMs: 0, timedOut: true, error: "cancelled" };
+			const receipt = { ...proof, version, baseline, underMutant };
+			expect(parseKillProof(receipt)).toEqual(receipt);
+			for (const cases of [null, "0", -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+				expect(parseKillProof({ ...receipt, baseline: { ...baseline, cases } })).toBeNull();
+			}
+			for (const durationMs of [null, "0", -1, Infinity]) {
+				expect(parseKillProof({ ...receipt, baseline: { ...baseline, durationMs } })).toBeNull();
+				expect(parseKillProof({ ...receipt, underMutant: { ...underMutant, durationMs } })).toBeNull();
+			}
+		}
+	});
 });
 
 describe("parameterized proof composition", () => {

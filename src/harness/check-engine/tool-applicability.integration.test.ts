@@ -102,6 +102,27 @@ it("does not execute an ancestor documentation script from a selected child", as
 	expect(runProcessAsync).not.toHaveBeenCalled();
 });
 
+it.each([0, 2])("typed ESLint shares findings and process verdicts at exit %i, and stays out of edit-time execution", async code => {
+	process.exitCode = undefined;
+	const root = project();
+	const checks = engine(root, ["tseslint-types"]);
+	const scope = { projectRoot: root, mode: "project" as const };
+	const stdout = JSON.stringify([{ filePath: "x.ts", messages: [{ message: "Unnecessary conditional", line: 8, severity: 1 }] }]);
+	vi.mocked(runProcessAsync).mockResolvedValue({ code, stdout, stderr: "", timedOut: false, killed: false });
+	const hook = await checks.runChecksAsync({ projectRoot: root, mode: "file", targetFile: "x.ts" }, { admissionAlreadyHeld: true });
+	expect(hook.toolsRun).toEqual([]);
+	expect(runProcessAsync).not.toHaveBeenCalled();
+	const json = await checks.runChecksAsync(scope, { admissionAlreadyHeld: true, resourcePolicy: "foreground-verify" });
+	expect(json.results).toMatchObject([{ tool: "tseslint-types", file: "x.ts", line: 8 }]);
+	const text = await human(root, checks, "tseslint-types");
+	expect(text).toContain("type-proven inert constructs");
+	expect(text).toContain("x.ts");
+	expect(json.skipped.length > 0).toBe(code === 2);
+	expect(text.includes("NOT CHECKED")).toBe(code === 2);
+	expect(runProcessAsync).toHaveBeenCalledTimes(2);
+	expect(vi.mocked(runProcessAsync).mock.calls[0]?.slice(0, 2)).toEqual(["npx", ["eslint", "--config", "eslint.interlinked-types.config.mjs", "--format", "json", "."]]);
+});
+
 it("human and JSON dedicated audits retain Go dependency scope without a Node manifest", async () => {
 	process.exitCode = undefined;
 	const root = project();

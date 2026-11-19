@@ -1,7 +1,29 @@
 import { isCheckObservation } from "../../harness/check-observation-reader.js";
+import type { CheckObservation } from "../../harness/finding-outcomes.js";
 import { buildActionInventory, type ActionInventory, type ActionObservation } from "../../lib/action-inventory.js";
 import { checkActions } from "../../lib/check-actions.js";
-import { isJsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+
+function observationRows(record: CheckObservation): unknown[] {
+	return record.executions.flatMap(execution => {
+		const findings: unknown[] = execution.findings.map(hit => ({ name: execution.check, file: record.file, line: hit.line,
+			...(hit.suppressed !== undefined ? { suppressed: true, suppression: hit.suppressed } : {}),
+			message: `${hit.text}${hit.suppressed ? ` (retained suppression: ${hit.suppressed})` : ""}` }));
+		if (execution.status === "unavailable") findings.push({ name: execution.check, file: record.file, status: "unavailable", message: execution.reason ?? "Check execution unavailable" });
+		return findings;
+	});
+}
+
+function checkResultRows(record: JsonObject): unknown[] {
+	const rows = Array.isArray(record.finding_details) ? [...record.finding_details] : [];
+	if (!Array.isArray(record.execution)) return rows;
+	for (const entry of record.execution) {
+		if (isJsonObject(entry) && (entry.status === "deferred" || entry.status === "error")) {
+			rows.push({ name: entry.id, file: record.file, status: "unavailable", message: entry.reason ?? "Check execution unavailable" });
+		}
+	}
+	return rows;
+}
 
 /** Project selected persisted events only; this neither executes checks nor declares old findings unresolved. */
 export function runtimeActions(records: readonly unknown[]): ActionInventory {
@@ -19,21 +41,10 @@ export function runtimeActions(records: readonly unknown[]): ActionInventory {
 		if (!isJsonObject(record)) { unknown++; continue; }
 		if (record.dry_run === true) { simulated++; continue; }
 		if (isCheckObservation(record)) {
-			const rows = record.executions.flatMap(execution => {
-				const findings: unknown[] = execution.findings.map(hit => ({ name: execution.check, file: record.file, line: hit.line,
-					...(hit.suppressed !== undefined ? { suppressed: true, suppression: hit.suppressed } : {}),
-					message: `${hit.text}${hit.suppressed ? ` (retained suppression: ${hit.suppressed})` : ""}` }));
-				if (execution.status === "unavailable") findings.push({ name: execution.check, file: record.file, status: "unavailable", message: execution.reason ?? "Check execution unavailable" });
-				return findings;
-			});
-			retain(rows, { sourceHash: record.input, observedAt: record.ts, detectorHash: record.detector, policyHash: record.configuration,
+			retain(observationRows(record), { sourceHash: record.input, observedAt: record.ts, detectorHash: record.detector, policyHash: record.configuration,
 				producerRefs: [`check-observations.v1:${record.session}:${record.call}`, `scope:${record.scope}`] });
 		} else if (record.schema === "check-results.v2" && (Array.isArray(record.finding_details) || Array.isArray(record.execution))) {
-			const rows: unknown[] = Array.isArray(record.finding_details) ? [...record.finding_details] : [];
-			for (const entry of Array.isArray(record.execution) ? record.execution : []) {
-				if (isJsonObject(entry) && (entry.status === "deferred" || entry.status === "error")) rows.push({ name: entry.id, file: record.file, status: "unavailable", message: entry.reason ?? "Check execution unavailable" });
-			}
-			retain(rows, typeof record.ts === "string" ? { observedAt: record.ts } : {});
+			retain(checkResultRows(record), typeof record.ts === "string" ? { observedAt: record.ts } : {});
 		} else unknown++;
 	}
 	const inventory = buildActionInventory(observations, [

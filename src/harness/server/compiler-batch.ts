@@ -73,7 +73,7 @@ export async function runCompilerBoundary(ctx: ServerRuntime, event: HarnessEven
         return await checkPending(ctx, event, session, pending);
     } catch (error) {
         const reason = `[interlinked:typescript] NOT CHECKED: pending batch could not be verified: ${String(error)}`;
-        return deliverBatchDecision(event, { decision: "block", reason });
+        return deliverBatchDecision(event, { decision: "block", reason }, "findings");
     }
 }
 
@@ -146,13 +146,51 @@ async function checkPending(ctx: ServerRuntime, event: HarnessEvent, session: Se
     appendCheckResults(ctx.cwd, { ...event, files_modified: pending.paths }, decision);
     recordHookObservations({ ...event, cwd: ctx.cwd }, [{ kind: "metric", check: "typescript-batch",
         related_tool_use_ids: pending.calls, message: `${pending.calls.length} tool calls; ${pending.paths.length} paths; ${unavailable ? "unavailable" : "checked"}` }]);
-    return deliverBatchDecision(event, decision);
+    return deliverBatchDecision(event, decision, blockBasis(ctx, event, pending, unavailable && completed && outstanding.length === 0));
 }
 
+/** What a blocking batch verdict rests on: known diagnostics (or an unverified
+ * race), only an operational deferral that no edit can resolve, or that same
+ * deferral when this session was already told about it. */
+type BatchBlockBasis = "findings" | "deferral-only" | "deferral-repeated";
+
+// The deferral already announced to a session: its pending paths. Kept in
+// memory, so a daemon restart announces a deferral that is still open once more.
+const announcedDeferral = new WeakMap<ServerRuntime, Map<string, string>>();
+
+/** `deferralOnly`: the checker could not run, this batch was the one it was
+ * asked about, and no diagnostic is known. A tool batch says that once per
+ * pending state; Stop says it each time. */
+function blockBasis(ctx: ServerRuntime, event: HarnessEvent, pending: CompilerBatch, deferralOnly: boolean): BatchBlockBasis {
+    let announced = announcedDeferral.get(ctx);
+    if (!announced) { announced = new Map(); announcedDeferral.set(ctx, announced); }
+    const session = compilerSessionKey(event);
+    if (!deferralOnly) { announced.delete(session); return "findings"; }
+    if (event.hook_event !== "PostToolBatch") return "deferral-only";
+    const state = [...pending.paths].sort().join("\0");
+    if (announced.get(session) === state) return "deferral-repeated";
+    if (announced.size >= 1024) announced.delete(announced.keys().next().value!);
+    announced.set(session, state);
+    return "deferral-only";
+}
+
+const REPAIR_NOTE = "Repair the completed batch before finishing; pending compiler findings remain enforced at Stop and commit.";
+const DEFERRAL_NOTE = "The compiler could not run (project check capacity was busy or unavailable); no edit resolves this. "
+    + "The batch stays queued and is checked at the next tool batch; a commit stays blocked until it is checked. "
+    + "A tool batch repeats this notice only when the pending files change.";
+
 /** Native batch blocking cancels Claude's loop; context lets it repair the
- * final tree. Stop/commit retain the blocking verdict and the durable queue. */
-function deliverBatchDecision(event: HarnessEvent, decision: HarnessDecision): HarnessDecision {
-    if (!["PostToolBatch", "SessionEnd"].includes(event.hook_event) || decision.decision !== "block") return decision;
+ * final tree. Stop/commit retain the blocking verdict and the durable queue,
+ * with one exception: a deferral-only verdict does not block Stop. A Stop block
+ * that no edit can clear only makes the agent retry until the lease owner lets
+ * go, and that owner can be the `interlinked verify` the Stop advice asked for.
+ * The commit boundary keeps the block, so unchecked work is never committed. */
+function deliverBatchDecision(event: HarnessEvent, decision: HarnessDecision, basis: BatchBlockBasis): HarnessDecision {
+    if (decision.decision !== "block") return decision;
+    const deferral = basis !== "findings";
+    const batchEvent = ["PostToolBatch", "SessionEnd"].includes(event.hook_event);
+    if (!batchEvent && !(deferral && event.hook_event === "Stop")) return decision;
     const { reason, rule_id: _rule, ...rest } = decision;
-    return { ...rest, decision: "allow", additional_context: `${reason}\nRepair the completed batch before finishing; pending compiler findings remain enforced at Stop and commit.` };
+    if (basis === "deferral-repeated") return { ...rest, decision: "allow" };
+    return { ...rest, decision: "allow", additional_context: `${reason}\n${deferral ? DEFERRAL_NOTE : REPAIR_NOTE}` };
 }

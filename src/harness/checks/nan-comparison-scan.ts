@@ -11,6 +11,7 @@
 
 import type * as TS from "typescript";
 import { hasParseErrors, parseTsSource } from "./cyclomatic-ast.js";
+import { blankRegexLiteralsAtLexerStart } from "./regex-literal-scan.js";
 import { getExtension } from "./shared.js";
 
 /**
@@ -31,15 +32,10 @@ export const NAN_COMPARISON = /[!=]==?\s*NaN\b|(?:(?<![.\w$])NaN|\bNumber\s*\.\s
  * not a member named so), or at line start. A `/` after an identifier, number
  * or `)` is division and is left alone, so `total / count === NaN / 2` still fires.
  */
-const REGEX_LITERAL_AT_LEXER_START =
-	/(^|[=(,:[!&|?{};<>+\-*%~^]|(?<![.\w$])(?:return|typeof|case|yield|void|delete|throw|else))(\s*)(\/(?:\\.|\[[^\]]*\]|[^/\\\n])+\/[dgimsuyv]*)/gm;
-
+// The scan lives in regex-literal-scan.ts: the old single regex backtracked exponentially on minified lines.
 /** Blank regex literals to same-length spaces so a pattern that DETECTS `=== NaN` is not reported as using it. */
 export function blankRegexLiterals(stripped: string): string {
-	return stripped.replace(
-		REGEX_LITERAL_AT_LEXER_START,
-		(_m, pre: string, ws: string, re: string) => pre + ws + " ".repeat(re.length),
-	);
+	return blankRegexLiteralsAtLexerStart(stripped);
 }
 
 /**

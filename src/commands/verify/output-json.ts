@@ -22,6 +22,9 @@ import type { CatalogueResult } from "./catalogue-types.js";
 import { verifyActions } from "./action-projection.js";
 import type { CheckReport, ToolInputScope } from "../../harness/check-engine/types.js";
 import type { VerifyCheckTiming } from "./check-timing.js";
+import { summarizeNotMeasured, summarizeSetAside, type ScanLedger } from "./scan-ledger.js";
+import type { NotRunContext, NotRunEntry } from "./not-run.js";
+import { addPlacementSections } from "./output-json-placement.js";
 
 /**
  * Shape tag for the `verify --json` object. Bump when a top-level key changes
@@ -50,23 +53,193 @@ function summarizeWithDetails(list: readonly FileKeyedRow[]): JsonObject {
 	};
 }
 
-function summarizeSupplementalChecks(cq: CodeQualityResults): JsonObject {
-    return {
-		commander_option_attribute: summarizeWithDetails(cq.commanderOptionAttribute),
-        expression_size: summarizeWithDetails(cq.expressionSize),
-        inline_callback_count: summarizeWithDetails(cq.inlineCallbackCount),
-        control_flow_depth: summarizeWithDetails(cq.controlFlowDepth),
-        expression_measurement: summarizeWithDetails(cq.expressionMeasurement),
-        required_braces: summarizeWithDetails(cq.requiredBraces),
-        statements_per_line: summarizeWithDetails(cq.statementsPerLine),
-        json_validity: summarizeWithDetails(cq.jsonValidity),
-        html_duplicate_id: summarizeWithDetails(cq.htmlDuplicateId),
-        python_simplification: summarizeWithDetails(cq.pythonSimplification),
-        repeated_implementation: summarizeWithDetails(cq.repeatedImplementation),
-    };
+type ReportSection = readonly [key: string, bucket: keyof CodeQualityResults, render: typeof summarize];
+
+const CORE_SECTIONS = [
+	["strong_typing", "strongTyping", summarizeWithDetails],
+	["suppressions", "suppressions", summarizeWithDetails],
+	["large_files", "largeFiles", summarizeWithDetails],
+	["untested_files", "untestedFiles", summarizeWithDetails],
+	["commander_option_attribute", "commanderOptionAttribute", summarizeWithDetails],
+	["omitted_private_parameter", "omittedPrivateParameter", summarizeWithDetails],
+	["expression_size", "expressionSize", summarizeWithDetails],
+	["inline_callback_count", "inlineCallbackCount", summarizeWithDetails],
+	["control_flow_depth", "controlFlowDepth", summarizeWithDetails],
+	["expression_measurement", "expressionMeasurement", summarizeWithDetails],
+	["required_braces", "requiredBraces", summarizeWithDetails],
+	["statements_per_line", "statementsPerLine", summarizeWithDetails],
+	["json_validity", "jsonValidity", summarizeWithDetails],
+	["html_duplicate_id", "htmlDuplicateId", summarizeWithDetails],
+	["python_simplification", "pythonSimplification", summarizeWithDetails],
+	["repeated_implementation", "repeatedImplementation", summarizeWithDetails],
+	["phantom_imports", "phantomImports", summarizeWithDetails],
+	["console_statements", "consoleStatements", summarize],
+	["silent_catches", "silentCatches", summarize],
+	["test_regressions", "testRegressions", summarize],
+	["undocumented_env_vars", "undocumentedEnvVars", summarize],
+	["mock_drift", "mockDrift", summarize],
+	["incomplete_renames", "incompleteRenames", summarize],
+	["missing_return_types", "missingReturnTypes", summarize],
+	["no_test_file", "noTestFile", summarize],
+	["complexity", "complexity", summarize],
+	["code_clones", "codeClones", summarizeWithDetails],
+	["crap", "crap", summarizeWithDetails],
+	["export_ripple", "exportRipple", summarize],
+	["excessive_use_state", "excessiveUseState", summarize],
+	["dangerously_set_inner_html", "dangerouslySetInnerHtml", summarize],
+	["direct_dom_access", "directDomAccess", summarize],
+	["inline_object_props", "inlineObjectProps", summarize],
+	["async_event_handler", "asyncEventHandler", summarize],
+	["nested_ternaries", "nestedTernaries", summarize],
+	["catch_and_log", "catchAndLog", summarize],
+	["json_parse_unsafe", "jsonParseUnsafe", summarize],
+	["hardcoded_timeout", "hardcodedTimeout", summarize],
+	["disabled_tests", "disabledTests", summarize],
+	["placeholder_test", "placeholderTest", summarizeWithDetails],
+	["suppression_hygiene", "suppressionHygiene", summarizeWithDetails],
+	["target_blank_no_rel", "targetBlankNoRel", summarize],
+	["snapshot_overuse", "snapshotOveruse", summarize],
+	["test_importing_test", "testImportingTest", summarize],
+	["excessive_use_effect", "excessiveUseEffect", summarize],
+	["sequential_awaits", "sequentialAwaits", summarize],
+	["index_as_key", "indexAsKey", summarize],
+	["missing_effect_cleanup", "missingEffectCleanup", summarize],
+	["over_mocking", "overMocking", summarize],
+	["focused_tests", "focusedTests", summarizeWithDetails],
+	["migration_ordering", "migrationOrdering", summarizeWithDetails],
+	["sql_schema_consistency", "sqlSchemaConsistency", summarizeWithDetails],
+	["visibility_filter_missing", "visibilityFilterMissing", summarizeWithDetails],
+	["pii_detection", "piiDetection", summarizeWithDetails],
+	["assertion_free_test", "assertionFreeTest", summarizeWithDetails],
+	["tautological_assertion", "tautologicalAssertion", summarizeWithDetails],
+	["mocking_the_sut", "mockingTheSut", summarizeWithDetails],
+	["private_member_test_access", "privateMemberTestAccess", summarizeWithDetails],
+	["loop_nesting_depth", "loopNestingDepth", summarizeWithDetails],
+	["else_if_chain", "elseIfChain", summarizeWithDetails],
+	["duplicate_switch_discriminant", "duplicateSwitchDiscriminant", summarizeWithDetails],
+	["hybrid_class", "hybridClass", summarizeWithDetails],
+	["fuzzy_responsibility_name", "fuzzyResponsibilityName", summarizeWithDetails],
+	["law_of_demeter", "lawOfDemeter", summarizeWithDetails],
+	["flag_argument", "flagArgument", summarizeWithDetails],
+	["commented_out_code", "commentedOutCode", summarizeWithDetails],
+	["conditional_in_test", "conditionalInTest", summarizeWithDetails],
+	["non_deterministic_test", "nonDeterministicTest", summarizeWithDetails],
+	["timing_flake", "timingFlake", summarizeWithDetails],
+	["empty_catch", "emptyCatch", summarizeWithDetails],
+	["test_without_description", "testWithoutDescription", summarizeWithDetails],
+	["assertion_roulette", "assertionRoulette", summarizeWithDetails],
+	["magic_number", "magicNumber", summarizeWithDetails],
+	["function_arg_count", "functionArgCount", summarizeWithDetails],
+	["data_clump", "dataClump", summarizeWithDetails],
+	["duplicate_describe", "duplicateDescribe", summarizeWithDetails],
+	["cross_file_switch_discriminant", "crossFileSwitchDiscriminant", summarizeWithDetails],
+	["single_implementation_interface", "singleImplementationInterface", summarizeWithDetails],
+	["files_without_test", "filesWithoutTest", summarizeWithDetails],
+] as const satisfies readonly ReportSection[];
+
+const DIAGNOSTIC_SECTIONS = [
+	["ubs_js_loose_equality", "jsLooseEquality", summarizeWithDetails],
+	["ubs_float_equality", "floatEquality", summarizeWithDetails],
+	["ubs_java_optional_get", "javaOptionalGet", summarizeWithDetails],
+	["ubs_rust_debug_assert_side_effect", "rustDebugAssertSideEffect", summarizeWithDetails],
+	["ubs_c_assert_side_effect", "cAssertSideEffect", summarizeWithDetails],
+	["ubs_python_assert_side_effect", "pythonAssertSideEffect", summarizeWithDetails],
+	["ubs_java_assert_side_effect", "javaAssertSideEffect", summarizeWithDetails],
+	["ubs_rust_unchecked_cast_slice", "rustUncheckedCastSlice", summarizeWithDetails],
+	["unaligned_reinterpret", "unalignedReinterpret", summarizeWithDetails],
+	["ubs_division_by_variable", "divisionByVariable", summarizeWithDetails],
+	["ubs_mutex_lock_unwrap", "mutexLockUnwrap", summarizeWithDetails],
+	["ubs_subprocess_shell_true", "subprocessShellTrue", summarizeWithDetails],
+	["ubs_tls_verify_disabled", "tlsVerifyDisabled", summarizeWithDetails],
+	["ubs_py_none_equality", "pyNoneEquality", summarizeWithDetails],
+	["ubs_weak_hash", "weakHash", summarizeWithDetails],
+	["ubs_weak_random_security", "weakRandom", summarizeWithDetails],
+	["ubs_eval_input_tainted", "evalInputTainted", summarizeWithDetails],
+	["ubs_sql_string_concat", "sqlStringConcat", summarizeWithDetails],
+	["sql_escape_hatch_non_literal", "sqlEscapeHatchNonLiteral", summarizeWithDetails],
+	["ubs_python_mutable_default_arg", "pyMutableDefaultArg", summarizeWithDetails],
+	["ubs_tempfile_mktemp_race", "tempfileMktempRace", summarizeWithDetails],
+	["ubs_pickle_untrusted_load", "pickleUntrustedLoad", summarizeWithDetails],
+	["ubs_xml_external_entity", "xmlExternalEntity", summarizeWithDetails],
+	["ubs_os_system_tainted", "osSystemTainted", summarizeWithDetails],
+	["ubs_unsafe_format_string", "unsafeFormatString", summarizeWithDetails],
+	["ubs_unchecked_redirect", "uncheckedRedirect", summarizeWithDetails],
+	["ubs_goroutine_no_waitgroup", "goroutineNoWaitgroup", summarizeWithDetails],
+	["ubs_defer_in_loop", "deferInLoop", summarizeWithDetails],
+	["ubs_string_concat_in_loop", "ubsStringConcatInLoop", summarizeWithDetails],
+	["ubs_numeric_comparison_chain", "numericComparisonChain", summarizeWithDetails],
+	["ubs_print_debug_leak", "printDebugLeak", summarizeWithDetails],
+	["ubs_hardcoded_localhost", "ubsHardcodedLocalhost", summarizeWithDetails],
+	["raw_control_bytes", "rawControlBytes", summarizeWithDetails],
+	["lossy_error_rethrow", "lossyErrorRethrow", summarizeWithDetails],
+	["json_stringify_error", "jsonStringifyError", summarizeWithDetails],
+	["catch_rewrap_loses_cause", "catchRewrapLosesCause", summarizeWithDetails],
+	["resource_handle_leak", "resourceHandleLeak", summarizeWithDetails],
+	["public_api_leaks_internal_type", "publicApiLeaksInternalType", summarizeWithDetails],
+	["jsdoc_param_drift", "jsdocParamDrift", summarizeWithDetails],
+	["unvalidated_input_boundary", "unvalidatedInputBoundary", summarizeWithDetails],
+	["numeric_zero_default", "numericZeroDefault", summarizeWithDetails],
+	["import_from_own_barrel", "importFromOwnBarrel", summarizeWithDetails],
+	["error_dispatch_by_instanceof", "errorDispatchByInstanceof", summarizeWithDetails],
+	["silent_promise_catch", "silentPromiseSwallow", summarizeWithDetails],
+	["child_process_exec_user_input", "childProcessExecUserInput", summarizeWithDetails],
+	["mixed_sync_async_file_api", "mixedSyncAsyncFileApi", summarizeWithDetails],
+	["cookie_missing_security_flags", "cookieMissingSecurityFlags", summarizeWithDetails],
+	["logger_format_user_input", "loggerFormatUserInput", summarizeWithDetails],
+	["ubs_magic_number_no_const", "magicNumberNoConst", summarizeWithDetails],
+	["ubs_large_function", "largeFunction", summarizeWithDetails],
+	["ubs_deeply_nested_callback", "deeplyNestedCallback", summarizeWithDetails],
+	["ubs_time_format_locale_dep", "timeFormatLocaleDep", summarizeWithDetails],
+	["ubs_regex_in_loop_no_compile", "regexInLoopNoCompile", summarizeWithDetails],
+	["agent_thumbprint_prose", "agentThumbprintProse", summarizeWithDetails],
+	["stub_not_implemented_throw", "stubNotImplementedThrow", summarizeWithDetails],
+	["dead_branch_literal", "deadBranchLiteral", summarizeWithDetails],
+	["file_level_suppression", "fileLevelSuppression", summarizeWithDetails],
+	["untestable_time_in_source", "untestableTimeInSource", summarizeWithDetails],
+	["double_cast_unknown", "doubleCastUnknown", summarizeWithDetails],
+	["type_smuggling", "typeSmuggling", summarizeWithDetails],
+	["union_widened_with_string", "unionWidenedWithString", summarizeWithDetails],
+	["nodeenv_branch_in_prod", "nodeenvBranchInProd", summarizeWithDetails],
+	["fetch_without_timeout", "fetchWithoutTimeout", summarizeWithDetails],
+	["unbounded_promise_all", "unboundedPromiseAll", summarizeWithDetails],
+	["sync_io_on_hot_path", "syncIoOnHotPath", summarizeWithDetails],
+	["placeholder_runtime_constant", "placeholderRuntimeConstant", summarizeWithDetails],
+	["rust_unsafe_span", "rustUnsafeSpan", summarizeWithDetails],
+	["suppression_block_span", "suppressionBlockSpan", summarizeWithDetails],
+	["duplicate_test_names", "duplicateTestNames", summarizeWithDetails],
+	["real_io_in_tests", "realIoInTests", summarizeWithDetails],
+	["test_nondeterminism", "testNondeterminism", summarizeWithDetails],
+	["hardcoded_timeout_in_tests", "hardcodedTimeoutInTests", summarizeWithDetails],
+	["test_missing_sut_import", "testMissingSutImport", summarizeWithDetails],
+	["mocking_the_sut_self", "mockingTheSutSelf", summarizeWithDetails],
+	["test_subprocess_default_timeout", "testSubprocessDefaultTimeout", summarizeWithDetails],
+] as const satisfies readonly ReportSection[];
+
+const CROSS_FILE_SECTIONS = [
+	["empty_body_handler", "emptyBodyHandler", summarizeWithDetails],
+	["listener_pairing", "listenerPairing", summarizeWithDetails],
+	["schema_type_drift", "schemaTypeDrift", summarizeWithDetails],
+	["migration_parity", "migrationParity", summarizeWithDetails],
+	["demo_data_unmarked", "demoDataUnmarked", summarizeWithDetails],
+	["silent_demo_fallback", "silentDemoFallback", summarizeWithDetails],
+	["demo_runtime_missing_banner", "demoRuntimeMissingBanner", summarizeWithDetails],
+	["placeholder_data_in_ui", "placeholderDataInUi", summarizeWithDetails],
+	["tsconfig_strictness", "tsconfigStrictness", summarizeWithDetails],
+] as const satisfies readonly ReportSection[];
+
+function summarizeSections(cq: CodeQualityResults, sections: readonly ReportSection[]): JsonObject {
+	const report: JsonObject = {};
+	for (const [key, bucket, render] of sections) report[key] = render(cq[bucket]);
+	return report;
 }
 
 export interface OutputJsonArgs {
+	/** Set-aside files, not-measured pairs and the early-stop record of this run (`scan-ledger.ts`). */
+	scanLedger?: ScanLedger | null;
+	/** Catalog check ids this run did not execute, each with one reason code (`not-run.ts`). */
+	notRun?: Record<string, NotRunEntry>;
+	/** What this invocation selected; decides which opt-in result sections exist (`not-run.ts`). */
+	runContext?: NotRunContext;
 	externalDiagnostics?: readonly DiagnosticResult[];
 	toolInputScopes?: readonly ToolInputScope[];
 	unavailableChecks?: readonly { check: string; reason: string }[];
@@ -107,27 +280,11 @@ export interface OutputJsonArgs {
  * effects live in the caller.
  */
 export function outputJson(args: OutputJsonArgs): void {
-	const {
-		tscResults,
-		linterResults,
-		linterName,
-		semgrepResults,
-		gitleaksResults,
-		auditResult,
-		cq,
-		suggestions,
-		totalFiles,
-		setupIssues,
-		registryDrift,
-		decisionSurface,
-		lockfileMultiplicity,
-		decisionSurfaceRatchet,
-		structureSection,
-	} = args;
+	process.stdout.write(`${JSON.stringify(buildVerifyJson(args), null, 2)}\n`);
+}
 
-	const result: JsonObject = {
-		files_scanned: totalFiles,
-		external_diagnostics: args.externalDiagnostics ?? null,
+function summarizeProjectChecks({ setupIssues, registryDrift, decisionSurface, lockfileMultiplicity, decisionSurfaceRatchet }: OutputJsonArgs): JsonObject {
+	return {
 		project_setup: {
 			issues: setupIssues?.length ?? 0,
 			details:
@@ -179,13 +336,18 @@ export function outputJson(args: OutputJsonArgs): void {
 					growth_by_category: {},
 					warnings: [],
 				},
+	};
+}
+
+function summarizeExternalChecks({ tscResults, linterResults, linterName, semgrepResults, gitleaksResults, auditResult, notRun }: OutputJsonArgs): JsonObject {
+	return {
 		tsc: summarizeWithDetails(tscResults),
 		[linterName]: summarizeWithDetails(linterResults),
-		semgrep: {
+		...(notRun?.["tool_quality:semgrep"] ? {} : { semgrep: {
 			findings: semgrepResults.length,
 			files: [...new Set(semgrepResults.map((r) => r.file))].sort(),
 			details: semgrepResults,
-		},
+		} }),
 		gitleaks: {
 			secrets: gitleaksResults.length,
 			files: [...new Set(gitleaksResults.map((r) => r.file))].sort(),
@@ -201,176 +363,35 @@ export function outputJson(args: OutputJsonArgs): void {
 					tool: auditResult.tool,
 				}
 			: { vulnerabilities: 0 },
-		strong_typing: summarizeWithDetails(cq.strongTyping),
-		suppressions: summarizeWithDetails(cq.suppressions),
-		large_files: summarizeWithDetails(cq.largeFiles),
-		untested_files: summarizeWithDetails(cq.untestedFiles),
-        ...summarizeSupplementalChecks(cq),
-		phantom_imports: summarizeWithDetails(cq.phantomImports),
-		console_statements: summarize(cq.consoleStatements),
-		silent_catches: summarize(cq.silentCatches),
-		test_regressions: summarize(cq.testRegressions),
-		undocumented_env_vars: summarize(cq.undocumentedEnvVars),
-		mock_drift: summarize(cq.mockDrift),
-		incomplete_renames: summarize(cq.incompleteRenames),
-		missing_return_types: summarize(cq.missingReturnTypes),
-		no_test_file: summarize(cq.noTestFile),
-		complexity: summarize(cq.complexity),
-		code_clones: summarizeWithDetails(cq.codeClones),
-		crap: summarizeWithDetails(cq.crap),
-		export_ripple: summarize(cq.exportRipple),
-		excessive_use_state: summarize(cq.excessiveUseState),
-		dangerously_set_inner_html: summarize(cq.dangerouslySetInnerHtml),
-		direct_dom_access: summarize(cq.directDomAccess),
-		inline_object_props: summarize(cq.inlineObjectProps),
-		async_event_handler: summarize(cq.asyncEventHandler),
-		nested_ternaries: summarize(cq.nestedTernaries),
-		catch_and_log: summarize(cq.catchAndLog),
-		json_parse_unsafe: summarize(cq.jsonParseUnsafe),
-		hardcoded_timeout: summarize(cq.hardcodedTimeout),
-		disabled_tests: summarize(cq.disabledTests),
-		placeholder_test: summarizeWithDetails(cq.placeholderTest),
-		suppression_hygiene: summarizeWithDetails(cq.suppressionHygiene),
-		target_blank_no_rel: summarize(cq.targetBlankNoRel),
-		snapshot_overuse: summarize(cq.snapshotOveruse),
-		test_importing_test: summarize(cq.testImportingTest),
-		excessive_use_effect: summarize(cq.excessiveUseEffect),
-		sequential_awaits: summarize(cq.sequentialAwaits),
-		index_as_key: summarize(cq.indexAsKey),
-		missing_effect_cleanup: summarize(cq.missingEffectCleanup),
-		over_mocking: summarize(cq.overMocking),
-		focused_tests: summarizeWithDetails(cq.focusedTests),
-		migration_ordering: summarizeWithDetails(cq.migrationOrdering),
-		sql_schema_consistency: summarizeWithDetails(cq.sqlSchemaConsistency),
-		visibility_filter_missing: summarizeWithDetails(cq.visibilityFilterMissing),
-		pii_detection: summarizeWithDetails(cq.piiDetection),
-		assertion_free_test: summarizeWithDetails(cq.assertionFreeTest),
-		tautological_assertion: summarizeWithDetails(cq.tautologicalAssertion),
-		mocking_the_sut: summarizeWithDetails(cq.mockingTheSut),
-		private_member_test_access: summarizeWithDetails(cq.privateMemberTestAccess),
-		loop_nesting_depth: summarizeWithDetails(cq.loopNestingDepth),
-		else_if_chain: summarizeWithDetails(cq.elseIfChain),
-		duplicate_switch_discriminant: summarizeWithDetails(cq.duplicateSwitchDiscriminant),
-		hybrid_class: summarizeWithDetails(cq.hybridClass),
-		fuzzy_responsibility_name: summarizeWithDetails(cq.fuzzyResponsibilityName),
-		law_of_demeter: summarizeWithDetails(cq.lawOfDemeter),
-		flag_argument: summarizeWithDetails(cq.flagArgument),
-		commented_out_code: summarizeWithDetails(cq.commentedOutCode),
-		conditional_in_test: summarizeWithDetails(cq.conditionalInTest),
-		non_deterministic_test: summarizeWithDetails(cq.nonDeterministicTest),
-		timing_flake: summarizeWithDetails(cq.timingFlake),
-		empty_catch: summarizeWithDetails(cq.emptyCatch),
-		test_without_description: summarizeWithDetails(cq.testWithoutDescription),
-		assertion_roulette: summarizeWithDetails(cq.assertionRoulette),
-		magic_number: summarizeWithDetails(cq.magicNumber),
-		function_arg_count: summarizeWithDetails(cq.functionArgCount),
-		data_clump: summarizeWithDetails(cq.dataClump),
-		duplicate_describe: summarizeWithDetails(cq.duplicateDescribe),
-		cross_file_switch_discriminant: summarizeWithDetails(cq.crossFileSwitchDiscriminant),
-		single_implementation_interface: summarizeWithDetails(cq.singleImplementationInterface),
-		files_without_test: summarizeWithDetails(cq.filesWithoutTest),
+	};
+}
+
+/** The verify report as an object (tests read it without capturing stdout). */
+export function buildVerifyJson(args: OutputJsonArgs): JsonObject {
+	const { cq, suggestions, totalFiles, structureSection } = args;
+
+	const ledger = args.scanLedger;
+	const result: JsonObject = {
+		files_scanned: totalFiles,
+		files_measured: ledger ? ledger.measuredFiles : null,
+		partial: ledger?.partial != null,
+		partial_detail: ledger?.partial ? { ...ledger.partial } : null,
+		set_aside: summarizeSetAside(ledger?.setAside ?? []),
+		not_measured: summarizeNotMeasured(ledger?.notMeasured ?? []),
+		not_run: args.notRun ? { ...args.notRun } : {},
+		external_diagnostics: args.externalDiagnostics ?? null,
+		...summarizeProjectChecks(args),
+		...summarizeExternalChecks(args),
+		...summarizeSections(cq, CORE_SECTIONS),
 		project_loc_ratio: {
 			issues: cq.projectLocRatio.length,
 			files: [],
 			details: cq.projectLocRatio,
 		},
-		// === UBS Plan 04 — rows 27–30 ===
-		ubs_js_loose_equality: summarizeWithDetails(cq.jsLooseEquality),
-		ubs_float_equality: summarizeWithDetails(cq.floatEquality),
-		ubs_java_optional_get: summarizeWithDetails(cq.javaOptionalGet),
-		ubs_rust_debug_assert_side_effect: summarizeWithDetails(cq.rustDebugAssertSideEffect),
-		// Bun-regression detector pack (2026-07-20)
-		ubs_c_assert_side_effect: summarizeWithDetails(cq.cAssertSideEffect),
-		ubs_python_assert_side_effect: summarizeWithDetails(cq.pythonAssertSideEffect),
-		ubs_java_assert_side_effect: summarizeWithDetails(cq.javaAssertSideEffect),
-		ubs_rust_unchecked_cast_slice: summarizeWithDetails(cq.rustUncheckedCastSlice),
-		unaligned_reinterpret: summarizeWithDetails(cq.unalignedReinterpret),
-		ubs_division_by_variable: summarizeWithDetails(cq.divisionByVariable),
-		// === UBS Plan 04 — rows 22–26 (critical-tier) ===
-		ubs_mutex_lock_unwrap: summarizeWithDetails(cq.mutexLockUnwrap),
-		ubs_subprocess_shell_true: summarizeWithDetails(cq.subprocessShellTrue),
-		ubs_tls_verify_disabled: summarizeWithDetails(cq.tlsVerifyDisabled),
-		ubs_py_none_equality: summarizeWithDetails(cq.pyNoneEquality),
-		ubs_weak_hash: summarizeWithDetails(cq.weakHash),
-		ubs_weak_random_security: summarizeWithDetails(cq.weakRandom),
-		// === Plan 04 D.1 partial ===
-		ubs_eval_input_tainted: summarizeWithDetails(cq.evalInputTainted),
-		ubs_sql_string_concat: summarizeWithDetails(cq.sqlStringConcat),
-		sql_escape_hatch_non_literal: summarizeWithDetails(cq.sqlEscapeHatchNonLiteral),
-		ubs_python_mutable_default_arg: summarizeWithDetails(cq.pyMutableDefaultArg),
-		// === Plan 04 D.1 backlog (17 of 20) ===
-		ubs_tempfile_mktemp_race: summarizeWithDetails(cq.tempfileMktempRace),
-		ubs_pickle_untrusted_load: summarizeWithDetails(cq.pickleUntrustedLoad),
-		ubs_xml_external_entity: summarizeWithDetails(cq.xmlExternalEntity),
-		ubs_os_system_tainted: summarizeWithDetails(cq.osSystemTainted),
-		ubs_unsafe_format_string: summarizeWithDetails(cq.unsafeFormatString),
-		ubs_unchecked_redirect: summarizeWithDetails(cq.uncheckedRedirect),
-		ubs_goroutine_no_waitgroup: summarizeWithDetails(cq.goroutineNoWaitgroup),
-		ubs_defer_in_loop: summarizeWithDetails(cq.deferInLoop),
-		ubs_string_concat_in_loop: summarizeWithDetails(cq.ubsStringConcatInLoop),
-		ubs_numeric_comparison_chain: summarizeWithDetails(cq.numericComparisonChain),
-		ubs_print_debug_leak: summarizeWithDetails(cq.printDebugLeak),
-		ubs_hardcoded_localhost: summarizeWithDetails(cq.ubsHardcodedLocalhost),
-		raw_control_bytes: summarizeWithDetails(cq.rawControlBytes),
-		lossy_error_rethrow: summarizeWithDetails(cq.lossyErrorRethrow),
-		json_stringify_error: summarizeWithDetails(cq.jsonStringifyError),
-		catch_rewrap_loses_cause: summarizeWithDetails(cq.catchRewrapLosesCause),
-		resource_handle_leak: summarizeWithDetails(cq.resourceHandleLeak),
-		public_api_leaks_internal_type: summarizeWithDetails(cq.publicApiLeaksInternalType),
-		jsdoc_param_drift: summarizeWithDetails(cq.jsdocParamDrift),
-		unvalidated_input_boundary: summarizeWithDetails(cq.unvalidatedInputBoundary),
-		numeric_zero_default: summarizeWithDetails(cq.numericZeroDefault),
-		import_from_own_barrel: summarizeWithDetails(cq.importFromOwnBarrel),
-		error_dispatch_by_instanceof: summarizeWithDetails(cq.errorDispatchByInstanceof),
-		silent_promise_catch: summarizeWithDetails(cq.silentPromiseSwallow),
-		child_process_exec_user_input: summarizeWithDetails(cq.childProcessExecUserInput),
-		mixed_sync_async_file_api: summarizeWithDetails(cq.mixedSyncAsyncFileApi),
-		cookie_missing_security_flags: summarizeWithDetails(cq.cookieMissingSecurityFlags),
-		logger_format_user_input: summarizeWithDetails(cq.loggerFormatUserInput),
-		ubs_magic_number_no_const: summarizeWithDetails(cq.magicNumberNoConst),
-		ubs_large_function: summarizeWithDetails(cq.largeFunction),
-		ubs_deeply_nested_callback: summarizeWithDetails(cq.deeplyNestedCallback),
-		ubs_time_format_locale_dep: summarizeWithDetails(cq.timeFormatLocaleDep),
-		ubs_regex_in_loop_no_compile: summarizeWithDetails(cq.regexInLoopNoCompile),
-		// === Batch 1: agent-laziness (11 entries) ===
-		agent_thumbprint_prose: summarizeWithDetails(cq.agentThumbprintProse),
-		stub_not_implemented_throw: summarizeWithDetails(cq.stubNotImplementedThrow),
-		dead_branch_literal: summarizeWithDetails(cq.deadBranchLiteral),
-		file_level_suppression: summarizeWithDetails(cq.fileLevelSuppression),
-		untestable_time_in_source: summarizeWithDetails(cq.untestableTimeInSource),
-		double_cast_unknown: summarizeWithDetails(cq.doubleCastUnknown),
-		type_smuggling: summarizeWithDetails(cq.typeSmuggling),
-		union_widened_with_string: summarizeWithDetails(cq.unionWidenedWithString),
-		nodeenv_branch_in_prod: summarizeWithDetails(cq.nodeenvBranchInProd),
-		fetch_without_timeout: summarizeWithDetails(cq.fetchWithoutTimeout),
-		unbounded_promise_all: summarizeWithDetails(cq.unboundedPromiseAll),
-		sync_io_on_hot_path: summarizeWithDetails(cq.syncIoOnHotPath),
-		// Bun-regression detector pack (2026-07-20): confessed stand-ins + span pair
-		placeholder_runtime_constant: summarizeWithDetails(cq.placeholderRuntimeConstant),
-		rust_unsafe_span: summarizeWithDetails(cq.rustUnsafeSpan),
-		suppression_block_span: summarizeWithDetails(cq.suppressionBlockSpan),
-		// === Batch 2: test-hygiene (7 entries) ===
-		duplicate_test_names: summarizeWithDetails(cq.duplicateTestNames),
-		real_io_in_tests: summarizeWithDetails(cq.realIoInTests),
-		test_nondeterminism: summarizeWithDetails(cq.testNondeterminism),
-		hardcoded_timeout_in_tests: summarizeWithDetails(cq.hardcodedTimeoutInTests),
-		test_missing_sut_import: summarizeWithDetails(cq.testMissingSutImport),
-		mocking_the_sut_self: summarizeWithDetails(cq.mockingTheSutSelf),
-		test_subprocess_default_timeout: summarizeWithDetails(cq.testSubprocessDefaultTimeout),
+		...summarizeSections(cq, DIAGNOSTIC_SECTIONS),
 		// === Test-quality + test-discrimination (output-json-test-quality.ts) ===
 		...summarizeTestQualitySections(cq, summarizeWithDetails),
-		// === Batch 5: cross-file (4 entries) ===
-		empty_body_handler: summarizeWithDetails(cq.emptyBodyHandler),
-		listener_pairing: summarizeWithDetails(cq.listenerPairing),
-		schema_type_drift: summarizeWithDetails(cq.schemaTypeDrift),
-		migration_parity: summarizeWithDetails(cq.migrationParity),
-		// === Batch 8: demo-data (3 entries) ===
-		demo_data_unmarked: summarizeWithDetails(cq.demoDataUnmarked),
-		silent_demo_fallback: summarizeWithDetails(cq.silentDemoFallback),
-		demo_runtime_missing_banner: summarizeWithDetails(cq.demoRuntimeMissingBanner),
-		placeholder_data_in_ui: summarizeWithDetails(cq.placeholderDataInUi),
-		// === tsconfig strictness ===
-		tsconfig_strictness: summarizeWithDetails(cq.tsconfigStrictness),
+		...summarizeSections(cq, CROSS_FILE_SECTIONS),
 	};
 
 	if (suggestions) {
@@ -386,7 +407,8 @@ export function outputJson(args: OutputJsonArgs): void {
 	result.actions = verifyActions(args);
 	result.check_coverage = { tools: args.checkCoverage ?? null, timings: args.checkTimings ?? null, selection: args.checkSelection ?? null,
 		input_scopes: args.toolInputScopes?.map(scope => ({ ...scope })) ?? [] };
-	process.stdout.write(serializeVerifyJson(result, args));
+	addPlacementSections(result, args);
+	return tagVerifyJson(result, args);
 }
 
 /**
@@ -394,7 +416,7 @@ export function outputJson(args: OutputJsonArgs): void {
  * keys a consumer sees. `rules` is null (never absent) when no fingerprint was
  * computed, so "not computed" stays distinguishable from a pre-schema report.
  */
-function serializeVerifyJson(result: JsonObject, { rules, projectE2e, fpFilter, catalogue, killProofs }: Pick<OutputJsonArgs, "rules" | "projectE2e" | "fpFilter" | "catalogue" | "killProofs">): string {
+function tagVerifyJson(result: JsonObject, { rules, projectE2e, fpFilter, catalogue, killProofs }: Pick<OutputJsonArgs, "rules" | "projectE2e" | "fpFilter" | "catalogue" | "killProofs">): JsonObject {
 	const tagged: JsonObject = {
 		schema_version: VERIFY_JSON_SCHEMA,
 		rules: rules ? { schema: rules.schema, rules_hash: rules.rules_hash, inputs: rules.inputs } : null,
@@ -406,5 +428,5 @@ function serializeVerifyJson(result: JsonObject, { rules, projectE2e, fpFilter, 
 		// Kill-proof receipts (`verify/kill-proofs-section.ts`); no receipt on disk ⇒ no key, zero cost.
 		...(killProofs ? { kill_proofs: killProofs } : {}),
 	};
-	return `${JSON.stringify(tagged, null, 2)}\n`;
+	return tagged;
 }

@@ -5,7 +5,8 @@ import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // (osv-scanner → npm audit fallback).
 //
 // Boundaries are mocked at the module edge so the tests are deterministic and
-// never spawn a real linter / scanner / fs walk:
+// never spawn a real linter or scanner. The foreground Gitleaks case walks
+// a temporary directory with one file to exercise discovery and snapshots.
 //   • node:child_process `spawnSync` — drives the sync runners + osv/npm audit.
 //   • node:fs `existsSync` — drives `findEslintConfig` and the runDepAudit
 //     `package.json` probe.
@@ -18,6 +19,9 @@ import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // raw-output → CheckResult[] / AuditResult mapping rather than a stubbed parser.
 
 import type { SpawnSyncReturns } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunProcessResult } from "../spawn-async.js";
 import type { CheckScope, ToolRunnerInput } from "../types.js";
@@ -35,7 +39,8 @@ vi.mock("node:child_process", () => ({
 	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
 }));
 
-vi.mock("node:fs", () => ({
+vi.mock("node:fs", async (importOriginal) => ({
+	constants: (await importOriginal<typeof import("node:fs")>()).constants,
 	existsSync: (...args: unknown[]) => existsSyncMock(...args),
 }));
 
@@ -1106,11 +1111,26 @@ describe("runSemgrepAsync", () => {
 describe("runGitleaksAsync", () => {
     it("runs a foreground verification scan without memory admission or a kill budget", async () => {
         memoryBudgetMock.mockReturnValue(null);
-        runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: gitleaksJson() }));
-        const findings = await runGitleaksAsync({ ...input(projectScope()), resourcePolicy: "foreground-verify" });
-        expect(findings).toHaveLength(1);
-        expect(memoryBudgetMock).not.toHaveBeenCalled();
-        expect(runProcessAsyncMock.mock.calls[0]?.[2]).not.toHaveProperty("resourceBudget");
+        runProcessAsyncMock.mockImplementation(async command => command === "git"
+            ? procResult({ code: 128, stderr: "not a git repository" })
+            : procResult({ code: 1, stdout: gitleaksJson() }));
+        const projectRoot = await mkdtemp(join(tmpdir(), "gitleaks-policy-"));
+        vi.stubEnv("GITLEAKS_CONFIG", "");
+        vi.stubEnv("GITLEAKS_CONFIG_TOML", "");
+        try {
+            await mkdir(join(projectRoot, "src"));
+            await writeFile(join(projectRoot, "src", "secrets.ts"), "// harmless fixture\n");
+            const findings = await runGitleaksAsync({ ...input(projectScope({ projectRoot }), 0), resourcePolicy: "foreground-verify" });
+            expect(findings).toEqual([expect.objectContaining({ file: "src/secrets.ts", line: 8, ruleId: "aws-access-key" })]);
+            expect(memoryBudgetMock).not.toHaveBeenCalled();
+            const scanners = runProcessAsyncMock.mock.calls.filter(([command]) => command === "gitleaks");
+            expect(scanners).toHaveLength(1);
+            expect(scanners[0]?.[2]).toMatchObject({ cwd: projectRoot, timeout: 0 });
+            expect(scanners[0]?.[2]).not.toHaveProperty("resourceBudget");
+        } finally {
+            vi.unstubAllEnvs();
+            await rm(projectRoot, { recursive: true, force: true });
+        }
     });
     it("does not spawn without the light scanner memory budget", async () => {
         memoryBudgetMock.mockReturnValueOnce(null);

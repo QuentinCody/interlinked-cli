@@ -100,23 +100,39 @@ export function parseSpecSentences(doc: string, text: string): SpecSentence[] {
     return rows;
 }
 
-function classifyMarkdownLines(lines: string[], codeLines: Set<number>) {
+function nextMarkdownFence(fence: string | undefined, delimiter: string, line: string): string | undefined {
+    if (!fence) return delimiter;
+    const closes = delimiter[0] === fence[0] && delimiter.length >= fence.length && /^ {0,3}(?:`+|~+)\s*$/.test(line);
+    return closes ? undefined : fence;
+}
+
+function markMarkdownCode(lines: string[], codeLines: Set<number>) {
     let fence: string | undefined, listIndent: number | undefined;
     let paragraph = false;
     for (const [index, line] of lines.entries()) {
         const delimiter = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
         if (fence || delimiter) codeLines.add(index + 1);
-        if (delimiter && !fence) fence = delimiter;
-        else if (delimiter && fence && delimiter[0] === fence[0] && delimiter.length >= fence.length && /^ {0,3}(?:`+|~+)\s*$/.test(line)) fence = undefined;
-        const indent = /^\s*/.exec(line)?.[0].replaceAll("\t", "    ").length ?? 0;
-        const list = /^(\s*)(?:[-*+]|\d+[.)])\s+/.exec(line);
-        if (list && !codeLines.has(index + 1)) listIndent = list[0].length;
-        else if (line.trim() && listIndent !== undefined && indent < listIndent) listIndent = undefined;
+        if (delimiter) fence = nextMarkdownFence(fence, delimiter, line);
+        const indentation = markdownListIndentation(line, listIndent, codeLines.has(index + 1));
+        listIndent = indentation.listIndent;
         // CommonMark indented code cannot interrupt an existing paragraph.
         // An indented continuation of a list item is still prose, not a fence.
-        if (!list && !paragraph && line.trim() && indent >= (listIndent ?? 0) + 4) codeLines.add(index + 1);
+        if (!paragraph && indentation.indentedCode) codeLines.add(index + 1);
         paragraph = !!line.trim() && !codeLines.has(index + 1) && !/^ {0,3}#/.test(line);
     }
+}
+
+function markdownListIndentation(line: string, listIndent: number | undefined, fenced: boolean) {
+    const indent = /^\s*/.exec(line)?.[0].replaceAll("\t", "    ").length ?? 0;
+    const list = /^(\s*)(?:[-*+]|\d+[.)])\s+/.exec(line);
+    if (list && !fenced) listIndent = list[0].length;
+    else if (line.trim() && listIndent !== undefined && indent < listIndent) listIndent = undefined;
+    const indentedCode = !list && Boolean(line.trim()) && indent >= (listIndent ?? 0) + 4;
+    return { listIndent, indentedCode };
+}
+
+function classifyMarkdownLines(lines: string[], codeLines: Set<number>) {
+    markMarkdownCode(lines, codeLines);
     const headings = extractHeadings(lines, codeLines), headingLines = new Set<number>();
     for (const heading of headings) {
         headingLines.add(heading.line);

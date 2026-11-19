@@ -35,6 +35,7 @@ import {
 	collectSingleInterfaceEvidence,
 	type SimplificationCandidateDraft,
 } from "./simplify-detectors.js";
+import { partitionDiscovered } from "./simplify-roles.js";
 import { repositoryIdentity, repositoryScope, resolveReviewScope } from "./simplify-scope.js";
 import { discoverFiles } from "./verify/file-discovery.js";
 
@@ -294,8 +295,10 @@ export function buildSimplificationReport(
 	options: SimplifyCommandOptions = {},
 ): SimplificationReport {
 	const cwd = resolve(options.cwd ?? process.cwd());
-	const discovered = discoverFiles(cwd);
-	const repository = repositoryIdentity({ cwd, files: discovered });
+	const allDiscovered = discoverFiles(cwd);
+	const repository = repositoryIdentity({ cwd, files: allDiscovered });
+	const { kept: discovered, setAside, population } = partitionDiscovered(cwd, allDiscovered);
+	const asideSet = new Set(setAside);
 	const scope = command === "review"
 		? reviewScope(options, cwd)
 		: repositoryScope(repository.head_sha);
@@ -315,7 +318,9 @@ export function buildSimplificationReport(
 				scope,
 				sources: [],
 				findings,
+				setAside,
 			}),
+			population,
 			deep_handoff: command === "review" && options.deepHandoff === true
 				? deepHandoff(repository, scope, findings)
 				: null,
@@ -327,7 +332,7 @@ export function buildSimplificationReport(
 	const opportunities = collectAdvisoryOpportunityEvidence(cwd, discovered);
     const diagnostics = collectDiagnosticSimplificationEvidence(cwd, options.diagnostics);
 	const drafts = [...deadCode.drafts, ...interfaces.drafts, ...opportunities.drafts, ...diagnostics.drafts]
-		.filter((draft) => draftInScope(draft, scope));
+		.filter((draft) => !asideSet.has(draft.path) && draftInScope(draft, scope));
 	const findings = sortFindings(groupOverlappingFindings(
 		drafts.map((draft) => materializeFinding(draft, repository)),
 	));
@@ -340,7 +345,8 @@ export function buildSimplificationReport(
 		scope,
 		findings,
 		summary: summarize(findings),
-		coverage: buildSimplificationCoverage({ cwd, discovered, scope, sources, findings }),
+		coverage: buildSimplificationCoverage({ cwd, discovered, scope, sources, findings, setAside }),
+		population,
 		deep_handoff: (command === "audit" || command === "review") && options.deepHandoff === true
 			? deepHandoff(repository, scope, findings)
 			: null,

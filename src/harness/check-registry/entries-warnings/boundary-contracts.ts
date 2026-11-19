@@ -8,10 +8,25 @@
 import { detectTestContractAnnotation } from "../../checks/test-contract-annotation.js";
 import { detectCommanderOptionAttribute } from "../../checks/commander-option-attribute.js";
 import { detectNumericZeroDefault } from "../../checks/numeric-zero-default.js";
+import { detectOmittedPrivateParameter } from "../../checks/omitted-private-parameter.js";
 import { detectUnvalidatedInputBoundary } from "../../checks/unvalidated-input-boundary.js";
 import type { CheckRegistration } from "../types.js";
 
 export const BOUNDARY_CONTRACT_ENTRIES: CheckRegistration[] = [
+	{
+		id: "omitted_private_parameter",
+		phase: "post",
+		name: "Omitted Private Parameter",
+		description: "Finds trailing optional or defaulted inputs of top-level private JS/TS module functions when all visible direct calls omit the argument. Exported functions, spread calls and uses as values are excluded.",
+		tier: 2,
+		determinism: "heuristic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		fix_instruction: "Check the reported calls and the supported contract. If no caller needs the override, remove the parameter and preserve the default's value, timing and side effects. Run the affected tests.",
+		fn: detectOmittedPrivateParameter,
+		resultsPropName: "omittedPrivateParameter",
+		content_keywords: ["function"],
+	},
 	{
 		id: "numeric_zero_default",
 		phase: "post",

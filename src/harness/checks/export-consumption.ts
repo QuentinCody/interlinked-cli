@@ -16,31 +16,34 @@ function symbolsOf(clause: string): string[] {
 		.map(symbol => symbol.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]?.trim() ?? "").filter(Boolean);
 }
 
-function targetKey(specifier: string, importer: string): string | null {
-	if (!specifier.startsWith(".")) return null;
+/** Maps a non-relative specifier (an alias or a workspace package) to the consumption key of the file it names, or null. */
+export type SpecifierKeyResolver = (specifier: string, importer: string) => string | null;
+
+function targetKey(specifier: string, importer: string, resolveBare?: SpecifierKeyResolver): string | null {
+	if (!specifier.startsWith(".")) return resolveBare?.(specifier, importer) ?? null;
 	return consumptionPathKey(resolve("/", dirname(importer), specifier)).replace(/^\/+/, "");
 }
 
 /** Parse each importer's existing static/dynamic consumption predicate once. */
-export function parseConsumptionEdges(content: string, importer: string): ConsumptionEdge[] {
+export function parseConsumptionEdges(content: string, importer: string, resolveBare?: SpecifierKeyResolver): ConsumptionEdge[] {
 	const edges: ConsumptionEdge[] = [];
 	EDGE_RE.lastIndex = 0;
 	for (const match of content.matchAll(EDGE_RE)) {
-		const key = targetKey(match[2] ?? "", importer);
+		const key = targetKey(match[2] ?? "", importer, resolveBare);
 		if (key === null) continue;
 		const symbols = symbolsOf(match[1] ?? "");
 		edges.push({ targetKey: key, symbols, allUsed: symbols.includes("*") });
 	}
 	DYNAMIC_EDGE_RE.lastIndex = 0;
 	for (const match of content.matchAll(DYNAMIC_EDGE_RE)) {
-		const key = targetKey(match[1] ?? "", importer);
+		const key = targetKey(match[1] ?? "", importer, resolveBare);
 		if (key !== null) edges.push({ targetKey: key, symbols: [], allUsed: true });
 	}
 	return edges;
 }
 
-export function collectExportUsage(content: string, importer: string, key: string, scan: ExportUsageScan): void {
-	for (const edge of parseConsumptionEdges(content, importer)) {
+export function collectExportUsage(content: string, importer: string, key: string, scan: ExportUsageScan, resolveBare?: SpecifierKeyResolver): void {
+	for (const edge of parseConsumptionEdges(content, importer, resolveBare)) {
 		if (edge.targetKey !== key) continue;
 		scan.resolvedEdges++;
 		if (edge.allUsed) { scan.allUsed = true; return; }

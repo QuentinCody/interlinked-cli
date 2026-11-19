@@ -1,6 +1,7 @@
 // Error-handling taste checks (bare catch, untyped catch, throw-as-control-flow, etc).
 // Extracted from generic-checks.ts.
 
+import { rawBraceDelta } from "./shared-text-utils-brace-scan.js";
 import { nonNull } from "../../lib/non-null.js";
 import { checkMatchLimit } from "./check-scan-policy.js";
 import {
@@ -46,16 +47,6 @@ export function checkBareCatchBlock(content: string, filePath: string): InlineMa
 	return matches;
 }
 
-/** Net brace balance of one line: `{` adds, `}` subtracts. */
-function braceDelta(line: string): number {
-	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		if (ch === "}") delta--;
-	}
-	return delta;
-}
-
 /** Detect catch-and-return-null: catch (e) { return null/undefined } — lossy error handling */
 export function checkCatchReturnNull(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
@@ -80,7 +71,7 @@ export function checkCatchReturnNull(content: string, filePath: string): InlineM
 			continue;
 		}
 		if (inCatch) {
-			catchDepth += braceDelta(line);
+			catchDepth += rawBraceDelta(line);
 			if (/\breturn\s+(null|undefined)\s*;?/.test(line)) {
 				const catchText = nonNull(lines[catchLine]).trim().slice(0, 80);
 				matches.push({

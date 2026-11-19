@@ -13,12 +13,12 @@ import type { ToolId } from "../../harness/check-engine/types.js";
 /**
  * Public API — consumed by `verify.ts`.
  *
- * Merge CLI `--skip` list with the advisory defaults when `--all-checks` is not
- * set. Always returns a lowercased, trimmed set.
+ * Resolve exclusions before tool discovery, execution and receipt generation.
  */
 export function getEffectiveSkipChecks(
 	skipArg: string | undefined,
 	allChecks: boolean | undefined,
+	only?: string,
 ): Set<string> {
 	const merged = new Set(
 		skipArg
@@ -28,7 +28,8 @@ export function getEffectiveSkipChecks(
 					.filter(Boolean)
 			: [],
 	);
-	if (!allChecks) {
+	if (only !== "semgrep") merged.add("semgrep");
+	if (!allChecks && !only) {
 		for (const check of DEFAULT_ADVISORY_SKIPS) merged.add(check);
 	}
 	return merged;

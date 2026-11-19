@@ -25,29 +25,13 @@
 // the caller, is silent by construction. Determinism `heuristic`: the name
 // test is a judgement about information, not a proof.
 
-import { createRequire } from "node:module";
 import type * as TS from "typescript";
-import { parseTsSourceWith, type ParsedTsSource } from "./cyclomatic-ast.js";
+import { parseTsSource, type ParsedTsSource } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isStrictTestFile, JS_TS_EXTS } from "./shared.js";
 import { checkPythonTrivialHelper } from "./python-simplification.js";
 
 type TsModule = typeof TS;
 
-// Self-contained `typescript` loader — same idiom as cyclomatic-ast.ts /
-// introverted-test.ts (`typescript` is an optionalDependency, so a
-// `--omit=optional` install has no AST and the check no-ops rather than throws).
-let tsCache: TsModule | null | undefined;
-function loadTs(): TsModule | null {
-	if (tsCache !== undefined) return tsCache;
-	try {
-		// SAFETY: `require("typescript")` returns that module's namespace object;
-		// the cast only names it, and a load failure lands in the catch below.
-		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
-	} catch {
-		tsCache = null;
-	}
-	return tsCache;
-}
 
 /** Body statements above this many mean inlining would re-inflate the caller. */
 const MAX_TRIVIAL_STATEMENTS = 3;
@@ -234,10 +218,9 @@ function message(name: string, statements: number): string {
 export function checkSingleUseTrivialHelper(content: string, filePath: string): InlineMatch[] {
     if (filePath.endsWith(".py")) return checkPythonTrivialHelper(content, filePath);
 	if (!JS_TS_EXTS.has(getExtension(filePath)) || isStrictTestFile(filePath)) return [];
-	const ts = loadTs();
-	if (!ts) return [];
-
-	const sf = parseTsSourceWith(ts, content, filePath);
+	const parsed = parseTsSource(content, filePath);
+	if (!parsed) return [];
+	const { ts, sf } = parsed;
 	return collectTrivialHelperEvidence({ ts, sf }, MAX_MATCHES).map(({ line, text }) => ({ line, text }));
 }
 

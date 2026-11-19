@@ -272,23 +272,18 @@ function maskConciseArrowBodies(body: string): string {
 
 // Upper bound on how far `sliceBalancedParens` will scan from the opening
 // paren when searching for its match. Most call expressions close within a
-// few hundred characters; the bound exists to keep the scan O(maxLen) on
-// pathologically long single-line code rather than O(file).
+// few hundred characters; the fixed bound also limits work on long lines.
 const BALANCED_PARENS_MAX_SCAN = 2000;
 
 /**
  * Walk forward from the position of an opening `(` and return the substring
  * between the parens, balanced. Returns null if the call doesn't close within
- * `maxLen` characters or runs to EOF unmatched.
+ * the scan limit or runs to EOF unmatched.
  */
-function sliceBalancedParens(
-	src: string,
-	openIdx: number,
-	maxLen = BALANCED_PARENS_MAX_SCAN,
-): string | null {
+function sliceBalancedParens(src: string, openIdx: number): string | null {
 	let depth = 1;
 	let j = openIdx + 1;
-	const end = Math.min(src.length, openIdx + maxLen);
+	const end = Math.min(src.length, openIdx + BALANCED_PARENS_MAX_SCAN);
 	while (j < end && depth > 0) {
 		const c = src[j];
 		if (c === "(") depth++;

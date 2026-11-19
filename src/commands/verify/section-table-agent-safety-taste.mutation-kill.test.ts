@@ -40,7 +40,7 @@ describe("tasteStructuralSections content (mutation-kill)", () => {
 	// table that drives interlinked verify's rendered section table.
 	// test-contract: public-api — an emptied label, noun, or passLabel silently blanks a rendered report row while its key-based lookup still succeeds
 	it("no entry carries an empty label, noun, passLabel, key, or color (closes 306 StringLiteral survivors)", () => {
-		expect(tasteStructuralSections.length).toBe(104);
+		expect(tasteStructuralSections.length).toBe(112);
 		expect(tasteStructuralSections.find((entry) => entry.key === "commanderOptionAttribute")).toEqual({
 			label: "Commander option attribute",
 			key: "commanderOptionAttribute",

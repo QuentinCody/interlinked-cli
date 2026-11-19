@@ -25,7 +25,7 @@ import { basename, isAbsolute, relative, resolve } from "node:path";
 import { parseExports } from "../project-graph.js";
 import { getGitSourceFiles } from "./export-ripple.js";
 import { getExtension, type InlineMatch, isTestFile } from "./shared.js";
-import { collectExportUsage as collectEdges, consumptionPathKey as pathKey, type ExportUsageScan as EdgeScan } from "./export-consumption.js";
+import { collectExportUsage as collectEdges, consumptionPathKey as pathKey, type ExportUsageScan as EdgeScan, type SpecifierKeyResolver } from "./export-consumption.js";
 import { getProjectCheckEvidence } from "./project-check-evidence.js";
 import { projectExportUsage } from "./dead-exports-project.js";
 
@@ -36,6 +36,8 @@ export interface DeadExportsRepo {
 	/** Contents by repo-relative path, or null when unreadable. */
 	readFile: (relPath: string) => string | null;
 	usageFor?: (selfRel: string, targetKey: string) => EdgeScan | null;
+	/** Resolves alias and workspace specifiers (`$lib/x`, `@scope/pkg/y`) to a consumption key; relative specifiers need no help. */
+	resolveBare?: SpecifierKeyResolver;
 	fullPopulation?: boolean;
 }
 
@@ -62,7 +64,7 @@ function scanImporters(repo: DeadExportsRepo, selfRel: string, targetKey: string
 		const content = repo.readFile(rel);
 		if (content === null || !content.includes(base)) continue;
 		scan.mentions++;
-		collectEdges(content, rel, targetKey, scan);
+		collectEdges(content, rel, targetKey, scan, repo.resolveBare);
 		if (scan.allUsed) return scan;
 	}
 	return scan;

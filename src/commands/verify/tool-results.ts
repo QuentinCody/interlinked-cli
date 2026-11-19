@@ -29,8 +29,11 @@ import { runVerifyParityChecks } from "../../harness/verify-parity.js";
 import { readSharedConfig } from "../../lib/config.js";
 import { nonNull } from "../../lib/non-null.js";
 import { JS_TS_EXTS } from "./advisory.js";
-import { verifyInputExclusion } from "./input-budget.js";
-import { recordVerifyInputExclusion, measureVerifyCheck, measureVerifyCheckAsync, isVerifyCheckSelected, recordVerifyInputDeferral } from "./check-timing.js";
+import { classifySetAside } from "./set-aside.js";
+import { sweepFileChecks } from "./registry-sweep.js";
+import { sweepProjectChecks } from "./project-sweep.js";
+import type { SetAsideRow } from "./scan-ledger.js";
+import { recordVerifyInputExclusion, measureVerifyCheck, measureVerifyCheckAsync, isVerifyCheckSelected, recordVerifyInputDeferral, recordSetAside, currentScanLedger, verifyDeadlinePassed, markVerifyPartial } from "./check-timing.js";
 import { runPerFileChecks } from "./file-checks.js";
 import { staleFileSuppressions } from "./suppression-hygiene.js";
 import type { PiiOpts } from "./file-checks-shared.js";
@@ -122,11 +125,7 @@ function collectOneModuleExport(file: string, cwd: string, ctx: CqRunContext): v
 	if (!JS_TS_EXTS.has(ext)) return;
 	const content = readInput(file, cwd, ctx);
 	if (content === null) return;
-	const excluded = verifyInputExclusion(content);
-	if (excluded) {
-		getProjectCheckEvidence(cwd)?.excludeFile(file, excluded);
-		return;
-	}
+	if (setAsideFor(file, cwd, ctx, content)) return;
 	if (file.endsWith(".d.ts")) return;
 	try {
 		ctx.moduleExportsCache.set(file, parseExports(content).map(exported => exported.name));
@@ -147,6 +146,18 @@ interface CqRunContext {
 	allEnvRefs: Map<string, Array<{ file: string; line: number }>>;
 	moduleExportsCache: Map<string, string[]>;
 	unreadableFiles: Set<string>;
+	/** Per-file role decision, computed once: a row when the file is set aside, null when its content checks run. */
+	setAside: Map<string, SetAsideRow | null>;
+}
+
+/** Decide once per file whether source roles set it aside; set-aside files stay consumption context for project checks. */
+function setAsideFor(file: string, cwd: string, ctx: CqRunContext, content: string): SetAsideRow | null {
+	const cached = ctx.setAside.get(file);
+	if (cached !== undefined) return cached;
+	const row = classifySetAside(cwd, file, content);
+	ctx.setAside.set(file, row);
+	if (row) getProjectCheckEvidence(cwd)?.excludeFile(file, row.evidence_kind === "marker" ? row.evidence_detail : row.role);
+	return row;
 }
 
 function prepareRun(cwd: string): CqRunContext {
@@ -165,6 +176,7 @@ function prepareRun(cwd: string): CqRunContext {
 		allEnvRefs: new Map(),
 		moduleExportsCache: new Map(),
 		unreadableFiles: new Set(),
+		setAside: new Map(),
 	};
 }
 
@@ -189,16 +201,19 @@ function readInput(file: string, cwd: string, ctx: CqRunContext): string | null 
 function runOneFileChecks(file: string, cwd: string, ctx: CqRunContext, repeatedImplementation?: RepeatedImplementationMatch[]): void {
 	const content = readInput(file, cwd, ctx);
 	if (content === null) return;
-	const excluded = verifyInputExclusion(content);
-	if (excluded) {
-		getProjectCheckEvidence(cwd)?.excludeFile(file, excluded);
-		recordVerifyInputExclusion(`input_excluded:${excluded}`, { file: relative(cwd, file), reason: excluded });
+	const aside = setAsideFor(file, cwd, ctx, content);
+	if (aside) {
+		recordSetAside(aside);
+		if (aside.evidence_kind === "marker") recordVerifyInputExclusion(`input_excluded:${aside.evidence_detail}`, { file: aside.file, reason: aside.evidence_detail });
 		return;
 	}
+	const ledger = currentScanLedger();
+	if (ledger) ledger.measuredFiles++;
     try {
         runPerFileChecks({ file, content, cwd, r: ctx.r, moduleExportsCache: ctx.moduleExportsCache,
             allEnvRefs: ctx.allEnvRefs, piiOpts: ctx.piiOpts,
 			...(repeatedImplementation === undefined ? {} : { repeatedImplementation }) });
+        sweepFileChecks({ file, relPath: relative(cwd, file), content });
     } catch (error) {
         // Malformed/adversarial input must not abort every other file's checks.
         // Findings already collected remain observations, but this file is incomplete.
@@ -214,7 +229,7 @@ async function runOneFileChecksProgressive(file: string, cwd: string, ctx: CqRun
 	const content = readInput(file, cwd, ctx);
 	if (content === null) return;
 	let repeated: RepeatedImplementationMatch[] = [];
-	if (!verifyInputExclusion(content) && isVerifyCheckSelected("repeated_implementation")) {
+	if (!setAsideFor(file, cwd, ctx, content) && isVerifyCheckSelected("repeated_implementation")) {
 		repeated = await measureVerifyCheckAsync("repeated_implementation", () => checkRepeatedImplementationAsync(content, file, {
 			onUnavailable: reason => recordVerifyInputDeferral("repeated_implementation", { file: relative(cwd, file), reason }),
 		}));
@@ -224,15 +239,20 @@ async function runOneFileChecksProgressive(file: string, cwd: string, ctx: CqRun
 }
 
 /** Pass 3 + post-loop aggregation + suppression filtering. */
-function finalizeRun(ctx: CqRunContext, files: string[], cwd: string): CodeQualityResults {
+function finalizeRun(ctx: CqRunContext, files: string[], cwd: string, partial = false): CodeQualityResults {
 	// Pass 2 is the last consumer of the project-wide export census. Release it
 	// before parity/suppression aggregation allocates its own cross-file rows.
 	ctx.moduleExportsCache.clear();
-	applyParityFindings(ctx.r, files, cwd);
-	// Emit one issue per undocumented env var instead of one per reference.
-	ctx.r.undocumentedEnvVars.push(
-		...buildUndocumentedEnvIssues(ctx.allEnvRefs, ctx.documentedEnvVars),
-	);
+	// A stopped run has not seen every file: project-wide aggregates would be wrong, so they are not computed.
+	if (!partial) {
+		applyParityFindings(ctx.r, files.filter((file) => !ctx.setAside.get(file)), cwd);
+		const asideRel = new Set([...ctx.setAside.values()].flatMap((row) => (row ? [row.file] : [])));
+		sweepProjectChecks(cwd, (rel) => asideRel.has(rel));
+		// Emit one issue per undocumented env var instead of one per reference.
+		ctx.r.undocumentedEnvVars.push(
+			...buildUndocumentedEnvIssues(ctx.allEnvRefs, ctx.documentedEnvVars),
+		);
+	}
 	ctx.allEnvRefs.clear();
 	ctx.documentedEnvVars.clear();
 	applyPersistedSuppressions(ctx.r, join(cwd, ".interlinked"));
@@ -253,6 +273,10 @@ async function forEachFileWithProgress(
 	progress.start(phase);
 	let seen = 0;
 	for (const file of files) {
+		if (verifyDeadlinePassed()) {
+			markVerifyPartial(`inline checks (${phase})`, `soft deadline reached after ${seen} of ${files.length} files`);
+			return;
+		}
 		const startedAt = Date.now();
 		await visit(file);
 		progress.advance(file, Date.now() - startedAt);
@@ -386,7 +410,7 @@ export async function runCodeQualityChecksProgressive(
 		await forEachFileWithProgress(files, progress, "checks", file => runOneFileChecksProgressive(file, cwd, ctx));
 		progress.finish();
 
-		return finalizeRun(ctx, files, cwd);
+		return finalizeRun(ctx, files, cwd, currentScanLedger()?.partial != null);
 	}, gap => recordVerifyInputDeferral(gap.check, { file: gap.file, reason: gap.reason }));
 }
 

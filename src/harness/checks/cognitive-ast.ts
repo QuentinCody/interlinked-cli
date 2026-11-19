@@ -44,16 +44,6 @@ export interface CognitiveComplexityEntry {
 /** File population: same extensions the AST cyclomatic pass parses. */
 const JS_TS_RE = /\.[cm]?[jt]sx?$/i;
 
-function isLoop(ts: TsModule, node: TS.Node): boolean {
-	return (
-		ts.isForStatement(node) ||
-		ts.isForInStatement(node) ||
-		ts.isForOfStatement(node) ||
-		ts.isWhileStatement(node) ||
-		ts.isDoStatement(node)
-	);
-}
-
 export function logicalOpKind(ts: TsModule, node: TS.Node): TS.SyntaxKind | null {
 	if (!ts.isBinaryExpression(node)) return null;
 	const op = node.operatorToken.kind;
@@ -76,7 +66,7 @@ export function unwrapParens(ts: TsModule, node: TS.Node): TS.Node {
 /** Loop/switch/ternary/catch: the four constructs that add a nesting-paying increment. */
 export function isNestingConstruct(ts: TsModule, node: TS.Node): boolean {
 	return (
-		isLoop(ts, node) ||
+		ts.isIterationStatement(node, false) ||
 		ts.isSwitchStatement(node) ||
 		ts.isConditionalExpression(node) ||
 		ts.isCatchClause(node)

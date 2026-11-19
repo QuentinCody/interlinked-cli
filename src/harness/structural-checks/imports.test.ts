@@ -970,7 +970,7 @@ describe("checkCrossPackageImports", () => {
 		expect(checkCrossPackageImports(importer, "pkgs/app/a.ts", graph)).toEqual([]);
 	});
 
-	it("enforces the ten-directory safety limit", () => {
+	it("finds a shared owner more than ten directories above the importer", () => {
 		const importer = "/a/b/c/d/e/f/g/h/i/j/k/l.ts";
 		mockFs.existsSync.mockImplementation((p) => p === "/package.json");
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ name: "root-like-package" }));
@@ -1059,18 +1059,13 @@ describe("checkCrossPackageImports", () => {
 		expect(res[0]?.check).toBe("cross_package_imports");
 	});
 
-	it("does not treat the importer's own directory package.json as a boundary (L410 dir !== dirname(filePath))", () => {
-		// existsSync true ONLY for a package.json in the importer's own dir.
-		// The walk starts by going UP one dir, so it never queries the importer's
-		// own dir; but to assert the guard, make the *parent* dir match the
-		// importer dir test: here only /proj/pkgs/app/package.json (own dir) exists.
+	it("flags a relative import that leaves the importer's own package directory", () => {
 		const importer = "/proj/pkgs/app/a.ts";
 		mockFs.existsSync.mockImplementation((p) => p === "/proj/pkgs/app/package.json");
+		mockFs.readFileSync.mockReturnValue(JSON.stringify({ name: "app" }));
 		const graph = makeGraph({
 			dependencies: [edge({ specifier: "../x", toFile: "/proj/pkgs/x.ts" })],
 		});
-		// The only existing package.json is the importer's own dir, which the walk
-		// (dirname first) skips; nothing else exists => no boundary flagged.
-		expect(checkCrossPackageImports(importer, "pkgs/app/a.ts", graph)).toEqual([]);
+		expect(checkCrossPackageImports(importer, "pkgs/app/a.ts", graph)).toMatchObject([{ check: "cross_package_imports" }]);
 	});
 });

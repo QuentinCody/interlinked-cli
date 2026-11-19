@@ -33,7 +33,7 @@ export function mergeMetricPolicies(base: MetricPolicies, overrides: MetricPolic
 	return merged;
 }
 
-const isRole = wireLiteral("product", "test", "configuration", "generated", "fixture", "vendor", "documentation", "asset");
+const isRole = wireLiteral("product", "test", "configuration", "generated", "fixture", "vendor", "documentation", "asset", "unlinted");
 const isScope = wireObject<MetricPolicyScope>({
 	paths: wireAbsentOptional(wireArray((value): value is string => typeof value === "string" && value.length > 0)),
 	roles: wireAbsentOptional(wireArray(isRole)),

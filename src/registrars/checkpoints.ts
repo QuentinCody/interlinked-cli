@@ -8,6 +8,17 @@
 import { type Command, type OptionValues } from "commander";
 
 export function registerCheckpointCommands(program: Command): void {
+	registerCheckpointHistory(program);
+	registerGitMetadata(program);
+	registerReservationGuard(program);
+	registerRestoration(program);
+}
+
+function checkpointOutput<T extends { json?: boolean }>(opts: T, command: Command) {
+	return { ...opts, json: opts.json || command.parent?.opts().json };
+}
+
+function registerCheckpointHistory(program: Command): void {
 	const cpCmd = program.command("checkpoint").description("Git checkpoint management");
 
 	cpCmd
@@ -27,11 +38,9 @@ export function registerCheckpointCommands(program: Command): void {
 		.option("--limit <n>", "Max entries")
 		.option("--json", "Machine-readable output")
 		.action(async (opts: OptionValues, cmd: Command) => {
-			const parentOpts = cmd.parent?.opts() || {};
 			const merged = {
-				...opts,
-				json: opts.json || parentOpts.json,
-				agent: opts.agent || parentOpts.agent,
+				...checkpointOutput(opts, cmd),
+				agent: opts.agent || cmd.parent?.opts().agent,
 			};
 			const { checkpointListCommand } = await import("../commands/checkpoint.js");
 			await checkpointListCommand(merged);
@@ -42,8 +51,7 @@ export function registerCheckpointCommands(program: Command): void {
 		.description("Show checkpoint details")
 		.option("--json", "Machine-readable output")
 		.action(async (id: string, opts: { json?: boolean }, cmd: Command) => {
-			const parentOpts = cmd.parent?.opts() || {};
-			const merged = { ...opts, json: opts.json || parentOpts.json };
+			const merged = checkpointOutput(opts, cmd);
 			const { checkpointShowCommand } = await import("../commands/checkpoint.js");
 			await checkpointShowCommand(id, merged);
 		});
@@ -53,8 +61,7 @@ export function registerCheckpointCommands(program: Command): void {
 		.description("Diff two checkpoints")
 		.option("--json", "Machine-readable output")
 		.action(async (id1: string, id2: string, opts: { json?: boolean }, cmd: Command) => {
-			const parentOpts = cmd.parent?.opts() || {};
-			const merged = { ...opts, json: opts.json || parentOpts.json };
+			const merged = checkpointOutput(opts, cmd);
 			const { checkpointCompareCommand } = await import("../commands/checkpoint.js");
 			await checkpointCompareCommand(id1, id2, merged);
 		});
@@ -66,8 +73,7 @@ export function registerCheckpointCommands(program: Command): void {
 		.option("--keep-latest <n>", "Keep the N most recent checkpoints")
 		.option("--json", "Machine-readable output")
 		.action(async (opts: OptionValues, cmd: Command) => {
-			const parentOpts = cmd.parent?.opts() || {};
-			const merged = { ...opts, json: opts.json || parentOpts.json };
+			const merged = checkpointOutput(opts, cmd);
 			const { checkpointPruneCommand } = await import("../commands/checkpoint.js");
 			await checkpointPruneCommand(merged);
 		});
@@ -77,12 +83,13 @@ export function registerCheckpointCommands(program: Command): void {
 		.description("Archive old stash checkpoints to metadata-only")
 		.option("--json", "Machine-readable output")
 		.action(async (opts: OptionValues, cmd: Command) => {
-			const parentOpts = cmd.parent?.opts() || {};
-			const merged = { ...opts, json: opts.json || parentOpts.json };
+			const merged = checkpointOutput(opts, cmd);
 			const { checkpointArchiveCommand } = await import("../commands/checkpoint.js");
 			await checkpointArchiveCommand(merged);
 		});
+}
 
+function registerGitMetadata(program: Command): void {
 	const gitCmd = program.command("git").description("Git bridge: metadata, trailers, and notes");
 
 	gitCmd
@@ -106,7 +113,9 @@ export function registerCheckpointCommands(program: Command): void {
 			const { gitLinkCheckpointCommand } = await import("../commands/git.js");
 			await gitLinkCheckpointCommand(opts);
 		});
+}
 
+function registerReservationGuard(program: Command): void {
 	const guardCmd = program.command("guard").description("File reservation enforcement via git hooks");
 
 	guardCmd
@@ -147,7 +156,9 @@ export function registerCheckpointCommands(program: Command): void {
 			const { guardUninstallCommand } = await import("../commands/guard.js");
 			await guardUninstallCommand(opts);
 		});
+}
 
+function registerRestoration(program: Command): void {
 	program
 		.command("resume [checkpoint-id]")
 		.description("Resume from latest or specified checkpoint with context")

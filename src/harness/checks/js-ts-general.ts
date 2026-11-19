@@ -1,6 +1,7 @@
 // JS/TS general checks (nested ternaries, catch-and-log, JSON parsing, etc).
 // Extracted from generic-checks.ts.
 
+import { rawBraceDelta } from "./shared-text-utils-brace-scan.js";
 import { nonNull } from "../../lib/non-null.js";
 import { readabilityMatches } from "./expression-readability.js";
 import {
@@ -49,16 +50,6 @@ type CatchBodyScan = {
 	closeIdx: number;
 };
 
-/** Net brace-nesting change contributed by one line: `{` opens, `}` closes. */
-function braceDepthDelta(line: string): number {
-	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		if (ch === "}") delta--;
-	}
-	return delta;
-}
-
 /**
  * Scan up to 8 lines from the catch block's opening brace at `braceStart`,
  * tracking brace depth. Reports whether the body contains only `console.*`
@@ -73,7 +64,7 @@ function scanCatchBody(strippedLines: string[], braceStart: number): CatchBodySc
 
 	for (let j = braceStart; j < Math.min(braceStart + 8, strippedLines.length); j++) {
 		const sLine = nonNull(strippedLines[j]);
-		depth += braceDepthDelta(sLine);
+		depth += rawBraceDelta(sLine);
 		if (j > braceStart) {
 			const trimmed = sLine.trim();
 			if (trimmed === "}" || trimmed === "") {

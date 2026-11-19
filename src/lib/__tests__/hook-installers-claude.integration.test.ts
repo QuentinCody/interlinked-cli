@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CLAUDE_HOOK_EVENTS, installAllClaudeHooks } from "../hook-installers-claude.js";
+import { CLAUDE_HOOK_EVENTS, installAllClaudeHooks, uninstallAllClaudeHooks } from "../hook-installers-claude.js";
 
 describe("Claude hook event list", () => {
 	it("includes the supported lifecycle, tool, and permission events", () => {
@@ -11,8 +11,28 @@ describe("Claude hook event list", () => {
 		expect(CLAUDE_HOOK_EVENTS).toContain("PostToolUse");
 		expect(CLAUDE_HOOK_EVENTS).toContain("PermissionRequest");
 		expect(CLAUDE_HOOK_EVENTS).toContain("WorktreeCreate");
-		// PostToolUseFailure is intentionally omitted (see comment on CLAUDE_HOOK_EVENTS).
-		expect(CLAUDE_HOOK_EVENTS).not.toContain("PostToolUseFailure");
+		// Claude 2.1.325 delivers a failed Bash call ONLY as PostToolUseFailure
+		// (see comment on CLAUDE_HOOK_EVENTS).
+		expect(CLAUDE_HOOK_EVENTS).toContain("PostToolUseFailure");
+	});
+
+	it("install writes a PostToolUseFailure group and uninstall removes it", () => {
+		const dir = mkdtempSync(join(tmpdir(), "claude-failure-event-"));
+		try {
+			execSync("git init", { cwd: dir, stdio: "ignore" });
+			const hookPath = ".interlinked/hooks/interlinked-activity.mjs";
+			installAllClaudeHooks(dir, hookPath);
+			const settingsPath = join(dir, ".claude", "settings.json");
+			const installed = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			const group = installed.hooks.PostToolUseFailure;
+			expect(group).toHaveLength(1);
+			expect(group[0].hooks[0].command).toContain("interlinked-activity.mjs");
+			expect(uninstallAllClaudeHooks(dir)).toBe(true);
+			const after = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(after.hooks?.PostToolUseFailure).toBeUndefined();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
 

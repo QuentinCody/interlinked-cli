@@ -33,7 +33,8 @@ import {
 	type TsModule,
 } from "./checks/cyclomatic-ast.js";
 import { hasEscapingJump, logicalRunCount, scoreNodes } from "./cognitive-plan-score.js";
-import { identifiersOf, joinIdents } from "./decomposition-plan.js";
+import { identifiersOf, joinIdents, loopSubject } from "./decomposition-plan.js";
+export { loopSubject } from "./decomposition-plan.js";
 
 export type CognitiveMoveKind =
 	| "extract-nested-block"
@@ -85,28 +86,10 @@ interface Container {
 	name: string;
 }
 
-function isLoopNode(ts: TsModule, node: TS.Node): boolean {
-	return (
-		ts.isForStatement(node) ||
-		ts.isForInStatement(node) ||
-		ts.isForOfStatement(node) ||
-		ts.isWhileStatement(node) ||
-		ts.isDoStatement(node)
-	);
-}
-
 /** A block's statements, or the lone statement of an unbraced body. */
 function asList(ts: TsModule, node: TS.Statement | undefined): readonly TS.Statement[] {
 	if (!node) return [];
 	return ts.isBlock(node) ? node.statements : [node];
-}
-
-/** Exported: its `undefined` fallback is unreachable via `planCognitiveFlattening`. */
-export function loopSubject(ts: TsModule, node: TS.Node): TS.Node | undefined {
-	if (ts.isForOfStatement(node) || ts.isForInStatement(node)) return node.expression;
-	if (ts.isForStatement(node)) return node.condition;
-	if (ts.isWhileStatement(node) || ts.isDoStatement(node)) return node.expression;
-	return undefined;
 }
 
 /** `else if` does NOT deepen (Sonar flattens the chain), so the chain walks at `n`. */
@@ -137,12 +120,10 @@ function ifContainers(ts: TsModule, sf: TS.SourceFile, node: TS.IfStatement, n: 
 	return out;
 }
 
-function loopContainers(ts: TsModule, sf: TS.SourceFile, node: TS.Statement, n: number): Container[] {
-	// SAFETY: every kind `isLoopNode` accepts is an IterationStatement subtype.
-	const body = (node as TS.IterationStatement).statement;
+function loopContainers(ts: TsModule, sf: TS.SourceFile, node: TS.IterationStatement, n: number): Container[] {
 	return [
 		{
-			stmts: asList(ts, body),
+			stmts: asList(ts, node.statement),
 			nesting: n + 1,
 			kind: "extract-loop-body",
 			anchor: node.getStart(sf),
@@ -197,7 +178,7 @@ function tryContainers(sf: TS.SourceFile, node: TS.TryStatement, n: number): Con
 /** The statement lists `stmt` directly owns, each with the nesting it is scored at. */
 function containersOf(ts: TsModule, sf: TS.SourceFile, stmt: TS.Statement, n: number): Container[] {
 	if (ts.isIfStatement(stmt)) return ifContainers(ts, sf, stmt, n);
-	if (isLoopNode(ts, stmt)) return loopContainers(ts, sf, stmt, n);
+	if (ts.isIterationStatement(stmt, false)) return loopContainers(ts, sf, stmt, n);
 	if (ts.isSwitchStatement(stmt)) return switchContainers(ts, sf, stmt, n);
 	if (ts.isTryStatement(stmt)) return tryContainers(sf, stmt, n);
 	if (ts.isBlock(stmt)) {

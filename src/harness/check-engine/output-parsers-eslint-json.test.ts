@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEslintJson } from "./output-parsers-eslint-json.js";
+import { parseCompleteEslintJson, parseEslintJson } from "./output-parsers-eslint-json.js";
 
 const SAMPLE = JSON.stringify([
 	{
@@ -19,6 +19,14 @@ const SAMPLE = JSON.stringify([
 ]);
 
 describe("parseEslintJson — positive (must fire)", () => {
+	it("retains typed findings alongside invalid rows and rejects unreadable report envelopes", () => {
+		const tool = "tseslint-types";
+		expect(() => parseCompleteEslintJson("not a report", tool)).toThrow("malformed JSON");
+		expect(() => parseCompleteEslintJson("{}", tool)).toThrow("must be an array");
+		expect(() => parseCompleteEslintJson('[{"filePath":"x.ts","messages":[{"message":"typed warning"},null]}]', tool))
+			.toThrow(expect.objectContaining({ results: [expect.objectContaining({ file: "x.ts", tool, message: "typed warning" })] }));
+		expect(parseCompleteEslintJson("[]", tool)).toEqual([]);
+	});
 	it("P1: maps each message to a CheckResult with rule id, severity and position", () => {
 		const out = parseEslintJson(SAMPLE, "tseslint-types");
 		expect(out).toHaveLength(2);

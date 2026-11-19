@@ -23,6 +23,7 @@ import { buildAgentSafetyChecks } from "./check-registry/index.js";
 import { recordUnavailableCheck } from "./check-unavailable.js";
 import { appendCheckObservation, makeCheckObservation, FILE_EVIDENCE_COHORT, RAW_FILE_CHECK_CONFIGURATION } from "./check-observation-store.js";
 import type { CheckObservation, DetectorExecution } from "./finding-outcomes.js";
+import { isObservedOnly } from "./observed-files.js";
 import { retainStopObservations } from "./stop-rescan-observations.js";
 import { harnessNow } from "./replay/harness-clock.js";
 import { loadSubagentAttribution, type SubagentAttribution } from "./stop-actor-attribution.js";
@@ -289,6 +290,7 @@ export function buildPatternRescanWarnings(
 		dryRun: opts.dryRun,
 		attribution,
 		scanBaseline,
+		observedOnly: (file) => isObservedOnly(session, file, cwd),
 	});
     retainStopObservations({ cwd, rows, findings, intended: report.intendedFindings, dryRun: opts.dryRun ?? false });
 	return [...report.warnings, ...unavailable];

@@ -7,3 +7,7 @@ export const TYPED_ESLINT_PROFILE = {
     cadence: "audit",
     timeoutMs: 300_000,
 } as const;
+
+export function typedEslintArgs(): string[] {
+	return [TYPED_ESLINT_PROFILE.tool, "--config", TYPED_ESLINT_PROFILE.config, "--format", "json", TYPED_ESLINT_PROFILE.scope];
+}

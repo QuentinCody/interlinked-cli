@@ -4,9 +4,9 @@ import { open, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { currentProcessSignal, withProcessCancellation } from "../process-cancellation.js";
 import { runProcessAsync } from "../spawn-async.js";
-import { PartialToolReportError } from "../tool-errors.js";
+import { PartialToolReportError, ToolDeadlineError } from "../tool-errors.js";
 import type { CheckResult, ToolInputScope } from "../types.js";
-import { parseCompleteGitleaksReport, requireGenericProcessVerdict } from "./generic-process-verdict.js";
+import { parseCompleteGitleaksReport, readGenericProcessReport } from "./generic-process-verdict.js";
 import { collectGitleaksScope, gitleaksConfiguration, type GitleaksInputScope, type GitleaksScope } from "./gitleaks-scope.js";
 
 async function sourceSnapshot(root: string, scope: GitleaksScope, configurationFile: string | undefined, remaining: () => number): Promise<string> {
@@ -45,12 +45,13 @@ export async function runGitleaksForeground(root: string, timeoutMs: number, onI
 	const controller = new AbortController();
 	const owner = currentProcessSignal();
 	const signal = owner ? AbortSignal.any([owner, controller.signal]) : controller.signal;
-	const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(new Error("Gitleaks deadline expired; no complete security verdict")), timeoutMs) : undefined;
+	const expiry = () => new ToolDeadlineError("Gitleaks deadline expired; no complete security verdict", []);
+	const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(expiry()), timeoutMs) : undefined;
 	timer?.unref();
 	const deadline = timeoutMs > 0 ? performance.now() + timeoutMs : Infinity;
 	const remaining = (): number => {
 		currentProcessSignal()?.throwIfAborted();
-		if (performance.now() >= deadline) throw new Error("Gitleaks deadline expired; no complete security verdict");
+		if (performance.now() >= deadline) throw expiry();
 		return deadline === Infinity ? 0 : Math.max(1, Math.ceil(deadline - performance.now()));
 	};
 	try { return await withProcessCancellation(signal, () => scanWorkingInputs(root, remaining, onInputScope, owner, selection)); }
@@ -67,12 +68,7 @@ async function scanWorkingInputs(root: string, remaining: () => number, onInputS
 		unavailable.push(...scope.unavailable);
 		const before = await sourceSnapshot(root, scope, configuration.file, remaining);
 		for (const target of scope.targets) {
-			try { results.push(...await scanTarget(root, target, configuration, remaining())); }
-			catch (error) {
-				currentProcessSignal()?.throwIfAborted();
-				if (error instanceof PartialToolReportError) results.push(...error.results);
-				unavailable.push({ file: target, reason: "native Gitleaks execution or report incomplete" });
-			}
+			await collectTargetFindings(() => scanTarget(root, target, configuration, remaining()), target, results, unavailable);
 		}
 		const afterScope = await collectGitleaksScope(root, remaining, selection);
 		for (const input of afterScope.unavailable) {
@@ -84,12 +80,24 @@ async function scanWorkingInputs(root: string, remaining: () => number, onInputS
 		const failure = currentProcessSignal()?.aborted ? currentProcessSignal()?.reason : error;
 		unavailable.push({ file: "<project>", reason: failure instanceof Error ? failure.message : "Gitleaks working-input scan unavailable" });
 		owner?.throwIfAborted();
-		throw new PartialToolReportError(unavailable.map(input => `${JSON.stringify(input.file)}: ${input.reason}`).join("\n"), results, { cause: error });
+		const Failure = failure instanceof ToolDeadlineError ? ToolDeadlineError : PartialToolReportError;
+		throw new Failure(unavailable.map(input => `${JSON.stringify(input.file)}: ${input.reason}`).join("\n"), results, { cause: error });
 	} finally {
 		publishInputScope(scope, unavailable, selection, onInputScope);
 	}
 	if (unavailable.length) throw new PartialToolReportError(unavailable.map(input => `${JSON.stringify(input.file)}: ${input.reason}`).join("\n"), results);
 	return results;
+}
+
+async function collectTargetFindings(scan: () => Promise<CheckResult[]>, target: string, results: CheckResult[], unavailable: ToolInputScope["unavailableInputs"]): Promise<void> {
+	try { results.push(...await scan()); }
+	catch (error) {
+		if (error instanceof PartialToolReportError) results.push(...error.results);
+		const reason = error instanceof PartialToolReportError ? error.message : "native Gitleaks execution or report incomplete";
+		unavailable.push({ file: target, reason });
+		currentProcessSignal()?.throwIfAborted();
+		if (error instanceof ToolDeadlineError) throw error;
+	}
 }
 
 function publishInputScope(scope: GitleaksScope, unavailableInputs: ToolInputScope["unavailableInputs"], selection: GitleaksInputScope, publish?: (scope: ToolInputScope) => void): void {
@@ -103,9 +111,7 @@ function publishInputScope(scope: GitleaksScope, unavailableInputs: ToolInputSco
 async function scanTarget(root: string, target: string, configuration: ReturnType<typeof gitleaksConfiguration>, timeout: number): Promise<CheckResult[]> {
 	const process = await runProcessAsync("gitleaks", ["dir", "--no-banner", "--no-color", "--redact", "--report-format", "json", "--report-path", "-",
 		...configuration.args, "--", target], { cwd: root, exactEnv: configuration.env, timeout, maxBufferBytes: null });
-	currentProcessSignal()?.throwIfAborted();
-	const findings = parseCompleteGitleaksReport(process.stdout);
-	requireGenericProcessVerdict("gitleaks", process, findings);
+	const findings = readGenericProcessReport("gitleaks", process, parseCompleteGitleaksReport);
 	// Keep diagnostic content private, including inline config on native failures.
 	const diagnosticFailure = process.stderr.split("\n").some(line => /\b(?:FTL|ERR|WRN)\b/.test(line) && !/\bWRN\b.*\bleaks found:\s*\d+\s*$/.test(line));
 	if (diagnosticFailure || /permission denied|skipping (?:file|directory)|issue reading file|could not read file/i.test(process.stderr)) {

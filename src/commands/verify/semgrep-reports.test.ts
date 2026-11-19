@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { runProcessAsync } from "../../harness/check-engine/spawn-async.js";
+import { runAsyncTool } from "../../harness/check-engine/index-runtime.js";
 import { currentVerifyTimings, withVerifyTimings } from "./check-timing.js";
 import { streamExternalTools, TOOLS_TO_RUN } from "./verify-tools.js";
 
@@ -38,6 +39,30 @@ it("disables Semgrep's implicit per-rule timeout, skip threshold and target size
 	for (const flag of ["--timeout", "--timeout-threshold", "--max-target-bytes"]) {
 		expect(command?.[command.indexOf(flag) + 1]).toBe("0");
 	}
+});
+
+it.each([
+	{ label: "deadline expired", status: { code: null, timedOut: true, killed: true }, report: "", findings: 0 },
+	{ label: "deadline expired", status: { code: null, timedOut: true, killed: true }, report: "positive", findings: 1 },
+	{ label: "stdout was truncated", status: { code: 0, stdoutTruncated: true }, report: "{", findings: 0 },
+	{ label: "process was interrupted", status: { code: null, killed: true }, report: "", findings: 0 },
+	{ label: "report is malformed", status: { code: 0 }, report: "{", findings: 0 },
+])("records $label and keeps $findings positives in both verify modes", async ({ label, status, report, findings }) => {
+	const root = mkdtempSync(join(process.cwd(), "scratch/semgrep-execution-")); roots.push(root);
+	const stdout = report === "positive" ? JSON.stringify({ results: [{ check_id: "sample", path: "source.ts", start: { line: 3 }, extra: { message: "positive finding" } }] }) : report;
+	vi.mocked(runProcessAsync).mockResolvedValue({ stdout, stderr: "private scanner diagnostic", killed: false, timedOut: false, ...status });
+	const tool = { id: "semgrep", available: true } as const;
+	const json = await runAsyncTool(tool, { projectRoot: root, mode: "project" }, 10, { resourcePolicy: "foreground-verify" });
+	expect(json.skipped).toMatchObject({ category: label === "deadline expired" ? "timeout" : "error", reason: expect.stringContaining(label) });
+	expect(json.results).toHaveLength(findings);
+	const writes = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+	const flagged = new Set<string>();
+	await streamExternalTools({ engine: { discoverTools: () => [tool] }, cwd: root, opts: { only: "semgrep", toolTimeout: 10 }, skipChecks: new Set(), summary: [], allFlaggedFiles: flagged, details: true });
+	const text = writes.mock.calls.map(([chunk]) => chunk).join("");
+	expect(text).toContain(label);
+	expect(text).not.toContain("private scanner diagnostic");
+	expect(flagged.size).toBe(findings);
+	expect(process.exitCode).toBe(75);
 });
 
 it.each([{ valid: [] }, { valid: [{ check_id: "retained", path: "source.ts", start: { line: 2, col: 1 }, extra: { message: "retained positive" } }] }])("retains malformed-row coverage in human verify without claiming an empty scan: %j", async ({ valid }) => {

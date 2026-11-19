@@ -103,8 +103,10 @@ export interface Divergence {
 // `Date.now()` leak shapes if a detector embeds wall-clock in a finding.
 const TIMESTAMP_RE = /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}|\b\d{13}\b/;
 
-function trunc(s: string, n = 80): string {
-	return s.length > n ? `${s.slice(0, n)}…` : s;
+const PREVIEW_CHARS = 80;
+
+function trunc(s: string): string {
+	return s.length > PREVIEW_CHARS ? `${s.slice(0, PREVIEW_CHARS)}…` : s;
 }
 
 /**

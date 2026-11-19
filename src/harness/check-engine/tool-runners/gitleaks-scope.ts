@@ -131,6 +131,10 @@ async function visitWorkingInput(census: WorkingInputCensus, directory: string, 
 	catch { scope.unavailable.push({ file, reason: "input unreadable" }); return false; }
 	if (stat.isDirectory()) return walkWorkingDirectory(census, file, omitted);
 	if (stat.isFile()) { scope.files.push(file); scope.targets.push(file); return true; }
+	if (stat.isSymbolicLink() && entry.name === "node_modules" && !census.trackedSet.has(file) && !census.ancestors.has(file)) {
+		scope.excluded.push(file);
+		return false;
+	}
 	scope.unavailable.push({ file, reason: "native Gitleaks does not scan this symbolic or non-regular input" });
 	return false;
 }

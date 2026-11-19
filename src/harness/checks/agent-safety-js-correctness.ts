@@ -7,6 +7,7 @@ import { checkMatchLimit } from "./check-scan-policy.js";
 import { stripTemplateLiterals } from "../strip-helpers.js";
 import { isExemptBareObject } from "./broad-object-types-exemptions.js";
 import { blankJsxText, blankRegexLiterals, NAN_COMPARISON } from "./nan-comparison-scan.js";
+import { blankRegexLiteralsAnywhere } from "./regex-literal-scan.js";
 import { scanBrokenOptionalGrouping } from "./optional-chain-boundaries.js";
 import {
 	getExtension,
@@ -320,10 +321,7 @@ export function checkJsLooseEquality(content: string, filePath: string): InlineM
 	// (misses multi-line regexes and constructor-form `new RegExp("...")`);
 	// covers the common false-positive shape that bit this check on its own
 	// source files.
-	const stripped = stripCommentsAndStrings(content).replace(
-		/\/(?:\\.|\[[^\]]*\]|[^/\\\n])+\/[dgimsuy]*/g,
-		(m) => " ".repeat(m.length),
-	);
+	const stripped = blankRegexLiteralsAnywhere(stripCommentsAndStrings(content));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 

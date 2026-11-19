@@ -22,8 +22,10 @@ import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withFileMutationLock } from "../../lib/file-mutation-lock.js";
-import { isJsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { hashFile } from "./bound-imports.js";
 import { bindVitestConfig, CONFIG_NAMES, normalizeRel } from "./config-binding.js";
+export { hashFile };
 import type { BoundImport, CaseOutcome, HashedFile, KillProofReceipt, ProofEnvironment, ResolvedMutant } from "./types.js";
 
 export const KILL_PROOFS_DIR = ".interlinked/test-runs/kill-proofs";
@@ -68,12 +70,6 @@ export function proofKey(receipt: Pick<KillProofReceipt, "source" | "mutant" | "
 
 export function sha256Text(text: string): string {
 	return createHash("sha256").update(text).digest("hex");
-}
-
-export function hashFile(root: string, path: string): HashedFile | null {
-	const abs = join(root, path);
-	if (!existsSync(abs)) return null;
-	return { path, sha256: createHash("sha256").update(readFileSync(abs)).digest("hex") };
 }
 
 /** The `--config <file>` a project's `scripts.test` passes to vitest, repo-relative and normalized (`./x` is `x`, round-4 A6); null when none (review N5). */
@@ -238,28 +234,51 @@ function parseEnvironment(value: unknown): ProofEnvironment | null {
 	return { node: value.node, vitest: value.vitest, platform: value.platform, config, setupFiles, configFiles, unresolvable };
 }
 
-export function parseKillProof(value: unknown): KillProofReceipt | null {
-	if (!isJsonObject(value) || (value.version !== 1 && value.version !== 2) || typeof value.id !== "string" || !ID_RE.test(value.id)) return null;
+function parseProofHeader(value: JsonObject) {
+	if ((value.version !== 1 && value.version !== 2) || typeof value.id !== "string" || !ID_RE.test(value.id)) return null;
 	if (typeof value.digest !== "string" || typeof value.provedAt !== "string" || typeof value.root !== "string") return null;
 	if (typeof value.verdict !== "string" || !VERDICTS.has(value.verdict as KillProofReceipt["verdict"])) return null;
-	const reasons = parseStringList(value.reasons), killedTests = parseStringList(value.killedTests);
-	const source = parseHashed(value.source), mutant = parseMutant(value.mutant), tests = parseHashedList(value.tests), environment = parseEnvironment(value.environment);
-	// No default for an absent `boundImports`: a receipt that does not bind its helpers is not a receipt (unreleased field).
+	return { version: value.version, id: value.id, digest: value.digest, provedAt: value.provedAt, root: value.root,
+		verdict: value.verdict as KillProofReceipt["verdict"] } as const;
+}
+
+function parseProofInputs(value: JsonObject) {
+	const source = parseHashed(value.source), mutant = parseMutant(value.mutant), tests = parseHashedList(value.tests);
+	const environment = parseEnvironment(value.environment);
+	// A receipt must bind its helpers, even when the closure is empty.
 	const boundImports = parseBoundImports(value.boundImports);
-	if (reasons === null || killedTests === null || source === null || mutant === null || tests === null || boundImports === null || environment === null) return null;
-	// The truncation flag is either absent or exactly `true` (round 5, R5-3); any other value is not a receipt.
+	if (source === null || mutant === null || tests === null || boundImports === null || environment === null) return null;
 	if (value.boundImportsTruncated !== undefined && value.boundImportsTruncated !== true) return null;
-	const { baseline, underMutant } = value;
-	if (!isJsonObject(baseline) || typeof baseline.cases !== "number" || typeof baseline.durationMs !== "number") return null;
-	if (!isJsonObject(underMutant) || typeof underMutant.durationMs !== "number" || typeof underMutant.timedOut !== "boolean") return null;
-	const cases = parseCases(underMutant.cases);
+	return { source, mutant, tests, environment, boundImports, ...(value.boundImportsTruncated === true ? { boundImportsTruncated: true as const } : {}) };
+}
+
+function isDurationMs(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function parseBaseline(value: unknown): KillProofReceipt["baseline"] | null {
+	if (!isJsonObject(value) || !isDurationMs(value.durationMs)) return null;
+	if (typeof value.cases !== "number" || !Number.isSafeInteger(value.cases) || value.cases < 0) return null;
+	return { cases: value.cases, durationMs: value.durationMs };
+}
+
+function parseMutantRun(value: unknown): KillProofReceipt["underMutant"] | null {
+	if (!isJsonObject(value) || !isDurationMs(value.durationMs) || typeof value.timedOut !== "boolean") return null;
+	const cases = parseCases(value.cases);
 	if (cases === null) return null;
-	return {
-		version: value.version, id: value.id, digest: value.digest, verdict: value.verdict as KillProofReceipt["verdict"], reasons, provedAt: value.provedAt, root: value.root,
-		source, mutant, tests, boundImports, ...(value.boundImportsTruncated === true ? { boundImportsTruncated: true as const } : {}), killedTests, baseline: { cases: baseline.cases, durationMs: baseline.durationMs },
-		underMutant: { durationMs: underMutant.durationMs, timedOut: underMutant.timedOut, cases, ...(typeof underMutant.error === "string" ? { error: underMutant.error } : {}) },
-		environment,
-	};
+	return { durationMs: value.durationMs, timedOut: value.timedOut, cases, ...(typeof value.error === "string" ? { error: value.error } : {}) };
+}
+
+export function parseKillProof(value: unknown): KillProofReceipt | null {
+	if (!isJsonObject(value)) return null;
+	const header = parseProofHeader(value);
+	if (header === null) return null;
+	const inputs = parseProofInputs(value);
+	if (inputs === null) return null;
+	const reasons = parseStringList(value.reasons), killedTests = parseStringList(value.killedTests);
+	const baseline = parseBaseline(value.baseline), underMutant = parseMutantRun(value.underMutant);
+	if (reasons === null || killedTests === null || baseline === null || underMutant === null) return null;
+	return { ...header, ...inputs, reasons, killedTests, baseline, underMutant };
 }
 
 export function parseKillProofIndex(value: unknown): KillProofIndex | null {

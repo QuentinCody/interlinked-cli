@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { runProcessAsync, type RunProcessOptions } from "../../harness/check-engine/spawn-async.js";
 import { withProcessCaptureLimit } from "../../harness/check-engine/process-capture-policy.js";
 import { runClippyWithIsolatedOutput } from "./clippy-output.js";
@@ -84,7 +84,8 @@ async function measureEntry(root: string, entry: LintImportEntry, timeoutMs: num
 
 /** Callers own project admission. Explicit timeout zero leaves the batch unbounded. */
 export async function measureImportedLint(root: string, policy: LintImportPolicy, options: { timeoutMs?: number; now?: () => number; cadence?: "hook" | "audit" | "all"; resourcePolicy?: "foreground-verify" } = {}): Promise<LintMeasurement[]> {
-    const entries = entriesForCadence(policy, options.cadence);
+    const entries = entriesForCadence(policy, options.cadence).filter(entry =>
+        options.resourcePolicy !== "foreground-verify" || (entry.tool !== "semgrep" && basename(entry.report?.command ?? "", ".exe") !== "semgrep"));
     // An audit-only policy does no discovery, hashing or analyzer work on hooks.
     if (entries.length === 0) return [];
     checkLintSources(root, policy);

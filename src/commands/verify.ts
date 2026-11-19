@@ -44,6 +44,7 @@ import {
 	runRegistryParityCheck,
 } from "../harness/registry-parity.js";
 import { killProofsSection } from "./verify/kill-proofs-section.js";
+import { localScanTarget } from "./verify/local-scan-target.js";
 import { projectE2eSection, streamTailSections } from "./verify/project-e2e-section.js";
 import type { Finding } from "../harness/suggestion-scorer.js";
 import {
@@ -87,7 +88,10 @@ import {
 import { streamExternalTools } from "./verify/verify-tools.js";
 import { streamImportedLint } from "./verify/lint-import.js";
 import { runCatalogueAdvisories, streamCatalogueAdvisories } from "./verify/catalogue.js";
-import { withVerifyTimings, measureVerifyCheck, measureVerifyCheckAsync, recordVerifyMeasurement, recordVerifyInputDeferral, currentVerifyTimings } from "./verify/check-timing.js";
+import { withVerifyTimings, measureVerifyCheck, measureVerifyCheckAsync, recordVerifyMeasurement, recordVerifyInputDeferral, currentVerifyTimings, currentScanLedger, verifyDeadlinePassed } from "./verify/check-timing.js";
+import { emptyToolReport, runUntilSoftDeadline } from "./verify/batch-deadline.js";
+import { softDeadlineOption } from "./verify/soft-deadline.js";
+import { computeNotRun, notRunContextFor } from "./verify/not-run.js";
 
 // Re-export for consumers (tests + external scripts that imported these
 // names historically from this file). These names are load-bearing — the
@@ -101,6 +105,7 @@ export type { ToolSpec } from "./verify/verify-tools.js";
 
 const SUGGESTIONS_LIMIT = 3;
 const SUGGESTIONS_THRESHOLD = 0.5;
+const CAPACITY_NOTICE_DELAY_MS = 1000;
 
 interface VerifyOpts {
 	target?: string;
@@ -137,7 +142,9 @@ interface VerifyOpts {
  */
 export async function verifyCommand(opts: VerifyOpts): Promise<void> {
 	return withVerifyTimings(opts.cwd || process.cwd(), () => verifyWithTiming(opts), {
-		skipChecks: getEffectiveSkipChecks(opts.skip, opts.allChecks || Boolean(opts.only)),
+		skipChecks: getEffectiveSkipChecks(opts.skip, opts.allChecks, opts.only),
+		...softDeadlineOption(opts.timeout),
+		allChecks: Boolean(opts.allChecks),
 	});
 }
 
@@ -166,8 +173,9 @@ async function verifyWithTiming(opts: VerifyOpts): Promise<void> {
 		return;
 	}
 
-	if (opts.target) {
-		await runLocalTargetVerify(opts.target, opts);
+	const localTarget = localScanTarget(opts);
+	if (localTarget) {
+		await runLocalTargetVerify(localTarget, opts);
 		return;
 	}
 
@@ -285,7 +293,7 @@ async function runRemoteVerify(target: string, opts: VerifyOpts): Promise<void> 
 
 async function runVerify(cwd: string, opts: VerifyOpts): Promise<void> {
 	const signal = currentProcessSignal() ?? new AbortController().signal;
-	const waiting = setTimeout(() => process.stderr.write("  verify waiting for the project check lane; no verification has started.\n"), 1000);
+	const waiting = setTimeout(() => process.stderr.write("  verify waiting for the project check lane; no verification has started.\n"), CAPACITY_NOTICE_DELAY_MS);
 	let releaseHeavyProcess: (() => void) | null;
 	try {
 		releaseHeavyProcess = await acquireProjectHeavyProcessLease(cwd, Number.POSITIVE_INFINITY, signal);
@@ -314,8 +322,7 @@ async function runVerify(cwd: string, opts: VerifyOpts): Promise<void> {
 
 async function runVerifyWithHostCapacity(cwd: string, opts: VerifyOpts): Promise<void> {
 	const signal = currentProcessSignal() ?? new AbortController().signal;
-	const capacityNoticeDelayMs = 1000;
-	const waiting = setTimeout(() => process.stderr.write("  verify waiting for the sequential host check lane; no verification has started.\n"), capacityNoticeDelayMs);
+	const waiting = setTimeout(() => process.stderr.write("  verify waiting for the sequential host check lane; no verification has started.\n"), CAPACITY_NOTICE_DELAY_MS);
 	const capacity = await acquireTestCapacity("foreground", Number.POSITIVE_INFINITY, signal)
 		.finally(() => clearTimeout(waiting));
 	if (!capacity) {
@@ -332,7 +339,7 @@ async function runVerifyWithHeavyProcessLease(cwd: string, opts: VerifyOpts): Pr
 	currentProcessSignal()?.throwIfAborted();
 	const files = measureVerifyCheck("file_discovery", () => discoverFiles(cwd));
 	const details = opts.details ?? false;
-	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks || Boolean(opts.only));
+	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks, opts.only);
 	const engine = new CheckEngine(cwd, { discoveryTimeoutMs: opts.toolTimeout ?? 0,
 		discoverySelection: { skipTools: getSkipTools(skipChecks), ...(opts.only ? { tools: resolveVerifyToolIds([opts.only]) } : {}) } });
 	setActiveSkipChecks(skipChecks);
@@ -459,13 +466,21 @@ interface VerifyBatchArgs {
 
 async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBatchArgs): Promise<void> {
 	const only = opts.only;
-	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks || Boolean(only));
+	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks, only);
 	// SCA has a dedicated result shape and managed runner below.
 	const skipTools = [...new Set([...getSkipTools(skipChecks), "dep-audit" as const])];
 	setActiveSkipChecks(skipChecks);
 
+	// The inline census runs first: it is the part that can be cut short per file, so a deadline keeps its findings.
+	// Progress goes to stderr only — stdout stays byte-identical JSON.
+	const cq = opts.only
+		? emptyResults()
+		: filterCodeQualityResultsInPlace(
+				await runCodeQualityChecksProgressive(files, cwd, createScanProgress(files.length)),
+				skipChecks,
+			);
 	const inputScopeCollector = createToolInputScopeCollector();
-	const report = await measureVerifyCheckAsync("external_tools", () => engine.runChecksAsync({ ...scope, lintCadence: opts.allChecks ? "all" : "hook" }, {
+	const report = await runUntilSoftDeadline("external_tools", () => measureVerifyCheckAsync("external_tools", () => engine.runChecksAsync({ ...scope, lintCadence: opts.allChecks ? "all" : "hook" }, {
 		timeoutMs: opts.toolTimeout ?? 0,
 		skipTools,
 		...(only === undefined ? {} : { tools: resolveVerifyToolIds([only]) }),
@@ -473,10 +488,10 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 		resourcePolicy: "foreground-verify",
 		onInputScope: inputScopeCollector.record,
 		...(opts.gitleaksScope ? { gitleaksScope: opts.gitleaksScope } : {}),
-	}));
+	})), () => emptyToolReport("external_tools", "soft deadline reached; external tools did not finish"));
 	const toolInputScopes = inputScopeCollector.finish();
 	currentProcessSignal()?.throwIfAborted();
-	const auditResult = await runBatchDependencyAudit(report, cwd, only, skipChecks, opts.toolTimeout ?? 0);
+	const auditResult = verifyDeadlinePassed() ? null : await runBatchDependencyAudit(report, cwd, only, skipChecks, opts.toolTimeout ?? 0);
 	currentProcessSignal()?.throwIfAborted();
 
 	for (const skipped of report.skipped ?? []) {
@@ -486,19 +501,13 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 	}
 
 	const { tscResults, linterResults, linterName, semgrepResults, gitleaksResults, externalDiagnostics } = groupBatchToolResults(cwd, report);
-	const cq = opts.only
-		? emptyResults()
-		: filterCodeQualityResultsInPlace(
-				// Progress goes to stderr only — stdout stays byte-identical JSON.
-				await runCodeQualityChecksProgressive(files, cwd, createScanProgress(files.length)),
-				skipChecks,
-			);
 	const setupIssues = checkProjectSetup(cwd);
 	const registryDrift = safeRegistryParity(cwd);
 	const suggestions = batchSuggestions({ opts, files, cwd });
 	const projectE2e = projectE2eSection(cwd), killProofs = killProofsSection(cwd, skipChecks);
 	if (projectE2e.failed || killProofs.failed) process.exitCode = 1;
 
+	const runContext = notRunContextFor({ only, skipChecks, opts, toolsRun: report.toolsRun, skipped: report.skipped ?? [], diagnostics: externalDiagnostics, hasAuditResult: auditResult !== null });
 	outputJson({
 		tscResults,
 		linterResults,
@@ -524,6 +533,9 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 		toolInputScopes,
 		checkSelection: { inlineRequested: !only, externalOnly: only ?? null, excludedIds: [...skipChecks].sort() },
 		checkTimings: currentVerifyTimings(),
+		scanLedger: currentScanLedger(),
+		notRun: computeNotRun(runContext),
+		runContext,
 	});
 }
 

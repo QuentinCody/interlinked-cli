@@ -2,6 +2,7 @@
 // file-checks endpoint-security / agent-laziness group unit tests
 // ===========================================
 
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import { type FileCheckContext, runPerFileChecks } from "./file-checks.js";
@@ -45,7 +46,10 @@ describe("runEndpointAndLazinessChecks", () => {
 		const src = 'if (true) { doThing(); }\n';
 		const c = ctx(src);
 		runEndpointAndLazinessChecks(c);
-		expect(c.r.deadBranchLiteral).toEqual(orchestrate(src).deadBranchLiteral);
+		// The orchestrator binds each primary-file finding to the sha256 of the content it checked.
+		const sourceHash = createHash("sha256").update(src).digest("hex");
+		expect(c.r.deadBranchLiteral.length).toBeGreaterThan(0);
+		expect(orchestrate(src).deadBranchLiteral).toEqual(c.r.deadBranchLiteral.map(row => ({ ...row, sourceHash })));
 	});
 
 	it("populates endpoint-security buckets without throwing", () => {

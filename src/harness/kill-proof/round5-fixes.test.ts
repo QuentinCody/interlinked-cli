@@ -24,8 +24,6 @@ const NODE_MODULES = join(CHECKOUT, "node_modules");
 const TSX = join(NODE_MODULES, "tsx", "dist", "cli.mjs");
 const REAL_RUN_MS = 120_000;
 const roots: string[] = [];
-const strays: string[] = [];
-const uniq = (): string => `${process.pid}${Date.now()}${Math.floor(Math.random() * 1e6)}`;
 
 const SOURCE = "// helper: add two numbers\nexport function add(a: number, b: number): number {\n\treturn a + b;\n}\n";
 const MINUS_FAULT = { kind: "explicit", file: "src/math.ts", find: "return a + b;", replace: "return a - b;" } as const;
@@ -47,48 +45,54 @@ function makeRepo(files: Record<string, string>, config = DEFAULT_CONFIG): strin
 }
 afterEach(() => {
 	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-	for (const path of strays.splice(0)) rmSync(path, { force: true });
 });
 
-const tempDirs = (prefix: string): number => readdirSync(tmpdir()).filter(name => name.startsWith(prefix)).length;
+function proofTempDir(): string {
+	const dir = mkdtempSync(join(tmpdir(), "kp-r5-"));
+	roots.push(dir);
+	return dir;
+}
+
+function leakedProofDirs(dir: string): string[] {
+	return readdirSync(dir).filter(name => name.startsWith("interlinked-fail-before-fix-") || name.startsWith("interlinked-fbf-report-"));
+}
 const CLI_EXITS = new Set<number | null>(Object.values(PROVE_KILL_EXIT));
 
 /** `tests prove-kill` through the tsx source entry (the built CLI needs a build this container cannot always afford). */
-function proveKillCli(root: string, args: string[], timeout = 90_000) {
-	return spawnSync(process.execPath, [TSX, join(CHECKOUT, "src", "index.ts"), "tests", "prove-kill", "--cwd", root, ...args], { encoding: "utf8", timeout });
+function proveKillCli(root: string, args: string[], dir: string) {
+	return spawnSync(process.execPath, [TSX, join(CHECKOUT, "src", "index.ts"), "tests", "prove-kill", "--cwd", root, ...args], {
+		encoding: "utf8", timeout: 90_000, env: { ...process.env, TMPDIR: dir, TEMP: dir, TMP: dir },
+	});
 }
 
 // ---- R5-1: a timed-out run ends in a verdict, leaves nothing behind, and exits inside the documented set -----------
 describe("R5-1 — a timed-out vitest run settles the proof instead of draining the event loop", () => {
 	it("P1: `--run-timeout` below the test's duration gives a JSON verdict, exit 2, and leaves no copy and no report directory", () => {
 		const root = makeRepo({ "test/slow.test.ts": 'import { expect, it } from "vitest";\nimport { add } from "../src/math";\nit("slow", async () => { await new Promise(r => setTimeout(r, 6000)); expect(add(1, 2)).toBe(3); }, 30000);\n' });
-		const copiesBefore = tempDirs("interlinked-fail-before-fix-"), reportsBefore = tempDirs("interlinked-fbf-report-");
-		const run = proveKillCli(root, ["--test", "test/slow.test.ts", "--file", MINUS_FAULT.file, "--find", MINUS_FAULT.find, "--replace", MINUS_FAULT.replace, "--run-timeout", "2000", "--json"]);
+		const dir = proofTempDir();
+		const run = proveKillCli(root, ["--test", "test/slow.test.ts", "--file", MINUS_FAULT.file, "--find", MINUS_FAULT.find, "--replace", MINUS_FAULT.replace, "--run-timeout", "2000", "--json"], dir);
 		expect(run.stderr).not.toContain("unsettled top-level await");
 		expect(CLI_EXITS.has(run.status)).toBe(true);
 		expect(run.status).toBe(PROVE_KILL_EXIT.undecided);
 		expect(run.stdout).toMatch(/"verdict": "(unavailable|inconclusive)"/);
 		expect(run.stdout).toMatch(/timed out after \d+ ms/);
-		expect(tempDirs("interlinked-fail-before-fix-")).toBe(copiesBefore);
-		expect(tempDirs("interlinked-fbf-report-")).toBe(reportsBefore);
+		expect(leakedProofDirs(dir)).toEqual([]);
 	}, REAL_RUN_MS);
 });
 
 // ---- R5-7: the supervisor's --timeout SIGTERM lets the proof clean up, then exits 75 --------------------------------
 describe("R5-7 — SIGTERM from the supervisor's --timeout is handled: copies removed, exit 75, no verdict", () => {
 	it("P1: `--timeout` below the baseline: the child reports the interruption, the test's marker never appears, nothing leaks, exit 75", () => {
-		const marker = join(tmpdir(), `kp-r5-marker-${uniq()}`);
-		strays.push(marker);
+		const dir = proofTempDir();
+		const marker = join(dir, "escaped-marker");
 		const root = makeRepo({ "test/slow.test.ts": `import { writeFileSync } from "node:fs";\nimport { expect, it } from "vitest";\nimport { add } from "../src/math";\nit("slow", async () => { await new Promise(r => setTimeout(r, 6000)); writeFileSync(${JSON.stringify(marker)}, "escaped"); expect(add(1, 2)).toBe(3); }, 30000);\n` });
-		const copiesBefore = tempDirs("interlinked-fail-before-fix-"), reportsBefore = tempDirs("interlinked-fbf-report-");
-		const run = proveKillCli(root, ["--test", "test/slow.test.ts", "--file", MINUS_FAULT.file, "--find", MINUS_FAULT.find, "--replace", MINUS_FAULT.replace, "--timeout", "3000", "--json"]);
+		const run = proveKillCli(root, ["--test", "test/slow.test.ts", "--file", MINUS_FAULT.file, "--find", MINUS_FAULT.find, "--replace", MINUS_FAULT.replace, "--timeout", "3000", "--json"], dir);
 		expect(run.status).toBe(PROVE_KILL_EXIT.interrupted);
 		expect(run.stderr).toContain(INTERRUPTED_NOTICE);
 		expect(run.stderr).not.toContain("unsettled top-level await");
 		expect(run.stdout).not.toMatch(/"verdict"/);
 		expect(existsSync(marker)).toBe(false);
-		expect(tempDirs("interlinked-fail-before-fix-")).toBe(copiesBefore);
-		expect(tempDirs("interlinked-fbf-report-")).toBe(reportsBefore);
+		expect(leakedProofDirs(dir)).toEqual([]);
 		expect(existsSync(join(root, ".interlinked", "test-runs", "kill-proofs"))).toBe(false);
 	}, REAL_RUN_MS);
 });

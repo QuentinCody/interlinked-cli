@@ -87,7 +87,7 @@ describe("provider capability catalog", () => {
 		});
 	});
 
-	it("installs Claude PermissionRequest while keeping failure-post compatibility parse-only", () => {
+	it("installs Claude PermissionRequest and the PostToolUseFailure post-tool event", () => {
 		expect(eventCapability(CLAUDE_CODE_CAPABILITIES, "PermissionRequest")).toMatchObject({
 			install: true,
 			phase: "permission-request",
@@ -96,7 +96,7 @@ describe("provider capability catalog", () => {
 			missing_runtime: "fail_closed",
 		});
 		expect(eventCapability(CLAUDE_CODE_CAPABILITIES, "PostToolUseFailure")).toMatchObject({
-			install: false,
+			install: true,
 			phase: "post-tool",
 		});
 		expect(eventCapability(CLAUDE_CODE_CAPABILITIES, "WorktreeCreate")).toMatchObject({

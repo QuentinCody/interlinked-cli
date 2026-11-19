@@ -18,9 +18,9 @@ describe("getEffectiveSkipChecks", () => {
 		for (const id of DEFAULT_ADVISORY_SKIPS) expect(skip.has(id)).toBe(true);
 	});
 
-	it("returns only the CLI list when --all-checks is on", () => {
+	it("adds CLI exclusions to the all-checks selection", () => {
 		const skip = getEffectiveSkipChecks("Knip, complexity ", true);
-		expect(skip).toEqual(new Set(["knip", "complexity"]));
+		expect(skip).toEqual(new Set(["knip", "complexity", "semgrep"]));
 	});
 
 	it("merges, trims, and lowercases the CLI --skip list", () => {
@@ -30,8 +30,11 @@ describe("getEffectiveSkipChecks", () => {
 		expect(skip.has("")).toBe(false);
 	});
 
-	it("returns an empty set for no args under --all-checks", () => {
-		expect(getEffectiveSkipChecks(undefined, true)).toEqual(new Set());
+	it.each([false, true])("only selects Semgrep on explicit request (allChecks=%s)", allChecks => {
+		expect(getSkipTools(getEffectiveSkipChecks(undefined, allChecks))).toContain("semgrep");
+		expect(getEffectiveSkipChecks(undefined, allChecks, "semgrep")).toEqual(new Set());
+		expect(getEffectiveSkipChecks("semgrep", allChecks, "semgrep")).toEqual(new Set(["semgrep"]));
+		expect(getEffectiveSkipChecks(undefined, allChecks, "tsc")).toEqual(new Set(["semgrep"]));
 	});
 });
 

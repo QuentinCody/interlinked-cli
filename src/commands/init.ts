@@ -68,12 +68,9 @@ function isInteractiveTty(): boolean {
 	return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
-async function isServerReachable(
-	serverUrl: string,
-	timeoutMs: number = SERVER_REACHABLE_TIMEOUT_MS,
-): Promise<boolean> {
+async function isServerReachable(serverUrl: string): Promise<boolean> {
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+	const timeout = setTimeout(() => controller.abort(), SERVER_REACHABLE_TIMEOUT_MS);
 	try {
 		const res = await fetch(`${serverUrl}/health`, { signal: controller.signal });
 		return res.ok;

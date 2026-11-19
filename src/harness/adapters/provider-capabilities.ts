@@ -80,8 +80,10 @@ export const CLAUDE_CODE_CAPABILITIES = defineCapabilities({
 			missingRuntime: "fail_closed",
 		}),
 		event("PostToolUse", "post-tool", { control: "continue", modelContext: true }),
+		// Registered since 2026-11-16: Claude Code 2.1.325 delivers a failed Bash
+		// call as PostToolUseFailure ONLY (no PostToolUse), so without it every
+		// failed call was invisible to the daemon.
 		event("PostToolUseFailure", "post-tool", {
-			install: false,
 			control: "continue",
 			modelContext: true,
 		}),

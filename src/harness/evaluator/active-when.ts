@@ -45,14 +45,13 @@ const _activeWhenRegexCache = new Map<string, RegExp>();
 // (`(-[rf]+\s+)*`-style) but are anchored by surrounding literals and don't
 // catastrophically backtrack. The ReDoS gate runs at the LOAD point for
 // user-supplied / distilled rules instead (see `rules/distilled-rules.ts`).
-function getCachedRegex(pattern: string, flags = "i"): RegExp {
-	const key = `${pattern}\0${flags}`;
-	let re = _activeWhenRegexCache.get(key);
+function getCachedRegex(pattern: string): RegExp {
+	let re = _activeWhenRegexCache.get(pattern);
 	if (!re) {
 		// Reason: pattern comes from trusted configs, not user/agent input.
 		// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-		re = new RegExp(pattern, flags);
-		_activeWhenRegexCache.set(key, re);
+		re = new RegExp(pattern, "i");
+		_activeWhenRegexCache.set(pattern, re);
 	}
 	re.lastIndex = 0;
 	return re;

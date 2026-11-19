@@ -26,6 +26,17 @@ afterEach(() => {
 });
 
 describe("imported lint execution", () => {
+    it("skips both native and custom Semgrep entries before spawning in verify", async () => {
+        const root = project();
+        const policy = planLintImport(discoverLint(root)).policy;
+        policy.entries = [
+            { tool: "semgrep", scope: ".", sources: [], cadence: "audit" },
+            { tool: "custom-sast", scope: ".", sources: [], report: { format: "sarif", command: "bin/semgrep", args: [], successCodes: [0] } },
+        ];
+        vi.mocked(runProcessAsync).mockClear();
+        expect(await measureImportedLint(root, policy, { cadence: "all", resourcePolicy: "foreground-verify" })).toEqual([]);
+        expect(runProcessAsync).not.toHaveBeenCalled();
+    });
     it("treats timeout zero as unbounded while retaining complete foreground capture", async () => {
         const root = project();
         const policy = planLintImport(discoverLint(root)).policy;

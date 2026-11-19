@@ -12,6 +12,14 @@ import type { SectionSpec } from "./section-table-types.js";
 /** Iteration-safety + taint + taste / structural / test-hygiene sections. */
 export const tasteStructuralSections: readonly SectionSpec[] = [
 	{
+		label: "omitted private parameters",
+		key: "omittedPrivateParameter",
+		skipId: "omitted_private_parameter",
+		noun: "optional inputs omitted at every observed direct call",
+		passLabel: "no omitted private parameters found in the measured scope",
+		color: "33",
+	},
+	{
 		label: "Commander option attribute",
 		key: "commanderOptionAttribute",
 		noun: "Commander flag spellings read through incompatible options-object attributes",

@@ -20,6 +20,17 @@ import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { PROMPT_HEAD_BYTES, RETURN_VERB_TOOLS, SPAWN_TOOL_NAMES } from "./types.js";
 
+function readUtf8Range(path: string, offset: number, length: number): string {
+	const buffer = Buffer.alloc(length);
+	const fd = openSync(path, "r");
+	try {
+		const bytesRead = readSync(fd, buffer, 0, length, offset);
+		return buffer.toString("utf-8", 0, bytesRead);
+	} finally {
+		closeSync(fd);
+	}
+}
+
 /** Read the last `tailBytes` of a file as utf-8, dropping a partial first
  *  line when the read starts mid-file. Null on any failure. Single definition
  *  of the bounded tail read — the agent-event capture path imports it from
@@ -30,13 +41,8 @@ export function readTranscriptTail(path: string, tailBytes: number): string | nu
 		const size = statSync(path).size;
 		if (size === 0) return null;
 		const offset = Math.max(0, size - tailBytes);
-		const fd = openSync(path, "r");
-		const buf = Buffer.alloc(size - offset);
-		readSync(fd, buf, 0, buf.length, offset);
-		closeSync(fd);
-		let text = buf.toString("utf-8");
-		if (offset > 0) text = text.slice(text.indexOf("\n") + 1);
-		return text;
+		const text = readUtf8Range(path, offset, size - offset);
+		return offset > 0 ? text.slice(text.indexOf("\n") + 1) : text;
 	} catch (err) {
 		void err; // unreadable transcript — capture degrades to payload-only
 		return null;
@@ -52,11 +58,7 @@ export function readTranscriptHead(path: string, headBytes = PROMPT_HEAD_BYTES):
 		const size = statSync(path).size;
 		if (size === 0) return null;
 		const length = Math.min(size, headBytes);
-		const fd = openSync(path, "r");
-		const buf = Buffer.alloc(length);
-		readSync(fd, buf, 0, length, 0);
-		closeSync(fd);
-		const text = buf.toString("utf-8");
+		const text = readUtf8Range(path, 0, length);
 		if (length >= size) return text;
 		const lastBreak = text.lastIndexOf("\n");
 		return lastBreak >= 0 ? text.slice(0, lastBreak) : "";

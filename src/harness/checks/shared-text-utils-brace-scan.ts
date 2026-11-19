@@ -324,3 +324,14 @@ export function stripForBraceScan(content: string): string {
 	}
 	return out.join("");
 }
+
+/** Net number of literal opening and closing braces in the supplied text.
+ * Callers that ignore comments or strings pass their own stripped text. */
+export function rawBraceDelta(text: string): number {
+	let delta = 0;
+	for (const ch of text) {
+		if (ch === "{") delta++;
+		else if (ch === "}") delta--;
+	}
+	return delta;
+}

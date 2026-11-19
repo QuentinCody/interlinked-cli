@@ -20,7 +20,7 @@ import { SPEC_LEDGER_CHECK_KINDS } from "./spec/ledger-drift.js";
 const EXPECTED_BY_FAMILY: Record<string, number> = {
 	// +8 Bun-regression detector pack wired (assert-erasure ×3, reinterpret ×2, placeholder-const, unsafe-span ×2), 2026-07-20
 	// +hand_rolled_lexer (advisory post, 2026-10-02)
-	inline: 299, // Includes Commander option-attribute and numeric-zero-default advisory checks.
+	inline: 302, // Includes the omitted-private-parameter advisory.
 	sequence: 22, // Removed the no-op sequence sentinel.
 	structural: 26, // +new_import_cycle (Plan 25 lane 5, "Cycle-delta check" — built concurrently by another lane of the same refactor-readiness program; this pin was simply stale, not authored here), 2026-08-17; prior: 25.
 	tool_quality: 34, // Includes the lint-import tool check.
@@ -31,7 +31,7 @@ const EXPECTED_BY_FAMILY: Record<string, number> = {
 // +8 Bun-regression detector pack wired (assert-erasure ×3, reinterpret ×2, placeholder-const, unsafe-span ×2), 2026-07-20
 // +raw_control_bytes (2026-07-25)
 // +hand_rolled_lexer (2026-10-02)
-const EXPECTED_TOTAL = 425; // 299 inline checks plus the other inventory families, with shared IDs deduplicated.
+const EXPECTED_TOTAL = 428; // Inline checks plus the other inventory families, with shared IDs deduplicated.
 
 // Ids per family, mirroring getCheckInventory's own sources — so the union/overlap
 // assertions verify the DISTINCT total against reality, not a restated sum.
@@ -52,11 +52,11 @@ describe("check inventory — single source of truth for check counts", () => {
 		const actual = Object.fromEntries(families.map((f) => [f.key, f.count]));
 		expect(actual).toEqual(EXPECTED_BY_FAMILY);
 	});
-	it("accounts for the two portable advisory source-relation additions", () => {
-		const added = CHECK_REGISTRY.filter(check => ["commander_option_attribute", "numeric_zero_default"].includes(check.id));
-		expect(added).toHaveLength(2);
+	it("accounts for the portable advisory source-relation additions", () => {
+		const added = CHECK_REGISTRY.filter(check => ["commander_option_attribute", "numeric_zero_default", "omitted_private_parameter"].includes(check.id));
+		expect(added).toHaveLength(3);
 		expect(added.every(check => check.phase === "post" && check.determinism === "heuristic" && check.severity === "warning")).toBe(true);
-		expect(CHECK_REGISTRY.filter(check => !added.includes(check))).toHaveLength(297);
+		expect(CHECK_REGISTRY.filter(check => !added.includes(check))).toHaveLength(299); // 297 + dead_literal_store + top_level_burden (G7)
 	});
 
 	it("pins the grand total", () => {

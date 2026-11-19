@@ -23,6 +23,7 @@
  */
 export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
 	"commander_option_attribute",
+	"omitted_private_parameter",
     "persistent_warning_escalation",
     "repeated_implementation",
     "python_simplification",
@@ -197,6 +198,7 @@ export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
 	"unjustified_cast",
 	"process_env_outside_config",
 	"top_level_side_effect",
+	"top_level_burden",
 	// Type-discipline wave (2026-08-14) — see advisory.ts for rationale.
 	"conditional_empty_object_spread",
 	"unknown_type_alias",

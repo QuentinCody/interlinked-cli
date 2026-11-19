@@ -21,9 +21,10 @@ import { isInterlinkedHookEntry } from "./hook-ownership.js";
 import { CLIENT_CLAUDE, findProjectRoot, type HookEntry } from "./hook-types.js";
 
 // Claude Code hook events registered in settings.json.
-// PostToolUseFailure is intentionally omitted — registering it causes Claude Code
-// to display "2 PostToolUse hooks ran" since it counts both registrations.
-// The hook script still handles PostToolUseFailure if received (via isPostTool check).
+// PostToolUseFailure is registered (2026-11-16). Verified that day under Claude
+// Code 2.1.325: a Bash call that exits non-zero delivers PreToolUse and NO
+// PostToolUse, so without this event every failed call was invisible. The old
+// reason for the omission ("2 PostToolUse hooks ran" display) is cosmetic.
 /** Public API — consumed by `src/lib/hooks.ts`. */
 export const CLAUDE_HOOK_EVENTS = [
 	"SessionStart",
@@ -32,6 +33,7 @@ export const CLAUDE_HOOK_EVENTS = [
 	"Stop",
 	"PreToolUse",
 	"PostToolUse",
+	"PostToolUseFailure",
 	// PermissionRequest denies use its native permission envelope. Clean and
 	// ask outcomes abstain so Claude's policy/user prompt remains authoritative.
 	"PermissionRequest",
@@ -95,7 +97,7 @@ function cleanClaudeHooksFromFile(settingsPath: string): boolean {
 	let changed = false;
 	// Iterate every event present, not a fixed list — the adapter installer
 	// can register events the legacy CLAUDE_HOOK_EVENTS list omits (e.g.
-	// PostToolUseFailure); uninstall must still remove all of them.
+	// PostToolBatch); uninstall must still remove all of them.
 	for (const eventName of Object.keys(hooks)) {
 		const entries = hooks[eventName];
 		if (!Array.isArray(entries)) continue;

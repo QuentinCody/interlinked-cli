@@ -388,10 +388,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
 		requiresConfig: true,
 	},
 	{
-		// Discovery-only: the typed inert-code row runs from verify-tools.ts with
-		// its dedicated config; "available" means the config file exists AND
-		// eslint answers --version. Deliberately NOT a per-edit runner — a full
-		// typed program per edit is the daemon RSS-spike class.
+		// Verify alone opts into the typed program and its dedicated config.
+		// Keep it out of the per-edit registry to bound daemon memory use.
 		id: "tseslint-types",
 		versionCmd: ["npx", "eslint", "--version"],
 		versionRegex: /v?(\d+\.\d+\.\d+)/,

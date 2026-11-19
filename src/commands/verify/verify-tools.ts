@@ -11,17 +11,19 @@
 // available-tool fast path and the queued-with-spinner path both live here.
 
 import { join } from "node:path";
-import { TYPED_ESLINT_PROFILE } from "../../lib/lint-import/builtin-profiles.js";
+import { typedEslintArgs } from "../../lib/lint-import/builtin-profiles.js";
 
 import type { CheckEngine, CheckResult } from "../../harness/check-engine/index.js";
 import { loadFileSuppressions } from "../../harness/suppressions.js";
 import { nonNull } from "../../lib/non-null.js";
 import { measureVerifyCheckAsync, recordVerifyInputDeferral, recordVerifyInputExclusion } from "./check-timing.js";
 import { runGitleaksForeground } from "../../harness/check-engine/tool-runners/gitleaks-foreground.js";
+import { runTypedEslintForeground } from "../../harness/check-engine/tool-runners/generic.js";
 import { runRustfmtCheckAsync } from "../../harness/check-engine/tool-runners/rust.js";
-import type { ToolInputScope } from "../../harness/check-engine/types.js";
+import type { SkipEntry, ToolAvailability, ToolInputScope } from "../../harness/check-engine/types.js";
+import { runAsyncTool } from "../../harness/check-engine/index-runtime.js";
 import { currentProcessSignal } from "../../harness/check-engine/process-cancellation.js";
-import { projectToolInputMissing, selectApplicableTools } from "../../harness/check-engine/tool-applicability.js";
+import { selectToolsForRun } from "../../harness/check-engine/tool-applicability.js";
 import { dependencyAuditRequested, runVerifyDependencyAudit, type VerifyAuditOutcome } from "./dependency-audit.js";
 import { resolveVerifyToolIds } from "./tool-selection.js";
 import { PartialToolReportError } from "../../harness/check-engine/tool-errors.js";
@@ -118,7 +120,8 @@ export const TOOLS_TO_RUN: readonly ToolSpec[] = [
 		passLabel: "no type-proven inert code",
 		noun: "type-proven inert constructs",
 		severity: "33",
-		cmd: ["npx", TYPED_ESLINT_PROFILE.tool, "--config", TYPED_ESLINT_PROFILE.config, "--format", "json", TYPED_ESLINT_PROFILE.scope],
+		cmd: ["npx", ...typedEslintArgs()],
+		run: (cwd, timeoutMs) => runTypedEslintForeground({ scope: { projectRoot: cwd, mode: "project" }, timeoutMs, resourcePolicy: "foreground-verify" }),
 	},
 	{
 		id: "tsc",
@@ -195,17 +198,7 @@ interface StreamExternalToolsArgs {
 	details: boolean;
 }
 
-/**
- * Public API — consumed by `verify.ts`.
- *
- * Run every available external verifier and stream its results to stderr.
- * Single-tool runs use the inline spinner; multi-tool runs fan out and share
- * one aggregate progress line. Adds flagged files to `allFlaggedFiles` and
- * pushes one row per non-clean tool into `summary`.
- */
-/** Per-tool output parsers (lazy-loaded so verify's cold start stays cheap).
- *  Extracted from streamExternalTools so that function can hold under the
- *  function-token cap while the tool table grows. */
+/** Load per-tool output parsers on demand. */
 async function buildToolParsers(cwd: string): Promise<{
 	toolParsers: Record<string, (output: string) => CheckResult[]>;
 }> {
@@ -222,7 +215,6 @@ async function buildToolParsers(cwd: string): Promise<{
 		toolParsers: {
 			tsc: (out) => parseTscOutput(out),
 			eslint: (out) => parseEslintJson(out),
-			"tseslint-types": (out) => parseEslintJson(out, "tseslint-types"),
 			oxlint: (out) => parseOxlintJson(out),
 			knip: (out) => parseKnipJson(out),
 			semgrep: (out) => parseSemgrepJson(out, cwd),
@@ -262,84 +254,100 @@ function reportStream(tool: ToolSpec): "stdout" | "combined" {
 	return ["tsc", "docs-check"].includes(tool.id) ? "combined" : "stdout";
 }
 
-export async function streamExternalTools(args: StreamExternalToolsArgs): Promise<void> {
-	const { cwd, opts, skipChecks, summary, allFlaggedFiles, details } = args;
-	const { toolParsers } = await buildToolParsers(cwd);
-	streamUnknownToolProbes(args);
-	streamProjectToolCoverage(args);
-
-	const availableTools = availableToolSpecs(args);
-
-	const runDepAudit = dependencyAuditRequested(opts.only, skipChecks) && !projectToolInputMissing("dep-audit", cwd);
+function displayToolResult(
+	{ cwd, details, allFlaggedFiles, summary }: StreamExternalToolsArgs,
+	tool: ToolSpec,
+	rawResults: ToolRun<CheckResult>,
+): void {
 	const interlinkedDir = join(cwd, ".interlinked");
-	const toolsStart = Date.now();
-	const toolCount = availableTools.length + (runDepAudit ? 1 : 0);
+	const unavailable = displayUnavailable(tool.id, tool.label, rawResults);
+	const filteredItems = rawResults.items.filter((item) => {
+		const fileSup = loadFileSuppressions(interlinkedDir, item.file);
+		return !fileSup.has(tool.id);
+	});
+	const elapsed = rawResults.elapsedMs;
 
-	function displayToolResult(
-		tool: ToolSpec,
-		rawResults: ToolRun<CheckResult>,
-	): void {
-		const unavailable = displayUnavailable(tool.id, tool.label, rawResults);
-		const filteredItems = rawResults.items.filter((item) => {
-			const fileSup = loadFileSuppressions(interlinkedDir, item.file);
-			return !fileSup.has(tool.id);
-		});
-		const elapsed = rawResults.elapsedMs;
-
-		if (filteredItems.length === 0) {
-			if (unavailable) return;
-			process.stderr.write(`\n  \x1b[1m${tool.label}\x1b[0m \x1b[2m${elapsed}\x1b[0m\n`);
-			process.stderr.write(`    \x1b[32m✓\x1b[0m ${tool.passLabel}\n`);
-			return;
-		}
-		const toolFiles = new Set(filteredItems.map((r) => r.file));
-		for (const f of toolFiles) allFlaggedFiles.add(f);
+	if (filteredItems.length === 0) {
+		if (unavailable) return;
 		process.stderr.write(`\n  \x1b[1m${tool.label}\x1b[0m \x1b[2m${elapsed}\x1b[0m\n`);
-		process.stderr.write(
-			`    \x1b[${tool.severity}m✗\x1b[0m \x1b[${tool.severity}m${filteredItems.length}\x1b[0m ${tool.noun} in \x1b[${tool.severity}m${toolFiles.size}\x1b[0m files\n`,
-		);
-		summary.push({
-			label: `${filteredItems.length} ${tool.label} ${tool.noun}`,
-			count: filteredItems.length,
-			color: tool.severity,
-		});
-		for (const file of [...toolFiles].sort().slice(0, MAX_LISTED_FILES)) {
-			process.stderr.write(`\x1b[2m         ${file}\x1b[0m\n`);
-			if (details) {
-				for (const r of filteredItems
-					.filter((r) => r.file === file)
-					.slice(0, MAX_FILE_DETAIL_LINES)) {
-					process.stderr.write(
-						`\x1b[2m           L${r.line}: ${r.message.slice(0, MESSAGE_MAX_LENGTH)}\x1b[0m\n`,
-					);
-				}
-			}
-		}
-		if (toolFiles.size > MAX_LISTED_FILES) {
-			process.stderr.write(
-				`\x1b[2m         ... and ${toolFiles.size - MAX_LISTED_FILES} more files\x1b[0m\n`,
-			);
-		}
-	}
-
-	if (toolCount <= 1 && availableTools.length === 1 && !runDepAudit) {
-		currentProcessSignal()?.throwIfAborted();
-		const tool = nonNull(availableTools[0]);
-		const rawResults = await measureVerifyCheckAsync(tool.id, () => runToolWithSpinner({
-			label: tool.label,
-			...(tool.run ? { run: tool.run.bind(undefined, cwd, opts.toolTimeout ?? 0, opts.gitleaksScope) } : {}),
-			cmd: tool.cmd,
-			cwd,
-			timeoutMs: opts.toolTimeout ?? 0,
-			parseOutput: (output, status) => parseToolOutput(tool, output, status, toolParsers, cwd),
-			reportStream: reportStream(tool), recoverPartial: recoverPartialToolFindings,
-		}));
-		currentProcessSignal()?.throwIfAborted();
-		displayToolResult(tool, rawResults);
+		process.stderr.write(`    \x1b[32m✓\x1b[0m ${tool.passLabel}\n`);
 		return;
 	}
-	if (toolCount === 0) return;
+	const toolFiles = new Set(filteredItems.map((r) => r.file));
+	for (const f of toolFiles) allFlaggedFiles.add(f);
+	process.stderr.write(`\n  \x1b[1m${tool.label}\x1b[0m \x1b[2m${elapsed}\x1b[0m\n`);
+	process.stderr.write(
+		`    \x1b[${tool.severity}m✗\x1b[0m \x1b[${tool.severity}m${filteredItems.length}\x1b[0m ${tool.noun} in \x1b[${tool.severity}m${toolFiles.size}\x1b[0m files\n`,
+	);
+	summary.push({
+		label: `${filteredItems.length} ${tool.label} ${tool.noun}`,
+		count: filteredItems.length,
+		color: tool.severity,
+	});
+	for (const file of [...toolFiles].sort().slice(0, MAX_LISTED_FILES)) {
+		process.stderr.write(`\x1b[2m         ${file}\x1b[0m\n`);
+		if (details) {
+			for (const r of filteredItems
+				.filter((r) => r.file === file)
+				.slice(0, MAX_FILE_DETAIL_LINES)) {
+				process.stderr.write(
+					`\x1b[2m           L${r.line}: ${r.message.slice(0, MESSAGE_MAX_LENGTH)}\x1b[0m\n`,
+				);
+			}
+		}
+	}
+	if (toolFiles.size > MAX_LISTED_FILES) {
+		process.stderr.write(
+			`\x1b[2m         ... and ${toolFiles.size - MAX_LISTED_FILES} more files\x1b[0m\n`,
+		);
+	}
+}
 
+/** Both progress displays run the same command and interpret the same verdict. */
+async function runStreamingTool(
+	args: StreamExternalToolsArgs,
+	tool: ToolSpec,
+	parsers: Record<string, (output: string) => CheckResult[]>,
+	inlineSpinner: boolean,
+): Promise<void> {
+	const { cwd, opts } = args;
+	const timeoutMs = opts.toolTimeout ?? 0;
+	const runner = {
+		cmd: tool.cmd, cwd, timeoutMs,
+		...(tool.run ? { run: tool.run.bind(undefined, cwd, timeoutMs, opts.gitleaksScope) } : {}),
+		parseOutput: (output: string, status: number | null) => parseToolOutput(tool, output, status, parsers, cwd),
+		recoverInterruptedReport: tool.id === "semgrep",
+		reportStream: reportStream(tool), recoverPartial: recoverPartialToolFindings,
+	};
+	currentProcessSignal()?.throwIfAborted();
+	const result = await measureVerifyCheckAsync(tool.id, () => inlineSpinner
+		? runToolWithSpinner({ ...runner, label: tool.label })
+		: runToolSilent(runner));
+	currentProcessSignal()?.throwIfAborted();
+	if (!inlineSpinner) process.stderr.write("\r\x1b[K");
+	displayToolResult(args, tool, result);
+}
+
+export async function streamExternalTools(args: StreamExternalToolsArgs): Promise<void> {
+	const { cwd, opts, skipChecks } = args;
+	const { toolParsers } = await buildToolParsers(cwd);
+	const tools = availableToolSpecs(args);
+	const runDepAudit = dependencyAuditRequested(opts.only, skipChecks);
+	if (tools.length === 1 && !runDepAudit) {
+		await runStreamingTool(args, nonNull(tools[0]), toolParsers, true);
+	} else if (tools.length || runDepAudit) {
+		await streamToolQueue(args, tools, runDepAudit, tool => runStreamingTool(args, tool, toolParsers, false));
+	}
+}
+
+async function streamToolQueue(
+	{ cwd, opts, summary }: StreamExternalToolsArgs,
+	availableTools: ToolSpec[],
+	runDepAudit: boolean,
+	runTool: (tool: ToolSpec) => Promise<void>,
+): Promise<void> {
+	const toolsStart = Date.now();
+	const toolCount = availableTools.length + (runDepAudit ? 1 : 0);
 	let frame = 0;
 	let completed = 0;
 	const remaining = new Set(availableTools.map((t) => t.label));
@@ -357,18 +365,7 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 
 	try {
 		for (const tool of availableTools) {
-			currentProcessSignal()?.throwIfAborted();
-			const rawResults = await measureVerifyCheckAsync(tool.id, () => runToolSilent({
-				cmd: tool.cmd,
-				...(tool.run ? { run: tool.run.bind(undefined, cwd, opts.toolTimeout ?? 0, opts.gitleaksScope) } : {}),
-				cwd,
-				timeoutMs: opts.toolTimeout ?? 0,
-				parseOutput: (output, status) => parseToolOutput(tool, output, status, toolParsers, cwd),
-				reportStream: reportStream(tool), recoverPartial: recoverPartialToolFindings,
-			}));
-			currentProcessSignal()?.throwIfAborted();
-			process.stderr.write("\r\x1b[K");
-			displayToolResult(tool, rawResults);
+			await runTool(tool);
 			completed++;
 			remaining.delete(tool.label);
 		}
@@ -391,42 +388,49 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 	process.stderr.write(`\x1b[2m  all tools completed in ${toolsElapsed}s (sequential)\x1b[0m\n`);
 }
 
-/** Resolve per-project command arguments without mutating the shared tool table. */
+/** Apply the same scope, exclusions and discovery verdicts as the JSON engine. */
 function availableToolSpecs({ engine, cwd, opts, skipChecks }: StreamExternalToolsArgs): ToolSpec[] {
-	return TOOLS_TO_RUN.filter(tool => {
-		if (opts.only && opts.only !== tool.id && opts.only !== tool.label) return false;
-		if (skipChecks.has(tool.id)) return false;
-		if (tool.id === "rustfmt" && selectApplicableTools([{ id: "rustfmt", available: true }], { projectRoot: cwd, mode: "project" }, { resourcePolicy: "foreground-verify" }).skipped.length) return false;
-		if (tool.id === "docs-check" && projectToolInputMissing(tool.id, cwd)) return false;
-		return engine.discoverTools().find(candidate => candidate.id === tool.id)?.available;
-	}).map(tool => tool.id === "biome" ? { ...tool, cmd: [...tool.cmd.slice(0, -1), ...biomeForegroundSizeArgs(cwd), "."] } : tool);
-}
-
-function streamUnknownToolProbes({ engine, cwd, opts, skipChecks }: StreamExternalToolsArgs): void {
-	const selected = opts.only ? resolveVerifyToolIds([opts.only === "sca" ? "dep-audit" : opts.only]) : undefined;
-	const unknown = engine.discoverTools().filter(tool => tool.probeError && !skipChecks.has(tool.id)
-		&& !(tool.id === "dep-audit" && skipChecks.has("sca")) && (!selected || selected.includes(tool.id)));
-	for (const tool of selectApplicableTools(unknown, { projectRoot: cwd, mode: "project" }, { resourcePolicy: "foreground-verify" }).applicable) {
-		if (tool.probeError) displayUnavailable(tool.id, TOOLS_TO_RUN.find(spec => spec.id === tool.id)?.label ?? tool.id,
-			{ items: [], elapsedMs: "0.0s", unavailable: tool.probeError });
-	}
-}
-
-/** Relevant legacy language tools have no managed async runner yet. Keep that
- * capability gap explicit in human output, just as the JSON engine does. */
-function streamProjectToolCoverage({ engine, cwd, opts, skipChecks }: StreamExternalToolsArgs): void {
-	const selected = opts.only ? resolveVerifyToolIds([opts.only === "sca" ? "dep-audit" : opts.only]) : undefined;
-	const projectTools = engine.discoverTools().filter(tool => ["rustfmt", "c-compile", "docs-check", "dep-audit"].includes(tool.id)
-		&& (tool.available || Boolean(opts.only))
-		&& !skipChecks.has(tool.id) && !(tool.id === "dep-audit" && skipChecks.has("sca")) && (!selected || selected.includes(tool.id)));
-	const selection = selectApplicableTools(projectTools, { projectRoot: cwd, mode: "project" }, { resourcePolicy: "foreground-verify" });
-	for (const row of selection.skipped) {
-		if (row.category === "error") displayUnavailable(row.check, row.check, { items: [], elapsedMs: "0.0s", unavailable: row.reason });
-		else process.stderr.write(`\n  ${row.check}: ${row.category === "config_disabled" ? "EXCLUDED" : "NOT APPLICABLE"} — ${row.reason}\n`);
-	}
-	for (const tool of selection.applicable.filter(tool => tool.available && tool.id === "c-compile")) displayUnavailable(tool.id, tool.id, {
-		items: [], elapsedMs: "0.0s", unavailable: "async runner unavailable for this tool; no verification verdict",
+	const only = opts.only === "sca" ? "dep-audit" : opts.only;
+	const selected = only ? resolveVerifyToolIds([only]) : undefined;
+	const skipped = resolveVerifyToolIds(skipChecks);
+	const candidates = engine.discoverTools().filter(tool => {
+		if (skipped.includes(tool.id) || tool.id === "dep-audit") return false;
+		if (selected && !selected.includes(tool.id) && !TOOLS_TO_RUN.some(spec => spec.id === tool.id && spec.label === only)) return false;
+		return tool.available || tool.probeError || Boolean(only);
 	});
+	const scope = { projectRoot: cwd, mode: "project" as const };
+	const selection = selectToolsForRun(candidates, scope, { resourcePolicy: "foreground-verify" });
+	for (const row of selection.skipped) displaySkippedTool(row);
+	const tools = TOOLS_TO_RUN.filter(spec => selection.toolsToRun.some(tool => tool.id === spec.id))
+		.map(spec => spec.id === "biome" ? { ...spec, cmd: [...spec.cmd.slice(0, -1), ...biomeForegroundSizeArgs(cwd), "."] } : spec);
+	for (const tool of selection.toolsToRun) {
+		if (tool.id === "lint-import" || tools.some(spec => spec.id === tool.id)) continue;
+		tools.push(catalogToolSpec(tool));
+	}
+	return tools;
+}
+
+function displaySkippedTool(row: SkipEntry): void {
+	if (row.category === "file_type_mismatch" || row.category === "config_disabled" || row.category === "tool_missing") {
+		const status = { file_type_mismatch: "NOT APPLICABLE", config_disabled: "EXCLUDED", tool_missing: "UNAVAILABLE" }[row.category];
+		process.stderr.write(`\n  ${row.check}: ${status} — ${row.reason}\n`);
+		return;
+	}
+	const label = TOOLS_TO_RUN.find(spec => spec.id === row.check)?.label ?? row.check;
+	displayUnavailable(row.check, label, { items: [], elapsedMs: "0.0s", unavailable: row.reason });
+}
+
+/** Catalog tools share JSON verify's managed runner, including partial reports and capability errors. */
+function catalogToolSpec(tool: ToolAvailability): ToolSpec {
+	return {
+		id: tool.id, label: tool.id, cmd: [], passLabel: "no findings", noun: "findings", severity: "33",
+		run: async (cwd, timeoutMs) => {
+			const result = await runAsyncTool(tool, { projectRoot: cwd, mode: "project" }, timeoutMs,
+				{ resourcePolicy: "foreground-verify", onInputScope: displayToolInputScope });
+			if (result.skipped) throw new PartialToolReportError(result.skipped.reason, result.results);
+			return result.results;
+		},
+	};
 }
 
 function displayUnavailable(check: string, label: string, result: ToolRun<unknown>): boolean {

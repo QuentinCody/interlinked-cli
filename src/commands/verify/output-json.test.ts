@@ -33,6 +33,13 @@ function captureStdout(fn: () => void): string {
 }
 
 describe("outputJson", () => {
+	it("omits the Semgrep findings summary when the scan was excluded", () => {
+		const notRun = { "tool_quality:semgrep": { reason: "not_selected" as const, detail: "Semgrep was excluded" } };
+		const parsed = JSON.parse(captureStdout(() => outputJson({ tscResults: [], linterResults: [], linterName: "biome", semgrepResults: [],
+			gitleaksResults: [], auditResult: null, cq: emptyCq(), suggestions: null, totalFiles: 1, notRun })));
+		expect(parsed.not_run).toEqual(notRun);
+		expect(parsed).not.toHaveProperty("semgrep");
+	});
 	it("retains every external tool diagnostic in the report and actionable queue", () => {
 		const externalDiagnostics = [
 			{ tool: "rustfmt" as const, file: "src/main.rs", line: 1, severity: "warning" as const, message: "Formatting differs", ruleId: "format" },

@@ -49,7 +49,7 @@ import {
 } from "../../harness/generic-checks.js";
 import { detectProcfsProbeInTest } from "../../harness/checks/procfs-probe.js";
 import type { FileCheckContext } from "./file-checks-shared.js";
-import { toIssues } from "./file-checks-shared.js";
+import { contentCheckRunner } from "./file-checks-content.js";
 
 /**
  * Endpoint-security pack, agent-laziness batch, test-hygiene batch, cross-file
@@ -58,164 +58,62 @@ import { toIssues } from "./file-checks-shared.js";
  * checks ===".
  */
 export function runEndpointAndLazinessChecks(ctx: FileCheckContext): void {
-	const { content, file, relPath, r } = ctx;
+	const { r } = ctx;
+	const runCheck = contentCheckRunner(ctx);
 
 	// === Phase B endpoint-security pack (2026-05) ===
 	// Five PostToolUse warning detectors run through a registry-call-site
 	// shim (`harness/check-registry/endpoint-security-adapters.ts`) so they
 	// fit the standard `(content, filePath) => InlineMatch[]` shape while
 	// internally loading RouteMap + SecurityConfig + SanitizerRegistry.
-	r.endpointAuthMissing.push(
-		...toIssues("endpoint_auth_missing", relPath, adaptEndpointAuthMissing, content, file),
-	);
-	r.endpointIdorShape.push(
-		...toIssues("endpoint_idor_shape", relPath, adaptEndpointIdorShape, content, file),
-	);
-	r.endpointMissingTenantFilter.push(
-		...toIssues(
-			"endpoint_missing_tenant_filter",
-			relPath,
-			adaptEndpointMissingTenantFilter, content, file,
-		),
-	);
-	r.endpointSsrfShape.push(
-		...toIssues("endpoint_ssrf_shape", relPath, adaptEndpointSsrfShape, content, file),
-	);
-	r.endpointMassAssignment.push(
-		...toIssues(
-			"endpoint_mass_assignment",
-			relPath,
-			adaptEndpointMassAssignment, content, file,
-		),
-	);
+	runCheck("endpoint_auth_missing", r.endpointAuthMissing, adaptEndpointAuthMissing);
+	runCheck("endpoint_idor_shape", r.endpointIdorShape, adaptEndpointIdorShape);
+	runCheck("endpoint_missing_tenant_filter", r.endpointMissingTenantFilter, adaptEndpointMissingTenantFilter);
+	runCheck("endpoint_ssrf_shape", r.endpointSsrfShape, adaptEndpointSsrfShape);
+	runCheck("endpoint_mass_assignment", r.endpointMassAssignment, adaptEndpointMassAssignment);
 
 	// === Batch 1: agent-laziness checks ===
-	r.agentThumbprintProse.push(
-		...toIssues("agent_thumbprint_prose", relPath, checkAgentThumbprintProse, content, file),
-	);
-	r.stubNotImplementedThrow.push(
-		...toIssues(
-			"stub_not_implemented_throw",
-			relPath,
-			checkStubNotImplementedThrow, content, file,
-		),
-	);
-	r.deadBranchLiteral.push(
-		...toIssues("dead_branch_literal", relPath, checkDeadBranchLiteral, content, file),
-	);
-	r.fileLevelSuppression.push(
-		...toIssues("file_level_suppression", relPath, checkFileLevelSuppression, content, file),
-	);
-	r.untestableTimeInSource.push(
-		...toIssues(
-			"untestable_time_in_source",
-			relPath,
-			checkUntestableTimeInSource, content, file,
-		),
-	);
-	for (const issue of toIssues("double_cast_unknown", relPath, checkDoubleCastUnknown, content, file)) r.doubleCastUnknown.push(issue);
-	r.typeSmuggling.push(
-		...toIssues("type_smuggling", relPath, checkTypeSmuggling, content, file),
-	);
-	r.unionWidenedWithString.push(
-		...toIssues(
-			"union_widened_with_string",
-			relPath,
-			checkUnionWidenedWithString, content, file,
-		),
-	);
-	r.nodeenvBranchInProd.push(
-		...toIssues("nodeenv_branch_in_prod", relPath, checkNodeEnvBranchInProd, content, file),
-	);
-	r.fetchWithoutTimeout.push(
-		...toIssues("fetch_without_timeout", relPath, checkFetchWithoutTimeout, content, file),
-	);
-	r.unboundedPromiseAll.push(
-		...toIssues("unbounded_promise_all", relPath, checkUnboundedPromiseAll, content, file),
-	);
-	r.syncIoOnHotPath.push(
-		...toIssues("sync_io_on_hot_path", relPath, checkSyncIoOnHotPath, content, file),
-	);
+	runCheck("agent_thumbprint_prose", r.agentThumbprintProse, checkAgentThumbprintProse);
+	runCheck("stub_not_implemented_throw", r.stubNotImplementedThrow, checkStubNotImplementedThrow);
+	runCheck("dead_branch_literal", r.deadBranchLiteral, checkDeadBranchLiteral);
+	runCheck("file_level_suppression", r.fileLevelSuppression, checkFileLevelSuppression);
+	runCheck("untestable_time_in_source", r.untestableTimeInSource, checkUntestableTimeInSource);
+	runCheck("double_cast_unknown", r.doubleCastUnknown, checkDoubleCastUnknown);
+	runCheck("type_smuggling", r.typeSmuggling, checkTypeSmuggling);
+	runCheck("union_widened_with_string", r.unionWidenedWithString, checkUnionWidenedWithString);
+	runCheck("nodeenv_branch_in_prod", r.nodeenvBranchInProd, checkNodeEnvBranchInProd);
+	runCheck("fetch_without_timeout", r.fetchWithoutTimeout, checkFetchWithoutTimeout);
+	runCheck("unbounded_promise_all", r.unboundedPromiseAll, checkUnboundedPromiseAll);
+	runCheck("sync_io_on_hot_path", r.syncIoOnHotPath, checkSyncIoOnHotPath);
 
-	// === Batch 2: test-hygiene checks ===
-	r.duplicateTestNames.push(
-		...toIssues("duplicate_test_names", relPath, checkDuplicateTestNames, content, file),
-	);
-	r.realIoInTests.push(
-		...toIssues("real_io_in_tests", relPath, checkRealIoInTests, content, file),
-	);
-	r.testNondeterminism.push(
-		...toIssues("test_nondeterminism", relPath, checkTestNondeterminism, content, file),
-	);
-	r.hardcodedTimeoutInTests.push(
-		...toIssues(
-			"hardcoded_timeout_in_tests",
-			relPath,
-			checkHardcodedTimeoutInTests, content, file,
-		),
-	);
-	r.testMissingSutImport.push(
-		...toIssues(
-			"test_missing_sut_import",
-			relPath,
-			checkTestMissingSutImport, content, file,
-		),
-	);
-	for (const issue of toIssues("mocking_the_sut_self", relPath, checkMockingTheSutSelf, content, file)) {
-		r.mockingTheSutSelf.push(issue);
-	}
-	r.testSubprocessDefaultTimeout.push(
-		...toIssues(
-			"test_subprocess_default_timeout",
-			relPath,
-			checkTestSubprocessDefaultTimeout, content, file,
-		),
-	);
-	for (const issue of toIssues("mock_only_test", relPath, checkMockOnlyTest, content, file)) {
-		r.mockOnlyTest.push(issue);
-	}
-	r.happyPathOnlyTest.push(
-		...toIssues("happy_path_only_test", relPath, checkHappyPathOnlyTest, content, file),
-	);
-	for (const issue of toIssues("introverted_test", relPath, checkIntrovertedTest, content, file)) {
-		r.introvertedTest.push(issue);
-	}
-	r.testLegitimacy.push(
-		...toIssues("test_legitimacy", relPath, checkTestLegitimacy, content, file),
-	);
-	r.procfsProbeInTest.push(
-		...toIssues("procfs_probe_in_test", relPath, detectProcfsProbeInTest, content, file),
-	);
+	runTestAndDemoChecks(ctx);
+}
+
+function runTestAndDemoChecks(ctx: FileCheckContext): void {
+	const { r } = ctx;
+	const runCheck = contentCheckRunner(ctx);
+	runCheck("duplicate_test_names", r.duplicateTestNames, checkDuplicateTestNames);
+	runCheck("real_io_in_tests", r.realIoInTests, checkRealIoInTests);
+	runCheck("test_nondeterminism", r.testNondeterminism, checkTestNondeterminism);
+	runCheck("hardcoded_timeout_in_tests", r.hardcodedTimeoutInTests, checkHardcodedTimeoutInTests);
+	runCheck("test_missing_sut_import", r.testMissingSutImport, checkTestMissingSutImport);
+	runCheck("mocking_the_sut_self", r.mockingTheSutSelf, checkMockingTheSutSelf);
+	runCheck("test_subprocess_default_timeout", r.testSubprocessDefaultTimeout, checkTestSubprocessDefaultTimeout);
+	runCheck("mock_only_test", r.mockOnlyTest, checkMockOnlyTest);
+	runCheck("happy_path_only_test", r.happyPathOnlyTest, checkHappyPathOnlyTest);
+	runCheck("introverted_test", r.introvertedTest, checkIntrovertedTest);
+	runCheck("test_legitimacy", r.testLegitimacy, checkTestLegitimacy);
+	runCheck("procfs_probe_in_test", r.procfsProbeInTest, detectProcfsProbeInTest);
 
 	// === Batch 5: cross-file checks ===
-	r.emptyBodyHandler.push(
-		...toIssues("empty_body_handler", relPath, checkEmptyBodyHandler, content, file),
-	);
-	r.listenerPairing.push(
-		...toIssues("listener_pairing", relPath, checkListenerPairing, content, file),
-	);
-	r.schemaTypeDrift.push(
-		...toIssues("schema_type_drift", relPath, checkSchemaTypeDrift, content, file),
-	);
-	r.migrationParity.push(
-		...toIssues("migration_parity", relPath, checkMigrationParity, content, file),
-	);
+	runCheck("empty_body_handler", r.emptyBodyHandler, checkEmptyBodyHandler);
+	runCheck("listener_pairing", r.listenerPairing, checkListenerPairing);
+	runCheck("schema_type_drift", r.schemaTypeDrift, checkSchemaTypeDrift);
+	runCheck("migration_parity", r.migrationParity, checkMigrationParity);
 
 	// === Batch 8: demo-data checks ===
-	r.demoDataUnmarked.push(
-		...toIssues("demo_data_unmarked", relPath, checkDemoDataUnmarked, content, file),
-	);
-	r.silentDemoFallback.push(
-		...toIssues("silent_demo_fallback", relPath, checkSilentDemoFallback, content, file),
-	);
-	r.demoRuntimeMissingBanner.push(
-		...toIssues(
-			"demo_runtime_missing_banner",
-			relPath,
-			checkDemoRuntimeMissingBanner, content, file,
-		),
-	);
-	r.placeholderDataInUi.push(
-		...toIssues("placeholder_data_in_ui", relPath, checkPlaceholderDataInUi, content, file),
-	);
+	runCheck("demo_data_unmarked", r.demoDataUnmarked, checkDemoDataUnmarked);
+	runCheck("silent_demo_fallback", r.silentDemoFallback, checkSilentDemoFallback);
+	runCheck("demo_runtime_missing_banner", r.demoRuntimeMissingBanner, checkDemoRuntimeMissingBanner);
+	runCheck("placeholder_data_in_ui", r.placeholderDataInUi, checkPlaceholderDataInUi);
 }

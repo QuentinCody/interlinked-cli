@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { liftOutcomeEvidence } from "./outcome-evidence.js";
+import { exitCodeFromErrorText, liftOutcomeEvidence } from "./outcome-evidence.js";
 import type { HarnessEvent } from "./types.js";
 
 /**
@@ -104,6 +104,78 @@ describe("liftOutcomeEvidence — negative (must not misclassify or clobber)", (
 		liftOutcomeEvidence(e);
 		expect(e.stdout).toBe("original");
 	});
+});
+
+// Claude Code 2.1.325 delivers a failed Bash call ONLY as PostToolUseFailure,
+// with no tool_response: the error text is the whole evidence.
+describe("liftOutcomeEvidence — bare Claude PostToolUseFailure", () => {
+	const failure = (over: Partial<HarnessEvent> = {}): HarnessEvent =>
+		post({ hook_event: "PostToolUseFailure", error_message: "Exit code 3\nFAIL src/a.test.ts\nboom", ...over });
+
+	it("P: derives error, the first-line exit code, and stderr from the error text", () => {
+		const e = failure();
+		liftOutcomeEvidence(e);
+		expect(e.tool_outcome).toBe("error");
+		expect(e.exit_code).toBe(3);
+		expect(e.stderr).toBe("Exit code 3\nFAIL src/a.test.ts\nboom");
+	});
+
+	it("P: still records an error when the event carries no text at all", () => {
+		const e = post({ hook_event: "PostToolUseFailure", tool_response: null });
+		liftOutcomeEvidence(e);
+		expect(e.tool_outcome).toBe("error");
+		expect(e.exit_code).toBeUndefined();
+		expect(e.stderr).toBeUndefined();
+	});
+
+	it("N: a text whose first line is not `Exit code N` yields no exit code", () => {
+		const e = failure({ error_message: "File has not been read yet.\nExit code 2" });
+		liftOutcomeEvidence(e);
+		expect(e.tool_outcome).toBe("error");
+		expect(e.exit_code).toBeUndefined();
+	});
+
+	it("N: keeps an upstream outcome, exit code and stderr (the .mjs already derived them)", () => {
+		const e = failure({ tool_outcome: "interrupted", exit_code: 130, stderr: "kept" });
+		liftOutcomeEvidence(e);
+		expect(e).toMatchObject({ tool_outcome: "interrupted", exit_code: 130, stderr: "kept" });
+		const partial = failure({ exit_code: 7, stderr: "kept" });
+		liftOutcomeEvidence(partial);
+		expect(partial).toMatchObject({ tool_outcome: "error", exit_code: 7, stderr: "kept" });
+	});
+
+	it("N: a regular PostToolUse with no response is left untouched", () => {
+		const e = post({ error_message: "Exit code 1" });
+		liftOutcomeEvidence(e);
+		expect(e.tool_outcome).toBeUndefined();
+		expect(e.exit_code).toBeUndefined();
+	});
+
+	it("keeps only the tail of an oversized failure text", () => {
+		const e = failure({ error_message: `Exit code 1\n${"x".repeat(20_000)}END` });
+		liftOutcomeEvidence(e);
+		expect(e.exit_code).toBe(1);
+		expect(e.stderr?.length).toBe(8_192);
+		expect(e.stderr?.endsWith("END")).toBe(true);
+	});
+});
+
+describe("exitCodeFromErrorText", () => {
+	it.each([
+		["Exit code 3", 3],
+		["Exit code 0\n", 0],
+		["Exit code -1\r\nout", -1],
+		["Exit code 127  \nnot found", 127],
+	])("parses %j", (text, code) => {
+		expect(exitCodeFromErrorText(text)).toBe(code);
+	});
+
+	it.each(["", "exit code 3", "Exit code three", "Exit code 3 (killed)", "out\nExit code 3", " Exit code 3"])(
+		"rejects %j",
+		(text) => {
+			expect(exitCodeFromErrorText(text)).toBeUndefined();
+		},
+	);
 });
 
 describe("liftOutcomeEvidence — wiring pin", () => {

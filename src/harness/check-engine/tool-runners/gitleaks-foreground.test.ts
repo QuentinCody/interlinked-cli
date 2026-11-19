@@ -85,6 +85,17 @@ it("uses one explicit deadline across sequential targets", async () => {
 	expect(vi.mocked(runProcessAsync).mock.calls.filter(([command]) => command === "gitleaks")).toHaveLength(1);
 });
 
+it("retains native findings from the target that timed out without exposing scanner stderr", async () => {
+	vi.mocked(runProcessAsync).mockImplementation(async command => command === "git" ? { ...success, code: 128 } : {
+		...success, code: null, timedOut: true, killed: true, stderr: "private native diagnostic",
+		stdout: JSON.stringify([{ File: "-b.txt", RuleID: "audit", StartLine: 4 }]),
+	});
+	await expect(runGitleaksForeground(root, 0)).rejects.toThrow(expect.objectContaining({
+		message: expect.stringMatching(/deadline expired/),
+		results: [expect.objectContaining({ file: "-b.txt", ruleId: "audit", line: 4 })],
+	}));
+});
+
 it("retains completed target findings when the explicit deadline interrupts a later target", async () => {
 	let scans = 0;
 	vi.mocked(runProcessAsync).mockImplementation(async command => {

@@ -24,14 +24,9 @@
 // `per_edit_mutation` takes via `unavailable_behavior: "allow_unmeasured"`.
 
 import { baselineKeyFor, COVERAGE_METRICS } from "./coverage-metric-names.js";
-import {
-	type CoverageBaseline,
-	type CoverageBaselineFileEntry,
-	type CoverageSummary,
-	type FileCoverageEntry,
-	normalizePath,
-	normalizeReportPct,
-} from "./coverage-ratchet.js";
+import type { CoverageBaseline, CoverageBaselineFileEntry, CoverageSummary, FileCoverageEntry } from "./coverage-ratchet.js";
+import { normalizeReportPct } from "./coverage-ratchet-compare.js";
+import { normalizePath } from "./coverage-report-values.js";
 
 export interface PartialReportVerdict {
 	/** True when the report looks like a scoped/partial run, not a full one. */

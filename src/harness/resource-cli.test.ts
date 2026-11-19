@@ -133,16 +133,19 @@ it("treats explicit foreground timeout zero as no deadline", async () => {
     expect(runProcessAsync).toHaveBeenCalledWith(expect.any(String), expect.any(Array), expect.objectContaining({ timeout: null }));
 });
 
-it("still cancels verify and reports an interrupted scan without a verdict", async () => {
+it.each([null, 0])("records interrupted verification when the signalled child exits with %s", async code => {
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     vi.mocked(runProcessAsync).mockImplementation(async (_command, _args, options) => {
         process.emit("SIGINT");
         expect(options?.signal?.aborted).toBe(true);
-        return { code: null, killed: true, timedOut: false, stdout: "", stderr: "" };
+        return { code, killed: code === null, timedOut: false, stdout: "", stderr: "" };
     });
     expect(await superviseResourceCli([process.execPath, "/fixture/index.js", "verify"])).toBe(true);
     expect(process.exitCode).toBe(75);
     expect(stderr).toHaveBeenCalledWith("[resources] CLI interrupted; no verification verdict.\n");
+    expect(appendVerifyTiming).toHaveBeenCalledWith(process.cwd(), expect.objectContaining({
+        check: "managed_process_tree", status: "interrupted", exit_code: code,
+    }));
     expect(readResourceBudget).not.toHaveBeenCalled();
 });
 it("owns signals while admission waits and never starts after cancellation", async () => {

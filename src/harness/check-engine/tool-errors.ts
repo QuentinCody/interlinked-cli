@@ -12,3 +12,6 @@ export class PartialToolReportError extends Error {
 		this.name = "PartialToolReportError";
 	}
 }
+
+/** A caller-supplied deadline expired before this tool produced a complete verdict. */
+export class ToolDeadlineError extends PartialToolReportError {}

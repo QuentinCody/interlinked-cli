@@ -143,17 +143,15 @@ function findMatchingBrace(content: string, openIdx: number): number {
 	return depth === 0 ? i - 1 : -1;
 }
 
-function asMatch(
-	line: number,
-	commentText: string,
-	maxChars = 150,
-): InlineMatch {
+const MAX_COMMENT_PREVIEW_CHARS = 150;
+
+function asMatch(line: number, commentText: string): InlineMatch {
 	// Use the first line of the comment as the displayed text — the
 	// claim that drove the finding.
 	const firstLine = nonNull(commentText.split("\n")[0]).trim();
 	return {
 		line,
-		text: firstLine.length > maxChars ? `${firstLine.slice(0, maxChars - 1)}…` : firstLine,
+		text: firstLine.length > MAX_COMMENT_PREVIEW_CHARS ? `${firstLine.slice(0, MAX_COMMENT_PREVIEW_CHARS - 1)}…` : firstLine,
 	};
 }
 

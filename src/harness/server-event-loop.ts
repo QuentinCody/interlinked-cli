@@ -15,10 +15,12 @@
 // without behavior change — startup order and side effects are identical.
 
 import { isJsonObject } from "../lib/json-types.js";
+import { parseLiveHarnessEvent } from "./harness-event-validation.js";
 import type { JsonObject } from "../lib/json-types.js";
 import { appendCheckResults } from "./check-results-sink.js";
 import { forwardCloudPreToolUse } from "./cloud-forward.js";
 import { enrichCodexSubagentAttribution } from "./codex-subagent-attribution.js";
+import { claimToolCompletion } from "./event-dedup.js";
 import { appendLatencyLog } from "./latency-log.js";
 import { toLegacyHarnessEvent } from "./legacy-client.js";
 import { readLiveSnapshot, writeLiveSnapshot } from "./live-snapshot.js";
@@ -220,13 +222,23 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 	async function processEvent(rawData: string): Promise<HarnessDecision> {
 		let event: HarnessEvent;
 		try {
-			event = JSON.parse(rawData.trim());
+			const parsed = parseLiveHarnessEvent(JSON.parse(rawData.trim()));
+			if (!parsed) throw new Error("Invalid harness event shape");
+			event = parsed;
 		} catch (cause) {
 			// SECURITY: Malformed events must NOT be allowed through.
 			// A broken payload could be a parser-differential attack or a
 			// corrupted hook script — either way, we cannot evaluate safety.
 			log(`Event parse failed: ${cause instanceof Error ? cause.message : String(cause)}`);
 			return { decision: "block", reason: "Malformed event — cannot evaluate safety." };
+		}
+		// Exactly once per tool call: both hook runtimes and both socket
+		// protocols funnel through here, so this is the one place a second
+		// completion of the same call (folded PostToolUse + PostToolUseFailure)
+		// is dropped before any session, ledger or check side effect.
+		if (!claimToolCompletion(event)) {
+			log(`Skipped duplicate ${event.hook_event} for tool_use_id ${event.tool_use_id ?? "?"}: the call already completed`);
+			return { decision: "allow" };
 		}
 
 		_totalEventsProcessed++;

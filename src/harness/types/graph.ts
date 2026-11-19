@@ -36,10 +36,20 @@ export interface ImportEdge {
 	toFile: string;
 	/** Raw import specifier (e.g., "./utils", "../types") */
 	specifier: string;
-	/** Imported symbol names (empty for side-effect or namespace imports) */
+	/**
+	 * Imported EXPORT names (empty for side-effect or namespace imports). A default
+	 * import is recorded as `"default"` (the export side), never as its local
+	 * binding name, so it compares against `ExportedSymbol.name`.
+	 */
 	symbols: string[];
-	/** Whether this is a type-only import */
+	/** Whether this is a type-only import (`import type`, or every inline specifier is `type`) */
 	isTypeOnly: boolean;
+	/**
+	 * True for an `import(...)` expression. Absent for static imports and
+	 * `require()`. A dynamic edge runs lazily, so it stays in the graph for
+	 * reachability, dead-code and blast-radius, but never closes a load-time cycle.
+	 */
+	isDynamic?: boolean;
 }
 
 // ===========================================

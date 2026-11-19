@@ -99,6 +99,9 @@ vi.mock("../../harness/project-graph.js", () => {
 		getExports(f: string): unknown[] {
 			return graphState.data.exportsMap[f] ?? [];
 		}
+		getDirectExports(f: string): unknown[] {
+			return graphState.data.exportsMap[f] ?? [];
+		}
 		getDependents(f: string): string[] {
 			return graphState.data.dependents[f] ?? [];
 		}

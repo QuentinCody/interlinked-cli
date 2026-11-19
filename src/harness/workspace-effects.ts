@@ -325,11 +325,19 @@ function inFlightTargetsOfOthers(actorKey: string): Set<string> {
 	return targets;
 }
 
+/** What the tool call declared about itself, for attribution. `command` is the
+ *  shell command line, or undefined for a tool that has none. */
+export interface WorkspaceCall {
+	toolName: string | undefined;
+	declaredTargets: readonly string[];
+	command: string | undefined;
+}
+
 /** Label each effect with what this call could have caused (touch-attribution.ts). */
 function attributeChangeSet(
 	changeSet: WorkspaceChangeSet,
 	actorKey: string,
-	call: { toolName: string | undefined; declaredTargets: readonly string[] },
+	call: WorkspaceCall,
 	root: string,
 ): WorkspaceChangeSet {
 	const files = attributeWorkspaceEffects({
@@ -337,6 +345,7 @@ function attributeChangeSet(
 		actorKey,
 		toolName: call.toolName,
 		declaredTargets: call.declaredTargets,
+		command: call.command,
 		beforeCapturedAt: changeSet.before_captured_at,
 		inFlightTargetsOfOthers: inFlightTargetsOfOthers(actorKey),
 		effects: changeSet.files,
@@ -353,7 +362,7 @@ export function consumeWorkspaceSnapshot(opts: {
 	sessionId: string;
 	subagentId?: string | undefined;
 	root: string;
-	call?: { toolName: string | undefined; declaredTargets: readonly string[] };
+	call?: WorkspaceCall;
 }): WorkspaceChangeSet | null {
 	const pending = takePending(opts.toolUseId, opts.sessionId);
 	if (!pending) return null;

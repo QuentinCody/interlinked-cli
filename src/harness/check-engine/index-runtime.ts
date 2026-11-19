@@ -1,6 +1,7 @@
 import { buildConfigToTool, buildToolRegistry } from "./tool-catalog.js";
 import { withProcessCaptureLimit } from "./process-capture-policy.js";
-import { PartialToolReportError } from "./tool-errors.js";
+import { PartialToolReportError, ToolDeadlineError } from "./tool-errors.js";
+import { runTypedEslintForeground } from "./tool-runners/generic.js";
 import type {
 	CheckOptions,
 	CheckReport,
@@ -47,7 +48,9 @@ export async function runAsyncTool(
     options?: CheckOptions,
 ): Promise<{ results: CheckResult[]; metric: ToolMetrics; skipped?: SkipEntry }> {
 	const meta = toolRunnerMetaFor(tool.id);
-	if (!meta?.runnerAsync) {
+	const typedForeground = tool.id === "tseslint-types" && scope.mode === "project" && options?.resourcePolicy === "foreground-verify";
+	const runnerAsync = typedForeground ? runTypedEslintForeground : meta?.runnerAsync;
+	if (!runnerAsync) {
 		return {
 			results: [],
 			metric: { tool: tool.id, elapsedMs: 0, findingCount: 0, cacheHit: false },
@@ -60,7 +63,6 @@ export async function runAsyncTool(
 			},
 		};
 	}
-	const runnerAsync = meta.runnerAsync;
 	const toolStart = Date.now();
 	try {
 		const run = () => runnerAsync({ scope, timeoutMs,
@@ -92,7 +94,7 @@ export async function runAsyncTool(
 			skipped: {
 				check: tool.id,
 				reason: error instanceof Error ? error.message : "external tool failed",
-				category: "error",
+				category: error instanceof ToolDeadlineError ? "timeout" : "error",
 			},
 		};
 	}

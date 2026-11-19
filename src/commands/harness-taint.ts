@@ -84,7 +84,7 @@ function writeNotice(line: string): void {
 	process.stderr.write(`${line}\n`);
 }
 
-function taintCommandDeps(cwd: string = process.cwd()): TaintCommandDeps {
+function taintCommandDeps(): TaintCommandDeps {
 	const terminal = {
 		isInteractive: stdioIsInteractive,
 		promptLine: readOneLine,
@@ -95,7 +95,7 @@ function taintCommandDeps(cwd: string = process.cwd()): TaintCommandDeps {
 		pid: () => process.pid,
 		now: () => new Date().toISOString(),
 	};
-	return { ...taintClientDeps(cwd), ...terminal, ...identity };
+	return { ...taintClientDeps(process.cwd()), ...terminal, ...identity };
 }
 
 // ---------------------------------------------------------------------------

@@ -18,6 +18,8 @@ import type { SessionTrajectory, TddCycle } from "./types.js";
 // -----------------------------------------------------------------------------
 
 const TEST_RUNNER_PATTERNS: readonly RegExp[] = [
+	// Node's built-in runner: `node [--flag[=value]]... --test [--flag]... [file]`.
+	/\bnode\s+(?:--[\w-]+(?:=\S+)?\s+)*--test(?=\s|$)(?:\s+(?:--[\w-]+(?:=\S+)?\s+)*([^\s-]\S*))?/,
 	/\b(?:npx\s+)?vitest\s+run\s+(\S+)/,
 	/\b(?:npx\s+)?jest\s+(\S+)/,
 	/\bpytest\s+(\S+)/,

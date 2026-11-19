@@ -23,6 +23,7 @@ import {
 	recordLiteralOccurrences,
 	recordRecentLineEdit,
 } from "./session-literals.js";
+import { clearObservedOnly } from "./observed-files.js";
 import type { HarnessEvent, SessionTrajectory } from "./types.js";
 import {
 	classifyBrowserToolName,
@@ -260,6 +261,7 @@ function trackReadWrite(
 		if (writeSucceeded) {
 			session.files_written.add(filePath);
 			if (absPath !== filePath) session.files_written.add(absPath);
+			clearObservedOnly(session, [filePath, absPath]);
 			session.file_write_times.set(filePath, event.timestamp);
 			session.file_edit_counts.set(filePath, (session.file_edit_counts.get(filePath) || 0) + 1);
 		}

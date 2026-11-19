@@ -17,6 +17,7 @@
 // a meta-test over ~250 files where a TS program-per-file would dominate
 // runtime. The `typescript` dep is also optional (`--omit=optional`).
 
+import { rawBraceDelta } from "../checks/shared-text-utils-brace-scan.js";
 import type { CaseDirection, LabeledCase } from "./types.js";
 
 /**
@@ -52,16 +53,6 @@ export function directionFromTitle(title: string): CaseDirection | null {
 	}
 	if (/must[ -]fire|does[ -]fire|positive|detects|flags/.test(t)) return "positive";
 	return null;
-}
-
-/** Count `{` minus `}` on a line, ignoring braces inside string literals crudely. */
-function braceDelta(line: string): number {
-	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		else if (ch === "}") delta--;
-	}
-	return delta;
 }
 
 /** Count `(` minus `)` in a text, crudely (string contents included). */
@@ -176,7 +167,7 @@ function applyLineOpeners(line: string, lineNumber: number, state: ParseState): 
 			describeTitles: state.stack.map((frame) => frame.title),
 		};
 		state.spans.push(span);
-		const depth = state.depth + braceDelta(line.slice(0, opener.index));
+		const depth = state.depth + rawBraceDelta(line.slice(0, opener.index));
 		state.open = { span, depth, mode: "pending", closedInline: parenDelta(line.slice(opener.index)) <= 0 };
 	}
 }
@@ -215,7 +206,7 @@ export function parseCaseSpans(source: string): CaseSpan[] {
 			applyLineOpeners(line, i + 1, state);
 		}
 
-		state.depth += braceDelta(line);
+		state.depth += rawBraceDelta(line);
 		settleOpenCase(state, i + 1);
 	}
 	if (state.open) state.open.span.endLine = lines.length;

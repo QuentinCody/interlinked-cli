@@ -89,6 +89,28 @@ describe("checkUndefinedEnvVars", () => {
 		expect(checkUndefinedEnvVars(SRC, "src/app.ts")).toEqual([]);
 	});
 
+	it("counts executable reads, including template substitutions and compound updates", () => {
+		file(SRC, [
+			"// process.env.FROM_COMMENT",
+			"const fixture = 'process.env.FROM_FIXTURE';",
+			"const regex = /process.env.FROM_REGEX/;",
+			"const label = `process.env.TEMPLATE_TEXT ${process.env.FROM_INTERPOLATION}`;",
+			"process.env.WRITE_ONLY = process.env.FROM_RHS;",
+			"delete process.env.REMOVED;",
+			"process.env.DEFAULTED ??= 'default';",
+			"const other = mock.process.env.NOT_NODE;",
+		].join("\n"));
+		envExample(ROOT_ENV, "KNOWN=1");
+		const [finding] = checkUndefinedEnvVars(SRC, "src/app.test.ts");
+		expect(finding?.message).toContain("references 3 env var(s) not in .env.example: FROM_INTERPOLATION, FROM_RHS, DEFAULTED.");
+	});
+
+	it("recognizes commented example assignments and exported keys while ignoring prose", () => {
+		file(SRC, "consume(process.env.DOCUMENTED, process.env.EXPORTED, process.env.PROSE);");
+		envExample(ROOT_ENV, "  # DOCUMENTED=\nexport EXPORTED=value\n# PROSE is required = sometimes\n");
+		expect(checkUndefinedEnvVars(SRC, "src/app.ts")[0]?.message).toContain("references 1 env var(s) not in .env.example: PROSE.");
+	});
+
 	it("returns [] when no .env.example is found anywhere in the parent walk", () => {
 		file(SRC, "const k = process.env.SECRET_KEY;");
 		// No envExample registered -> existsSync always false -> walk exhausts -> []
@@ -161,6 +183,12 @@ describe("checkUndefinedEnvVars", () => {
 			expect(res).toHaveLength(1);
 			expect(nonNull(res[0]).message).toContain("NEW_VAR");
 			expect(nonNull(res[0]).message).not.toContain("OLD_VAR");
+		});
+
+		it("preserves the file context for a fragment inside a fixture that duplicates a real read", () => {
+			file(SRC, "consume(process.env.EXISTING);\nconst fixture = 'example: process.env.EXISTING';");
+			envExample(ROOT_ENV, "OTHER=1");
+			expect(checkUndefinedEnvVars(SRC, "src/app.ts", evt({ new_string: "example: process.env.EXISTING" }))).toEqual([]);
 		});
 
 		it("falls back to tool_input.content when new_string is absent", () => {

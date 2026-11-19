@@ -64,8 +64,12 @@ const releaseHeavyProcessMock = vi.fn<() => void>();
 const tryAcquireProjectHeavyProcessLeaseMock = vi.fn<() => (() => void) | null>(
 	() => releaseHeavyProcessMock,
 );
+const acquireProjectHeavyProcessLeaseMock = vi.fn<(cwd: string, deadline: number, signal: AbortSignal) => Promise<(() => void) | null>>(
+	async () => releaseHeavyProcessMock,
+);
 vi.mock("../harness/project-heavy-process-lock.js", () => ({
 	tryAcquireProjectHeavyProcessLease: tryAcquireProjectHeavyProcessLeaseMock,
+	acquireProjectHeavyProcessLease: acquireProjectHeavyProcessLeaseMock,
 }));
 
 // --- harness/quality-checks --------------------------------------------------
@@ -255,6 +259,7 @@ beforeEach(() => {
 	runDepAuditMock.mockReturnValue({ kind: "audit" });
 	formatToolReportMock.mockReturnValue("TOOL-REPORT");
 	tryAcquireProjectHeavyProcessLeaseMock.mockReturnValue(releaseHeavyProcessMock);
+	acquireProjectHeavyProcessLeaseMock.mockResolvedValue(releaseHeavyProcessMock);
 	detectDecisionSurfaceMock.mockReturnValue({ ds: true });
 	detectLockfileMultiplicityMock.mockReturnValue({ lm: true });
 	computeDecisionSurfaceRatchetMock.mockReturnValue({ dsr: true });

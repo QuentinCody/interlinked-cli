@@ -37,24 +37,42 @@ function provenance(row: JsonObject): Partial<ActionObservation> {
 	return retained;
 }
 
+const UNAVAILABLE_STATUSES = ["unavailable", "deferred", "not_measured", "error"];
+
+function actionGuidance(check: string, fix: unknown, unavailable: boolean): Pick<ActionObservation, "nextStep" | "validation"> {
+	const suggestedFix = typeof fix === "string" && fix.trim() ? fix : undefined;
+	if (unavailable) return {
+		nextStep: suggestedFix ?? `Restore the prerequisites for ${check} and rerun it.`,
+		validation: `Rerun ${check} and inspect its coverage; confirm unavailable inputs were measured or remain explicitly outside supported scope.`,
+	};
+	return {
+		nextStep: suggestedFix ?? `Review ${check} at this location against its evidence and applicable project policy before changing behavior.`,
+		validation: `Rerun ${check} and the affected behavioral tests; confirm the original failure is addressed without breaking supported behavior.`,
+	};
+}
+
+function projectCheckAction(row: unknown, policyHash: string | null): ActionObservation | null {
+	if (!isJsonObject(row) || typeof row.message !== "string") return null;
+	const check = [row.check, row.name, row.tool].find(value => typeof value === "string");
+	if (!check) return null;
+	const unavailable = row.measurementState === "unavailable" || (typeof row.status === "string" && UNAVAILABLE_STATUSES.includes(row.status));
+	const retained = provenance(row);
+	return {
+		...retained, check, file: typeof row.file === "string" ? row.file : "<project>",
+		line: typeof row.line === "number" && Number.isSafeInteger(row.line) && row.line >= 0 ? row.line : 1,
+		message: row.message, classification: unavailable ? "evidence_gap" : "candidate",
+		evidence: row.determinism === "fully_deterministic" ? "proven" : "heuristic",
+		sourceHash: retained.sourceHash ?? null, policyHash: policyHash ?? retained.policyHash ?? null,
+		...actionGuidance(check, row.fix, unavailable),
+	};
+}
+
 /** The same projection accepts verify diagnostics and runtime CheckResultEntry records. */
 export function checkActions(rows: readonly unknown[], policyHash: string | null = null): ActionInventory {
 	const observations: ActionObservation[] = [];
 	for (const row of rows) {
-		if (!isJsonObject(row) || typeof row.message !== "string") continue;
-		const check = typeof row.check === "string" ? row.check : typeof row.name === "string" ? row.name : typeof row.tool === "string" ? row.tool : null;
-		if (!check) continue;
-		const unavailable = row.measurementState === "unavailable" || row.status === "unavailable" || row.status === "deferred" || row.status === "not_measured" || row.status === "error";
-		const retained = provenance(row);
-		observations.push({ ...retained, check, file: typeof row.file === "string" ? row.file : "<project>",
-			line: typeof row.line === "number" && Number.isSafeInteger(row.line) && row.line >= 0 ? row.line : 1,
-			message: row.message, classification: unavailable ? "evidence_gap" : "candidate",
-			evidence: row.determinism === "fully_deterministic" ? "proven" : "heuristic",
-			sourceHash: retained.sourceHash ?? null, policyHash: policyHash ?? retained.policyHash ?? null,
-			nextStep: typeof row.fix === "string" && row.fix.trim() ? row.fix : unavailable ? `Restore the prerequisites for ${check} and rerun it.` : `Review ${check} at this location against its evidence and applicable project policy before changing behavior.`,
-			validation: unavailable ? `Rerun ${check} and inspect its coverage; confirm unavailable inputs were measured or remain explicitly outside supported scope.`
-				: `Rerun ${check} and the affected behavioral tests; confirm the original failure is addressed without breaking supported behavior.`,
-		});
+		const observation = projectCheckAction(row, policyHash);
+		if (observation) observations.push(observation);
 	}
 	const limitations = ["Check observations are candidates, not automatically confirmed defects. Source identity is unknown unless retained by the original check.", "This projection does not change suppression, check selection, or gate decisions. A missing or deferred check is not a pass."];
 	if (observations.length !== rows.length) limitations.push(`${rows.length - observations.length} input row(s) lacked a supported check identity or message and could not be projected; inspect the original report for incomplete evidence.`);

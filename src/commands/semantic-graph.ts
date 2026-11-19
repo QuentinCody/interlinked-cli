@@ -53,7 +53,7 @@ function relationshipsOrReport(cwd: string): RelationshipsFile | null {
 }
 
 /** One-direction import oracle over the project graph; `null` when either file is outside the graph. */
-export function importOracleFor(cwd: string): ImportEdgeOracle {
+function importOracleFor(cwd: string): ImportEdgeOracle {
 	try {
 		const graph = new ProjectGraph(cwd);
 		graph.initialize();

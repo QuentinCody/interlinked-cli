@@ -18,31 +18,14 @@
 // (directly or via a file-local factory helper) we don't flag; anything
 // untraceable is UNCERTAIN → silent. Recall is traded for precision.
 
-import { createRequire } from "node:module";
 import type * as TS from "typescript";
 import { sutBaseFromPath } from "./shared-test-classification.js";
-import { parseTsSourceWith } from "./cyclomatic-ast.js";
+import { parseTsSource } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isStrictTestFile, JS_TS_EXTS } from "./shared.js";
 import { checkMatchLimit } from "./check-scan-policy.js";
 
 type TsModule = typeof TS;
 
-// Self-contained `typescript` loader — same idiom as cyclomatic-ast.ts /
-// exhaustiveness.ts / type-smuggling.ts (the dep is an optionalDependency; a
-// `--omit=optional` install has no AST, so the check no-ops rather than throws).
-// A fresh module instance (vitest `resetModules` + dynamic import) starts with
-// an empty cache, so the dep-absent path is exercised without a reset hook.
-let tsCache: TsModule | null | undefined;
-function loadTs(): TsModule | null {
-	if (tsCache !== undefined) return tsCache;
-	try {
-		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
-		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
-	} catch {
-		tsCache = null;
-	}
-	return tsCache;
-}
 
 // Reach lattice: REACHED > UNCERTAIN > NONE. REACHED short-circuits.
 const NONE = 0;
@@ -458,10 +441,9 @@ export function checkIntrovertedTest(content: string, filePath: string): InlineM
 	if (!isStrictTestFile(filePath)) return [];
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 
-	const ts = loadTs();
-	if (!ts) return [];
-
-	const sf = parseTsSourceWith(ts, content, filePath);
+	const parsed = parseTsSource(content, filePath);
+	if (!parsed) return [];
+	const { ts, sf } = parsed;
 
 	const sut = collectSutSymbols(ts, sf, sutBaseFromPath(filePath));
 	// No non-mocked companion SUT symbol → no companion import (meta-test /

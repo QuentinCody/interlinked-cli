@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkActions } from "../../lib/check-actions.js";
+import { runQualityChecks } from "../../harness/quality-checks.js";
+import type { HarnessEvent } from "../../harness/types.js";
 import { getEffectiveSkipChecks } from "./advisory-skips.js";
 import { timingSnapshot, withVerifyTimings, type VerifyCheckTiming } from "./check-timing.js";
 import { runCodeQualityChecks } from "./tool-results.js";
@@ -33,6 +35,20 @@ async function collect(sources: Record<string, string>, allChecks = true) {
 }
 
 describe("independent existing advisory producer integration", () => {
+	it("reports an omitted private input on a consumer edit and in an explicit audit; the default audit skips it", async () => {
+		const source = 'function label(text, width = 80) { return text.slice(0, width); }\nexport const heading = label("hello");';
+		const files = { "labels.mjs": source };
+		const { results } = await collect(files);
+		expect(results.omittedPrivateParameter).toEqual([expect.objectContaining({ file: "labels.mjs", line: 1, message: expect.stringContaining("width") })]);
+		expect((await collect(files, false)).results.omittedPrivateParameter).toEqual([]);
+		const file = join(root, "labels.mjs");
+		const event: HarnessEvent = {
+			hook_event: "PostToolUse", tool_name: "Edit", tool_input: { file_path: file },
+			session_id: "private-input", cwd: root, agent_source: "claude", timestamp: "2026-11-18T12:00:00.000Z",
+		};
+		const warnings = await runQualityChecks(event, {}, root);
+		expect(warnings).toContainEqual(expect.objectContaining({ name: "omitted_private_parameter", severity: "warning", detail: expect.stringContaining("width") }));
+	});
 	it("P1 retains both same-line boundary shapes as original action evidence", async () => {
 		const content = "export async function read(response) { const data = await response.json(); return [data, process.argv[2]]; }";
 		const { results } = await collect({ "service.ts": content });

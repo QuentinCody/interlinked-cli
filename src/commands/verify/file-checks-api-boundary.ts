@@ -1,6 +1,7 @@
 import { checkPublicApiLeaksInternalType } from "../../harness/checks/api-surface.js";
 import { parseTsSource } from "../../harness/checks/cyclomatic-ast.js";
 import { detectJsdocParamDrift } from "../../harness/checks/jsdoc-param-drift.js";
+import { detectOmittedPrivateParameter } from "../../harness/checks/omitted-private-parameter.js";
 import { getExtension, JS_TS_ALL_EXTS, type InlineMatch } from "../../harness/checks/shared.js";
 import { detectUnvalidatedInputBoundary } from "../../harness/checks/unvalidated-input-boundary.js";
 import { hasExactSyntax } from "../../harness/function-tokens/ast-tokens.js";
@@ -22,6 +23,10 @@ function jsdocMatches(content: string, file: string, relPath: string): InlineMat
 
 /** Reuse the advisory API and input-boundary predicates with ordinary verify selection. */
 export function runApiBoundaryChecks({ content, file, relPath, cwd, r }: FileCheckContext): void {
+	for (const issue of toIssues("omitted_private_parameter", relPath, () => captureVerifyCheckEvidence(
+		"omitted_private_parameter", relPath, cwd, () => detectOmittedPrivateParameter(content, file)))) {
+		r.omittedPrivateParameter.push(issue);
+	}
 	for (const issue of toIssues("public_api_leaks_internal_type", relPath, checkPublicApiLeaksInternalType, content, file)) {
 		r.publicApiLeaksInternalType.push(issue);
 	}

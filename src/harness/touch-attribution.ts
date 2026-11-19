@@ -11,6 +11,8 @@
 //
 // ATTRIBUTION RULE (one label per effect; first matching line wins):
 //   1. Read-only tool (`lib/hook-read-only-tools.ts`) -> shadow `read-only-tool`.
+//      A shell call whose command line is provably read-only
+//      (`read-only-shell.ts`, fail-closed allowlist) -> shadow `read-only-command`.
 //   2. Direct-edit tool (Write / Edit / MultiEdit / NotebookEdit / apply_patch,
 //      `lib/write-tool-registry.ts`) with parseable targets: the effect is
 //      `declared-target` when its path is one of the tool's own targets
@@ -42,6 +44,7 @@
 import { lstatSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { isReadOnlyToolName } from "../lib/hook-read-only-tools.js";
+import { isProvablyReadOnlyShellCommand } from "./read-only-shell.js";
 import { isDirectFileEditTool } from "../lib/write-tool-registry.js";
 import { extractAllEditedFilePaths } from "./server-tool-helpers.js";
 import type { HarnessEvent } from "./types.js";
@@ -54,6 +57,7 @@ const WINDOW_SLACK_MS = 1;
 export type TouchAttribution = "declared-target" | "observed-in-window" | "shadow";
 export type TouchShadowReason =
 	| "read-only-tool"
+	| "read-only-command"
 	| "not-declared-target"
 	| "in-flight-target-of-other-actor"
 	| "attributed-to-other-actor"
@@ -77,6 +81,8 @@ export interface AttributionInput<E extends AttributableEffect> {
 	toolName: string | undefined;
 	/** Root-relative or absolute target paths the call declared. */
 	declaredTargets: readonly string[];
+	/** The shell command line of the call; undefined for a tool that has none. */
+	command: string | undefined;
 	beforeCapturedAt: string;
 	/** Root-relative targets of OTHER actors' calls still in flight. */
 	inFlightTargetsOfOthers: ReadonlySet<string>;
@@ -148,9 +154,13 @@ function windowLabel<E extends AttributableEffect>(input: AttributionInput<E>, e
 export function attributeWorkspaceEffects<E extends AttributableEffect>(input: AttributionInput<E>): Array<E & TouchAttributionFields> {
 	const readOnly = isReadOnlyToolName(input.toolName);
 	const targets = new Set(input.declaredTargets.map((p) => toRootRelative(input.root, p)));
-	const byTarget = isDirectFileEditTool(input.toolName) && targets.size > 0;
+	const directEdit = isDirectFileEditTool(input.toolName);
+	const byTarget = directEdit && targets.size > 0;
+	// A patch tool also carries `command`; only a shell command line is classified.
+	const readOnlyCommand = !directEdit && input.command !== undefined && isProvablyReadOnlyShellCommand(input.command);
 	return input.effects.map((effect) => {
 		if (readOnly) return { ...effect, attribution: "shadow", shadow_reason: "read-only-tool" };
+		if (readOnlyCommand) return { ...effect, attribution: "shadow", shadow_reason: "read-only-command" };
 		if (byTarget) {
 			return targets.has(effect.path)
 				? { ...effect, attribution: "declared-target" }

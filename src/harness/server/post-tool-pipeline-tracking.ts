@@ -20,14 +20,18 @@ import {
 	detectTestRunFile,
 	recordTestRunCycle,
 } from "../server-tdd-cycle.js";
-import { isOutcomeAttributable, parseTestSummary } from "../test-outcome-evidence.js";
+import {
+	isOutcomeAttributable,
+	observedOutput,
+	parseTestSummary,
+} from "../test-outcome-evidence.js";
 import type {
 	HarnessDecision,
 	HarnessEvent,
 	ObservedCheck,
 	SessionTrajectory,
 } from "../types.js";
-import { classifyVerificationCommand } from "../verification-stop-checks.js";
+import { classifyVerificationCommand, type VerificationSignal } from "../verification-stop-checks.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
 /** Tool names that write a file to disk (direct dirty-layer + index update). */
@@ -106,14 +110,6 @@ export function updateTrigramDirtyLayer(ctx: ServerRuntime, event: HarnessEvent)
  * (interrupted run, or no outcome/failure marker at all) records nothing:
  * an unproven run must not flip a cycle green OR red.
  */
-/** Runner output as the hook captured it. stdout/stderr when present, else a
- *  string tool_response. */
-function observedOutput(event: HarnessEvent): string | undefined {
-	const parts = [event.stdout, event.stderr].filter((s): s is string => typeof s === "string");
-	if (parts.length > 0) return parts.join("\n");
-	return typeof event.tool_response === "string" ? event.tool_response : undefined;
-}
-
 /**
  * The believable outcome for a test run.
  *
@@ -282,15 +278,64 @@ function applyObservedOutcome(
  * (which owns per-file test runs via the TDD cycle). Interrupted runs (and
  * unmarked commands with no failure signal) record nothing.
  */
-export function trackVerificationOutcome(event: HarnessEvent, session: SessionTrajectory): void {
+export function trackVerificationOutcome(
+	event: HarnessEvent,
+	session: SessionTrajectory,
+): string | null {
 	const cmd = readToolString(event.tool_input?.command);
-	if (!cmd) return;
+	if (!cmd) return null;
 	const kind = observedCheckKindFor(cmd);
-	if (!kind) return;
-	const outcome = classifyObservedOutcome(event);
-	if (outcome === "neither") return;
+	if (!kind) return null;
+	const signal: VerificationSignal = kind === "test-suite" ? "test" : kind;
+	const outcome = believableOutcome(event, cmd, signal);
+	if (outcome === "neither") {
+		// A test run's uncounted-result warning is trackTestRun's to give.
+		return signal !== "test" && !isOutcomeAttributable(cmd, signal)
+			? uncountedCheckWarning(kind)
+			: null;
+	}
 	const detail = cmd.length > 80 ? `${cmd.slice(0, 77)}...` : cmd;
 	applyObservedOutcome(session, kind, outcome, session.tool_call_count, detail);
+	return null;
+}
+
+/**
+ * Everything a completed command proved about tests and checks, recorded in one
+ * step: {@link trackTestRun} (per-file TDD cycle) and
+ * {@link trackVerificationOutcome} (check-level red/green). Returns what the
+ * agent must be told about runs that proved nothing.
+ */
+export function trackRunEvidence(
+	event: HarnessEvent,
+	session: SessionTrajectory,
+	cwd: string,
+): string[] {
+	const warnings = [trackTestRun(event, session, cwd), trackVerificationOutcome(event, session)];
+	return warnings.filter((warning): warning is string => warning !== null);
+}
+
+/**
+ * The outcome a check command can be believed to have had. The shell's status
+ * counts only when it belongs to the check; behind a pipe or a later command
+ * (`tsc … | tail`, `npm test; echo x`) it is another command's, so only a test
+ * runner's own summary can still give a verdict, and every other kind proves
+ * nothing. Without this a failing check behind `| tail` was recorded GREEN and
+ * cleared a real red.
+ */
+function believableOutcome(
+	event: HarnessEvent,
+	cmd: string,
+	signal: VerificationSignal,
+): "red" | "green" | "neither" {
+	if (isOutcomeAttributable(cmd, signal)) return classifyObservedOutcome(event);
+	const summary = signal === "test" ? parseTestSummary(observedOutput(event)) : null;
+	return summary ?? "neither";
+}
+
+/** Told to the agent when a typecheck / build / lint run proved nothing —
+ *  the same no-silence rule as {@link UNCOUNTED_RUN_WARNING}. */
+function uncountedCheckWarning(kind: ObservedCheck["kind"]): string {
+	return `[interlinked:check-evidence] ${kind} result NOT counted — a pipe or a later command owns the shell exit status, so this run proves neither pass nor fail. Run the check as the last command with no pipe after it, or start the command with \`set -o pipefail\` when only pipes follow it.`;
 }
 
 /**
@@ -305,7 +350,7 @@ export function trackVerificationOutcome(event: HarnessEvent, session: SessionTr
 export function dischargeCoverageOnGreenRun(event: HarnessEvent, cwd: string): void {
 	const cmd = readToolString(event.tool_input?.command);
 	if (!cmd || !isCoverageSuiteCommand(cmd)) return;
-	if (classifyObservedOutcome(event) !== "green") return;
+	if (believableOutcome(event, cmd, "test") !== "green") return;
 	dischargeObligationsAfterGreenRun(
 		cwd,
 		event.session_id,

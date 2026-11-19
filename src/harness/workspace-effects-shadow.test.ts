@@ -36,14 +36,15 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-const bash = { toolName: "Bash", declaredTargets: [] };
+// An opaque command: it can write, so its window effects stay attributed to it.
+const bash = { toolName: "Bash", declaredTargets: [], command: "node opaque-writer.js" };
 
 describe("workspace effect shadow attribution — positive (must fire)", () => {
 	it("P1: a sibling's Edit that reconciles first makes the same change a shadow in my Bash diff", () => {
 		rememberWorkspaceSnapshot({ toolUseId: "mine", sessionId: "shared", subagentId: "me", root });
 		rememberWorkspaceSnapshot({ toolUseId: "theirs", sessionId: "shared", subagentId: "sib", declaredTargets: ["tracked.ts"], root });
 		writeFileSync(join(root, "tracked.ts"), "export const value = 2;\n");
-		const theirs = consumeWorkspaceSnapshot({ toolUseId: "theirs", sessionId: "shared", subagentId: "sib", root, call: { toolName: "Edit", declaredTargets: ["tracked.ts"] } });
+		const theirs = consumeWorkspaceSnapshot({ toolUseId: "theirs", sessionId: "shared", subagentId: "sib", root, call: { toolName: "Edit", declaredTargets: ["tracked.ts"], command: undefined } });
 		expect(theirs?.files[0]).toMatchObject({ path: "tracked.ts", attribution: "declared-target" });
 		const mine = consumeWorkspaceSnapshot({ toolUseId: "mine", sessionId: "shared", subagentId: "me", root, call: bash });
 		expect(mine?.files[0]).toMatchObject({ path: "tracked.ts", attribution: "shadow", shadow_reason: "attributed-to-other-actor" });
@@ -58,7 +59,7 @@ describe("workspace effect shadow attribution — positive (must fire)", () => {
 	it("P3: the files-touched row for a shadow says shadow: true and keeps the change data", () => {
 		rememberWorkspaceSnapshot({ toolUseId: "edit", sessionId: "shared", subagentId: "me", root });
 		writeFileSync(join(root, "other.ts"), "x\n");
-		const changeSet = consumeWorkspaceSnapshot({ toolUseId: "edit", sessionId: "shared", subagentId: "me", root, call: { toolName: "Edit", declaredTargets: ["tracked.ts"] } });
+		const changeSet = consumeWorkspaceSnapshot({ toolUseId: "edit", sessionId: "shared", subagentId: "me", root, call: { toolName: "Edit", declaredTargets: ["tracked.ts"], command: undefined } });
 		const event: HarnessEvent = { hook_event: "PostToolUse", session_id: "shared", agent_source: "claude", timestamp: "t", tool_name: "Edit", ...(changeSet ? { change_set: changeSet } : {}) };
 		expect(nativeFileRecords(event)[0]).toMatchObject({ file: "other.ts", kind: "created", shadow: true, shadow_reason: "not-declared-target" });
 	});
@@ -107,7 +108,7 @@ describe("workspace effect shadow attribution — negative (must not fire)", () 
 	it("N2: a shadow does not take ownership away from the real writer's residue record", () => {
 		rememberWorkspaceSnapshot({ toolUseId: "edit", sessionId: "shared", subagentId: "me", root });
 		writeFileSync(join(root, "peer.ts"), "peer\n");
-		const changeSet = consumeWorkspaceSnapshot({ toolUseId: "edit", sessionId: "shared", subagentId: "me", root, call: { toolName: "Edit", declaredTargets: ["tracked.ts"] } });
+		const changeSet = consumeWorkspaceSnapshot({ toolUseId: "edit", sessionId: "shared", subagentId: "me", root, call: { toolName: "Edit", declaredTargets: ["tracked.ts"], command: undefined } });
 		const peer = changeSet?.files.find((effect) => effect.path === "peer.ts");
 		expect(peer?.attribution).toBe("shadow");
 		// Before U3b the shadow was recorded as "me", so the ROOT actor's residue

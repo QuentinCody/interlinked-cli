@@ -19,6 +19,7 @@ import {
 	checkTddRegression,
 } from "./behavioral-checks-tdd.js";
 import { isOperationalCheckDeferral } from "./operational-check-deferrals.js";
+import { TDD_SOURCE_EXT_RE } from "./tdd-cycle-admission.js";
 import type { CheckResultEntry, Determinism, SessionTrajectory } from "./types.js";
 
 export type { LocDelta } from "./behavioral-checks-tdd.js";
@@ -61,6 +62,9 @@ export function checkRepeatedEditWithoutTest(
 
 	// Don't warn about test files — they ARE the tests.
 	if (TEST_FILE_RE.test(filePath)) return null;
+
+	// A document or a config file has no test to run; only source code counts.
+	if (!TDD_SOURCE_EXT_RE.test(filePath)) return null;
 
 	// Agent has already run some tests this session — give benefit of the doubt.
 	if (session.test_runs.size > 0) return null;
