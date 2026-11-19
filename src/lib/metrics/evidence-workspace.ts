@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { chmod, copyFile, lstat, mkdir, readdir, readlink, realpath, rm, symlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { hasErrorCode } from "../../harness/check-engine/tool-errors.js";
 
 export const EVIDENCE_WORKSPACE_EXCLUDED = new Set([".git", ".interlinked", ".codex", ".claude", ".agents", ".cache"]);
 export const MAX_WORKSPACE_FILES = 200_000, MAX_WORKSPACE_BYTES = 4 * 1024 ** 3;
@@ -53,7 +54,7 @@ export async function removeEvidenceWorkspace(workspace: string): Promise<void> 
     const directories = [workspace];
     for (const directory of directories) {
         const stat = await lstat(directory).catch(error => {
-            if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+            if (hasErrorCode(error, "ENOENT")) return null;
             throw error;
         });
         if (!stat?.isDirectory()) continue;

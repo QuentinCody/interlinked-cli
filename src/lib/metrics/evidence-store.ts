@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { hasErrorCode } from "../../harness/check-engine/tool-errors.js";
 import { parseIstanbulEvidence } from "./evidence-coverage.js";
 import { evidenceIdentity, identityDifferences } from "./evidence-identity.js";
 import { parseMutationEvidence } from "./evidence-mutation.js";
@@ -62,7 +63,7 @@ export function loadEvidence(inventory: RepositoryInventory, options: EvidenceFr
     let names: string[];
     try { names = readdirSync(directory).filter(name => /^[a-f0-9]{64}\.receipt\.json$/.test(name)).sort(); }
     catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) issues.push("Evidence store unreadable");
+        if (!hasErrorCode(error, "ENOENT")) issues.push("Evidence store unreadable");
         return { entries, issues };
     }
     for (const name of names.slice(-1000)) {

@@ -6,6 +6,7 @@ import { parseAnswer } from "./answers.js";
 import { findingDecisionQuestions, parseFindingPlan, type FindingPlan, type FindingPlannedRequest } from "./finding-plan.js";
 import { findingProvider, type FindingProvider, type FindingProviderObservation } from "./finding-provider.js";
 import { digest, privateDirectory, readJson, saveImmutable } from "./store.js";
+import { hasErrorCode } from "../../harness/check-engine/tool-errors.js";
 
 export interface FindingPlanRecord {
 	caseId: string;
@@ -93,7 +94,7 @@ function exclusiveClaim(path: string, value: unknown): boolean {
 		writeFileSync(path, JSON.stringify(value), { flag: "wx", mode: 0o600 });
 		return true;
 	} catch (error) {
-		if (error instanceof Error && "code" in error && error.code === "EEXIST") return false;
+		if (hasErrorCode(error, "EEXIST")) return false;
 		throw error;
 	}
 }
