@@ -119,15 +119,17 @@ describe("createCloudMutationRunner — budget expiry yields a harvestable handl
 		await expect(runner.run("src/f.ts", SOURCE)).rejects.toBeInstanceOf(MutationRunPendingError);
 	});
 
-	it("P: the pending error carries the job id and the runner it is held on", async () => {
+	it("reports the pending job, runner and underlying transport error", async () => {
+		const failure = new Error("transport aborted");
 		const hang: FetchLike = (_u, init) =>
 			new Promise((_res, rej) => {
-				init.signal.addEventListener("abort", () => rej(new Error("aborted")));
+				init.signal.addEventListener("abort", () => rej(failure));
 			});
 		const runner = createCloudMutationRunner({ url: "https://worker-7", timeoutMs: 10 }, hang);
 		const err = await runner.run("src/f.ts", SOURCE).catch((e: unknown) => e);
 		assert.instanceOf(err, MutationRunPendingError);
 		expect(err.runnerUrl).toBe("https://worker-7");
+		expect(err.cause).toBe(failure);
 		expect(err.jobId).not.toHaveLength(0);
 	});
 
