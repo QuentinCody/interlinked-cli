@@ -36,15 +36,16 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { describeFailure, failedByOwnCheck, judgedFailure, type VitestCase } from "../fail-before-fix/classify.js";
-import { runVitestDetailed, STDERR_HEAD_BYTES, type VitestRun } from "../fail-before-fix/index.js";
-import { type AsyncProjectCopy, createProjectCopyAsync } from "../fail-before-fix/snapshot.js";
+import { STDERR_HEAD_BYTES, type VitestRun } from "../fail-before-fix/index.js";
 import { applyMutant } from "../mutation/differential-fuzz-locate.js";
 import { boundImportClosureDetailed, testsReachingByRelativeImport } from "./bound-imports.js";
-import { hoistLayout, mutantParses, targetProblem, validateProofInputs } from "./proof-preconditions.js";
+import { mutantParses, targetProblem, validateProofInputs } from "./proof-preconditions.js";
 
-import { captureEnvironment, hashFile, receiptId, sealReceipt, writeKillProof } from "./receipt.js";
+import { hashFile, receiptId, sealReceipt, writeKillProof } from "./receipt.js";
+import { createProofCopies, type FrozenInputs } from "./proof-copies.js";
+export { COPY_BUDGET_BYTES, copySizeWarning, ProofInterrupted, type FrozenInputs } from "./proof-copies.js";
 import { lineTextAt, resolveMutant } from "./resolve.js";
-import type { CaseOutcome, HashedFile, KillProofReceipt, MutantSpec, ProofEnvironment, ProveKillResult, ResolvedMutant } from "./types.js";
+import type { CaseOutcome, HashedFile, KillProofReceipt, MutantSpec, ProveKillResult, ResolvedMutant } from "./types.js";
 
 export interface ProveKillOptions {
 	root: string;
@@ -65,14 +66,6 @@ export interface ProveKillOptions {
 	signal?: AbortSignal;
 }
 
-/** Thrown out of a proof whose `signal` aborted; every copy made so far has been removed when it reaches the caller. */
-export class ProofInterrupted extends Error {
-	constructor() {
-		super("kill proof interrupted before a verdict (SIGTERM or the --timeout deadline); copies removed, no receipt written");
-		this.name = "ProofInterrupted";
-	}
-}
-
 /** Written into the mutated file's place for the reachability canary (review N6/N7): a test that still passes never loaded the copy's file. */
 // (The message must not read like an `interlinked <command>` line: cli-program.test.ts scans source strings for printed commands.)
 const CANARY_SOURCE = 'throw new Error("kill-proof canary (prove-kill): the tests must load this file from the copy");\nexport {};\n';
@@ -87,13 +80,6 @@ const NOT_RUN = new Set(["skipped", "todo", "pending", "disabled"]);
 const NODE_ASSERT_PREFIX = "AssertionError [ERR_ASSERTION]";
 
 const caseKey = (row: Pick<VitestCase, "file" | "name">): string => `${row.file} › ${row.name}`;
-
-/** Above this many git-visible bytes a proof warns (round-4 M10): each run copies the tree again, three to five times per proof. */
-export const COPY_BUDGET_BYTES = 256 * 1024 * 1024;
-export function copySizeWarning(bytes: number): string | null {
-	if (bytes <= COPY_BUDGET_BYTES) return null;
-	return `[interlinked:kill-proof] copy is ${Math.round(bytes / 1024 / 1024)} MiB; large tracked files slow every proof`;
-}
 
 /** Attach run-level warnings to a result without changing its verdict. */
 function withWarnings<T extends ProveKillResult>(result: T, warnings: readonly string[]): T {
@@ -275,16 +261,6 @@ export function killedTestFiles(cases: readonly CaseOutcome[]): string[] {
 	return [...new Set(cases.filter(row => row.verdict === "killed").map(row => row.test.slice(0, row.test.indexOf(" › "))))];
 }
 
-function hashAll(root: string, paths: readonly string[]): HashedFile[] | string {
-	const out: HashedFile[] = [];
-	for (const path of paths) {
-		const hashed = hashFile(root, path);
-		if (hashed === null) return `${path} does not exist`;
-		out.push(hashed);
-	}
-	return out;
-}
-
 /** Paths a failure message names (ENOENT, "Cannot find module", open/read errors), as written. */
 function pathsInMessage(message: string): string[] {
 	return [...message.matchAll(/(?:ENOENT|Cannot find module|no such file|Failed to resolve import)[^'"`\n]*['"`]([^'"`]+)['"`]/g)].map(m => m[1] ?? "").filter(Boolean);
@@ -321,13 +297,6 @@ export type ProofContextOptions = Omit<ProveKillOptions, "spec">;
  * every survivor against it, so a batch of n mutants runs one baseline, not n. The per-kill repeats stay per
  * mutant: a kill is the sequence pass, FAIL, pass, pass around THAT mutant run.
  */
-/** The inputs a proof runs against, hashed from the FROZEN copy (`dir`), never from the live tree. */
-export interface FrozenInputs {
-	dir: string;
-	testHashes: HashedFile[];
-	environment: ProofEnvironment;
-}
-
 export interface ProofContext {
 	root: string;
 	tests: string[];
@@ -356,41 +325,7 @@ export function openProofContext(options: ProofContextOptions): OpenedProofConte
 	const validated = validateProofInputs(options);
 	if (!validated.ok) return validated;
 	const { root, tests, files, configPath } = validated;
-	const runner = options.runner ?? runVitestDetailed;
-	const vitestArgs = configPath !== null ? ["--config", configPath] : [];
-	const warnings: string[] = [];
-	// Read through a call each time: the signal flips during the awaits below (TypeScript would narrow a field read).
-	const interrupted = (): boolean => options.signal?.aborted === true;
-	const hoist = options.runner ? undefined : hoistLayout(root);
-	let frozenCopy: AsyncProjectCopy | null = null, frozen: Promise<FrozenInputs | { problem: string }> | null = null;
-	const freeze = async (): Promise<FrozenInputs | { problem: string }> => {
-		if (interrupted()) throw new ProofInterrupted();
-		// The one copy of the live tree. Speed (docs/reviews/kill-proof-performance.md): the regular-file copies are issued
-		// 64 at a time; every later copy is a clone of this one, so the live tree is read exactly once per context.
-		const copy = await createProjectCopyAsync(root, files, new Map(), hoist);
-		frozenCopy = copy;
-		const sizeWarning = copySizeWarning(copy.bytes);
-		if (sizeWarning !== null && !warnings.includes(sizeWarning)) warnings.push(sizeWarning);
-		const testHashes = hashAll(copy.dir, tests);
-		if (typeof testHashes === "string") return { problem: `${testHashes.replace(/ does not exist$/, "")} is not visible to git (ignored or outside the work tree), so it is not in the copy` };
-		return { dir: copy.dir, testHashes, environment: captureEnvironment(copy.dir, configPath ?? undefined) };
-	};
-	const frozenInputs = (): Promise<FrozenInputs | { problem: string }> => (frozen ??= freeze());
-	const runIn = async (overrides: ReadonlyMap<string, string>): Promise<VitestRun & { dir: string }> => {
-		const inputs = await frozenInputs();
-		if ("problem" in inputs) throw new Error(inputs.problem);
-		if (interrupted()) throw new ProofInterrupted();
-		// A clone of the FROZEN copy (never of the live tree) plus this run's overrides. Removed before the next stage starts.
-		const copy = await createProjectCopyAsync(inputs.dir, files, overrides, hoist);
-		try {
-			const run = await runner(copy.dir, tests, options.budgetMs, vitestArgs);
-			// A run cut short by the signal is no evidence (R5-7): the `finally` removes the copy, the caller gets no verdict.
-			if (interrupted()) throw new ProofInterrupted();
-			return { ...run, dir: copy.dir };
-		} finally {
-			await copy.cleanup();
-		}
-	};
+	const { warnings, frozenInputs, runIn, close } = createProofCopies(validated, options);
 	let baseline: Promise<VitestRun & { dir: string }> | null = null;
 	const canaries = new Map<string, Promise<string[] | null>>();
 	return {
@@ -404,12 +339,7 @@ export function openProofContext(options: ProofContextOptions): OpenedProofConte
 				canaries.set(mutant.file, memo);
 				return memo;
 			},
-			close: async () => {
-				const copy = frozenCopy;
-				frozenCopy = null;
-				frozen = null;
-				if (copy !== null) await copy.cleanup();
-			},
+			close,
 		},
 	};
 }

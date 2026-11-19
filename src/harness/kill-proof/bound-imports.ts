@@ -128,21 +128,18 @@ function localImportsOf(root: string, file: string): string[] {
  * or a dynamic import gives no such guarantee and is not counted. Same walk and cap as the bound closure.
  */
 export function testsReachingByRelativeImport(root: string, tests: readonly string[], file: string, cap = MAX_BOUND_IMPORTS): Set<string> {
-	const reaching = new Set<string>();
-	for (const test of tests) {
-		const seen = new Set<string>([test]);
-		const queue = [test];
-		while (queue.length > 0 && !reaching.has(test)) {
-			const current = queue.shift() as string;
+	const reachesFile = (test: string) => {
+		// Set iteration visits newly appended entries in insertion order, once per path.
+		const pending = new Set([test]);
+		for (const current of pending) {
 			for (const rel of localImportsOf(root, current)) {
-				if (rel === file) { reaching.add(test); break; }
-				if (seen.has(rel) || seen.size > cap) continue;
-				seen.add(rel);
-				queue.push(rel);
+				if (rel === file) return true;
+				if (pending.size <= cap) pending.add(rel);
 			}
 		}
-	}
-	return reaching;
+		return false;
+	};
+	return new Set(tests.filter(reachesFile));
 }
 
 export interface BoundClosure {
@@ -158,6 +155,17 @@ export interface BoundClosureOptions {
 	globalRoots?: readonly string[];
 }
 
+function creditImport(importers: Map<string, Set<string>>, file: string, tests: readonly string[], cap: number): boolean {
+	const credited = importers.get(file);
+	if (credited) {
+		for (const test of tests) credited.add(test);
+		return true;
+	}
+	if (importers.size >= cap) return false;
+	importers.set(file, new Set(tests));
+	return true;
+}
+
 /**
  * The local import closure of `tests` (and of `globalRoots`, credited to every test), hashed, sorted by path;
  * the roots and `mutatedFile` are never listed, but `mutatedFile`'s imports are walked and bound (round 6,
@@ -169,20 +177,14 @@ export function boundImportClosureDetailed(root: string, tests: readonly string[
 	const excluded = new Set([...tests, ...globalRoots]);
 	let truncated = false;
 	const walk = (start: string, creditedTo: readonly string[]): void => {
-		const seen = new Set<string>([start]);
-		const queue = [start];
-		while (queue.length > 0) {
-			const file = queue.shift() as string;
+		// Follow the same insertion-ordered frontier independently for each credited root.
+		const pending = new Set([start]);
+		for (const file of pending) {
 			for (const rel of localImportsOf(root, file)) {
-				if (seen.has(rel) || excluded.has(rel)) continue;
+				if (pending.has(rel) || excluded.has(rel)) continue;
 				// The source is bound by the receipt's `source` hash; what it imports is bound here, through it.
-				if (rel === mutatedFile) { seen.add(rel); queue.push(rel); continue; }
-				if (!importers.has(rel) && importers.size >= cap) { truncated = true; continue; }
-				seen.add(rel);
-				const by = importers.get(rel) ?? new Set<string>();
-				for (const test of creditedTo) by.add(test);
-				importers.set(rel, by);
-				queue.push(rel);
+				if (rel === mutatedFile || creditImport(importers, rel, creditedTo, cap)) pending.add(rel);
+				else truncated = true;
 			}
 		}
 	};
