@@ -169,6 +169,7 @@ src/lib/_write_integration/
 # new file in this directory needs to ship to the repo.
 scripts/*
 !scripts/generate-docs.test.mts
+!scripts/semantic-study-drivers.test.mjs
 # Maintained evidence qualification and advisory audit entry points.
 !scripts/evidence-deep-audit.mts
 !scripts/evidence-deep-audit.test.mts
