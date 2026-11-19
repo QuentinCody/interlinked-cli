@@ -8,6 +8,7 @@
 // everything it cannot decide. It never executes a project script, never
 // enables required mode and never invents an expectation (decisions 1, 15).
 
+import { discoveryInputs } from "./discovery-inputs.js";
 import { type Dirent, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { matchesGlob } from "../../lib/path-glob.js";
@@ -44,7 +45,7 @@ const MAX_DIRECTORIES = 2000;
 const MAX_OMITTED_RECORDED = 100;
 const OUTPUT_DIRS = ["dist", "build", "out", "lib", "target", "bin"];
 const SOURCE_SUFFIXES = [".ts", ".tsx", ".mts", ".js", ".mjs", ".cjs", ".py", ".rs", ".go"];
-const MAX_TEXT_BYTES = 256 * 1024;
+const { readText, readJson } = discoveryInputs(256 * 1024);
 const NATIVE_RUNNERS = new Set(["vitest", "pytest", "unittest", "cargo-test", "go-test"]);
 const KNOWN_JS_RUNNERS = ["vitest", "jest", "mocha", "ava", "tap", "playwright", "cypress"];
 const SHARED_CANDIDATES = ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "tsconfig.json", "pyproject.toml", "requirements.txt", "setup.py", "Cargo.toml", "Cargo.lock", "go.mod", "go.sum"];
@@ -52,14 +53,6 @@ const SHARED_CANDIDATES = ["package.json", "package-lock.json", "pnpm-lock.yaml"
 interface Candidate { dir: string; manifests: string[]; }
 interface Scan { candidates: Candidate[]; directoriesScanned: number; capped: boolean; omitted: string[]; }
 
-function readText(path: string): string | null {
-    try { if (statSync(path).size > MAX_TEXT_BYTES) return null; return readFileSync(path, "utf8"); } catch { return null; }
-}
-function readJson(path: string): Record<string, unknown> | null {
-    const text = readText(path);
-    if (text === null) return null;
-    try { const value: unknown = JSON.parse(text); return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null; } catch { return null; } // SAFETY: guarded object
-}
 /** Real manifests first; a directory with only `__main__`-guarded .py scripts counts through the `*.py` pseudo-manifest. */
 function manifestsIn(dir: string, entries: Dirent[]): string[] {
     const manifests: string[] = MANIFESTS.filter(name => entries.some(entry => entry.name === name && entry.isFile()));

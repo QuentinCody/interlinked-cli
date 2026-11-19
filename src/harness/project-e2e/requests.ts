@@ -9,6 +9,7 @@
 // Two sessions asking for the same current scope share one qualifying run;
 // the receipt lists both request ids and the actual initiator (PE-12).
 
+import { isJsonObject as isRecord } from "../../lib/json-types.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -21,7 +22,6 @@ export type RequestTxn =
     | { op: "served"; id: string; runId: string; atMs: number };
 export interface OpenRequest { key: string; generation: string; sessionId?: string; atMs: number; }
 
-function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 /** Strict row parser; a malformed row is skipped, never guessed at. */
 function parseRequestTxn(value: unknown): RequestTxn | null {
     if (!isRecord(value) || typeof value.id !== "string" || !value.id || typeof value.atMs !== "number" || !Number.isInteger(value.atMs)) return null;

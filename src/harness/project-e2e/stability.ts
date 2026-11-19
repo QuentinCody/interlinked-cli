@@ -10,6 +10,7 @@
 // cohort with its remaining count. Three passes are a sample — the record
 // never claims flake-freedom.
 
+import { isJsonObject as isRecord } from "../../lib/json-types.js";
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -77,7 +78,6 @@ export function writeCohort(root: string, record: CohortRecord): string {
     writeFileSync(absolute, JSON.stringify(record, null, 2));
     return path;
 }
-function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function parseAttempt(value: unknown): CohortAttempt | null {
     if (!isRecord(value) || !Number.isInteger(value.index) || typeof value.runId !== "string" || typeof value.receipt !== "string" || !STATUSES.has(String(value.status))) return null;
     if (typeof value.seed !== "string" || typeof value.clock !== "string" || typeof value.durationMs !== "number") return null;

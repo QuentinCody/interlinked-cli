@@ -9,6 +9,7 @@
 // failure), never passes a skipped or expected-failure case, and refuses
 // anything it cannot read exactly.
 
+import { isJsonObject as isRecord } from "../../lib/json-types.js";
 import { ReportInvalid, type StructuredCase, type StructuredReport } from "./structured-report.js";
 
 const MAX_CASES = 50_000;
@@ -19,7 +20,6 @@ interface PlaywrightResult { status: string; retry: number; startTime?: string; 
 interface Walk { titles: string[]; out: StructuredCase[]; where: string; }
 
 function fail(message: string): never { throw new ReportInvalid(message); }
-function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function list(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
 function parseResult(value: unknown, where: string): PlaywrightResult {
     if (!isRecord(value) || typeof value.status !== "string" || !RESULT_STATUSES.has(value.status)) fail(`${where}: result status ${JSON.stringify(isRecord(value) ? value.status : value)} is not a Playwright result status`);

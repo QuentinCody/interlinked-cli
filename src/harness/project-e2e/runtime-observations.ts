@@ -10,6 +10,7 @@
 // runtimes need their own collector; absence is an optional gap unless the
 // project requires this profile.
 
+import { isJsonObject as isRecord } from "../../lib/json-types.js";
 import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +33,6 @@ interface V8Function { ranges: Array<{ count: number }>; }
 interface V8Script { url: string; functions: V8Function[]; }
 
 function canonical(path: string): string { try { return realpathSync(path); } catch { return path; } }
-function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 /** The scripts of one coverage file, or null when the file is not V8's `{ result: [{ url, functions: [{ ranges: [{ count }] }] }] }`. */
 function scriptsOf(text: string): V8Script[] | null {
     let parsed: unknown;

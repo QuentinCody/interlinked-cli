@@ -8,6 +8,7 @@
 // obligation (PE-04/05/30). Duplicate rows fold by exact identity. Sibling of
 // `obligations.ts` (file-keyed debts); deliberately not the same identity.
 
+import { isJsonObject as isRecord } from "../../lib/json-types.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { canonicalJson } from "./policy.js";
@@ -85,7 +86,6 @@ export function reduceE2eLedger(txns: Iterable<E2eTxn>): E2eLedgerState {
     }
     return state;
 }
-function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function hasBase(row: Record<string, unknown>): boolean {
     return typeof row.key === "string" && typeof row.generation === "string" && GENERATION.test(row.generation) && typeof row.atMs === "number" && Number.isInteger(row.atMs);
 }

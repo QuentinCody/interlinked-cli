@@ -12,6 +12,7 @@
 // recorded as unavailable: it was never reconciled under the publication
 // order, so it is rerun rather than trusted after the fact.
 
+import { isJsonObject as isRecord } from "../../lib/json-types.js";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -42,7 +43,6 @@ export function writeAttemptRecord(root: string, record: AttemptRecord): string 
     writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, { flag: "wx", mode: 0o600 });
     return path;
 }
-function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function isStringList(value: unknown): value is string[] { return Array.isArray(value) && value.every(item => typeof item === "string"); }
 function readJsonBounded(path: string): unknown {
     try { const text = readFileSync(path, "utf8"); return Buffer.byteLength(text) > MAX_RECORD_BYTES ? undefined : JSON.parse(text); } catch { return undefined; }
