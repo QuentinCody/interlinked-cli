@@ -14,6 +14,18 @@ const TEST = "src/lib/foo.test.ts";
 const SRC = "src/lib/foo.ts";
 
 describe("checkDuplicateTestNames", () => {
+	it("compares complete test titles containing quoted words", () => {
+		const code = String.raw`
+it("renders \"left\"", () => {});
+it("renders \"right\"", () => {});
+it("doesn't omit the 'right' label", () => {});
+it("doesn't omit the 'right' label", () => {});
+`;
+		const matches = checkDuplicateTestNames(code, TEST);
+		expect(matches.map((match) => match.line)).toEqual([5]);
+		expect(matches[0]?.text).toContain("doesn't omit the 'right' label");
+	});
+
 	it("flags two it() blocks with identical names", () => {
 		const code = `
 it("returns 404 when missing", () => { expect(a).toBe(1); });

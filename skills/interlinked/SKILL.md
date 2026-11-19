@@ -47,6 +47,7 @@ For duplicated push checks, early E2E preflight, resource waits and retained tes
 obligations, use **interlinked-verify**. Managed push command handoff belongs to
 **interlinked-harness**; timing/RSS evidence belongs to **interlinked-observability**.
 Use **interlinked-verify** to interpret relative import findings across package boundaries.
+It also covers literal runtime conditions, quoted test titles, and suppression directives.
 These optimizations do not enable general past-result reuse or relax coverage floors.
 Explicit `verify` runs without an Interlinked memory budget, default time deadline,
 cumulative detector budget or source discovery/admission cutoff, and waits for the canonical

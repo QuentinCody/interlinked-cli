@@ -38,7 +38,7 @@ export {
 // `(?<![.\w$])` (not plain `\b`) so member calls like `re.test("foo.ts")` /
 // `obj.it('x')` never read as test declarations — `\b` matches after a dot.
 const TEST_BLOCK_INTRO_RE =
-	/(?<![.\w$])(?:it|test|specify)(?:\.(?:each|only|skip|concurrent|skipIf|runIf|todo|failing|sequential))*\s*\(\s*(["'`])([^"'`]*)\1/g;
+	/(?<![.\w$])(?:it|test|specify)(?:\.(?:each|only|skip|concurrent|skipIf|runIf|todo|failing|sequential))*\s*\(\s*(["'`])((?:\\[\s\S]|(?!\1)[^\\])*)\1/g;
 
 /** Length-preserving code mask for checkDuplicateTestNames: comments, strings,
  *  template text, regex literals and JSX text blanked with spaces, every offset

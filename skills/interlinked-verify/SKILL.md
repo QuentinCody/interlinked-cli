@@ -237,6 +237,11 @@ defineX), so it is stricter in scope than the metric, which counts them.
 `halstead_difficulty` (verify default gate, ceiling 80, volume floor 200) judges `difficulty` for
 TS/JS. Whole-tree metrics are judged by `interlinked metrics score` (`judgments`), not by verify.
 
+With TypeScript installed, `constant_condition` measures literal runtime branches, including
+parenthesized boolean ternaries. Conditional types and optional type members are type syntax.
+`duplicate_test_names` compares titles containing escaped or embedded quotes.
+`file_level_suppression` ignores example directives inside JavaScript and TypeScript strings.
+
 **Type assertions.** `unjustified_cast` uses the TypeScript AST when available, including
 angle-bracket assertions, literal targets, and anonymous object targets. `as const` is excluded.
 A justification must be an actual comment with a nonempty `SAFETY:` explanation on the

@@ -696,6 +696,12 @@ describe("checkFileLevelSuppression — MAX_MATCHES cap (3)", () => {
 });
 
 describe("checkFileLevelSuppression — finding line/text", () => {
+	it("reports a directive in code that also contains an example directive in a string", () => {
+		const directive = `/* eslint-${"disable"} */`;
+		const code = [`const documentation = ${JSON.stringify(directive)};`, directive].join("\n");
+		expect(checkFileLevelSuppression(code, TS).map((match) => match.line)).toEqual([2]);
+	});
+
 	// Kills: the whole pushed object -> `{}`; `i + 1` -> `i - 1`; the
 	// message template -> ``.
 	it("P: suppression finding reports the correct line and descriptive text", () => {
