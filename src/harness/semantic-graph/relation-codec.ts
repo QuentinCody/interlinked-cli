@@ -33,18 +33,30 @@ function validateSnapshot(snapshot: RelationSnapshot): void {
     if (snapshot.schema !== "interlinked.relation-snapshot/1" || hash(body) !== digest) throw new Error("snapshot digest mismatch");
     for (const file of Object.values(snapshot.files)) if (textHash(file.text) !== file.hash) throw new Error("source hash mismatch");
     unique(snapshot.units.map(u => u.id), "unit id");
+    const fileLines = new Map<string, string[]>();
     for (const unit of snapshot.units) {
         const source = snapshot.files[unit.file];
-        if (!source || source.text.split(/\r?\n/).slice(unit.line - 1, unit.endLine).join("\n") !== unit.text || textHash(unit.text) !== unit.hash) throw new Error("unit source mismatch");
+        if (!source) throw new Error("unit source mismatch");
+        const lines = fileLines.get(unit.file) ?? source.text.split(/\r?\n/);
+        fileLines.set(unit.file, lines);
+        if (lines.slice(unit.line - 1, unit.endLine).join("\n") !== unit.text || textHash(unit.text) !== unit.hash) throw new Error("unit source mismatch");
     }
 }
-function validatePacket(packet: RelationPacket, snapshot: RelationSnapshot): void {
+type SnapshotUnit = RelationSnapshot["units"][number];
+
+function validatePacket(packet: RelationPacket, units: ReadonlyMap<string, SnapshotUnit>): SnapshotUnit[] {
     if (packet.schema !== "interlinked.relation-packet/1") throw new Error("unsupported packet schema");
     if (packet.evidenceHash !== hash({ evidence: packet.evidence, dependencies: packet.dependencies, missing: packet.missing }) || packet.id !== hash({ logicalKey: packet.logicalKey, evidenceHash: packet.evidenceHash })) throw new Error("packet digest mismatch");
     if (packet.complete !== (packet.missing.length === 0)) throw new Error("packet completeness mismatch");
     unique(packet.participants, "packet participant");
-    for (const participant of packet.participants) if (!snapshot.units.some(u => u.id === participant && packet.dependencies[`unit:${u.id}`] === u.hash)) throw new Error("packet participant outside snapshot");
+    const participants = packet.participants.map(id => {
+        const expected = packet.dependencies[`unit:${id}`];
+        const unit = units.get(id);
+        if (!unit || unit.hash !== expected) throw new Error("packet participant outside snapshot");
+        return unit;
+    });
     validatePacketPopulation(packet);
+    return participants;
 }
 export function parseRelationPlan(value: unknown): RelationPlan {
     const r = record(value);
@@ -62,20 +74,28 @@ export function parseRelationPlan(value: unknown): RelationPlan {
     if (!plan.jobs.length) throw new Error("plan has no jobs");
     return plan;
 }
+function verifyRebuiltPacket(packet: RelationPacket, rebuilt: RelationPacket): void {
+    if (hash(rebuilt.evidence) !== hash(packet.evidence) || hash(rebuilt.dependencies) !== hash(packet.dependencies) || rebuilt.logicalKey !== packet.logicalKey) throw new Error("packet evidence differs from pinned source/policy");
+    if (rebuilt.missing.some(reason => !packet.missing.includes(reason))) throw new Error("packet omits missing evidence");
+}
+
 function validateRelationJobs(plan: RelationPlan) {
+    const { policy } = plan.policy;
+    const invariants = new Map(policy.invariants.map(invariant => [invariant.id, invariant]));
+    const scenarios = new Map(policy.scenarios.map(scenario => [scenario.id, scenario]));
     unique(plan.jobs.map(j => j.id), "job id");
     for (const job of plan.jobs) {
         parseEngine(job.engine); validateSnapshot(job.snapshot);
         if (!Array.isArray(job.packets)) throw new Error("invalid packet array");
         unique(job.packets.map(p => p.id), "packet id");
+        const units = new Map(job.snapshot.units.map(unit => [unit.id, unit]));
         for (const packet of job.packets) {
-            validatePacket(packet, job.snapshot);
-            const invariant = plan.policy.policy.invariants.find(i => i.id === packet.invariantId);
-            const scenario = plan.policy.policy.scenarios.find(s => s.id === packet.scenarioId) ?? null;
+            const participants = validatePacket(packet, units);
+            const invariant = invariants.get(packet.invariantId);
+            const scenario = packet.scenarioId === null ? null : scenarios.get(packet.scenarioId) ?? null;
             if (!invariant || (packet.scenarioId !== null && !scenario)) throw new Error("packet policy reference missing");
-            const rebuilt = makeRelationPacket(packet.kind, invariant, packet.participants.map(id => job.snapshot.units.find(u => u.id === id)!), job.snapshot, scenario, packet.queriedRole, 24000, packet.expectedParticipants);
-            if (hash(rebuilt.evidence) !== hash(packet.evidence) || hash(rebuilt.dependencies) !== hash(packet.dependencies) || rebuilt.logicalKey !== packet.logicalKey) throw new Error("packet evidence differs from pinned source/policy");
-            if (rebuilt.missing.some(reason => !packet.missing.includes(reason))) throw new Error("packet omits missing evidence");
+            const rebuilt = makeRelationPacket(packet.kind, invariant, participants, job.snapshot, scenario, packet.queriedRole, 24000, packet.expectedParticipants);
+            verifyRebuiltPacket(packet, rebuilt);
         }
         if (!(plan.kind === "paired_snapshots" ? ["before", "after"] : ["single"]).includes(job.side)) throw new Error("invalid job side");
     }

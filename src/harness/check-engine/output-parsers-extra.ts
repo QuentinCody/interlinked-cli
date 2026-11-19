@@ -375,19 +375,11 @@ function firstJsonObject(output: string): string | null {
 	if (start < 0) return null;
 	let depth = 0;
 	let inString = false;
-	let escape = false;
 	for (let i = start; i < output.length; i++) {
 		const ch = output[i];
 		if (inString) {
-			if (escape) {
-				escape = false;
-				continue;
-			}
-			if (ch === "\\") {
-				escape = true;
-				continue;
-			}
-			if (ch === '"') inString = false;
+			if (ch === "\\") i++;
+			else if (ch === '"') inString = false;
 			continue;
 		}
 		if (ch === '"') {

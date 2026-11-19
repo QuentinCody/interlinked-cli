@@ -139,22 +139,35 @@ function entriesTo(root: string, depth: number): string[] {
 	return out;
 }
 
+/** Glob patterns requiring the same bounded depth share one directory inventory. */
+function projectGlobMatches(root: string, pattern: string, byDepth: Map<number, string[]>): string[] {
+	const depth = pattern.includes("**") ? MAX_PROJECT_GLOB_DEPTH : Math.min(MAX_PROJECT_GLOB_DEPTH, pattern.split("/").length);
+	const candidates = byDepth.get(depth) ?? entriesTo(root, depth);
+	byDepth.set(depth, candidates);
+	const regex = compileGlob(pattern);
+	return candidates.filter(rel => regex.test(rel));
+}
+
 /** The config file a `test.projects` entry names: a directory takes its first default config name; a file is itself. */
 function projectConfigs(root: string, patterns: readonly string[]): { configs: string[]; unresolvable: string[] } {
 	const matched = new Set<string>(), unresolvable: string[] = [];
-	const positive = patterns.filter(p => !p.startsWith("!")), negative = patterns.filter(p => p.startsWith("!")).map(p => normalizeRel(p.slice(1)));
-	for (const raw of positive) {
+	const negative = patterns.filter(p => p.startsWith("!")).map(p => compileGlob(normalizeRel(p.slice(1))));
+	const byDepth = new Map<number, string[]>();
+	for (const raw of patterns.filter(p => !p.startsWith("!"))) {
 		const pattern = normalizeRel(raw);
 		const glob = /[*?[{]/.test(pattern);
-		const candidates = glob ? entriesTo(root, Math.min(MAX_PROJECT_GLOB_DEPTH, pattern.includes("**") ? MAX_PROJECT_GLOB_DEPTH : pattern.split("/").length)).filter(rel => compileGlob(pattern).test(rel)) : [pattern];
+		const candidates = glob ? projectGlobMatches(root, pattern, byDepth) : [pattern];
 		for (const rel of candidates) {
-			if (negative.some(neg => compileGlob(neg).test(rel))) continue;
+			if (negative.some(regex => regex.test(rel))) continue;
 			const abs = join(root, rel);
-			if (isDirectory(abs)) {
-				const name = CONFIG_NAMES.find(candidate => existsSync(join(abs, candidate)));
-				if (name !== undefined) matched.add(`${rel}/${name}`);
-			} else if (existsSync(abs)) matched.add(rel);
-			else if (!glob) unresolvable.push(`projects entry ${JSON.stringify(raw)} does not exist`);
+			if (!existsSync(abs)) {
+				if (!glob) unresolvable.push(`projects entry ${JSON.stringify(raw)} does not exist`);
+				continue;
+			}
+			const directory = isDirectory(abs);
+			const config = directory ? CONFIG_NAMES.find(candidate => existsSync(join(abs, candidate))) : undefined;
+			if (config !== undefined) matched.add(`${rel}/${config}`);
+			else if (!directory) matched.add(rel);
 		}
 	}
 	return { configs: [...matched], unresolvable };
