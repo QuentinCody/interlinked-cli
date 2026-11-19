@@ -364,6 +364,7 @@ describe("resumeCommand — server context", () => {
 		await resumeCommand("abc123def456", {});
 
 		expect(callTool).toHaveBeenCalledWith("get_work_context", { agent_name: "claude" });
+		expect(vi.getTimerCount()).toBe(0);
 		const out = logged();
 		expect(out).toContain("Server Context:");
 		expect(out).toContain("work-summary");
