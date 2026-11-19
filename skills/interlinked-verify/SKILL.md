@@ -491,7 +491,7 @@ Read a reference file only when the task needs it.
 - [references/check-notes.md](references/check-notes.md): `verify --fp-filter`, `html_duplicate_id`, `test_legitimacy` receipts, effect-cleanup and type-discipline advisories, suppression hygiene, checker availability and warning delivery.
 - [references/test-discrimination.md](references/test-discrimination.md): `tests fail-before-fix` and the test-discrimination advisories.
 - [references/prove-kill.md](references/prove-kill.md): kill-proof receipt versions, parameterized families and check-evidence stores.
-- [references/compiler-batches.md](references/compiler-batches.md): Claude `PostToolBatch` compiler batches.
+- See [compiler batches and native TypeScript CPU settings](references/compiler-batches.md) for Claude `PostToolBatch` and daemon project checks.
 - [references/advisories.md](references/advisories.md): `metrics decisions` warnings and the `repeated_implementation` advisory.
 - [references/corpus-replay.md](references/corpus-replay.md): `harness corpus` qualification and replay evidence.
 - [references/interlinked-e2e-lane.md](references/interlinked-e2e-lane.md): the e2e lane for boundary edits in the Interlinked CLI checkout only.

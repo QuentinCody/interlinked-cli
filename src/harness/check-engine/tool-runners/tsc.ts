@@ -11,6 +11,7 @@ import { dirname, relative, resolve } from "node:path";
 import { errorMessage } from "../../../lib/error-message.js";
 import { nonNull } from "../../../lib/non-null.js";
 import {
+	BACKGROUND_COMPILER_GOMAXPROCS,
 	ProjectCompilerUnavailableError,
 	type ProjectCompilerLeaseOptions,
 	runWithProjectCompilerLease,
@@ -46,6 +47,18 @@ let _tsgoResolved: { bin: string; viaNode: boolean } | null | undefined;
 let _daemonTsgoResolved: { bin: string; viaNode: boolean } | null | undefined;
 
 const COMPILER_OUTPUT_LIMIT_BYTES = 10 * 1024 * 1024;
+
+let daemonTsgoCpuLimit = false;
+
+/** Called only by the daemon entry point, including on a cold start or handover. */
+export function enableDaemonTsgoCpuLimit(): void {
+	daemonTsgoCpuLimit = true;
+}
+
+function projectCompilerEnv(useTsgo: boolean, input: ToolRunnerInput): { env?: NodeJS.ProcessEnv } {
+	if (!daemonTsgoCpuLimit || !useTsgo || input.resourcePolicy === "foreground-verify" || process.env.GOMAXPROCS !== undefined) return {};
+	return { env: { ...process.env, GOMAXPROCS: BACKGROUND_COMPILER_GOMAXPROCS } };
+}
 
 function unavailableFinding(file: string, reason: string): CheckResult[] {
 	return [
@@ -88,12 +101,14 @@ function runCompilerSync(options: {
 	cwd: string;
 	timeoutMs: number;
 	resultFile: string;
+	env?: NodeJS.ProcessEnv;
 }): CheckResult[] {
 	const release = tryAcquireProjectCompilerLease(options.cwd);
 	if (!release) return unavailableFinding(options.resultFile, "another compiler owns this project");
 	try {
 		const result = spawnSync(options.cmd, options.args, {
 			cwd: options.cwd,
+			env: options.env,
 			timeout: options.timeoutMs,
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
@@ -219,7 +234,7 @@ function tscCommandForAsyncRunner(): { cmd: string; args: string[]; useTsgo: boo
 export function runTsc(input: ToolRunnerInput): CheckResult[] {
 	const { scope, timeoutMs } = input;
 	const tscRoot = findTsconfig(scope.projectRoot);
-	const { cmd, args: cmdArgs } = tscCommand();
+	const { cmd, args: cmdArgs, useTsgo } = tscCommand();
 
 	// If no tsconfig found but we have a specific .ts file, type-check it standalone.
 	// This catches standalone scripts (hooks, configs) outside any tsconfig project.
@@ -236,6 +251,7 @@ export function runTsc(input: ToolRunnerInput): CheckResult[] {
 		cwd: tscRoot,
 		timeoutMs,
 		resultFile: compilerResultFile(input, tscRoot),
+		...projectCompilerEnv(useTsgo, input),
 	});
 
 	if (scope.mode === "file" && scope.targetFile && scope.filterToFile) {
@@ -290,7 +306,6 @@ export async function runTscAsync(input: ToolRunnerInput): Promise<CheckResult[]
 	const { scope, timeoutMs } = input;
 	const foregroundDeadline = input.resourcePolicy === "foreground-verify" ? (timeoutMs === 0 ? Infinity : Date.now() + timeoutMs) : undefined;
 	const tscRoot = findTsconfig(scope.projectRoot);
-	const { cmd, args: cmdArgs } = tscCommandForAsyncRunner();
 
 	if (!tscRoot) {
 		if (scope.mode === "file" && scope.targetFile?.match(/\.tsx?$/)) {
@@ -299,14 +314,7 @@ export async function runTscAsync(input: ToolRunnerInput): Promise<CheckResult[]
 		return [];
 	}
 
-	const parsed = await runProjectCheck(
-		tscRoot,
-		timeoutMs,
-		cmd,
-		cmdArgs,
-		compilerResultFile(input, tscRoot),
-		foregroundDeadline,
-	);
+	const parsed = await runProjectCheck(tscRoot, input, foregroundDeadline);
 
 	if (scope.mode === "file" && scope.targetFile && scope.filterToFile) {
 		if (compilerWasUnavailable(parsed)) return parsed;
@@ -338,18 +346,17 @@ function remainingCompilerTimeout(timeoutMs: number, deadline: number | undefine
 
 async function runProjectCheck(
 	tscRoot: string,
-	timeoutMs: number,
-	cmd: string,
-	cmdArgs: string[],
-	resultFile: string,
+	input: ToolRunnerInput,
 	foregroundDeadline?: number,
 ): Promise<CheckResult[]> {
+	const { cmd, args, useTsgo } = tscCommandForAsyncRunner();
+	const resultFile = compilerResultFile(input, tscRoot);
 	try {
 		return await runWithProjectCompilerLease(tscRoot, async () => {
 			const result = await runProcessAsync(
 				cmd,
-				[...cmdArgs, "--noEmit", "--pretty", "false"],
-				{ cwd: tscRoot, timeout: remainingCompilerTimeout(timeoutMs, foregroundDeadline) },
+				[...args, "--noEmit", "--pretty", "false"],
+				{ cwd: tscRoot, timeout: remainingCompilerTimeout(input.timeoutMs, foregroundDeadline), ...projectCompilerEnv(useTsgo, input) },
 			);
 			return parseAsyncCompilerResult(result, resultFile);
 		}, compilerAdmissionOptions(foregroundDeadline));

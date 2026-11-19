@@ -36,6 +36,7 @@ import { readResourceBudget } from "./resource-budget.js";
 import { tryAcquireForegroundCapacity } from "./test-capacity.js";
 import { observeProjectProcess, type ProjectProcessObservation, type ProjectProcessObserver } from "./project-process-observation.js";
 import {
+	BACKGROUND_COMPILER_GOMAXPROCS,
 	runWithProjectCompilerLease,
 	tryAcquireProjectCompilerLease,
 } from "./project-compiler-gate.js";
@@ -333,7 +334,7 @@ async function runObservedCompiler(cwd: string, command: ResolvedTypecheckComman
         execStarted = Date.now();
         Object.assign(observation, { waitMs: Math.max(0, execStarted - started), resourceBudget, heapLimitMb });
         const result = await runProcessAsync(command.bin, command.args, { cwd, timeout, resourceBudget, ...(signal ? { signal } : {}),
-            env: { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=${heapLimitMb}`.trim(), GOMAXPROCS: "2", UV_THREADPOOL_SIZE: "2" } });
+            env: { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=${heapLimitMb}`.trim(), GOMAXPROCS: BACKGROUND_COMPILER_GOMAXPROCS, UV_THREADPOOL_SIZE: "2" } });
         if (result.peakRssBytes !== undefined) observation.peakRssBytes = result.peakRssBytes;
         if (result.resourceReason !== undefined) observation.resourceReason = result.resourceReason;
         return result;

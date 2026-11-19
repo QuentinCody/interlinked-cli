@@ -20,6 +20,10 @@ from repetition. Project-wide Gitleaks runs in explicit verify/background recove
 not the interactive ChangeSet batch. Inline secret checks remain active. A deferred
 Gitleaks scan is NOT CHECKED, never a passing security verdict.
 
+The daemon runs native TypeScript project checks with `GOMAXPROCS=2` by
+default. Set `GOMAXPROCS` in the daemon's launch environment to choose its Go
+parallelism for these checks. Foreground CLI checks inherit the caller's setting.
+
 Gitleaks subprocesses use at most two Go execution threads (`GOMAXPROCS`); an
 existing value of `1` is preserved. Interrupted or truncated asynchronous scans
 produce unavailable evidence. Recovery retains a failed scan per project for the
