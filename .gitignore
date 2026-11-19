@@ -168,6 +168,7 @@ src/lib/_write_integration/
 # blocks NEW additions. Drop a `!scripts/foo.mjs` carve-out below if a
 # new file in this directory needs to ship to the repo.
 scripts/*
+!scripts/generate-docs.test.mts
 # Maintained evidence qualification and advisory audit entry points.
 !scripts/evidence-deep-audit.mts
 !scripts/evidence-deep-audit.test.mts
