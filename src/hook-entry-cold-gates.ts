@@ -9,12 +9,16 @@
 // shape that gate guards. No daemon state — these run when the socket is
 // unreachable, so they must mirror the daemon's deterministic checks exactly.
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join as joinPath } from "node:path";
+import { allReleasedEntries } from "./harness/packets/fallback.js";
+import { type DeliveryChannel, deliveredIds, recordVisibleFallback } from "./harness/packets/fallback-ledger.js";
+import { findRepoRoot } from "./lib/interlinked-root.js";
+import { PACKET_FILE_BASENAME } from "./harness/packets/types.js";
 import { evaluatePackageInstall } from "./harness/evaluator/package-install-guard.js";
 import { loadAllowlist } from "./harness/package-allowlist.js";
 import { parseInstallCommands } from "./harness/package-install-parser.js";
-import { checkLargeFileLineCountWrite } from "./harness/pre-checks.js";
+import { collectFileLineWriteAdvice } from "./harness/file-line-policy.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
 import {
 	checkGraphShardWrite,
@@ -105,6 +109,47 @@ export function coldProjectE2eStopNotice(event: UnifiedHookEvent): string {
 	if (event.phase !== "stop" && event.phase !== "subagent-stop") return "";
 	if (!existsSync(joinPath(resolveColdCwd(event), ".interlinked", "e2e-policy.json"))) return "";
 	return "[interlinked:e2e] daemon unreachable: project e2e obligations NOT CHECKED at this Stop (no reminder is not a pass); verify with: interlinked tests e2e check\n";
+}
+
+/** Cold fallback for released instruction text (instruction packets, design §9): with the daemon down NO
+ *  packet is live, so every released packet's verbatim words go back as model context — at SessionStart (a
+ *  fresh context), and on a post-tool event whose output the model sees (`modelVisible`, from the adapter's
+ *  capability table) for every id this session has not received yet. That second path is the only one on
+ *  Copilot, Gemini, Cursor, OpenCode and Pi, whose SessionStart never reaches the model (seventh review, P1;
+ *  audit B finding 1). Reads `.interlinked/instruction-packets.json` directly; a file the strict parser refuses
+ *  is read leniently for its verified releases. What reached the model is recorded after encoding
+ *  (`recordColdFallbackDelivery`). */
+export function coldPacketsWarnings(event: UnifiedHookEvent, modelVisible: boolean): string[] {
+	const start = event.phase === "session-start";
+	if (!start && !(event.phase === "post-tool" && modelVisible)) return [];
+	const root = packetsRoot(event);
+	const path = joinPath(root, ".interlinked", PACKET_FILE_BASENAME);
+	if (!existsSync(path)) return [];
+	try {
+		const entries = allReleasedEntries(readFileSync(path, "utf8"), "daemon unreachable");
+		if (start) return entries.map((e) => e.line);
+		const received = deliveredIds(joinPath(root, ".interlinked"), event.session_id);
+		return entries.filter((e) => !received.has(e.id)).map((e) => e.line);
+	} catch {
+		return [];
+	}
+}
+
+/** After the cold path encoded its decision: record which fallback lines the model received. Never throws. */
+export function recordColdFallbackDelivery(event: UnifiedHookEvent, warnings: readonly string[], stdout: string | undefined, channel: DeliveryChannel): void {
+	try {
+		recordVisibleFallback(joinPath(packetsRoot(event), ".interlinked"), event, warnings, stdout, "cold", channel);
+	} catch {
+		// A lost receipt means one more proposal on the next call, never a changed decision.
+		return;
+	}
+}
+
+/** The project the instruction packets belong to: the root holding `.interlinked/` above the tool's cwd, so an
+ *  agent working in a subdirectory still gets the released words (break R1). The daemon resolves the same way. */
+function packetsRoot(event: UnifiedHookEvent): string {
+	const cwd = resolveColdCwd(event);
+	return findRepoRoot(cwd) ?? cwd;
 }
 
 /** Cold fail-closed gate for the graph-prediction protocol. Runs the SAME
@@ -244,12 +289,9 @@ export function coldLargeFileWarning(event: UnifiedHookEvent): string | null {
 	if (event.phase !== PHASE_PRE_TOOL) return null;
 	const action = event.action;
 	if (action.kind !== ACTION_TOOL_CALL) return null;
-	const cwd = resolveColdCwd(event) || process.cwd();
-	// `checkLargeFileLineCountWrite` self-filters: it returns null for any input
-	// that isn't a file-write shape (no file_path / unknown tool), so no tool-name
-	// gate is needed here.
+	// The projected comparison self-filters inputs without a file-write shape.
 	// SAFETY: tool_input is runner-supplied JSON (parsed, not typed); the check
 	// type-tests every field it reads, so any object shape is sound to pass.
-	const result = checkLargeFileLineCountWrite((action.tool_input ?? {}) as JsonObject, cwd);
-	return result?.warning ?? null;
+	const warnings = collectFileLineWriteAdvice(toLegacyHarnessEvent(event), (action.tool_input ?? {}) as JsonObject);
+	return warnings.length ? warnings.join("\n") : null;
 }

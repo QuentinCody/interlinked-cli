@@ -25,8 +25,13 @@ export interface LoadStructureResult {
 	implicit: boolean;
 }
 
+/** Absolute path of a project root's `interlinked/structure.json`. */
+export function structureConfigPath(repoRoot: string): string {
+	return resolve(repoRoot, "interlinked", "structure.json");
+}
+
 export function loadStructureConfig(repoRoot: string): LoadStructureResult {
-	const structurePath = resolve(repoRoot, "interlinked", "structure.json");
+	const structurePath = structureConfigPath(repoRoot);
 
 	if (!existsSync(structurePath)) {
 		// Implicit minimal mode per spec — no structure.json is valid

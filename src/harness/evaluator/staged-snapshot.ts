@@ -18,7 +18,18 @@
 // the coverage overlay documents.
 
 import { execFileSync } from "node:child_process";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import {
+	type Dirent,
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	readlinkSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 import { INTERLINKED_DIR, interlinkedPath } from "../../lib/interlinked-path.js";
 import { copyDirInTree, symlinkInTree, writeFileInTree } from "../overlay-safe-write.js";
@@ -34,13 +45,43 @@ export interface StagedSnapshot {
 	cleanup(): void;
 }
 
-/** Symlink the real node_modules into the snapshot (best-effort). */
-function linkNodeModules(projectRoot: string, root: string): void {
+/** Symlink one real `node_modules` into the snapshot (best-effort). */
+function linkOne(src: string, dst: string): void {
 	try {
-		symlinkSync(join(projectRoot, "node_modules"), join(root, "node_modules"), "dir");
+		symlinkSync(src, dst, "dir");
 	} catch {
 		// No node_modules, or the platform refused the symlink — the runner may
 		// still work (pure-stdlib) or the caller fail-opens. Best-effort by design.
+	}
+}
+
+/**
+ * Symlink the real `node_modules` into the snapshot at EVERY depth. A pnpm (or
+ * npm/yarn) workspace keeps each package's own dependencies in that package's
+ * `node_modules` (`packages/x/node_modules`), not in the root one; linking only
+ * the root made every workspace test fail with "Cannot find package" inside the
+ * snapshot, so the commit gate could never pass in a monorepo (2026-11-12).
+ * The walk follows the snapshot's own directories (tracked content only, so it
+ * never descends into a dependency tree) and links wherever the real project
+ * has a `node_modules` beside the same directory.
+ */
+function linkNodeModules(projectRoot: string, root: string): void {
+	const pending = [""];
+	while (pending.length > 0) {
+		const rel = pending.pop() ?? "";
+		const real = join(projectRoot, rel, "node_modules");
+		if (lstatSync(real, { throwIfNoEntry: false })) linkOne(real, join(root, rel, "node_modules"));
+		let entries: Dirent[];
+		try {
+			entries = readdirSync(join(root, rel), { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			if (entry.isDirectory() && entry.name !== ".git" && entry.name !== "node_modules") {
+				pending.push(join(rel, entry.name));
+			}
+		}
 	}
 }
 

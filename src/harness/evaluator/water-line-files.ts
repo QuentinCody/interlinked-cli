@@ -36,6 +36,12 @@ export const WATER_LINE_FILES = [
 	// effect arm, and the replay archive cover it like every other water-line.
 	"function-complexity-baseline",
 	"lint-baseline",
+	// Instruction packets (docs/design/instruction-jev-evaluator.md §4): status,
+	// tau, triggers and released text may only move in the tightening direction.
+	"instruction-packets",
+	// Saturation ratchet (`interlinked mutation saturation --ratchet`): files once
+	// seen saturated; a removal loosens it (mutation/saturation.ts).
+	"saturation-baseline",
 ] as const;
 
 /** One canonical water-line stem. */
@@ -51,15 +57,17 @@ export const WATER_LINE_PATHS: readonly string[] = WATER_LINE_BASENAMES.map(
 	(base) => `.interlinked/${base}`,
 );
 
-/** Derived view: exact-match regex; capture group 1 is the stem. */
+/** Derived view: exact-match regex, case-insensitive (macOS APFS resolves any spelling to the same file, so
+ *  `.interlinked/Metric-Caps.json` IS the water-line there; review-100 n24); capture group 1 is the stem. */
 export const WATER_LINE_RE = new RegExp(
 	`(?:^|/)\\.interlinked/(${WATER_LINE_FILES.join("|")})\\.json$`,
+	"i",
 );
 
-/** The water-line stem a path names, or null when it names no water-line. */
+/** The water-line stem a path names, in any letter case, or null when it names no water-line. */
 export function waterLineStem(filePath: string): WaterLineStem | null {
-	const match = WATER_LINE_RE.exec(filePath.replace(/\\/g, "/"));
-	return WATER_LINE_FILES.find((stem) => stem === match?.[1]) ?? null;
+	const stem = WATER_LINE_RE.exec(filePath.replace(/\\/g, "/"))?.[1]?.toLowerCase();
+	return WATER_LINE_FILES.find((s) => s === stem) ?? null;
 }
 
 /** True when `filePath` names a `.interlinked/` water-line file. */

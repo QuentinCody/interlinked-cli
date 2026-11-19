@@ -2,7 +2,8 @@ import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import type { HarnessDecision } from "../types.js";
 import type { UnifiedHookEvent } from "../unified-event.js";
 import type { AdapterOutput } from "./types.js";
-import type { AdditionalClientId } from "./additional-client-capabilities.js";
+import { ADDITIONAL_CLIENT_CAPABILITIES, type AdditionalClientId } from "./additional-client-capabilities.js";
+import { postToolContextText } from "./provider-decisions.js";
 
 function antigravityDecision(decision: HarnessDecision, event: UnifiedHookEvent): JsonObject {
     if (event.phase === "pre-tool") {
@@ -19,7 +20,8 @@ function factoryDecision(decision: HarnessDecision, event: UnifiedHookEvent): Js
     if (event.phase === "pre-tool") return factoryPreTool(decision, name);
     if (["post-tool", "user-prompt", "stop", "subagent-stop"].includes(event.phase) && decision.decision !== "allow") return { decision: "block", reason: decision.reason };
     if (event.phase === "user-prompt" && decision.additional_context) return { additionalContext: decision.additional_context };
-    if (["post-tool", "session-start"].includes(event.phase) && decision.additional_context) return { hookSpecificOutput: { hookEventName: name, additionalContext: decision.additional_context } };
+    const context = postToolContextText(decision, event, ADDITIONAL_CLIENT_CAPABILITIES["factory-droid"]);
+    if (["post-tool", "session-start"].includes(event.phase) && context) return { hookSpecificOutput: { hookEventName: name, additionalContext: context } };
     return {};
 }
 

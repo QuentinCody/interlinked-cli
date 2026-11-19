@@ -9,6 +9,7 @@ import type {
 	StructuralChecksConfig,
 } from "./config-structural.js";
 import type { DecisionShadowConfig, JevConfig } from "../jev/types.js";
+import type { PacketsConfig } from "../packets/types.js";
 import type { PerEditCoverageConfig } from "./config-per-edit-coverage-config.js";
 import type { VerificationStopChecksConfig } from "./config-verification-stop-checks-config.js";
 import type { ClassifierConfig } from "./policy.js";
@@ -257,6 +258,11 @@ export interface GuardRulesConfig {
 	 *  config.local.json as `TYPESAFE_API_KEY`). Today only the edit shadow
 	 *  (`jev/edit-shadow.ts`, `shadow_edits`) reads it: log-only, never warns. */
 	jev?: JevConfig;
+	/** Instruction packets (docs/design/instruction-jev-evaluator.md) — DEFAULT OFF,
+	 *  personal tier: needs `jev.enabled`, the Jev key and explicit evidence consent.
+	 *  Stage 1 is shadow only: judgments go to `.interlinked/packet-judgments.jsonl`,
+	 *  nothing is shown and no decision changes (`packets/evaluator.ts`). */
+	packets?: PacketsConfig;
 	/** Decision shadows (U1, 2026-10-08) — DEFAULT OFF, personal tier (the
 	 *  backend credentials are per-dev). A guard block on a shell command and a
 	 *  secret-signature hit each get one logged decision-model second opinion in

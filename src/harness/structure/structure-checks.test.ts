@@ -341,6 +341,15 @@ describe("runStructureChecks", () => {
 		expect(changedFiles!.filter((f) => f === "src/foo.ts")).toHaveLength(1);
 	});
 
+	it("N1: lists a session file stored both relative and absolute only once", () => {
+		// session-state stores each write as given AND absolute.
+		const touched = new Set<string>(["src/a.ts", "/repo/src/a.ts", "/repo/src/b.ts", "src/b.ts"]);
+		runStructureChecks("/repo/src/foo.ts", "/repo", new ArtifactGraph(), makeConfig(), touched);
+
+		const [, , changedFiles] = evaluateStructureRules.mock.calls[0]!;
+		expect(changedFiles).toEqual(["src/foo.ts", "src/a.ts", "src/b.ts"]);
+	});
+
 	it("returns findings, derived results, the graph instance, and pending completions", () => {
 		const graph = new ArtifactGraph();
 		ruleFindings = [

@@ -4,6 +4,7 @@
 // ===========================================
 
 import type { JsonObject } from "../../lib/json-types.js";
+import type { InlineSourceEvidence } from "../check-registry/types.js";
 import type { Determinism } from "./events.js";
 import type { EscalationRequest } from "./policy.js";
 
@@ -164,6 +165,8 @@ export interface CheckResultEntry {
 	detail?: string | undefined;
 	novelty?: "newly-observed" | "pre-existing" | undefined;
 	findingCount?: number | undefined;
+	measurementState?: "unavailable" | undefined;
+	sourceEvidence?: InlineSourceEvidence[] | undefined;
 	writeAttribution?: "declared-target" | "observed-workspace" | undefined;
 	/** Suggestion score (0-1, for scored suggestions only) */
 	score?: number | undefined;

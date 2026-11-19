@@ -5,6 +5,7 @@ import { nonNull } from "../../../lib/non-null.js";
 import type { GuardRulesConfig, QualityCheckConfig } from "../../types.js";
 import type { ServerRuntime } from "../runtime-context.js";
 import type { PerFileCheckCtx } from "../post-tool-file-checks.js";
+import { StructureRootCache } from "../structure-root-cache.js";
 import type { EventLoopDeps } from "../../server-event-loop.js";
 
 // Use real in-memory managers even when a test replaces their module exports.
@@ -92,8 +93,7 @@ export function makeServerRuntime(overrides: RuntimeOverrides = {}): ServerRunti
 		preEditBaselines: new Map(),
 		trigramIndex: null,
 		fileContentCache: fileContentCache instanceof FileContentCache ? fileContentCache : Object.assign(new FileContentCache(), fileContentCache),
-		structureGraph: null,
-		structureConfigCache: null,
+		structureCache: new StructureRootCache(),
 		specLedger: null,
 		filePriorityMap: new Map(),
 		graphCache: new Map(),

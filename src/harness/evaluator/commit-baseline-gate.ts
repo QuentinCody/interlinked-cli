@@ -36,7 +36,12 @@ import { resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import { readToolString } from "./tool-input-values.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
+import { pointerIdsIn } from "../packets/release.js";
+import { parsePacketFile } from "../packets/schema.js";
+import { isGlobalSource, resolveSourcePath } from "../packets/source-path.js";
+import type { SourceReader } from "../packets/water-line.js";
 import { detectBaselineGaming } from "./baseline-integrity-gate.js";
+import { detectMetricPolicyLoosening, METRIC_POLICY_CONTROL_FILES } from "./metric-policy-integrity.js";
 import { rebaseConstructedPaths } from "./commit-gate-changes.js";
 import { gitShow, resolveRepoRoot } from "./commit-git-io.js";
 import {
@@ -52,6 +57,9 @@ import {
  *  stage. The other baselines are gitignored, so they never reach a commit. */
 const TRACKED_BASELINES = [
 	".interlinked/large-files-baseline.json",
+	// Instruction packets are committed (gitignore carve-out); the same packet
+	// detector judges HEAD vs the staged blob (packets/water-line.ts).
+	".interlinked/instruction-packets.json",
 	".interlinked/untested-files-baseline.json",
 	".interlinked/metric-caps.json",
 	".interlinked/skipped-tests-baseline.json",
@@ -79,7 +87,8 @@ interface CommitModel {
 	/** Paths selected by a path-only commit; null when the index participates. */
 	onlyPaths: string[] | null;
 	/** Each preceding removal retains its own invocation directory. */
-	removals: Array<{ paths: string[]; cwd: string | null }>;
+	/** `git rm` / `git mv` sources before the commit; `broad` when the paths come from a file the gate cannot see. */
+	removals: Array<{ paths: string[]; cwd: string | null; broad: boolean }>;
 }
 
 /** Where the gate reads from: the repo toplevel and the command's effective directory. */
@@ -118,6 +127,16 @@ function rmPathspecs(inv: GitInvocation): string[] {
 	return inv.args.filter((a) => !a.startsWith("-"));
 }
 
+/** The paths a `git rm` or `git mv` takes away from where they are; null when they come from a file
+ *  (`--pathspec-from-file`, review-100 n19), which the gate must treat as the whole tree. A `git mv` moves every
+ *  positional but the last (the destination) away (n21); a dry run (`-n`, `--dry-run`) moves nothing. */
+function removalPathspecs(inv: GitInvocation): string[] | null {
+	if (inv.args.some((a) => a.startsWith("--pathspec-from-file"))) return null;
+	if (inv.verb === "rm") return rmPathspecs(inv);
+	if (inv.args.includes("-n") || inv.args.includes("--dry-run")) return [];
+	return rmPathspecs(inv).slice(0, -1);
+}
+
 /** Worktree paths a `git add` stages, or null when it stages broadly (`-A`, `-u`, from-file). */
 function addPathspecs(inv: GitInvocation): string[] | null {
 	if (inv.args.some((a) => a.startsWith("--pathspec-from-file"))) return null;
@@ -137,7 +156,12 @@ function commitModel(parse: CommitParse | null, invocations: GitInvocation[]): C
 	if (!parse?.isCommit && plumbing.length === 0) return null;
 	const commitAt = invocations.findIndex((i) => i.verb === "commit");
 	const preceding = commitAt < 0 ? invocations : invocations.slice(0, commitAt);
-	const removals = preceding.filter((i) => i.verb === "rm").map((i) => ({ paths: rmPathspecs(i), cwd: i.cwd }));
+	const removals = preceding
+		.filter((i) => i.verb === "rm" || i.verb === "mv")
+		.map((i) => {
+			const paths = removalPathspecs(i);
+			return { paths: paths ?? [], cwd: i.cwd, broad: paths === null };
+		});
 	// A porcelain commit already folds its `git add` segments into the parse (with
 	// git's --only/--include semantics). A plumbing commit has no parse, so a
 	// `git add <baseline>` in the same command stages WORKTREE bytes the index does
@@ -180,7 +204,7 @@ function removesBaseline(model: CommitModel, io: RepoIo, rel: string): boolean {
 	return model.removals.some((removal) => {
 		const commandCwd = realPath(removal.cwd ? resolve(io.baseCwd, removal.cwd) : io.baseCwd);
 		if (resolveRepoRoot(commandCwd) !== io.repoRoot) return false;
-		return specsCover(removal.paths, { ...io, commandCwd }, rel);
+		return removal.broad || specsCover(removal.paths, { ...io, commandCwd }, rel);
 	});
 }
 
@@ -234,9 +258,101 @@ function baselineFindings(model: CommitModel, io: RepoIo, rel: string): string[]
 	const base = head !== null ? { text: head, commit: null } : lastCommittedVersion(io.repoRoot, rel);
 	if (base === null) return []; // never existed in history → new baseline, never a loosening
 	const note = base.commit ? ` (compared against the last committed version, ${base.commit}; HEAD no longer carries the file)` : "";
-	return detectBaselineGaming(resolve(io.repoRoot, rel), base.text, content.text).map(
+	// The packet file's releases are vouched for by the instruction files AS THIS COMMIT CARRIES THEM, not by
+	// unstaged worktree bytes (audit C2: identical trees used to get opposite verdicts).
+	const packets = rel === PACKET_FILE ? { origin: "recorded" as const, readSource: committedReader(model, io) } : undefined;
+	return detectBaselineGaming(resolve(io.repoRoot, rel), base.text, content.text, undefined, undefined, packets).map(
 		(f) => `[${f.rule}] ${f.message}${note}`,
 	);
+}
+
+const PACKET_FILE = ".interlinked/instruction-packets.json";
+
+/** A file's text as this commit will carry it: its committed bytes when the commit changes it, else HEAD's; an
+ *  untracked or home-relative (`~/`) instruction file is not in any commit, so the disk is its only truth. */
+function committedText(model: CommitModel, io: RepoIo, rel: string): string | null {
+	if (isGlobalSource(rel)) return readWorktree(io.repoRoot, resolveSourcePath(io.repoRoot, rel));
+	const head = gitShow(io.repoRoot, `HEAD:${rel}`);
+	const content = commitContentFor(model, io, rel, gitShow(io.repoRoot, `:${rel}`), head);
+	if (content.kind === "content") return content.text;
+	if (content.kind === "deleted") return null;
+	return head ?? readWorktree(io.repoRoot, rel);
+}
+
+function committedReader(model: CommitModel, io: RepoIo): SourceReader {
+	return (file) => committedText(model, io, file);
+}
+
+/** Policy controls are judged conditionally, so deleting a historical check-only file stays allowed. */
+function metricPolicyFindings(model: CommitModel, io: RepoIo, rel: string): string[] {
+	const head = gitShow(io.repoRoot, `HEAD:${rel}`);
+	const content = commitContentFor(model, io, rel, gitShow(io.repoRoot, `:${rel}`), head);
+	if (content.kind === "unchanged") return [];
+	const prior = head ?? lastCommittedVersion(io.repoRoot, rel)?.text ?? null;
+	const after = content.kind === "deleted" ? null : content.text;
+	return detectMetricPolicyLoosening(resolve(io.repoRoot, rel), prior, after, {
+		root: io.repoRoot,
+		readBefore: path => gitShow(io.repoRoot, `HEAD:${path}`) ?? readWorktree(io.repoRoot, path),
+		readAfter: committedReader(model, io),
+	}).map(finding => `[${finding.rule}] ${finding.message}`);
+}
+
+/** Repo-relative paths this commit may carry changed: the index's, plus the worktree's when the commit stages
+ *  worktree bytes (untracked files too when broadly). Bounded: past the cap the list is reported truncated, never
+ *  cut silently (a pointer file sorting after the cap would go unscanned). A git error yields what was read. */
+function changedPaths(model: CommitModel, io: RepoIo): { paths: string[]; truncated: boolean } {
+	const list = (args: string[]) => (gitRead(io.repoRoot, args) ?? "").split("\0").filter(Boolean);
+	const out = new Set(list(["diff", "--cached", "--name-only", "-z"]));
+	if (model.worktreeBroad || model.worktreePaths.length > 0 || model.onlyPaths !== null) for (const p of list(["diff", "--name-only", "-z"])) out.add(p);
+	if (model.worktreeBroad) for (const p of list(["ls-files", "--others", "--exclude-standard", "-z"])) out.add(p);
+	const paths = [...out];
+	return { paths: paths.slice(0, MAX_POINTER_SCAN), truncated: paths.length > MAX_POINTER_SCAN };
+}
+const MAX_POINTER_SCAN = 500;
+
+type PacketSetView = Pick<Extract<ReturnType<typeof parsePacketFile>, { ok: true }>["value"], "packets" | "sources">;
+
+/** The packet set the commit carries. No packet file in the commit (absent from HEAD and the index, or deleted)
+ *  is an empty set: no pointer it carries has a release. An unparsable file is null (judged elsewhere). */
+function committedPacketSet(packetText: string | null): PacketSetView | null {
+	if (packetText === null) return { packets: [], sources: {} };
+	const parsed = parsePacketFile(packetText);
+	return parsed.ok ? parsed.value : null;
+}
+
+function truncationFindings(truncated: boolean): string[] {
+	if (!truncated) return [];
+	return [`[pointer-scan-truncated] this commit changes more than ${MAX_POINTER_SCAN} paths, so the gate cannot check every changed file for a packet pointer without a release in ${PACKET_FILE}. Commit the instruction files and ${PACKET_FILE} in a smaller commit.`];
+}
+
+/** Every pointer an instruction file will carry must be backed by a release in the packet file the commit
+ *  carries; otherwise the committed tree holds neither the words nor anything that hands them back (audit C2:
+ *  `git add CLAUDE.md && git commit`, or `git commit CLAUDE.md`, after a release). Checked only when the commit
+ *  changes the packet file or that instruction file — an untouched pair is HEAD's business. */
+function pointerFindings(model: CommitModel, io: RepoIo): string[] {
+	const packetHead = gitShow(io.repoRoot, `HEAD:${PACKET_FILE}`);
+	const packetChange = commitContentFor(model, io, PACKET_FILE, gitShow(io.repoRoot, `:${PACKET_FILE}`), packetHead);
+	const packetText = packetChange.kind === "content" ? packetChange.text : packetChange.kind === "unchanged" ? packetHead : null;
+	const set = committedPacketSet(packetText);
+	if (set === null) return [];
+	const releasedIn = new Map(set.packets.filter((p) => p.release !== null).map((p) => [p.id, p.source.file]));
+	const changed = changedPaths(model, io);
+	const out = truncationFindings(changed.truncated);
+	// Every file the set names, plus every path the commit changes: a renamed instruction file carries its pointer
+	// under a name no packet records (break R4 #10).
+	const named = [...Object.keys(set.sources), ...set.packets.map((p) => p.source.file)];
+	const candidates = new Set([...named, ...changed.paths].filter((f) => f !== PACKET_FILE && !isGlobalSource(f)));
+	for (const file of candidates) {
+		const head = gitShow(io.repoRoot, `HEAD:${file}`);
+		const change = commitContentFor(model, io, file, gitShow(io.repoRoot, `:${file}`), head);
+		if (change.kind !== "content" && packetChange.kind !== "content") continue;
+		const text = change.kind === "content" ? change.text : change.kind === "unchanged" ? head : null;
+		for (const id of pointerIdsIn(text ?? "")) {
+			if (releasedIn.get(id) === file) continue;
+			out.push(`[pointer-without-release:${id}] ${file} carries the pointer of packet ${id}, but the ${PACKET_FILE} this commit carries holds no release of it: the committed tree would lose the instruction's words. Commit ${PACKET_FILE} together with ${file}, or run \`interlinked packets restore ${file}\`.`);
+		}
+	}
+	return out;
 }
 
 /**
@@ -261,7 +377,8 @@ export function checkCommitBaselineGate(event: HarnessEvent): HarnessDecision | 
 	if (!repoRoot) return null;
 
 	const io: RepoIo = { repoRoot, commandCwd, baseCwd };
-	const findings = TRACKED_BASELINES.flatMap((rel) => baselineFindings(model, io, rel));
+	const findings = [...TRACKED_BASELINES.flatMap((rel) => baselineFindings(model, io, rel)),
+		...METRIC_POLICY_CONTROL_FILES.flatMap(rel => metricPolicyFindings(model, io, rel)), ...pointerFindings(model, io)];
 	if (findings.length === 0) return null;
 
 	return {

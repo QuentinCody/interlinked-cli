@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,6 +109,52 @@ describe("project compiler admission", () => {
 			runWithProjectCompilerLease(join(root, "b"), task),
 		]);
 		expect(peak).toBe(2);
+	});
+
+	it("keeps unbounded foreground callers queued beyond two seconds and eight entries", async () => {
+		let release = (): void => undefined;
+		const barrier = new Promise<void>(resolve => { release = resolve; });
+		let active = false;
+		const holder = runWithProjectCompilerLease(root, async () => { active = true; await barrier; });
+		await waitUntil(() => active);
+		const pending = Array.from({ length: 9 }, (_, index) => runWithProjectCompilerLease(root, async () => index, { admissionTimeoutMs: null, maxQueued: null })
+			.then(value => ({ value }), error => ({ error })));
+		try {
+			await new Promise(resolve => setTimeout(resolve, 2100));
+		} finally { release(); }
+		await holder;
+		expect(await Promise.all(pending)).toEqual(Array.from({ length: 9 }, (_, value) => ({ value })));
+	}, 7000);
+
+	it("cancels an unbounded queued foreground caller without running its task", async () => {
+		let release = (): void => undefined;
+		const barrier = new Promise<void>(resolve => { release = resolve; });
+		let active = false;
+		const holder = runWithProjectCompilerLease(root, async () => { active = true; await barrier; });
+		await waitUntil(() => active);
+		const task = vi.fn(async () => "never");
+		const controller = new AbortController();
+		const pending = runWithProjectCompilerLease(root, task, { signal: controller.signal, admissionTimeoutMs: null, maxQueued: null });
+		controller.abort();
+		try { await expect(pending).rejects.toMatchObject({ reason: "aborted" }); }
+		finally { release(); await holder; }
+		expect(task).not.toHaveBeenCalled();
+	});
+
+	it("creates no deadline timers while an unbounded foreground caller evicts a warm compiler", async () => {
+		vi.useFakeTimers();
+		const controller = new AbortController();
+		const unregister = tryRegisterWarmProjectCompiler(root, () => new Promise<void>(() => {}));
+		const pending = runWithProjectCompilerLease(root, async () => "never", { signal: controller.signal, admissionTimeoutMs: null, maxQueued: null });
+		try {
+			await Promise.resolve();
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			controller.abort();
+			await expect(pending).rejects.toMatchObject({ reason: "aborted" });
+			unregister?.();
+			vi.useRealTimers();
+		}
 	});
 
 	it("waits for warm child exit before starting cold work", async () => {
@@ -305,7 +351,7 @@ describe("project compiler admission", () => {
 			expect(aliasRelease).not.toBeNull();
 			aliasRelease?.();
 		} finally {
-			rmSync(alias, { force: true });
+			unlinkSync(alias);
 		}
 	});
 

@@ -25,10 +25,9 @@
 // `*.survivors?.*` opted it into the stricter evidence bar by its own naming
 // choice — the same "self-declared scope" logic large-file-policy.ts's
 // `isCappableFile` already uses. Firing is gated on NEW-CASE INTRODUCTION
-// (via check-evidence/case-parser.ts's block-opener walker, counted
-// before/after this session against the git HEAD-sha baseline) so a
-// drive-by maintenance edit to an EXISTING mutation-kill file — touching
-// zero test cases — never fires. Two evidence gaps are checked; EITHER
+// (kill-proof/source-cases.ts's AST walk, before/after this session against
+// the git HEAD-sha baseline) so a drive-by maintenance edit to an EXISTING
+// mutation-kill file — touching zero test cases — never fires. Two evidence gaps are checked; EITHER
 // alone is enough to fire (this is a nudge, not two separate checks):
 //
 //   (a) staleMeasurement — no mutation measurement (manifest
@@ -69,9 +68,11 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { countTestCaseOpeners } from "./check-evidence/case-parser.js";
 import { getExtension, JS_TS_EXTS } from "./checks/shared.js";
 import { checkTestLegitimacy, MUTATION_DIRECTED_PATH } from "./checks/test-legitimacy.js";
+import { knownSurvivorsFor, proveKillCommandFor, type SurvivorsLookup } from "./kill-proof/prove-command.js";
+import { freshKillsForTest } from "./kill-proof/receipt-freshness.js";
+import { type CaseRequirement, newCases } from "./kill-proof/source-cases.js";
 import { loadSurvivorsIndex } from "./mutation/survivors-index.js";
 import { splitIntroduced } from "./pre-block-gate.js";
 import type { ServerRuntime } from "./server/runtime-context.js";
@@ -154,6 +155,9 @@ export interface MutationKillEvidenceHit {
 	staleMeasurement: boolean;
 	/** Newly-introduced case lines still missing an adjacent test-contract marker. */
 	missingContractCount: number;
+	/** The prove-kill command for this file: the batch form when the survivors sidecar knows more than one
+	 *  survivor of the companion source, else the single-mutant form. Printed, never a rule. */
+	proveCommand?: string;
 }
 
 /** Newly-introduced "missing test-contract" findings only — pre-existing
@@ -192,6 +196,25 @@ interface DetectMutationKillEvidenceGapsOpts {
 	 *  Returns null when no measurement record exists, which the detector reads
 	 *  as "never measured". */
 	loadMutationManifest?: (interlinkedDir: string) => { authoritativeAt?: string } | null;
+	/** Injected for testing. Defaults to `freshKillsForTest(...).length`: the number
+	 *  of `killed` kill-proof receipts naming this test file whose source and test
+	 *  bytes match the files on disk now (kill-proof/receipt.ts; index read + two
+	 *  hashes, never the manifest) and whose killed cases cover every new case. */
+	freshKillProofs?: (cwd: string, relPath: string, newCases: readonly CaseRequirement[]) => number;
+	/** Injected for testing. Defaults to the survivors sidecar; decides only the printed command's form. */
+	knownSurvivors?: SurvivorsLookup;
+}
+
+/**
+ * The cases an edit ADDED, as vitest will name them (review K4: an old strong case must
+ * not certify a new weak one). One rule for the Stop check and the nudge
+ * (`kill-proof/source-cases.ts newCases`, review M6): a case is new when its full name /
+ * prefix family / title source is not in the baseline as a multiset AND its body does
+ * not equal a removed case's (that is a rename, which makes no new claim). A same-count
+ * swap of a strong case for a weak one is therefore a new case on both surfaces.
+ */
+export function newCaseRequirements(current: string, baseline: string, filePath: string): CaseRequirement[] {
+	return newCases(current, baseline, filePath).added.map(item => item.requirement);
 }
 
 /**
@@ -211,6 +234,8 @@ export function detectMutationKillEvidenceGaps(
 		gitShow = defaultGitShow,
 		readFile = defaultReadFile,
 		loadMutationManifest = defaultLoadMeasurement,
+		freshKillProofs = (root, relPath, newCases) => freshKillsForTest(root, relPath, newCases).length,
+		knownSurvivors = knownSurvivorsFor,
 	} = opts;
 	if (!gitHeadSha) return [];
 
@@ -232,6 +257,8 @@ export function detectMutationKillEvidenceGaps(
 			fileWriteTimes,
 			loadMutationManifest,
 			measurementCache,
+			freshKillProofs,
+			knownSurvivors,
 		});
 		if (hit !== null) hits.push(hit);
 	}
@@ -289,6 +316,8 @@ function evaluateMutationKillEvidence(
 		fileWriteTimes: ReadonlyMap<string, string>;
 		loadMutationManifest: NonNullable<DetectMutationKillEvidenceGapsOpts["loadMutationManifest"]>;
 		measurementCache: { value: number | null | undefined };
+		freshKillProofs: NonNullable<DetectMutationKillEvidenceGapsOpts["freshKillProofs"]>;
+		knownSurvivors: SurvivorsLookup;
 	},
 ): MutationKillEvidenceHit | null {
 	const currentContent = ctx.readFile(abs);
@@ -297,23 +326,28 @@ function evaluateMutationKillEvidence(
 	const relPath = relative(ctx.cwd, abs).replace(/\\/g, "/");
 	const baselineContent = ctx.gitShow(ctx.cwd, `${ctx.gitHeadSha}:${relPath}`) ?? "";
 
-	const newCaseCount = Math.max(
-		0,
-		countTestCaseOpeners(currentContent) - countTestCaseOpeners(baselineContent),
-	);
+	// The cases this file ADDED since the baseline, derived from the AST (`source-cases.ts`): a rename (new title,
+	// same body) makes no claim and stays silent; a new title with a new body is a claim whether or not the file
+	// grew (review M6). Computed titles are counted and can never be certified by name.
+	const newTitles = newCaseRequirements(currentContent, baselineContent, abs);
+	const newCaseCount = newTitles.length;
 	if (newCaseCount === 0) return null; // no new cases — maintenance edit, stay silent
 
 	const measurementMs = resolveMeasurementMs(ctx.cwd, ctx.loadMutationManifest, ctx.measurementCache);
 	const writeTimeRaw = ctx.fileWriteTimes.get(entry) ?? ctx.fileWriteTimes.get(abs);
 	const writeMs = writeTimeRaw ? Date.parse(writeTimeRaw) : NaN;
-	const staleMeasurement = Number.isNaN(writeMs)
+	const staleByManifest = Number.isNaN(writeMs)
 		? false // can't determine write time — don't claim staleness
 		: measurementMs === null || measurementMs < writeMs;
+	// A kill proof (`interlinked tests prove-kill`) whose source AND test bytes are
+	// the ones on disk now is per-file executed evidence, newer by construction
+	// than any write it hashes; it discharges the manifest-timestamp proxy.
+	const staleMeasurement = staleByManifest && ctx.freshKillProofs(ctx.cwd, relPath, newTitles) === 0;
 
 	const missingContractCount = newMissingContractCount(currentContent, baselineContent, abs);
 
 	if (staleMeasurement || missingContractCount > 0) {
-		return { file: relPath, newCaseCount, staleMeasurement, missingContractCount };
+		return { file: relPath, newCaseCount, staleMeasurement, missingContractCount, proveCommand: proveKillCommandFor(relPath, ctx.knownSurvivors(ctx.cwd, relPath)) };
 	}
 	return null;
 }
@@ -333,7 +367,8 @@ export function formatMutationKillEvidenceWarning(
 		if (h.missingContractCount > 0) {
 			reasons.push(`${h.missingContractCount} new case(s) missing a test-contract marker`);
 		}
-		return `  - ${h.file}: +${h.newCaseCount} new case(s) — ${reasons.join("; ")}`;
+		const head = `  - ${h.file}: +${h.newCaseCount} new case(s) — ${reasons.join("; ")}`;
+		return h.proveCommand === undefined ? head : `${head}\n    prove it: ${h.proveCommand}`;
 	});
 	const more =
 		hits.length > MUTATION_KILL_EVIDENCE_MAX_SHOWN

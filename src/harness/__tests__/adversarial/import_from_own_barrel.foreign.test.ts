@@ -17,17 +17,17 @@
 //      index keeps the finding (the barrel may be unsaved).
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import { _resetPackageNameCacheForTests, checkImportFromOwnBarrel } from "../../checks/imports.js";
+import { withCheckRoot } from "../../checks/check-root.js";
 import { isStrictTestFile, isTestSourcePath } from "../../checks/shared-test-classification.js";
 
 let sandbox = "";
 
 beforeEach(() => {
-	sandbox = mkdtempSync(join(tmpdir(), "own-barrel-foreign-"));
+	sandbox = mkdtempSync(join(process.cwd(), "scratch", "own-barrel-foreign-"));
 	_resetPackageNameCacheForTests();
 });
 
@@ -206,9 +206,11 @@ describe("import_from_own_barrel — positive (must fire)", () => {
 		expect(checkImportFromOwnBarrel(content, file)).toHaveLength(1);
 	});
 
-	it("P4: no sibling index on disk keeps the finding (the barrel may be unsaved)", () => {
+	it("N10: a missing sibling index is unknown evidence rather than a proved return edge", () => {
 		const content = 'import { Foo } from "./index";\n';
-		expect(checkImportFromOwnBarrel(content, "src/lib/foo.ts")).toHaveLength(1);
+		const run = withCheckRoot(sandbox, () => checkImportFromOwnBarrel(content, join(sandbox, "foo.ts")));
+		expect(run.result).toEqual([]);
+		expect(run.notMeasured.length).toBeGreaterThan(0);
 	});
 
 	it("P5: a side-effect `import \"./foo.js\"` in the index is a runtime edge back to the importer", () => {
@@ -236,6 +238,7 @@ describe("import_from_own_barrel — positive (must fire)", () => {
 	});
 
 	it("P8: repair — barrel re-exports the importer through a PATH ALIAS (`@/components/foo`)", () => {
+		fileAt("components", "tsconfig.json", JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@/components/*": ["./*"] } } }));
 		fileAt("components", "index.ts", 'export * from "@/components/foo";\n');
 		const content = 'import { Bar } from "./index";\nexport const Foo = () => Bar;\n';
 		const file = fileAt("components", "foo.ts", content);

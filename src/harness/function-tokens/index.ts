@@ -4,6 +4,7 @@ import { computePythonFunctionTokens } from "./python.js";
 import type {
     FunctionTokenAnalyzerStatus,
     FunctionTokenEntry,
+    FunctionTokenAnalysisOptions,
 } from "./types.js";
 import { computeTypeScriptFunctionTokens } from "./typescript.js";
 
@@ -52,13 +53,16 @@ export function functionTokenAnalyzerStatus(filePath: string): FunctionTokenAnal
 
 export function selectFunctionTokenAnalyzer(
     filePath: string,
+    options: FunctionTokenAnalysisOptions = {},
 ): MetricAnalyzer<FunctionTokenEntry> | null {
     const extension = extname(filePath).toLowerCase();
     if (TYPESCRIPT_EXTENSIONS.has(extension)) {
         return { compute: computeTypeScriptFunctionTokens, language: "typescript" };
     }
     if (extension === ".py") {
-        return { compute: computePythonFunctionTokens, language: "python" };
+        return { compute: options.resourcePolicy === "foreground-survey"
+            ? (content, path) => computePythonFunctionTokens(content, path, options)
+            : computePythonFunctionTokens, language: "python" };
     }
     const language = KNOWN_CODE_LANGUAGES.get(extension) ?? extension.slice(1);
     return language ? { compute: unavailable, language } : null;
@@ -67,6 +71,7 @@ export function selectFunctionTokenAnalyzer(
 export function computeFunctionTokens(
     content: string,
     filePath: string,
+    options: FunctionTokenAnalysisOptions = {},
 ): FunctionTokenEntry[] | null {
-    return selectFunctionTokenAnalyzer(filePath)?.compute(content, filePath) ?? null;
+    return selectFunctionTokenAnalyzer(filePath, options)?.compute(content, filePath) ?? null;
 }

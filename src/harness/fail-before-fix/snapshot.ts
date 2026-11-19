@@ -6,11 +6,24 @@
 // caches) is never copied: the coverage overlay copies it, which costs gigabytes on this repository.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, promises as fsp, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-export interface ProjectCopy { dir: string; cleanup(): void; }
+/** `bytes`: the regular-file bytes the copy holds (what each proof copies again and again; kill-proof review round 4, M10). */
+export interface ProjectCopy { dir: string; bytes: number; cleanup(): void; }
+/** The async copy's handle: `cleanup` returns the removal so a caller can overlap it with the next run and await it later. */
+export interface AsyncProjectCopy { dir: string; bytes: number; cleanup(): Promise<void>; }
+
+/**
+ * Where the project sits inside its copy when its `vitest` is HOISTED to an enclosing workspace root (kill-proof
+ * review round 4 layouts, M5): the project is copied to `<copy>/<prefix>` (its path below the hoist root, e.g.
+ * `packages/a`) and the hoist root's `node_modules` is linked at `<copy>/node_modules`, so Node's upward resolution
+ * from the copied tests finds the hoisted packages exactly as it does in the live tree. The project's own
+ * `node_modules`, when present, is still linked beside its files. `dir` on the handle is `<copy>/<prefix>`.
+ */
+export interface HoistedModules { prefix: string; hoistedModules: string; }
+
 
 /** Project-relative paths git shows (tracked + untracked, ignored excluded); null outside a git work tree. */
 export function gitVisibleFiles(root: string): string[] | null {
@@ -36,15 +49,39 @@ export function copyWriteTarget(dir: string, path: string): string {
     return target;
 }
 
-function copyEntry(root: string, dir: string, rel: string): void {
-    const source = join(root, rel), target = join(dir, rel), link = isLink(source);
-    if (!link && !existsSync(source)) return; // a tracked file deleted in the working tree
-    mkdirSync(dirname(target), { recursive: true });
-    if (link) symlinkSync(readlinkSync(source), target);
-    else if (lstatSync(source).isFile()) copyFileSync(source, target);
+/** A link whose target resolves inside the root must point at the COPY's twin, never back at the live tree
+ *  (kill-proof review N1/N2: an absolute in-repo link made the copy load the live, unmutated file). */
+function copiedLinkTarget(rootReal: string, dir: string, source: string, target: string): string {
+    const raw = readlinkSync(source);
+    let real: string;
+    try { real = realpathSync(resolve(dirname(source), raw)); } catch { return raw; }
+    if (real !== rootReal && !real.startsWith(rootReal + sep)) return raw;
+    return relative(dirname(target), join(dir, relative(rootReal, real))) || ".";
 }
 
-function applyOverrides(dir: string, overrides: ReadonlyMap<string, string | null>): void {
+/** Copies one entry; returns the regular-file bytes copied (0 for a link, a directory or a vanished file). */
+/** Bytes a file actually occupies: the allocated blocks, not the apparent size (kill-proof review round 5, R5-12: a
+ *  sparse file `truncate`d to 300 MiB holds no data and copies in no time; it must not warn). Windows reports no
+ *  block count, so the apparent size stands in there. */
+export function allocatedBytes(stat: { size: number; blocks?: number }): number {
+    return typeof stat.blocks === "number" && Number.isFinite(stat.blocks) ? stat.blocks * 512 : stat.size;
+}
+
+function copyEntry(root: string, dir: string, rel: string): number {
+    const source = join(root, rel), target = join(dir, rel), link = isLink(source);
+    if (!link && !existsSync(source)) return 0; // a tracked file deleted in the working tree
+    mkdirSync(dirname(target), { recursive: true });
+    if (link) { symlinkSync(copiedLinkTarget(root, dir, source, target), target); return 0; }
+    const stat = lstatSync(source);
+    if (!stat.isFile()) return 0;
+    // COPYFILE_FICLONE: a copy-on-write clone where the file system offers one (APFS, btrfs, XFS reflink);
+    // elsewhere Node falls back to a byte copy. A proof copies the whole git-visible tree several times per run.
+    copyFileSync(source, target, constants.COPYFILE_FICLONE);
+    return allocatedBytes(stat);
+}
+
+/** Writes each override into an existing copy (null removes the file); every target goes through `copyWriteTarget`. */
+export function applyOverrides(dir: string, overrides: ReadonlyMap<string, string | null>): void {
     for (const [rel, content] of overrides) {
         const target = copyWriteTarget(dir, rel);
         if (content === null) { rmSync(target, { force: true }); continue; }
@@ -56,8 +93,11 @@ function applyOverrides(dir: string, overrides: ReadonlyMap<string, string | nul
 /** Copies the git-visible project, links node_modules, then writes each override (null removes the file). */
 export function createProjectCopy(root: string, files: readonly string[], overrides: ReadonlyMap<string, string | null>): ProjectCopy {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "interlinked-fail-before-fix-")));
+    const rootReal = realpathSync(root);
+    let bytes = 0;
     try {
-        for (const rel of files) copyEntry(root, dir, rel);
+        for (const rel of files) bytes += copyEntry(rootReal, dir, rel);
+
         const modules = join(root, "node_modules");
         if (existsSync(modules) && !existsSync(join(dir, "node_modules"))) symlinkSync(modules, join(dir, "node_modules"));
         applyOverrides(dir, overrides);
@@ -65,5 +105,67 @@ export function createProjectCopy(root: string, files: readonly string[], overri
         rmSync(dir, { recursive: true, force: true });
         throw error;
     }
-    return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+    return { dir, bytes, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+
+}
+
+/** Regular files in flight at once. Copying is bound by per-file create latency, not bytes (2026-11-05, 5,990 files on
+ *  ext4: 0.4 ms median per `copyFileSync`); 64 concurrent copies cut one tree from ~2.2 s to ~0.65 s
+ *  (`docs/reviews/kill-proof-performance.md`). */
+const COPY_CONCURRENCY = 64;
+
+/**
+ * `createProjectCopy` with the regular-file copies issued concurrently. The resulting tree is the same: the same
+ * entries are visited in the same order, directories and links are created synchronously exactly as `copyEntry`
+ * does, only the byte copies run in parallel, and the node_modules link and the overrides are written after every
+ * copy has finished (an override may replace a copied file).
+ */
+/** Copy `rels` from `from` to `to`, COPY_CONCURRENCY at a time (copy-on-write clones where the filesystem allows); the first failure throws after every worker settles. */
+async function copyFilesParallel(from: string, to: string, rels: readonly string[]): Promise<void> {
+    let next = 0;
+    const worker = async (): Promise<void> => {
+        while (next < rels.length) {
+            const rel = rels[next++] ?? "";
+            await fsp.copyFile(join(from, rel), join(to, rel), constants.COPYFILE_FICLONE);
+        }
+    };
+    const workers = Array.from({ length: Math.min(COPY_CONCURRENCY, rels.length) }, worker);
+    const settled = await Promise.allSettled(workers);
+    const failed = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed) throw failed.reason;
+}
+
+export async function createProjectCopyAsync(root: string, files: readonly string[], overrides: ReadonlyMap<string, string | null>, hoist?: HoistedModules): Promise<AsyncProjectCopy> {
+    const top = realpathSync(mkdtempSync(join(tmpdir(), "interlinked-fail-before-fix-")));
+    const dir = hoist === undefined ? top : join(top, hoist.prefix);
+    const rootReal = realpathSync(root);
+    let bytes = 0;
+    try {
+        if (hoist !== undefined) {
+            mkdirSync(dir, { recursive: true });
+            symlinkSync(hoist.hoistedModules, join(top, "node_modules"));
+        }
+        const made = new Set<string>(), pending: string[] = [];
+        for (const rel of files) {
+            const source = join(rootReal, rel), target = join(dir, rel), link = isLink(source);
+            if (!link && !existsSync(source)) continue;
+            const parent = dirname(target);
+            if (!made.has(parent)) { mkdirSync(parent, { recursive: true }); made.add(parent); }
+            if (link) symlinkSync(copiedLinkTarget(rootReal, dir, source, target), target);
+            else {
+                const stat = lstatSync(source);
+                if (stat.isFile()) { pending.push(rel); bytes += allocatedBytes(stat); }
+            }
+        }
+        await copyFilesParallel(rootReal, dir, pending);
+        // The link's REAL target: a copy made from another copy (kill-proof's frozen copy, round 6) links straight to the
+        // live node_modules instead of chaining through the first copy's link.
+        const modules = join(root, "node_modules");
+        if (existsSync(modules) && !existsSync(join(dir, "node_modules"))) symlinkSync(realpathSync(modules), join(dir, "node_modules"));
+        applyOverrides(dir, overrides);
+    } catch (error) {
+        rmSync(top, { recursive: true, force: true });
+        throw error;
+    }
+    return { dir, bytes, cleanup: () => fsp.rm(top, { recursive: true, force: true }) };
 }

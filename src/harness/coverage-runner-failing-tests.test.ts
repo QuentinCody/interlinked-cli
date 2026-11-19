@@ -30,6 +30,12 @@ describe("parseVitestFailingTestFiles", () => {
 		expect(parseVitestFailingTestFiles(text)).toEqual(["src/a.test.ts", "src/b.test.ts", "src/c.spec.tsx"]);
 	});
 
+	it("reads ANSI-colored rows (vitest colors output even when it is not a TTY)", () => {
+		const text = "\u001b[31m FAIL \u001b[39m \u001b[2msrc/\u001b[22me.test.ts\u001b[2m > \u001b[22mcase one\n";
+		expect(parseVitestFailingTestFiles(text)).toEqual(["src/e.test.ts"]);
+		expect(parseVitestFailingTests(text)).toEqual(["case one"]);
+	});
+
 	it("strips a |project| workspace tag", () => {
 		const text = "FAIL  |unit| src/d.test.ts > case\n";
 		expect(parseVitestFailingTestFiles(text)).toEqual(["src/d.test.ts"]);

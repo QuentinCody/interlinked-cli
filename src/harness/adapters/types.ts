@@ -62,6 +62,9 @@ export interface NativeHookEventCapability {
 	control: NativeDecisionControl;
 	/** Whether non-blocking feedback can be delivered to the model. */
 	model_context: boolean;
+	/** Characters of model context the runner keeps from this event's output (Codex cuts at its installed
+	 *  `additionalContextLimit`); absent = no known limit. */
+	context_limit?: number;
 	/** Whether the provider should launch this observational hook in the background. */
 	background?: boolean;
 	missing_runtime: "fail_closed" | "warn_open";

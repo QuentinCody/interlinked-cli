@@ -13,6 +13,9 @@
 // imports, which avoids a value-level circular import between the two files.
 
 import type { ApplyPatchSection } from "../apply-patch-content.js";
+import { relative, resolve } from "node:path";
+import { sourceRole } from "../../lib/metrics/inventory-roles.js";
+import { metricPolicyApplies, type ResolvedMetricPolicy } from "../metric-policy.js";
 import { projectPatchSection } from "../projected-file-changes.js";
 import type { FileGrandfather } from "../function-complexity-baseline.js";
 import { isCappableFile } from "../large-file-policy.js";
@@ -47,6 +50,7 @@ export function processApplyPatchSection<E extends NamedMetricEntry>(
 		observe: MetricObserver<E> | undefined,
 		gf: FileGrandfather | null,
 	) => string[] | null,
+	policy?: ResolvedMetricPolicy,
 ): ApplyPatchSectionOutcome {
 	const analyzer = spec.selectAnalyzer(section.path);
 	if (!analyzer) return "skip"; // extension the metric can't analyze → skip
@@ -61,5 +65,7 @@ export function processApplyPatchSection<E extends NamedMetricEntry>(
 	const gf = spec.grandfatherFor?.(cwd, section.path) ?? null;
 	const fileViolations = computeViolations(spec, before, after, section.path, analyzer, cap, observe, gf);
 	if (fileViolations === null) return "fail-open"; // analyzer unavailable → fail open entirely
+	const path = relative(cwd, resolve(cwd, section.path)).replaceAll("\\", "/");
+	if (policy && !metricPolicyApplies(policy.scope, path, sourceRole(path))) return { items: [], gf };
 	return { items: fileViolations, gf };
 }

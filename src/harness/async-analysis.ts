@@ -8,12 +8,28 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isJsonObject } from "../lib/json-types.js";
+import { wireArray, wireObject, wireString } from "../lib/value-validation.js";
+import { isCheckResultEntry } from "./daemon-response-parser.js";
 import type { CheckResultEntry } from "./types.js";
 
 interface PendingFindings {
 	file: string;
 	findings: CheckResultEntry[];
 	produced_at: string;
+}
+
+const isPendingFindings = wireObject<PendingFindings>({
+	file: wireString, findings: wireArray(isCheckResultEntry), produced_at: wireString,
+});
+
+function parsePendingMap(value: unknown): Record<string, PendingFindings> {
+	if (!isJsonObject(value)) return {};
+	const entries: [string, PendingFindings][] = [];
+	for (const [file, row] of Object.entries(value)) {
+		if (isPendingFindings(row) && row.file === file) entries.push([file, row]);
+	}
+	return Object.fromEntries(entries);
 }
 
 export interface AsyncAnalysisManager {
@@ -38,7 +54,7 @@ export function createAsyncAnalysisManager(interlinkedDir: string): AsyncAnalysi
 	function readPendingMap(): Record<string, PendingFindings> {
 		try {
 			if (existsSync(pendingsPath)) {
-				return JSON.parse(readFileSync(pendingsPath, "utf-8"));
+				return parsePendingMap(JSON.parse(readFileSync(pendingsPath, "utf-8")));
 			}
 		} catch (e) {
 			void e;
@@ -102,7 +118,7 @@ export function createAsyncAnalysisManager(interlinkedDir: string): AsyncAnalysi
 
 		consume(file) {
 			const map = readPendingMap();
-			const entry = map[file];
+			const entry = Object.hasOwn(map, file) ? map[file] : undefined;
 			if (!entry) return [];
 			delete map[file];
 			writePendingMap(map);

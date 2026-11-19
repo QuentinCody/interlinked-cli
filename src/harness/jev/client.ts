@@ -58,7 +58,7 @@ export function parseJevResponse(raw: unknown): JevResponse | null {
 	}
 	const input = raw.usage.input_tokens;
 	const output = raw.usage.output_tokens;
-	if (typeof input !== "number" || typeof output !== "number") return null;
+	if (typeof input !== "number" || !Number.isSafeInteger(input) || input < 0 || typeof output !== "number" || !Number.isSafeInteger(output) || output < 0) return null;
 	return { model: raw.model, answers, usage: { input_tokens: input, output_tokens: output } };
 }
 

@@ -49,11 +49,84 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("checkCommitBaselineGate", () => {
+	it("protects an adopted inherited metric against staged global posture downgrade", () => {
+		const config = ".interlinked/config.json", policy = ".interlinked/check-policy.json";
+		writeBaseline(config, { harness: { edit_metrics: { mode: "enforced" } } });
+		writeBaseline(policy, { metrics: { cyclomatic: { threshold: 10 } } });
+		git("add", "-f", config, policy); git("commit", "-q", "-m", "seed inherited policy");
+		writeBaseline(config, {}); git("add", "-f", config);
+		expect(checkCommitBaselineGate(commitEvent("git commit -m global"))?.reason).toContain("metric-policy:cyclomatic:mode");
+	});
+	it("allows historical global posture changes without metric adoption", () => {
+		const config = ".interlinked/config.json";
+		writeBaseline(config, { harness: { edit_metrics: { mode: "enforced" } } });
+		git("add", "-f", config); git("commit", "-q", "-m", "seed global policy");
+		writeBaseline(config, {}); git("add", "-f", config);
+		expect(checkCommitBaselineGate(commitEvent("git commit -m global"))).toBeNull();
+	});
+	it("blocks a staged adopted metric-policy downgrade", () => {
+		const policy = ".interlinked/check-policy.json";
+		writeBaseline(policy, { metrics: { cyclomatic: { mode: "block", threshold: 10 } } });
+		git("add", "-f", policy); git("commit", "-q", "-m", "seed metric policy");
+		writeBaseline(policy, { metrics: { cyclomatic: { mode: "warn" } } });
+		git("add", "-f", policy);
+		writeBaseline(policy, { metrics: { cyclomatic: { mode: "block", threshold: 5 } } });
+		expect(checkCommitBaselineGate(commitEvent("git commit -m policy"))?.reason).toContain("metric-policy:cyclomatic:mode");
+	});
+	it("protects inherited enforcement from a newly staged team override", () => {
+		writeBaseline(".interlinked/config.json", { harness: { edit_metrics: { mode: "enforced" } } });
+		writeBaseline(".interlinked/check-policy.json", { metrics: { cyclomatic: { mode: "off" } } });
+		git("add", "-f", ".interlinked/check-policy.json");
+		expect(checkCommitBaselineGate(commitEvent("git commit -m override"))?.reason).toContain("metric-policy:cyclomatic:mode");
+	});
+	it("allows deletion of historical check-only policy without metric adoption", () => {
+		const policy = ".interlinked/check-policy.json";
+		writeBaseline(policy, { checks: { test_without_description: { action: "warn_after" } } });
+		git("add", "-f", policy); git("commit", "-q", "-m", "seed check policy");
+		git("rm", "-q", policy);
+		expect(checkCommitBaselineGate(commitEvent("git commit -m remove-check-policy"))).toBeNull();
+	});
+	it("blocks removal of an adopted metric policy", () => {
+		const policy = ".interlinked/check-policy.json";
+		writeBaseline(policy, { metrics: { cyclomatic: { mode: "block", threshold: 10 } } });
+		git("add", "-f", policy); git("commit", "-q", "-m", "seed metric policy");
+		git("rm", "-q", policy);
+		expect(checkCommitBaselineGate(commitEvent("git commit -m remove-metric-policy"))?.reason).toContain("metric-policy:cyclomatic:mode");
+	});
+	it("uses staged companion caps when a policy target falls back to a tighter cap", () => {
+		const policy = ".interlinked/check-policy.json", caps = ".interlinked/metric-caps.json";
+		writeBaseline(policy, { metrics: { cyclomatic: { mode: "block", threshold: 5 } } });
+		writeBaseline(caps, { max_cyclomatic: 25 });
+		git("add", "-f", policy, caps); git("commit", "-q", "-m", "seed metric target");
+		writeBaseline(policy, { metrics: { cyclomatic: { mode: "block" } } });
+		writeBaseline(caps, { max_cyclomatic: 4 });
+		git("add", "-f", policy, caps);
+		expect(checkCommitBaselineGate(commitEvent("git commit -m tighten"))).toBeNull();
+	});
 	it("blocks broad removals while ignoring baselines that were never tracked", () => {
 		const decision = checkCommitBaselineGate(commitEvent("git rm -r -- .interlinked && git commit -m remove"));
 		expect(decision).toMatchObject({ decision: "block" });
 		expect(decision?.reason).toContain(`[deleted] ${REL}`);
 		expect(decision?.reason).not.toContain("[deleted] .interlinked/metric-caps.json");
+	});
+
+	it("P2 n19: `git rm --pathspec-from-file` before a commit is a broad removal (the gate cannot see the list)", () => {
+		writeFileSync(join(root, "list"), `${REL}\n`);
+		const decision = checkCommitBaselineGate(commitEvent("git rm --pathspec-from-file=list && git commit -m remove"));
+		expect(decision?.reason).toContain(`[deleted] ${REL}`);
+	});
+
+	it.each([`git mv ${REL} moved.json`, `git mv -f -- ${REL} moved.json`, `git mv ${REL} .interlinked/other.json elsewhere/`])("P2 n21: `git mv` of a tracked water-line away from its path is a removal (%s)", (mv) => {
+		const decision = checkCommitBaselineGate(commitEvent(`${mv} && git commit -m move`));
+		expect(decision?.reason).toContain(`[deleted] ${REL}`);
+	});
+
+	it("N n21: `git mv` of another file, or a dry-run mv, leaves the baseline alone", () => {
+		writeFileSync(join(root, "note.txt"), "x");
+		git("add", "note.txt");
+		git("commit", "-q", "-m", "note");
+		expect(checkCommitBaselineGate(commitEvent("git mv note.txt note2.txt && git commit -m move"))).toBeNull();
+		expect(checkCommitBaselineGate(commitEvent(`git mv -n ${REL} moved.json && git commit -m dry`))).toBeNull();
 	});
 
 	it.each(["-A", "--pathspec-from-file=list"])("checks worktree bytes before a broad add followed by write-tree (%s)", (options) => {

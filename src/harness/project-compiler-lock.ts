@@ -28,10 +28,8 @@ import {
 const LOCK_INITIALIZATION_GRACE_MS = 5_000;
 const LOCK_POLL_MS = 25;
 const LOCK_ROOT = join(tmpdir(), "interlinked-project-compiler-leases-v1");
-/** Backstop for legacy/uninspectable owners. All workloads using this shared
- * lease have bounded minute-scale timeouts; a full day is deliberately much
- * longer, while still preventing a recycled live PID from starving the lane
- * forever when stable process identity cannot be recovered. */
+/** Historical age marker retained for callers. Age alone never proves a live
+ * owner stale, including when its process identity cannot be recovered. */
 export const PROJECT_LEASE_HARD_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 
 export interface CrossProcessCompilerLease {
@@ -55,8 +53,7 @@ interface LockOwner {
 	token: string;
 	project: string;
 	createdAt: string;
-	/** OS-derived process start identity. Missing is accepted for v1 lockfile
-	 * compatibility and falls back to the hard maximum age. */
+	/** OS-derived process start identity. Missing remains valid for v1 owners. */
 	processIdentity?: string;
 }
 
@@ -166,10 +163,6 @@ function lockAgeMs(path: string): number {
 	}
 }
 
-function ownerAgeMs(path: string, owner: LockOwner): number {
-	return Math.max(lockAgeMs(path), Math.max(0, Date.now() - Date.parse(owner.createdAt)));
-}
-
 interface LockOwnerObservation {
 	raw: string | null;
 	owner: LockOwner | null;
@@ -199,8 +192,7 @@ function sameLockObservation(
 	return left.raw === right.raw && left.mtimeMs === right.mtimeMs;
 }
 
-function liveOwnerStillOwns(path: string, owner: LockOwner): boolean {
-	if (ownerAgeMs(path, owner) >= PROJECT_LEASE_HARD_MAX_AGE_MS) return false;
+function liveOwnerStillOwns(owner: LockOwner): boolean {
 	if (owner.processIdentity === undefined) return true;
 	const currentIdentity = processIdentity(owner.pid);
 	return currentIdentity === null || currentIdentity === owner.processIdentity;
@@ -227,7 +219,7 @@ function reclaimStaleLock(
 	// can observe either a missing file or temporarily incomplete metadata. Do
 	// not steal either form of a freshly-created lock from its live initializer.
 	if (!owner && lockAgeMs(path) < LOCK_INITIALIZATION_GRACE_MS) return false;
-	if (owner && processIsAlive(owner.pid) && liveOwnerStillOwns(path, owner)) return false;
+	if (owner && processIsAlive(owner.pid) && liveOwnerStillOwns(owner)) return false;
 	options.beforeRetireObserved?.();
 	// Staleness was decided from a snapshot. Re-read immediately before the
 	// rename so an external writer that replaced the observed owner is never

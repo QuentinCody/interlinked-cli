@@ -2,6 +2,11 @@ export const CANONICAL_TOKENIZER_ID = "interlinked-code-v2" as const;
 export const TYPESCRIPT_TOKENIZER_ID = "interlinked-ts-ast-v1" as const;
 export const PYTHON_TOKENIZER_ID = "interlinked-python-tokenize-v1" as const;
 
+/** Explicit source surveys can measure complete inputs while hooks retain their bounds. */
+export interface FunctionTokenAnalysisOptions {
+    resourcePolicy?: "foreground-survey" | "runtime";
+}
+
 export type FunctionDeclarationKind =
     | "function"
     | "method"

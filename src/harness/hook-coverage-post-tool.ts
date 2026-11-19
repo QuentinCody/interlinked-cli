@@ -20,7 +20,7 @@ function captureInput(watcher: Watcher, path: string): CheckInput | undefined {
     return { id: entry.id, path, identity: entry.identity, policyDigest: watcher.ledger.policyDigest(), policyGeneration: watcher.ledger.summary().policyGeneration };
 }
 
-function recordOutcome(watcher: Watcher, input: CheckInput | undefined, result: { checks: string[]; findings: QualityCheckResult[]; unavailable: string[]; scopes?: HookCheckReceipt["scopes"] }): void {
+function recordOutcome(watcher: Watcher, input: CheckInput | undefined, result: { checks: string[]; findings: QualityCheckResult[]; unavailable: string[]; scopes?: HookCheckReceipt["scopes"]; advisoryGaps?: HookCheckReceipt["advisoryGaps"] }): void {
     if (!input || !result.checks.length) return;
     watcher.reconcile();
     if (watcher.status().readiness !== "ready") return;
@@ -29,6 +29,7 @@ function recordOutcome(watcher: Watcher, input: CheckInput | undefined, result: 
     }
     watcher.ledger.recordCheck({ ...input, checks: [...new Set(result.checks)],
         unavailable: result.unavailable,
+        ...(result.advisoryGaps?.length ? { advisoryGaps: result.advisoryGaps } : {}),
         ...(result.scopes ? { scopes: result.scopes } : {}),
         findings: result.findings.map(finding => `${finding.severity}: ${finding.name}: ${finding.message}${finding.detail ? `\n${finding.detail}` : ""}`),
         checkedAt: new Date().toISOString(), kind: "automated_check" });
@@ -61,14 +62,19 @@ export async function runQualityChecksWithCoverage(input: CoverageQualityOptions
 
 async function receiptOutcome(input: CoverageQualityOptions, checks: string[], results: QualityCheckResult[], unavailable: string[]): Promise<Parameters<typeof recordOutcome>[2]> {
     const path = resolveQualityCheckTarget(input.event, input.cwd)?.filePath;
+    const advisoryGaps = results.filter(row => row.measurementState === "unavailable").map(row => ({ check: row.name, file: row.file ?? path ?? "<project>", reason: row.detail ?? row.message }));
     if (!input.externalBatch || !path) {
         if (input.options.skipMultiFileExternalChecks) unavailable.push("Shared external batch scope evidence is not attached to this per-file receipt");
-        return { checks, findings: results.filter(row => !isOperationalCheckDeferral(row.name)), unavailable };
+        return { checks, findings: results.filter(row => !unavailableMeasurement(row)), unavailable, advisoryGaps };
     }
     const external = await input.externalBatch.evidenceForFile(path);
     if (!batchPolicyMatches(input)) unavailable.push("Policy changed during shared batch execution");
-    const findings = [...results, ...await input.externalBatch.resultsForFile(path)].filter(row => !isOperationalCheckDeferral(row.name));
-    return { checks: [...checks, ...external.checks], findings, unavailable: [...unavailable, ...external.unavailable], scopes: external.scopes };
+    const findings = [...results, ...await input.externalBatch.resultsForFile(path)].filter(row => !unavailableMeasurement(row));
+    return { checks: [...checks, ...external.checks], findings, unavailable: [...unavailable, ...external.unavailable], scopes: external.scopes, advisoryGaps };
+}
+
+function unavailableMeasurement(row: QualityCheckResult): boolean {
+	return row.measurementState === "unavailable" || isOperationalCheckDeferral(row.name);
 }
 
 function rememberBatchPolicy(input: CoverageQualityOptions): void {

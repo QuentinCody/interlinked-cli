@@ -417,6 +417,17 @@ describe("check-evidence-baseline.json — INVERTED: exemption list may only shr
 	});
 });
 
+describe("saturation-baseline.json — the saturated list only grows", () => {
+	const SAT = "/repo/.interlinked/saturation-baseline.json";
+	it("BLOCKS removing a saturated file", () => {
+		const found = detect(SAT, { version: 1, saturated: ["src/a.ts", "src/b.ts"] }, { version: 1, saturated: ["src/a.ts"] });
+		expect(found.map(f => f.rule)).toEqual(["saturated:src/b.ts"]);
+	});
+	it("allows adding a file", () => {
+		expect(detect(SAT, { version: 1, saturated: ["src/a.ts"] }, { version: 1, saturated: ["src/a.ts", "src/c.ts"] })).toEqual([]);
+	});
+});
+
 describe("skipped-tests-baseline.json — skip cap tightens, grandfather counts shrink", () => {
 	const base = { version: 1, max_skipped: 0, files: { "src/legacy.test.ts": 3 } };
 	it("BLOCKS raising max_skipped", () => {

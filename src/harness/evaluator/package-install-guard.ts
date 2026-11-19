@@ -20,7 +20,7 @@ import {
 	type Allowlist,
 	hashLockfile,
 	isPackageAllowed,
-	matchSnapshot,
+	matchSnapshotAt,
 } from "../package-allowlist.js";
 import type { Ecosystem, InstallCommand, PackageSpec } from "../package-install-parser.js";
 import { pinnedVersionViolation } from "../package-install-parser.js";
@@ -154,7 +154,11 @@ function evaluateOne(
 	// Sync from manifest/lockfile without positional args. Require a stored
 	// snapshot match — either the manifest or any of its colocated lockfiles.
 	if (cmd.fromLockfile || cmd.fromManifest) {
-		return snapshotMismatchBlock(cmd, effectiveCwd, allowlist);
+		// `cwd` is the directory the allowlist was loaded from: the root that
+		// path-keyed grants are relative to.
+		return snapshotMismatchBlock(cmd, effectiveCwd, (name, path) =>
+			matchSnapshotAt(allowlist, cwd, name, path),
+		);
 	}
 
 	// Catch-all: install_global with no positional packages (e.g. malformed
@@ -205,18 +209,31 @@ function positionalPackagesBlock(
 function anyLockfileSnapshotMatches(
 	entries: ManifestSearchEntry[],
 	effectiveCwd: string,
-	allowlist: Allowlist,
+	matches: SnapshotMatcher,
 	fixedSnapshotCanAllow: boolean,
 ): boolean {
 	for (const entry of entries) {
 		for (const lf of entry.lockfiles) {
 			const p = join(effectiveCwd, lf);
-			if (isExistingFile(p) && matchSnapshot(allowlist, lf, p) && fixedSnapshotCanAllow) {
+			if (isExistingFile(p) && matches(lf, p) && fixedSnapshotCanAllow) {
 				return true;
 			}
 		}
 	}
 	return false;
+}
+
+/** Does a stored grant approve the file at `path`? `name` is the file's path
+ *  relative to the install directory (the legacy grant key). */
+type SnapshotMatcher = (name: string, path: string) => boolean;
+
+// The `allowlist snapshot` invocation that approves the install directory.
+// `--dir` keys the grant by path, so a directory reached through `cd` gets its
+// own grant instead of overwriting the root's grant for the same file name.
+function snapshotCommandFor(cmd: InstallCommand): string {
+	return cmd.effectiveCwd
+		? `interlinked allowlist snapshot --dir ${cmd.effectiveCwd}`
+		: "interlinked allowlist snapshot";
 }
 
 // Manifest/lockfile snapshot gate for a no-positional sync (`npm ci`, bare
@@ -227,22 +244,22 @@ function anyLockfileSnapshotMatches(
 function snapshotMismatchBlock(
 	cmd: InstallCommand,
 	effectiveCwd: string,
-	allowlist: Allowlist,
+	matches: SnapshotMatcher,
 ): HarnessDecision | null {
 	const entries = MANIFEST_BY_ECOSYSTEM[cmd.ecosystem];
 	const globManifests = scanGlobManifests(effectiveCwd, cmd.ecosystem);
 	const globManifestsMatch =
 		globManifests.length > 0 &&
-		globManifests.every((name) => matchSnapshot(allowlist, name, join(effectiveCwd, name)));
+		globManifests.every((name) => matches(name, join(effectiveCwd, name)));
 	const fixedSnapshotCanAllow = globManifests.length === 0 || globManifestsMatch;
 	// 1. Prefer lockfiles when one exists (stronger guarantee than manifest).
-	if (anyLockfileSnapshotMatches(entries, effectiveCwd, allowlist, fixedSnapshotCanAllow)) {
+	if (anyLockfileSnapshotMatches(entries, effectiveCwd, matches, fixedSnapshotCanAllow)) {
 		return null;
 	}
 	// 2. Fall back to manifest snapshot when no lockfile snapshot matched.
 	for (const entry of entries) {
 		const p = join(effectiveCwd, entry.manifest);
-		if (isExistingFile(p) && matchSnapshot(allowlist, entry.manifest, p) && fixedSnapshotCanAllow) {
+		if (isExistingFile(p) && matches(entry.manifest, p) && fixedSnapshotCanAllow) {
 			return null;
 		}
 	}
@@ -260,7 +277,7 @@ function snapshotMismatchBlock(
 		...globManifests,
 	].filter((f) => isExistingFile(join(effectiveCwd, f)));
 	const hint = presentFiles.length
-		? ` Run \`interlinked allowlist snapshot\` to approve the current state of: ${presentFiles.join(", ")}.`
+		? ` Run \`${snapshotCommandFor(cmd)}\` to approve the current state of: ${presentFiles.join(", ")}.`
 		: ` Initial bootstrap: \`interlinked allowlist add ${cmd.ecosystem} <package>\` per package, or \`interlinked allowlist snapshot\` once the manifest is in place.`;
 	const presentHashes = presentFiles
 		.map((f) => `${f}=${(hashLockfile(join(effectiveCwd, f)) ?? "?").slice(0, 12)}`)

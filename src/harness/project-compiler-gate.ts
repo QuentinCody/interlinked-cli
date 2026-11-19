@@ -30,10 +30,10 @@ export class ProjectCompilerUnavailableError extends Error {
 export interface ProjectCompilerLeaseOptions {
 	/** Cancellation applies while queued / waiting for cross-process admission. */
 	signal?: AbortSignal;
-	/** Maximum queue + cross-process admission wait. Default: 2 seconds. */
-	admissionTimeoutMs?: number;
-	/** Maximum queued callers behind the active compiler. Default: 8. */
-	maxQueued?: number;
+	/** Maximum queue + cross-process admission wait. Default 2 seconds. Null waits without a deadline. */
+	admissionTimeoutMs?: number | null;
+	/** Maximum queued callers behind the active compiler. Default 8. Null permits an unbounded queue. */
+	maxQueued?: number | null;
 }
 
 interface WarmCompilerRegistration {
@@ -99,7 +99,7 @@ function admissionError(
 	state: ProjectCompilerState,
 	options: ProjectCompilerLeaseOptions,
 ): ProjectCompilerUnavailableError | null {
-	const maxQueued = options.maxQueued ?? DEFAULT_MAX_QUEUED;
+	const maxQueued = options.maxQueued === null ? Infinity : options.maxQueued ?? DEFAULT_MAX_QUEUED;
 	if (state.queue.length >= maxQueued) {
 		return new ProjectCompilerUnavailableError(
 			"queue_full",
@@ -148,13 +148,14 @@ function enqueue<T>(
 			}
 			abortListener = null;
 		};
+		const admissionTimeoutMs = options.admissionTimeoutMs === null ? null : options.admissionTimeoutMs ?? DEFAULT_ADMISSION_TIMEOUT_MS;
 		const entry: QueueEntry = {
 			task,
 			// SAFETY: QueueEntry erases T only inside this coordinator; the same
 			// promise closure receives the task's T value without transformation.
 			resolve: (value) => resolveTask(value as T),
 			reject: rejectTask,
-			deadline: Date.now() + (options.admissionTimeoutMs ?? DEFAULT_ADMISSION_TIMEOUT_MS),
+			deadline: admissionTimeoutMs === null ? Infinity : Date.now() + admissionTimeoutMs,
 			signal: options.signal,
 			cancelled: false,
 			cleanup,
@@ -165,7 +166,7 @@ function enqueue<T>(
 		abortListener = (): void => {
 			cancelQueuedEntry(state, entry, "aborted", "compiler admission aborted while queued");
 		};
-		timer = setTimeout(timeout, options.admissionTimeoutMs ?? DEFAULT_ADMISSION_TIMEOUT_MS);
+		if (admissionTimeoutMs !== null) timer = setTimeout(timeout, admissionTimeoutMs);
 		options.signal?.addEventListener("abort", abortListener, { once: true });
 		state.queue.push(entry);
 		void drain(state);
@@ -182,14 +183,14 @@ function warmEvictionAdmissionEnd(entry: QueueEntry): WarmEvictionAdmissionEnd {
 	const promise = new Promise<never>((_resolve, reject) => {
 		rejectAdmission = reject;
 	});
-	const timer = setTimeout(() => {
+	const timer = Number.isFinite(entry.deadline) ? setTimeout(() => {
 		rejectAdmission(
 			new ProjectCompilerUnavailableError(
 				"busy",
 				"warm compiler eviction exceeded the admission deadline",
 			),
 		);
-	}, Math.max(0, entry.deadline - Date.now()));
+	}, Math.max(0, entry.deadline - Date.now())) : undefined;
 	const onAbort = (): void => {
 		rejectAdmission(
 			new ProjectCompilerUnavailableError(
@@ -254,6 +255,7 @@ async function executeEntry(state: ProjectCompilerState, entry: QueueEntry): Pro
 	}
 	entry.cleanup();
 	try {
+		if (entry.signal?.aborted) throw new ProjectCompilerUnavailableError("aborted", "compiler admission aborted before execution");
 		return await entry.task();
 	} finally {
 		lease.release();

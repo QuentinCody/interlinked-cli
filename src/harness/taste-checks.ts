@@ -14,6 +14,7 @@ import {
 	push,
 	stripCommentsAndStrings,
 } from "./taste-checks-shared.js";
+import { checkMatchLimit } from "./checks/check-scan-policy.js";
 
 
 // Checks 12-21 (commented-out code through duplicate describe) plus their
@@ -219,7 +220,7 @@ export function checkHybridClass(content: string, filePath: string): InlineMatch
 	const sLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
 	let i = 0;
-	while (i < sLines.length && matches.length < 5) {
+	while (i < sLines.length && matches.length < checkMatchLimit(5)) {
 		const sLine = sLines[i] ?? "";
 		if (!CLASS_DECL.test(sLine)) {
 			i++;
@@ -234,7 +235,7 @@ export function checkHybridClass(content: string, filePath: string): InlineMatch
 			continue;
 		}
 		const end = findBlockEnd(sLines, i);
-		if (isHybrid(sLines.slice(i + 1, end))) push(matches, i, lines, 5);
+		if (isHybrid(sLines.slice(i + 1, end))) push(matches, i, lines, checkMatchLimit(5));
 		i = end + 1;
 	}
 	return matches;
@@ -253,8 +254,8 @@ export function checkFuzzyResponsibilityName(content: string, filePath: string):
 	const lines = content.split("\n");
 	const sLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
-	for (let i = 0; i < sLines.length && matches.length < 5; i++) {
-		if (FUZZY_NAME.test(sLines[i] ?? "")) push(matches, i, lines, 5);
+	for (let i = 0; i < sLines.length && matches.length < checkMatchLimit(5); i++) {
+		if (FUZZY_NAME.test(sLines[i] ?? "")) push(matches, i, lines, checkMatchLimit(5));
 	}
 	return matches;
 }
@@ -302,24 +303,5 @@ export function checkLawOfDemeter(content: string, filePath: string): InlineMatc
 // Clean Code (Ch. 3)
 // ===========================================
 
-const FLAG_POSITIONAL = /\b[A-Za-z_$][\w$]*\s*\(\s*[^(),]+?\s*,\s*(true|false)\s*[),]/;
-const FLAG_OBJECT =
-	/\b[A-Za-z_$][\w$]*\s*\(\s*[^()]*?\{[^{}]*\b[A-Za-z_$][\w$]*\s*:\s*(?:true|false)\b[^{}]*\}/;
-const FLAG_SAFE_BUILTINS =
-	/\b(setAttribute|setItem|JSON\.stringify|removeEventListener|addEventListener|Array\.from|Object\.defineProperty|Reflect\.defineProperty|hasOwnProperty|localStorage|sessionStorage|Boolean|mkdir|mkdirSync|writeFile|writeFileSync|readFile|readFileSync|appendFile|appendFileSync|rm|rmSync|stat|statSync|lstat|lstatSync|access|accessSync|open|openSync|close|closeSync|chmod|chmodSync|copyFile|copyFileSync|rename|renameSync|unlink|unlinkSync|readdir|readdirSync|realpath|realpathSync|utimes|utimesSync|symlink|symlinkSync|spawn|spawnSync|exec|execSync|execFile|execFileSync|Reflect\.get|Reflect\.set)\s*\(/;
-
-export function checkFlagArgument(content: string, filePath: string): InlineMatch[] {
-	if (!isJsTs(filePath) || isTestFile(filePath)) return [];
-	const stripped = stripCommentsAndStrings(content);
-	const lines = content.split("\n");
-	const sLines = stripped.split("\n");
-	const matches: InlineMatch[] = [];
-	for (let i = 0; i < sLines.length && matches.length < 8; i++) {
-		const line = sLines[i] ?? "";
-		if (/^\s*(return|const|let|var)\s+/.test(line)) continue;
-		if (FLAG_SAFE_BUILTINS.test(line)) continue;
-		if (FLAG_POSITIONAL.test(line) || FLAG_OBJECT.test(line)) push(matches, i, lines, 8);
-	}
-	return matches;
-}
+export { checkFlagArgument } from "./checks/boolean-argument.js";
 

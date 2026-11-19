@@ -30,6 +30,8 @@ describe("WATER_LINE_FILES — the canonical guard set", () => {
 			"check-evidence-baseline",
 			"function-complexity-baseline",
 			"lint-baseline",
+			"instruction-packets",
+			"saturation-baseline",
 		]);
 	});
 
@@ -41,6 +43,13 @@ describe("WATER_LINE_FILES — the canonical guard set", () => {
 
 	it("N4: the ledger's .previous snapshot is NOT a water-line", () => {
 		expect(waterLineStem("/repo/.interlinked/function-complexity-baseline.previous.json")).toBeNull();
+	});
+
+	it("P2 n24: the match ignores case — on a case-insensitive file system (macOS APFS) any spelling reaches the real file", () => {
+		expect(waterLineStem("/repo/.interlinked/Metric-Caps.json")).toBe("metric-caps");
+		expect(waterLineStem("/repo/.INTERLINKED/METRIC-CAPS.JSON")).toBe("metric-caps");
+		expect(isWaterLinePath(".Interlinked/Coverage-Baseline.json")).toBe(true);
+		expect(waterLineStem("/repo/.interlinked/Metric-Caps.previous.json")).toBeNull();
 	});
 
 	it("has no duplicate entries", () => {

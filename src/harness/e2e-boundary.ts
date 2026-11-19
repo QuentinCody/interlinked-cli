@@ -12,6 +12,7 @@ export const LEDGER_WRITERS = [
     "src/harness/guard-prediction.ts", "src/harness/jev/decision-shadow.ts", "src/harness/jev/edit-shadow.ts",
     "src/harness/latency-log.ts", "src/harness/mutation/manifest.ts", "src/harness/mutation/mutation-cloud-v3-finding-delivery.ts",
     "src/harness/mutation/run-log.ts", "src/harness/mutation/stryker-evidence-retention.ts", "src/harness/obligation-ledger-io.ts", "src/harness/plan-capture.ts",
+    "src/harness/packets/evaluator.ts", "src/harness/packets/fallback-ledger.ts", "src/harness/packets/trajectory-ledger.ts",
     "src/harness/policy-classifier.ts", "src/harness/project-e2e/ledger.ts", "src/harness/project-e2e/policy-changes.ts", "src/harness/project-e2e/requests.ts", "src/harness/project-e2e/stability.ts","src/harness/replay/eval-ledger.ts", "src/harness/replay/inference-store.ts",
     "src/harness/replay/state-archive.ts", "src/harness/replay/tree-snapshot.ts", "src/harness/session-touched-files.ts", "src/harness/spec/reconciliation.ts",
     "src/harness/stop-digest-state.ts", "src/harness/taint-clear-log.ts", "src/harness/telemetry-spool.ts", "src/harness/test-requests.ts", "src/harness/timeline-writer.ts",

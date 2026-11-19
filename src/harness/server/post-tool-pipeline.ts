@@ -57,6 +57,7 @@ import {
 	attachTailResults,
 	emitAllCleanSummary,
 } from "./post-tool-pipeline-tail.js";
+import { appendPacketWarnings } from "./packets-phase.js";
 
 export { POST_TOOL_PIPELINE_FAILURE_WARNING } from "./post-tool-pipeline-spool.js";
 
@@ -296,6 +297,10 @@ async function runPostToolPipelineInner(
 	// per-provider normalizers populate `tool_outcome` consistently. Output
 	// flows into postDecision.warnings, surfaced by the .mjs per existing wiring.
 	appendFailureChannelWarnings(ctx, event, session, postDecision);
+	// --- Instruction packets (stage 2, opt-in `packets.enabled` + `jev.enabled`):
+	// a packet at warn/cosign delivers `[interlinked:packet]` on an allow; shadow
+	// packets run fire-and-forget. Never changes the decision (packets-phase.ts).
+	await appendPacketWarnings(event, rules, postDecision);
 
 	// --- Content Scanner: scan Read/Grep results, ratchet session sensitivity on PII ---
 	await appendContentScanWarnings(ctx, event, session, postDecision);

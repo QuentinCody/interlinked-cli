@@ -24,7 +24,9 @@
 // resolver, the per-edit slew tolerance (cyclomatic 2, cognitive 4), and every
 // word of the block message including the metric-specific advice.
 
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
+import { sourceRole } from "../../lib/metrics/inventory-roles.js";
+import { metricPolicyApplies, type ResolvedMetricPolicy } from "../metric-policy.js";
 import type { JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import { extractApplyPatchRaw, looksLikeApplyPatch, parseApplyPatchSections } from "../apply-patch-content.js";
@@ -385,15 +387,16 @@ function checkApplyPatch<E extends NamedMetricEntry>(
 	toolInput: JsonObject,
 	cwd: string,
 	observe?: MetricObserver<E>,
+	policy?: ResolvedMetricPolicy,
 ): MetricWriteBlock | null {
 	const raw = extractApplyPatchRaw(toolInput);
 	if (!raw || !looksLikeApplyPatch(raw)) return null;
 
 	const violations: string[] = [];
-	const cap = spec.capFor(cwd);
+	const cap = policy?.threshold ?? spec.capFor(cwd);
 	let lastGf: FileGrandfather | null = null;
 	for (const section of parseApplyPatchSections(raw)) {
-		const outcome = processApplyPatchSection(spec, section, cwd, cap, observe, metricViolations);
+		const outcome = processApplyPatchSection(spec, section, cwd, cap, observe, metricViolations, policy);
 		if (outcome === "fail-open") return null; // analyzer unavailable → fail open entirely
 		if (outcome === "skip") continue;
 		for (const item of outcome.items) violations.push(`${section.path}: ${item}`);
@@ -414,6 +417,7 @@ export function checkPerFunctionMetricWrite<E extends NamedMetricEntry>(
 	toolInput: JsonObject,
 	cwd: string,
 	observe?: MetricObserver<E>,
+	policy?: ResolvedMetricPolicy,
 ): MetricWriteBlock | null {
 	const filePath = resolveFilePath(toolInput);
 	if (filePath) {
@@ -423,7 +427,7 @@ export function checkPerFunctionMetricWrite<E extends NamedMetricEntry>(
 		const projected = projectContent(toolInput, abs);
 		if (!projected) return null;
 		if (!isCappableFile({ filePath, content: projected.after, root: cwd })) return null;
-		const cap = spec.capFor(cwd);
+		const cap = policy?.threshold ?? spec.capFor(cwd);
 		const gf = spec.grandfatherFor?.(cwd, filePath) ?? null;
 		const violations = metricViolations(
 			spec,
@@ -436,8 +440,10 @@ export function checkPerFunctionMetricWrite<E extends NamedMetricEntry>(
 			gf,
 		);
 		if (violations === null || violations.length === 0) return null;
+		const path = relative(cwd, abs).replaceAll("\\", "/");
+		if (policy && !metricPolicyApplies(policy.scope, path, sourceRole(path))) return null;
 		return { block: buildMetricBlock(spec, violations, cap, gf) };
 	}
 	// No explicit file_path → may be an apply_patch payload (multi-file).
-	return checkApplyPatch(spec, toolInput, cwd, observe);
+	return checkApplyPatch(spec, toolInput, cwd, observe, policy);
 }

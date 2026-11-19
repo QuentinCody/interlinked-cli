@@ -3,9 +3,25 @@
 // per-edit coverage selector attributes coverage to this file without having
 // to follow a re-export hop.
 import { describe, expect, it } from "vitest";
-import { checkAssertionFreeTest } from "../taste-checks-test-assertions.js";
+import { checkAssertionFreeTest, checkMockingTheSUT } from "../taste-checks-test-assertions.js";
+import { withForegroundCheckScan } from "../checks/check-scan-policy.js";
 
 const TEST = "/x/widget.test.ts";
+
+describe("checkMockingTheSUT foreground result collection", () => {
+	it("P1 retains twenty mock replacements and their tail while ordinary edits keep five", () => {
+		const content = Array.from({ length: 20 }, () => 'vi.mock("./widget.js");').join("\n");
+		const scan = () => checkMockingTheSUT(content, TEST);
+		expect(scan()).toHaveLength(5);
+		expect(withForegroundCheckScan(scan).map(match => match.line)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+		expect(scan()).toHaveLength(5);
+	});
+
+	it("N1 retains spies, actual-module forwarding and unrelated-module exceptions", () => {
+		const content = Array.from({ length: 20 }, () => 'vi.mock("./widget.js", { spy: true });\njest.mock("./widget.js", () => jest.requireActual("./widget.js"));\nvi.mock("../other/widget.js");').join("\n");
+		expect(withForegroundCheckScan(() => checkMockingTheSUT(content, TEST))).toEqual([]);
+	});
+});
 
 it("does not infer assertion absence from a parameterized callback supplied by reference", () => {
 	const content = 'it.each(cases)("validates %s", verifyCase);\nit("ordinary case", () => { compute(); });';

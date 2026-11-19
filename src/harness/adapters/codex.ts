@@ -27,6 +27,7 @@ import type { UnifiedHookEvent } from "../unified-event.js";
 import { buildDetachedHookCommand, buildHookCommand } from "./hook-command.js";
 import { buildStandardAction, normalizeNativeHookEvent } from "./normalization.js";
 import {
+	CODEX_ADDITIONAL_CONTEXT_LIMIT,
 	CODEX_CAPABILITIES,
 	eventCapability,
 	installedEventNames,
@@ -189,7 +190,7 @@ export function codexRegistration(binaryPath: string, event: string): Record<str
 		handler.async = true;
 	}
 	if (capability.controls?.includes("context")) {
-		handler.additionalContextLimit = 2_500;
+		handler.additionalContextLimit = CODEX_ADDITIONAL_CONTEXT_LIMIT;
 	}
 	return {
 		matcher: event === EVT_POST_TOOL ? CODEX_POST_TOOL_USE_MATCHER : "",

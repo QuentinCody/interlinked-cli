@@ -25,11 +25,15 @@ import { readDiskContent } from "./config-loosening-gate.js";
 import { canonicalWaterLineText, parseWaterLineJson, postImageDefects } from "../water-line-json.js";
 import { detectCoverageEdit } from "./coverage-edit-baseline-integrity.js";
 import { detectFunctionComplexityBaseline, detectSiblingBaseline, ledgerCreationBlock } from "./function-complexity-baseline-gate.js";
+import { detectPacketLoosening, packetCreationDefects, type SourceReader, type WriteOrigin } from "../packets/water-line.js";
+import { resolveSourcePath } from "../packets/source-path.js";
 import { type BaselineKind, baselineKind } from "./baseline-kind.js";
 import { detectLintBaselineGaming } from "./lint-baseline-integrity.js";
 import { baselineKeyFor, COVERAGE_METRICS } from "../coverage-metric-names.js";
 import { detectE2eBaselineGaming, type E2eGuardContext } from "./e2e-baseline-integrity.js";
+import { detectSaturationBaselineLoosening } from "../mutation/saturation.js";
 import { resolveE2eBase } from "../e2e-store.js";
+import { detectMetricPolicyLoosening, hasMetricPolicyEnforcement, isMetricPolicyPath, metricPolicySourcesForEvent, type MetricPolicyIntegrityContext } from "./metric-policy-integrity.js";
 import {
 	detectLargeFilesCap,
 	detectMetricCaps,
@@ -300,11 +304,18 @@ export function detectBaselineGaming(
 	afterText: string,
 	sourceExists?: (rel: string) => boolean,
 	e2eContext?: E2eGuardContext,
+	packets?: PacketWriteContext,
+	metricContext?: MetricPolicyIntegrityContext,
 ): BaselineGamingFinding[] {
+	if (isMetricPolicyPath(filePath)) return detectMetricPolicyLoosening(filePath, beforeText || null, afterText || null, metricContext);
 	const kind = baselineKind(filePath);
 	if (kind === "coverage-e2e") return detectE2eBaselineGaming(filePath, beforeText, afterText, e2eContext);
 	// The disposition ledger (not a water-line) rides its sibling detector.
 	if (!kind) return detectSiblingBaseline(filePath, beforeText, afterText);
+	// The packet file is judged by its own strict parser, and a pre-image it refuses (torn, a hand edit, another
+	// version's field) is NOT a free pass: the write is judged as a creation, so a forged live or released packet
+	// cannot be born on top of an invalid file (break R1, lenient-path injection).
+	if (kind === "instruction-packets") return packetWaterLine(filePath, beforeText, afterText, waterLineRoot(filePath, e2eContext?.root), packets);
 	if (!beforeText) return [];
 	// ONE strict parser (water-line-json.ts), with the semantics every runtime
 	// consumer reads (red team 2026-10-21 round 3: a JSONC-tolerant parse here let
@@ -323,7 +334,21 @@ export function detectBaselineGaming(
 	// decodes to the strict value too, so no detector judges another value.
 	const texts = { beforeText: canonicalWaterLineText(before.value), afterText: canonicalWaterLineText(after.value) };
 	const root = waterLineRoot(filePath, e2eContext?.root);
-	return compareBaseline({ kind, filePath, ...texts, before: before.value, after: after.value, exists, root });
+	return compareBaseline({ kind, filePath, ...texts, before: before.value, after: after.value, exists, root, packets });
+}
+
+/** How the instruction-packet water-line reads a write: who wrote it (`tool` is strict, see `WriteOrigin`) and
+ *  how to read an instruction file as the write or the commit leaves it (default: the worktree under `root`). */
+export interface PacketWriteContext {
+	origin?: WriteOrigin;
+	readSource?: SourceReader;
+}
+
+/** The instruction file — on disk, or as the commit carries it — vouches for a release made by `packets
+ *  release` (R43); the commit gate supplies its own reader (audit C, HEAD/index/worktree). */
+function packetWaterLine(filePath: string, beforeText: string, afterText: string, root: string | null, packets: PacketWriteContext | undefined): BaselineGamingFinding[] {
+	const diskReader = root ? (file: string) => readDiskContent(resolveSourcePath(root, file), root) : undefined;
+	return detectPacketLoosening(filePath, beforeText, afterText, packets?.readSource ?? diskReader, packets?.origin ?? "recorded");
 }
 
 /** The effect arm restores a complexity-ledger loosening only when its rule
@@ -346,10 +371,11 @@ interface BaselineComparison {
     exists: (rel: string) => boolean;
     /** Repository root of the water-line, when it can be known. */
     root: string | null;
+    packets?: PacketWriteContext | undefined;
 }
 
 function compareBaseline(input: BaselineComparison): BaselineGamingFinding[] {
-    const { kind, filePath, beforeText, afterText, before, after, exists, root } = input;
+    const { kind, filePath, beforeText, afterText, before, after, exists, root, packets } = input;
 	switch (kind) {
 		case "coverage":
 			return detectRisingMetricMap(filePath, asObj(asObj(before).files), asObj(asObj(after).files), COVERAGE_METRICS.map(baselineKeyFor), "coverage", exists);
@@ -375,6 +401,10 @@ function compareBaseline(input: BaselineComparison): BaselineGamingFinding[] {
 			return detectFunctionComplexityBaseline(filePath, beforeText, afterText);
 		case "lint":
 			return detectLintBaselineGaming(filePath, before, after);
+		case "instruction-packets":
+			return packetWaterLine(filePath, beforeText, afterText, root, packets);
+		case "saturation":
+			return detectSaturationBaselineLoosening(filePath, before, after);
 	}
 }
 
@@ -405,23 +435,29 @@ export function evaluateBaselineIntegrityForEvent(
 	// this entry point is safe to call for ANY tool: non-writers yield nothing.
 	const proposals = baselineProposals(event.tool_name ?? "", event.tool_input ?? {}, (file) => getDisk(file, event.cwd), event.cwd);
 	for (const proposal of proposals) {
-		const decision = judgeProposal(proposal, event);
+		const root = waterLineRoot(proposal.filePath, event.cwd) ?? event.cwd ?? process.cwd();
+		const metricContext = isMetricPolicyPath(proposal.filePath) ? metricPolicySourcesForEvent(event, root, path => getDisk(path, event.cwd)) : undefined;
+		const decision = judgeProposal(proposal, event, metricContext);
 		if (decision) return decision;
 	}
 	return null;
 }
 
-function judgeProposal({ filePath, before, proposed }: BaselineProposal, event: HarnessEvent): HarnessDecision | null {
+function judgeProposal({ filePath, before, proposed }: BaselineProposal, event: HarnessEvent, metricContext?: MetricPolicyIntegrityContext): HarnessDecision | null {
 	const kind = baselineKind(filePath);
 	if (before === null && kind === "coverage-e2e") return {
 		decision: "block", rule_id: "baseline_integrity_gate", severity: "high", category: "config",
 		reason: "Create the e2e baseline from a measured passing run: interlinked coverage check --lane e2e --init-baseline",
 	};
-	// Absent baseline: creating it isn't loosening — except the complexity ledger (ledgerCreationBlock).
-	if (before === null) return kind === "function-complexity" ? ledgerCreationBlock(filePath) : null;
+	// Absent baseline: creating it isn't loosening — except the complexity ledger (ledgerCreationBlock)
+	// and a packet file born with a live packet or a release (packetCreationBlock).
+	if (before === null && kind === "instruction-packets") return packetCreationBlock(filePath, proposed);
+	if (before === null && !metricContext) return kind === "function-complexity" ? ledgerCreationBlock(filePath) : null;
+	if (metricContext && proposed.kind === "undecidable" && !hasMetricPolicyEnforcement(filePath, before, metricContext)) return null;
 	if (proposed.kind === "undecidable") return undecidableBlock(filePath, event.tool_name ?? "this tool", proposed.reason);
 	const context = { root: event.cwd ?? process.cwd(), base: resolveE2eBase() };
-	const findings = proposed.contents.flatMap((after) => detectBaselineGaming(filePath, before, after, undefined, context));
+	// A Write/Edit of a water-line is always the agent's hand: the CLI writes through internal fs, never a tool.
+	const findings = proposed.contents.flatMap((after) => detectBaselineGaming(filePath, before ?? "", after, undefined, context, { origin: "tool" }, metricContext));
 	if (findings.length === 0) return null;
 
 	const messages = [...new Set(findings.map((f) => `[${f.rule}] ${f.message}`))].join("\n  ");
@@ -444,6 +480,20 @@ function undecidableBlock(filePath: string, toolName: string, why: string): Harn
 			`BLOCKED: the baseline-integrity gate cannot determine what this ${toolName} call would leave in ${filePath} (${why}). ` +
 			"A ratchet water-line edit that cannot be judged is refused. Re-issue the change as a Write of the full file content — a Write is always decidable. " +
 			"If this is an intentional reset, set INTERLINKED_DISABLE_BASELINE_GUARD=1.",
+		rule_id: "baseline_integrity_gate",
+		severity: "high",
+		category: "config",
+	};
+}
+
+/** A packet file may be created by a tool write only with every packet at shadow and nothing released. */
+function packetCreationBlock(filePath: string, proposed: BaselineProposal["proposed"]): HarnessDecision | null {
+	if (proposed.kind === "undecidable") return undecidableBlock(filePath, "this tool", proposed.reason);
+	const defects = proposed.contents.flatMap(packetCreationDefects);
+	if (defects.length === 0) return null;
+	return {
+		decision: "block",
+		reason: `BLOCKED: creating ${filePath} with a live packet:\n  ${[...new Set(defects)].join("\n  ")}\n\nEvery packet starts at shadow; \`interlinked packets calibrate\` promotes on a measured holdout and \`interlinked packets release\` moves text. If this is an intentional reset, set INTERLINKED_DISABLE_BASELINE_GUARD=1.`,
 		rule_id: "baseline_integrity_gate",
 		severity: "high",
 		category: "config",

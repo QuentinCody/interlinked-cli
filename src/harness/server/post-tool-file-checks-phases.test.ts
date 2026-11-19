@@ -139,7 +139,7 @@ import { acknowledgeChecks, isAcknowledged } from "../session-state.js";
 import { expandSiblings } from "../sibling-expansion.js";
 import { runStructureChecks } from "../structure/structure-checks.js";
 import { formatStructureWarnings } from "../structure/structure-formatter.js";
-import { loadStructureConfig } from "../structure/structure-loader.js";
+import { getImplicitConfig, loadStructureConfig } from "../structure/structure-loader.js";
 import { formatScoredFindings, scoreFindings, writeTelemetry } from "../suggestion-scorer.js";
 import { loadFileSuppressions, scanInlineSuppressions } from "../suppressions.js";
 import { collectDeletionHygieneDiffFindings } from "./deletion-hygiene-diff.js";
@@ -231,8 +231,6 @@ function makeCtx(over: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}
 		preEditBaselines: new Map(),
 		filePriorityMap: new Map(),
 		trigramIndex: null,
-		structureGraph: null,
-		structureConfigCache: null,
 		projectWideSweepState: {
 			recordFileChecked: vi.fn(),
 			recordEdit: vi.fn(() => false),
@@ -1247,37 +1245,94 @@ describe("runStructureChecksPhase", () => {
 	});
 
 	it("skips the cold build when the time budget is blown and no cached graph", () => {
-		// postStartMs far in the past → structElapsed >> 12s budget; structureGraph null.
-		const ctx = makeCtx({ structureGraph: null });
+		// postStartMs far in the past → elapsed >> 12s budget; no entry for the root.
+		const ctx = makeCtx();
 		const acc = makeAcc({ postStartMs: Date.now() - 60_000 });
 		callStruct({ ctx, acc });
 		expect(mRunStructure).not.toHaveBeenCalled();
+		expect(mLoadStructureConfig).not.toHaveBeenCalled();
 	});
 
-	it("STILL runs when over budget but a cached graph exists", () => {
-		const ctx = makeCtx({ structureGraph: builtGraph });
+	it("STILL runs when over budget but the root has a cached graph", () => {
+		const ctx = makeCtx();
+		ctx.structureCache.create(CWD, loadedStructureConfig).graph = builtGraph;
 		const acc = makeAcc({ postStartMs: Date.now() - 60_000 });
 		const session = makeSession();
 		session.files_written.add("src/changed-sibling.ts");
 		callStruct({ ctx, acc, session });
 		expect(mRunStructure).toHaveBeenCalledOnce();
-		expect(mRunStructure).toHaveBeenCalledWith(FILE, CWD, builtGraph, null, session.files_written);
+		expect(mRunStructure).toHaveBeenCalledWith(FILE, CWD, builtGraph, loadedStructureConfig, session.files_written);
 	});
 
-	it("runs structure checks, updates the graph cache, and loads the config when absent", () => {
-		const ctx = makeCtx({ structureGraph: null, structureConfigCache: null });
-		mRunStructure.mockReturnValue({ results: [], findings: [], graph: builtGraph, pendingCompletions: [] });
+	it("runs structure checks, loads the root's config on a miss, and caches config + graph for that root", () => {
+		const ctx = makeCtx();
 		callStruct({ ctx });
-		expect(ctx.structureGraph).toEqual(builtGraph);
 		expect(mLoadStructureConfig).toHaveBeenCalledOnce();
-		expect(ctx.structureConfigCache).toEqual(loadedStructureConfig);
+		expect(mLoadStructureConfig).toHaveBeenCalledWith(CWD);
+		expect(mRunStructure).toHaveBeenCalledWith(FILE, CWD, null, loadedStructureConfig, expect.anything());
+		expect(ctx.structureCache.get(CWD)).toEqual({ config: loadedStructureConfig, graph: builtGraph });
 	});
 
-	it("does not reload the structure config when already cached", () => {
-		const ctx = makeCtx({ structureGraph: builtGraph, structureConfigCache: loadedStructureConfig });
+	it("reuses the same root's cached config and graph without reloading", () => {
+		const ctx = makeCtx();
 		callStruct({ ctx });
-		expect(mLoadStructureConfig).not.toHaveBeenCalled();
-		expect(ctx.structureConfigCache).toEqual(loadedStructureConfig);
+		callStruct({ ctx });
+		expect(mLoadStructureConfig).toHaveBeenCalledOnce();
+		expect(mRunStructure).toHaveBeenLastCalledWith(FILE, CWD, builtGraph, loadedStructureConfig, expect.anything());
+	});
+
+	describe("per-root cache — negative (must not fire)", () => {
+		const ROOT_A = "/repo/fixtures/a";
+		const ROOT_B = "/repo";
+		const FILE_A = `${ROOT_A}/src/client.ts`;
+		const FILE_B = "/repo/src/agent.ts";
+		const configA = resolveStructureConfig({ version: 1, mode: "standard", artifacts: { glossary: "artifacts/glossary.json" } });
+		const graphA = new ArtifactGraph();
+		const graphB = new ArtifactGraph();
+
+		it("N1: a call for root B never receives root A's config or graph", () => {
+			mFindProjectRoot.mockImplementation((f: string) => (f.startsWith(ROOT_A) ? ROOT_A : ROOT_B));
+			mLoadStructureConfig.mockImplementation((root: string) => ({
+				config: root === ROOT_A ? configA : null, errors: [], implicit: root !== ROOT_A,
+			}));
+			mRunStructure
+				.mockReturnValueOnce({ results: [], findings: [], graph: graphA, pendingCompletions: [] })
+				.mockReturnValueOnce({ results: [], findings: [], graph: graphB, pendingCompletions: [] });
+			const ctx = makeCtx();
+			callStruct({ ctx, file: FILE_A });
+			callStruct({ ctx, file: FILE_B });
+
+			const [fileArg, rootArg, graphArg, configArg] = nonNull(mRunStructure.mock.calls[1]);
+			expect([fileArg, rootArg]).toEqual([FILE_B, ROOT_B]);
+			expect(graphArg).toBeNull();
+			expect(configArg).not.toBe(configA);
+			expect(configArg).toEqual(getImplicitConfig());
+			expect(ctx.structureCache.get(ROOT_B)).toEqual({ config: null, graph: graphB });
+			// Root A keeps its own entry.
+			expect(ctx.structureCache.get(ROOT_A)?.config).toBe(configA);
+			expect(ctx.structureCache.get(ROOT_A)?.graph).toBe(graphA);
+		});
+
+		it("N2: a root without structure.json caches the negative answer and is not reloaded", () => {
+			mLoadStructureConfig.mockReturnValue({ config: null, errors: [], implicit: true });
+			const ctx = makeCtx();
+			callStruct({ ctx });
+			callStruct({ ctx });
+			expect(mLoadStructureConfig).toHaveBeenCalledOnce();
+			expect(ctx.structureCache.get(CWD)?.config).toBeNull();
+			// Both runs get the implicit config, never null (null would make
+			// runStructureChecks re-read the disk on every edit).
+			expect(mRunStructure.mock.calls.map((c) => c[3])).toEqual([getImplicitConfig(), getImplicitConfig()]);
+			expect(mRunStructure).toHaveBeenLastCalledWith(FILE, CWD, builtGraph, getImplicitConfig(), expect.anything());
+		});
+	});
+
+	it("P1: an edit to the root's own interlinked/structure.json drops its entry and reloads the config", () => {
+		const ctx = makeCtx();
+		ctx.structureCache.create(CWD, null).graph = builtGraph;
+		callStruct({ ctx, file: `${CWD}/interlinked/structure.json` });
+		expect(mLoadStructureConfig).toHaveBeenCalledOnce();
+		expect(mRunStructure).toHaveBeenCalledWith(`${CWD}/interlinked/structure.json`, CWD, null, loadedStructureConfig, expect.anything());
 	});
 
 	it("pushes structure results into allCheckResults", () => {
@@ -1331,7 +1386,7 @@ describe("runStructureChecksPhase", () => {
 		const ctx = makeCtx();
 		callStruct({ ctx });
 		// runStructureChecks gets CWD as the resolved repo root (2nd positional arg).
-		expect(mRunStructure).toHaveBeenCalledWith(FILE, CWD, null, null, expect.anything());
+		expect(mRunStructure).toHaveBeenCalledWith(FILE, CWD, null, loadedStructureConfig, expect.anything());
 	});
 
 	it("appends structure warnings onto a pre-existing decision.warnings array", () => {

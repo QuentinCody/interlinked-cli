@@ -25,6 +25,7 @@ import {
 	scanFile,
 } from "./commit-gate-decision.js";
 import type { ChangedSource, Violation } from "./commit-gate-scan.js";
+import { isOutsideCoverageScope, readCoverageScope } from "./coverage-measured-scope.js";
 import type { StagedSnapshot } from "./staged-snapshot.js";
 
 /** Injectable seams so unit tests run with NO real suite / git / analyzer. */
@@ -191,6 +192,11 @@ function collectViolations(
 	// `interlinked caps set cyclomatic` cap honored at commit time, not just
 	// per-edit (finding 2026-06, round 8). Cheap — metric-caps is mtime-cached.
 	const cyclomaticCap = maxCyclomaticFor(ctx.ledgerRoot ?? ctx.projectRoot);
+	// Which files the coverage tool measures at all. Read from the SAME tree the
+	// suite ran in (`projectRoot` — the materialized snapshot when there is one),
+	// so the scope is the one that produced this report. null = undecidable, and
+	// every file then keeps the stricter "absent means untested" reading.
+	const scope = readCoverageScope(ctx.projectRoot, deps.readFile);
 	for (const source of ctx.sources) {
 		const abs = isAbsolute(source.relPath)
 			? source.relPath
@@ -209,6 +215,7 @@ function collectViolations(
 				crapThreshold: ctx.crapThreshold,
 				blockOnCrap: ctx.blockOnCrap,
 				cyclomaticCap,
+				outsideCoverageScope: scope !== null && isOutsideCoverageScope(source.relPath, scope),
 				onUnmeasured: (why) => unmeasured.push(why),
 			}),
 		);

@@ -258,6 +258,20 @@ export function loadFileSuppressions(
 	}
 }
 
+/** Capture one parsed byte sequence for a foreground report, preserving the live loader's matching semantics. */
+export function captureFileSuppressions(text: string): (relativeFilePath: string) => FileSuppressions {
+	const data = parseSuppressionFile(JSON.parse(text));
+	return (relativeFilePath) => {
+		const checks = new Set<string>();
+		for (const [pattern, entry] of Object.entries(data)) {
+			if (suppressionPatternMatches(pattern, relativeFilePath)) {
+				for (const check of Object.keys(entry)) checks.add(check);
+			}
+		}
+		return checks;
+	};
+}
+
 /**
  * Test whether `pattern` applies to `relativeFilePath`. Exact match always
  * wins; otherwise, any `*`/`?` triggers glob matching.

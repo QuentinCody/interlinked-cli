@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // This suite isolates the explicitly enforced metric-cap composition. Default
 // advisory policy and real configuration are exercised by edit-metric-policy.test.
-vi.mock("./edit-metric-policy.js", () => ({ applyEditMetricPolicy: (result: import("../types.js").HarnessDecision | null) => result }));
+vi.mock("./edit-metric-policy.js", async (importOriginal) => ({
+	...await importOriginal<typeof import("./edit-metric-policy.js")>(),
+	applyEditMetricPolicy: (result: import("../types.js").HarnessDecision | null) => result,
+}));
 
 vi.mock("../pre-checks.js", () => ({
 	checkConcurrentEdit: vi.fn(() => null),

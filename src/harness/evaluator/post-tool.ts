@@ -11,7 +11,7 @@
 
 import { readOptionalToolString, readToolString } from "./tool-input-values.js";
 import { existsSync, readFileSync } from "node:fs";
-import { relative } from "node:path";
+import { relative, resolve } from "node:path";
 import {
 	classifyBashCommandProvenance,
 	recordBashTaintSource,
@@ -20,7 +20,8 @@ import type { CohortManager } from "../cohort.js";
 import { formatMidSessionBackstop, isDocFile } from "../commit-cadence.js";
 import { buildNearMissWarning, findClosestSpans } from "../edit-diagnostics.js";
 import { recordDeliveryForShadow } from "../event-dedup.js";
-import { countLines, isCappableFile, maxLinesFor } from "../large-file-policy.js";
+import { countLines, isCappableFile } from "../large-file-policy.js";
+import { collectObservedFileLineAdvice } from "../file-line-policy.js";
 import type { ReservationManager } from "../reservations.js";
 import { reservationTargetPaths } from "../reservation-target-paths.js";
 import { scanDisputedGroundRead } from "../server/review-reconcile-phase.js";
@@ -137,6 +138,9 @@ export function evaluatePostToolUse(
 	// verdict per cappable-file edit to decision-shadow.jsonl. Contributes no
 	// warning and is never awaited (jev/edit-shadow.ts).
 	scheduleEditShadow(event, rules);
+	// Instruction packets run one layer up, in server/post-tool-pipeline.ts
+	// (packets-phase.ts): a live packet's warning must ride the response, so the
+	// pipeline awaits the judgment; shadow packets run fire-and-forget there.
 	// Side-effecting only (no warning): tag the session's taint_sources when a
 	// Bash command web-fetched attacker-controllable content (gh/glab/curl/...),
 	// mirroring the WebFetch `fetched_external` provenance the output-scan path
@@ -237,15 +241,10 @@ function collectReadFileSizeWarning(event: HarnessEvent): string[] {
 	if (!filePath) return warnings;
 	try {
 		const root = event.cwd || process.cwd();
-		const content = readFileSync(filePath, "utf-8");
+		const content = readFileSync(resolve(root, filePath), "utf-8");
 		if (!isCappableFile({ filePath, content, root })) return warnings;
 		const lineCount = countLines(content);
-		const cap = maxLinesFor(root);
-		if (lineCount > cap) {
-			warnings.push(
-				`[interlinked:file-size] advisory: ${filePath} is ${lineCount} lines — over the ${cap}-line review preference. Review responsibilities; do not compress formatting to reduce this count.`,
-			);
-		}
+		warnings.push(...collectObservedFileLineAdvice(event, filePath, lineCount));
 	} catch (_err) {
 		/* best-effort — skip */
 	}

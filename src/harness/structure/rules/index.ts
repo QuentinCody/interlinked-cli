@@ -78,8 +78,11 @@ export function evaluateStructureRules(
 		findings.push(...checkPackageBoundaryViolations(graph));
 	}
 
+	// Only the edited file (`changedFiles[0]`, see `runStructureChecks`): the
+	// rest are session-touched files, and re-scanning them re-reported their
+	// pre-existing residue on every edit (99.99% of the 2026-10-23 findings).
 	if (builtins.glossary_residue && repoRoot) {
-		findings.push(...checkGlossaryResidue(graph, changedFiles, repoRoot));
+		findings.push(...checkGlossaryResidue(graph, changedFiles.slice(0, 1), repoRoot));
 	}
 
 	// Sort: fully_deterministic first, then partially, then heuristic

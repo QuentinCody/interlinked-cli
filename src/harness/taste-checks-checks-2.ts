@@ -9,7 +9,7 @@
 
 import { nonNull } from "../lib/non-null.js";
 import { emptyCatchExcuse, tryBlockBefore } from "./empty-catch-excuses.js";
-import { stripAllLiterals, stripComments } from "./strip-helpers.js";
+import { stripAllLiterals, stripComments, stripStringLiterals } from "./strip-helpers.js";
 import {
 	findBlockEnd,
 	getExt,
@@ -320,8 +320,22 @@ export function checkEmptyCatch(content: string, filePath: string): InlineMatch[
 // `it("", ...)` or `it(() => ...)` — either empty or missing first-arg description.
 // ===========================================
 
-const TEST_EMPTY_DESC = /\b(it|test)\s*\(\s*(?:["']\s*["']|`\s*`)\s*,/;
-const TEST_FN_FIRST = /\b(it|test)\s*\(\s*(?:async\s+)?(?:function\b|\()/;
+// Anchored at an opener: `it(` / `test(` found OUTSIDE a string literal (an `it('` inside a string such
+// as `.replaceAll("it('", …)` is text, not a test call).
+const TEST_EMPTY_DESC = /^(it|test)\s*\(\s*(?:["']\s*["']|`\s*`)\s*,/;
+const TEST_FN_FIRST = /^(it|test)\s*\(\s*(?:async\s+)?(?:function\b|\()/;
+const TEST_OPENER = /\b(?:it|test)\s*\(/g;
+
+/** True when the line opens a test call, outside any string literal, with an empty or missing description. */
+function opensUndescribedTest(line: string): boolean {
+	// stripStringLiterals blanks string contents in place, so a column in `blank` is the same column in `line`.
+	const blank = stripStringLiterals(line);
+	for (const opener of blank.matchAll(TEST_OPENER)) {
+		const tail = line.slice(opener.index);
+		if (TEST_EMPTY_DESC.test(tail) || TEST_FN_FIRST.test(tail)) return true;
+	}
+	return false;
+}
 
 export function checkTestWithoutDescription(content: string, filePath: string): InlineMatch[] {
 	if (!isTestFile(filePath)) return [];
@@ -330,10 +344,7 @@ export function checkTestWithoutDescription(content: string, filePath: string): 
 	const sLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
 	for (let i = 0; i < sLines.length && matches.length < 10; i++) {
-		const line = nonNull(sLines[i]);
-		if (TEST_EMPTY_DESC.test(line) || TEST_FN_FIRST.test(line)) {
-			push(matches, i, lines, 10);
-		}
+		if (opensUndescribedTest(nonNull(sLines[i]))) push(matches, i, lines, 10);
 	}
 	return matches;
 }

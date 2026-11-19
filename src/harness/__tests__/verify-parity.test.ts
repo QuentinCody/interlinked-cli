@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import { runVerifyParityChecks } from "../verify-parity.js";
+import { getProjectCheckEvidence, withProjectCheckEvidence } from "../checks/project-check-evidence.js";
 
 describe("verify-parity: scanProjectSwitchDiscriminants", () => {
 	let dir: string;
@@ -22,6 +23,19 @@ describe("verify-parity: scanProjectSwitchDiscriminants", () => {
 		const r = runVerifyParityChecks([a, b]);
 		expect(r.crossFileSwitchDiscriminant.length).toBe(2);
 		expect(new Set(r.crossFileSwitchDiscriminant.map((x) => x.file))).toEqual(new Set([a, b]));
+	});
+
+	it("uses the captured complete foreground bodies when a selected file changes after capture", () => {
+		const a = join(dir, "a.js"), b = join(dir, "b.js");
+		const body = "function choose(event) { switch (event.kind) { case 'a': return 1; } }";
+		writeFileSync(a, body); writeFileSync(b, body);
+		const findings = withProjectCheckEvidence(dir, [a, b], () => {
+			getProjectCheckEvidence(dir)?.readFile(a);
+			getProjectCheckEvidence(dir)?.readFile(b);
+			unlinkSync(b);
+			return runVerifyParityChecks([a, b]);
+		});
+		expect(findings.crossFileSwitchDiscriminant.map(row => row.file).sort()).toEqual([a, b].sort());
 	});
 
 	it("ignores discriminant appearing in only one file", () => {

@@ -88,6 +88,16 @@ describe("stripTemplateLiterals", () => {
 		const out = stripTemplateLiterals(input);
 		expect(out).toBe(`const x = ${BT}          ${BT};`);
 	});
+
+	it("P2 n44: a backtick or brace inside a string in an interpolation does not open a template or end the interpolation", () => {
+		const line2 = "expect(1).toBe(2);";
+		for (const inner of [`x.join("${BT}")`, `x.join('${BT}')`, `cond ? "}" : ""`, `"a\\"${BT}"`]) {
+			const input = `const s = ${BT}a ${DOLLAR}{ ${inner} } b${BT};\n${line2}`;
+			const out = stripTemplateLiterals(input);
+			expect(out.split("\n")[1], inner).toBe(line2);
+			expect(out).toHaveLength(input.length);
+		}
+	});
 });
 
 describe("extractTemplateInterpolationExpressions", () => {
@@ -164,5 +174,33 @@ const x = 1;
 		const out = stripAllLiterals(src);
 		const commentLine = out.split("\n").find((l) => l.startsWith("// This"));
 		expect(commentLine).toBeUndefined();
+	});
+});
+
+describe("stripTemplateLiterals nested templates", () => {
+	it("keeps the outer template open across a nested template inside ${...}", () => {
+		const src = "const a = `x ${`y`} z`; expect(a).toBe(1);";
+		const out = stripTemplateLiterals(src);
+		expect(out).toHaveLength(src.length);
+		expect(out).toContain("expect(a).toBe(1);");
+		expect(out.split("`")).toHaveLength(3);
+	});
+
+	it("closes the outer template after a nested template that holds a brace", () => {
+		const src = "const a = `${`}`}`;\nexpect(b).toBe(2);";
+		const out = stripTemplateLiterals(src);
+		expect(out.split("\n")[1]).toBe("expect(b).toBe(2);");
+	});
+});
+
+describe("stripTemplateLiterals regex literals", () => {
+	it("does not open a template at a backtick inside a regex literal", () => {
+		const src = "const r = /\\`/;\nexpect(r).toBeTruthy();";
+		expect(stripTemplateLiterals(src)).toBe(src);
+	});
+
+	it("still treats a slash after an identifier as division", () => {
+		const src = "const q = a / b; const t = `x`;";
+		expect(stripTemplateLiterals(src)).toBe("const q = a / b; const t = ` `;");
 	});
 });

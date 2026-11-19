@@ -83,14 +83,7 @@ export function runStructureChecks(
 	refreshFileInGraph(resolvedGraph, relPath, repoRoot, resolvedConfig);
 
 	// Step 4: Evaluate rules
-	// Include session-touched files so companion rules know which files were already edited
-	const changedFiles = [relPath];
-	if (sessionTouchedFiles) {
-		for (const f of sessionTouchedFiles) {
-			const relF = isAbsolute(f) ? relative(repoRoot, f) : f;
-			if (relF !== relPath) changedFiles.push(relF);
-		}
-	}
+	const changedFiles = collectChangedFiles(relPath, repoRoot, sessionTouchedFiles);
 	const findings = evaluateStructureRules(resolvedGraph, resolvedConfig, changedFiles, repoRoot);
 
 	// Step 5: Apply PostToolUse emission filtering and convert
@@ -101,6 +94,24 @@ export function runStructureChecks(
 	const pendingCompletions = buildPendingCompletions(filteredFindings);
 
 	return { results, findings: filteredFindings, graph: resolvedGraph, pendingCompletions };
+}
+
+/**
+ * The edited file first, then each session-touched file once, all
+ * repo-relative. Companion rules read the rest as "already edited" evidence.
+ * The session stores each write twice (as given and absolute), so the list is
+ * deduplicated after normalization.
+ */
+function collectChangedFiles(
+	relPath: string,
+	repoRoot: string,
+	sessionTouchedFiles: Set<string> | undefined,
+): string[] {
+	const changed = new Set<string>([relPath]);
+	for (const f of sessionTouchedFiles ?? []) {
+		changed.add(isAbsolute(f) ? relative(repoRoot, f) : f);
+	}
+	return [...changed];
 }
 
 // -------------------------------------------

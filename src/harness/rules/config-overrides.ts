@@ -6,7 +6,7 @@ export type OptionalSectionKey = "plan_capture" | "git_session_scope_gate" | "ts
 	| "per_edit_coverage" | "per_edit_mutation" | "trajectory_shadow" | "scratchpad_guard"
 	| "spec_checks" | "edit_contract" | "verification_stop_checks" | "scratchpad_archive"
 	| "baseline_autofold" | "mutation_directed_strict_profile" | "commit_cadence"
-	| "diff_aware" | "project_wide_checks" | "jev" | "fp_filter" | "decision_shadow";
+	| "diff_aware" | "project_wide_checks" | "jev" | "packets" | "fp_filter" | "decision_shadow";
 
 /** Used only when an override supplies a section missing from the input config. */
 export const SECTION_DEFAULTS: { [K in OptionalSectionKey]: NonNullable<GuardRulesConfig[K]> } = {
@@ -27,6 +27,7 @@ export const SECTION_DEFAULTS: { [K in OptionalSectionKey]: NonNullable<GuardRul
 	diff_aware: nonNull(DEFAULT_CONFIG.diff_aware),
 	project_wide_checks: nonNull(DEFAULT_CONFIG.project_wide_checks),
 	jev: DEFAULT_CONFIG.jev ?? { enabled: false, shadow_edits: false },
+	packets: DEFAULT_CONFIG.packets ?? { enabled: false },
 	fp_filter: DEFAULT_CONFIG.fp_filter ?? { enabled: false },
 	decision_shadow: DEFAULT_CONFIG.decision_shadow ?? { enabled: false },
 };

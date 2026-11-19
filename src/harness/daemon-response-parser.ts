@@ -1,16 +1,24 @@
 import { isJsonObject } from "../lib/json-types.js";
+import type { InlineSourceEvidence } from "./check-registry/types.js";
 import { isHookCoverageReport } from "./hook-coverage-control.js";
 import type { CheckResultEntry, HarnessDecision, TscSchedulerRecord } from "./types.js";
 import { decodeFrame, isError, type RpcError, type RpcMethod, type RpcResponse, type RpcResult, type TsgoDiagnostic } from "./daemon-protocol.js";
 import { wireAbsentOptional, wireArray, wireBoolean, wireLiteral, wireNumber, wireObject, wireOptional, wireRecord, wireString, type WireValidator } from "../lib/value-validation.js";
 
 const stringArray = wireArray(wireString);
+const sourceEvidence = wireArray(wireObject<InlineSourceEvidence>({
+	file: wireString,
+	sha256: (value): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value),
+	line: (value): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0,
+	role: wireLiteral("producer", "consumer"),
+}));
 const diagnostic = wireObject<TsgoDiagnostic>({
 	line: wireNumber, column: wireNumber, code: wireNumber,
 	severity: wireLiteral("error", "warning", "info"), message: wireString, file: wireString,
 });
 
-const checkResult = wireObject<CheckResultEntry>({
+/** Shared validation for findings received from a daemon or reloaded from local storage. */
+export const isCheckResultEntry = wireObject<CheckResultEntry>({
 	source: wireLiteral("quality", "structural", "suggestion", "impact", "structure", "spec", "registry_parity"),
 	name: wireString, severity: wireLiteral("error", "warning", "info"), message: wireString,
 	file: wireAbsentOptional(wireOptional(wireString)), detail: wireAbsentOptional(wireOptional(wireString)), score: wireAbsentOptional(wireOptional(wireNumber)),
@@ -20,6 +28,8 @@ const checkResult = wireObject<CheckResultEntry>({
 	provenance: wireAbsentOptional(wireOptional(wireLiteral("declared", "extracted", "inferred"))),
 	novelty: wireAbsentOptional(wireOptional(wireLiteral("newly-observed", "pre-existing"))),
 	findingCount: wireAbsentOptional(wireOptional(wireNumber)),
+	measurementState: wireAbsentOptional(wireOptional(wireLiteral("unavailable"))),
+	sourceEvidence: wireAbsentOptional(wireOptional(sourceEvidence)),
 	writeAttribution: wireAbsentOptional(wireOptional(wireLiteral("declared-target", "observed-workspace"))),
 	artifact_kind: wireAbsentOptional(wireOptional(wireString)), artifact_id: wireAbsentOptional(wireOptional(wireString)),
 	required_updates: wireAbsentOptional(wireOptional(wireArray(wireObject({ file: wireString, kind: wireString, reason: wireString })))),
@@ -36,7 +46,7 @@ export const isHarnessDecision = wireObject<HarnessDecision>({
 	reservation: wireAbsentOptional(wireObject<NonNullable<HarnessDecision["reservation"]>>({ action: wireLiteral("reserved", "conflict", "extended", "released"), file: wireString, holder: wireAbsentOptional(wireString), expires_at: wireAbsentOptional(wireString) })),
 	rule_id: wireAbsentOptional(wireOptional(wireString)), severity: wireAbsentOptional(wireOptional(wireLiteral("critical", "high", "medium", "low"))),
 	category: wireAbsentOptional(wireOptional(wireString)), failing_test_files: wireAbsentOptional(wireOptional(stringArray)),
-	check_results: wireAbsentOptional(wireArray(checkResult)),
+	check_results: wireAbsentOptional(wireArray(isCheckResultEntry)),
 	checks_skipped: wireAbsentOptional(wireArray(wireObject({ check: wireString, reason: wireString, category: wireLiteral("tool_missing", "config_disabled", "file_type_mismatch", "resource_busy", "timeout", "error") }))),
 	checks_timing_ms: wireAbsentOptional(wireNumber), checks_ran: wireAbsentOptional(stringArray),
 	tool_breakdown: wireAbsentOptional(wireArray(wireObject({ tool: wireString, ms: wireNumber, finding_count: wireNumber }))),
@@ -49,7 +59,7 @@ export const isHarnessDecision = wireObject<HarnessDecision>({
 	_escalation: wireAbsentOptional(wireOptional(wireObject({ trigger: wireString, summary: wireString, tool_name: wireString, tool_input_redacted: wireRecord(wireString), sensitivity_level: wireLiteral("Public", "Internal", "Confidential", "HighlyConfidential"), step_number: wireNumber, recent_tool_sequence: stringArray }))),
 	_contentScan: wireAbsentOptional(wireOptional(wireObject({ hook: wireLiteral("pre_write_edit", "pre_bash_command", "pre_external_egress", "post_read_grep", "user_prompt"), parts: wireArray(wireObject({ source: wireString, text: wireString })) }))),
 	additional_context: wireAbsentOptional(wireOptional(wireString)), system_message: wireAbsentOptional(wireString),
-	telemetry_receipt_id: wireAbsentOptional(wireOptional(wireString)), findings: wireAbsentOptional(wireArray(checkResult)), redacted_prompt: wireAbsentOptional(wireString),
+	telemetry_receipt_id: wireAbsentOptional(wireOptional(wireString)), findings: wireAbsentOptional(wireArray(isCheckResultEntry)), redacted_prompt: wireAbsentOptional(wireString),
 	resolved_targets: wireAbsentOptional(wireArray(wireObject({ kind: wireLiteral("file", "table", "url", "branch", "recipient", "package"), value: wireString }))),
 });
 

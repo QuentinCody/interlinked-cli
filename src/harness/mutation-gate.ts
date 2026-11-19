@@ -16,11 +16,13 @@
 //   - Stryker v6+ JSON:   { files: { path: { mutants: [{ status }] } } }
 //   - Generic flat:       { files: { path: { killed, survived, ... } } }
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
 import { wireAbsentOptional, wireArray, wireNumber, wireObject, wireUnknown } from "../lib/value-validation.js";
 import type { MutationGateConfig } from "./check-policy.js";
+import { writeAtomic } from "./installer-merge-engine.js";
+import { isWorkspaceControlPath } from "./workspace-effects-control-paths.js";
 
 // ===========================================
 // Types
@@ -109,18 +111,46 @@ function parseMutationBaseline(value: unknown): MutationBaseline | null {
 	return { version: 1, updated_at: updatedAt, files };
 }
 
-export function loadMutationBaseline(interlinkedDir: string): MutationBaseline {
-	const path = mutationBaselinePath(interlinkedDir);
-	if (!existsSync(path)) return emptyMutationBaseline();
+/** Resolve existing aliases before a comparison file can become an update destination. */
+export function resolveMutationBaselineTarget(path: string): string {
+	const target = existsSync(path) ? realpathSync(path) : resolve(path);
+	for (const candidate of [resolve(path), target]) {
+		const normalized = candidate.replaceAll("\\", "/").toLowerCase(), marker = normalized.lastIndexOf("/.interlinked/");
+		const control = normalized.slice(marker + 1);
+		if (marker >= 0 && control !== ".interlinked/mutation-baseline.json" && isWorkspaceControlPath(control)) {
+			throw new Error(`Mutation comparison baseline cannot use protected control path: ${candidate}`);
+		}
+	}
+	return target;
+}
+
+export function loadMutationBaseline(interlinkedDir: string, explicitPath?: string): MutationBaseline {
+	const path = explicitPath === undefined ? mutationBaselinePath(interlinkedDir) : resolveMutationBaselineTarget(explicitPath);
+	if (!existsSync(path)) {
+		if (explicitPath !== undefined) throw new Error(`Mutation baseline not found: ${path}`);
+		return emptyMutationBaseline();
+	}
 	try {
 		const raw: unknown = JSON.parse(readFileSync(path, "utf-8"));
-		return parseMutationBaseline(raw) ?? emptyMutationBaseline();
-	} catch {
+		const parsed = parseMutationBaseline(raw);
+		if (explicitPath !== undefined && !completeMutationBaseline(raw, parsed)) throw new Error(`Invalid mutation baseline: ${path}`);
+		return parsed ?? emptyMutationBaseline();
+	} catch (error) {
+		if (explicitPath !== undefined) throw new Error(`Cannot read mutation baseline ${path}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
 		return emptyMutationBaseline();
 	}
 }
 
-export function saveMutationBaseline(interlinkedDir: string, baseline: MutationBaseline): void {
+/** Explicit comparison inputs require complete mutation rows, including valid score and kill-count ranges. */
+function completeMutationBaseline(raw: unknown, parsed: MutationBaseline | null): boolean {
+	if (!parsed || !isJsonObject(raw) || !isJsonObject(raw.files)) return false;
+	if (Object.keys(raw.files).length !== Object.keys(parsed.files).length) return false;
+	return Object.values(parsed.files).every(entry => Number.isFinite(entry.score) && entry.score >= 0 && entry.score <= 1
+		&& Number.isSafeInteger(entry.killed) && entry.killed >= 0);
+}
+
+export function saveMutationBaseline(interlinkedDir: string, baseline: MutationBaseline, explicitPath?: string): void {
+	if (explicitPath !== undefined) { writeAtomic(resolveMutationBaselineTarget(explicitPath), baseline); return; }
 	const path = mutationBaselinePath(interlinkedDir);
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, `${JSON.stringify(baseline, null, 2)}\n`, "utf-8");

@@ -88,6 +88,7 @@ import { dirname, join, relative } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import { detectBaselineGaming } from "./baseline-integrity-gate.js";
+import { captureMetricPolicySources, METRIC_POLICY_FILES, metricPolicySnapshotLoosenings } from "./metric-policy-integrity.js";
 import { resolveE2eBase } from "../e2e-store.js";
 import { WATER_LINE_PATHS } from "./water-line-files.js";
 import {
@@ -108,6 +109,7 @@ type BaselineSnapshot = Readonly<Record<string, string | null>>;
 
 /** One water-line that a tool call loosened, with the bytes needed to undo it. */
 interface BaselineLoosening {
+	absentBefore?: boolean;
 	/** Repo-relative water-line path. */
 	file: string;
 	/** Exact pre-call bytes — the undo material. */
@@ -121,8 +123,13 @@ interface BaselineLoosening {
 	recordOnly?: boolean;
 }
 
-/** Water-lines a legitimate run rewrites in the "looser" direction. */
-const RECORD_ONLY_FILES: ReadonlySet<string> = new Set([".interlinked/mutation-manifest.json"]);
+/** Water-lines a legitimate run rewrites in the "looser" direction.
+ *  `instruction-packets.json`: `interlinked packets calibrate --apply` (the only
+ *  sanctioned promoter) and `packets compile` run as shell commands, and the
+ *  packet detector reads a hand-raised status as loosening by design; the bash
+ *  arm records the change for audit while the Write/Edit intent gate and the
+ *  commit-gate backstop keep refusing tool edits (packets/water-line.ts). */
+const RECORD_ONLY_FILES: ReadonlySet<string> = new Set([".interlinked/mutation-manifest.json", ".interlinked/instruction-packets.json"]);
 const LEDGER_FILE = ".interlinked/function-complexity-baseline.json";
 
 /** Metric sections present in a ledger text (`metrics.<m>`). */
@@ -216,7 +223,7 @@ export function detectBaselineLoosening(
 		const recordOnly = isRecordOnly(rel, beforeText, findings.map((f) => f.rule));
 		out.push({ file: rel, beforeText, afterText, details: findings.map((f) => f.message), ...(recordOnly ? { recordOnly } : {}) });
 	}
-	return out;
+	return [...out, ...metricPolicySnapshotLoosenings(before, after, root)];
 }
 
 /** Path of the undo record for one tool call. */
@@ -228,7 +235,7 @@ function undoPath(root: string, toolUseId: string): string {
 /** Shape persisted per tool call, so a later process can restore without state. */
 interface UndoRecord {
 	tool_use_id: string;
-	entries: Array<{ file: string; beforeText: string }>;
+	entries: Array<{ file: string; beforeText: string; absentBefore?: boolean }>;
 }
 
 /**
@@ -245,7 +252,7 @@ export function writeUndoRecord(
 	if (loosenings.length === 0) return null;
 	const record: UndoRecord = {
 		tool_use_id: toolUseId,
-		entries: loosenings.map((l) => ({ file: l.file, beforeText: l.beforeText })),
+		entries: loosenings.map((l) => ({ file: l.file, beforeText: l.beforeText, ...(l.absentBefore ? { absentBefore: true } : {}) })),
 	};
 	const path = undoPath(root, toolUseId);
 	mkdirSync(dirname(path), { recursive: true });
@@ -261,15 +268,18 @@ function loadUndoRecord(path: string): UndoRecord | null {
 }
 
 function isUndoEntry(value: unknown): value is UndoRecord["entries"][number] {
-	return isJsonObject(value) && typeof value.file === "string" && typeof value.beforeText === "string";
+	return isJsonObject(value) && typeof value.file === "string" && typeof value.beforeText === "string"
+		&& (value.absentBefore === undefined || value.absentBefore === false
+			|| value.absentBefore === true && value.beforeText === "" && METRIC_POLICY_FILES.some(path => path === value.file));
 }
 
 /** Rewrite one water-line to its pre-call bytes. Reports failure rather than
  *  swallowing it — a silent failed restore is the worst outcome for an undo
  *  path, because the agent would believe the water-line was back. */
-function restoreOne(root: string, entry: { file: string; beforeText: string }): boolean {
+function restoreOne(root: string, entry: UndoRecord["entries"][number]): boolean {
 	const target = join(root, entry.file);
 	try {
+		if (entry.absentBefore) { rmSync(target, { force: true }); return true; }
 		mkdirSync(dirname(target), { recursive: true });
 		// A symlink swapped in by the call is replaced, not written through:
 		// writing through it would leave the water-line pointing at a file the
@@ -399,7 +409,7 @@ export function baselineCallKey(opts: {
 /** Snapshot the water-lines before a call runs (the "before" half). */
 export function rememberBaselineSnapshot(key: string, root: string): void {
 	if (snapshots.size > SNAPSHOT_CEILING) snapshots.clear();
-	snapshots.set(key, { water: captureBaselines(root), config: captureConfigWaterLinesSafely(root, readOrNull) });
+	snapshots.set(key, { water: { ...captureBaselines(root), ...captureMetricPolicySources(root, readOrNull) }, config: captureConfigWaterLinesSafely(root, readOrNull) });
 }
 
 /**
@@ -419,7 +429,7 @@ export function consumeBaselineSnapshot(
 	if (!before || opts.dryRun) return null;
 	const warnings: string[] = [];
 	const loosenings: BaselineLoosening[] = [
-		...detectBaselineLoosening(before.water, captureBaselines(root), root),
+		...detectBaselineLoosening(before.water, { ...captureBaselines(root), ...captureMetricPolicySources(root, readOrNull) }, root),
 		...detectConfigWaterLineLoosening(root, before.config, readOrNull, warnings),
 	];
 	if (loosenings.length === 0) return warnings.length > 0 ? warnings.join("\n") : null;

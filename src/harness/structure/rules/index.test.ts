@@ -407,5 +407,33 @@ describe("evaluateStructureRules", () => {
 				evaluateStructureRules(g, baseConfig({ glossary_residue: false }), ["a.ts"], tmp),
 			).toEqual([]);
 		});
+
+		function deprecatedTermGraph(): ArtifactGraph {
+			const g = new ArtifactGraph();
+			g.addNode({
+				id: makeGlobalRef("term", "Workspace"),
+				kind: "term",
+				label: "Workspace",
+				file: "docs/glossary.md",
+				provenance: "declared",
+				determinism_ceiling: "fully_deterministic",
+				metadata: { deprecated: ["old_workspace"] },
+			});
+			return g;
+		}
+
+		it("P1: scans the edited file (changedFiles[0]) for residue", () => {
+			writeFileSync(join(tmp, "edited.ts"), "const x = old_workspace;");
+			writeFileSync(join(tmp, "other.ts"), "const y = 1;");
+			const findings = evaluateStructureRules(deprecatedTermGraph(), baseConfig({ glossary_residue: true }), ["edited.ts", "other.ts"], tmp);
+			expect(findings.filter((f) => f.name === "glossary_residue").map((f) => f.file)).toEqual(["edited.ts"]);
+		});
+
+		it("N1: does not re-report residue in other session-touched files", () => {
+			writeFileSync(join(tmp, "edited.ts"), "const y = 1;");
+			writeFileSync(join(tmp, "other.ts"), "const x = old_workspace;");
+			const findings = evaluateStructureRules(deprecatedTermGraph(), baseConfig({ glossary_residue: true }), ["edited.ts", "other.ts"], tmp);
+			expect(findings.filter((f) => f.name === "glossary_residue")).toEqual([]);
+		});
 	});
 });

@@ -40,6 +40,7 @@ import { activateDaemon } from "./server/server-daemon-activation.js";
 import { createCoverageEventLoop } from "./server/hook-coverage-loop.js";
 import { createSocketLifecycle } from "./server-socket-lifecycle.js";
 import { createStartupGuard } from "./server/startup-guard.js";
+import { StructureRootCache } from "./server/structure-root-cache.js";
 import { guardTallySnapshot } from "./guard-tally.js";
 import { writeStatuslineArtifacts } from "./statusline-snapshot.js";
 import { TrigramIndex } from "./trigram-index.js";
@@ -195,11 +196,6 @@ if (astComplexityAvailable()) {
 	);
 }
 
-// --- Structure graph cache (persists across PostToolUse calls) ---
-// Avoids rebuilding the full artifact graph on every file edit.
-let structureGraph: import("./structure/artifact-graph.js").ArtifactGraph | null = null;
-let structureConfigCache: import("./structure/types.js").StructureConfig | null = null;
-
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
 // ===========================================
@@ -270,7 +266,7 @@ function noteActivityAndResetIdleTimer(): void {
 // ===========================================
 // One mutable object bundling all daemon-scoped state, passed to each
 // extracted pipeline. The reassign-on-reload fields (`rules`,
-// `trigramIndex`, `compiledAllowlist`, `structure*`, `filePriorityMap`) are
+// `trigramIndex`, `compiledAllowlist`, `filePriorityMap`) are
 // kept in sync with the module-level `let`s by `syncRuntime()` — called
 // before every pipeline dispatch and after every state-mutating handler.
 
@@ -297,8 +293,9 @@ const serverRuntime: ServerRuntime = {
 	preEditBaselines,
 	trigramIndex,
 	fileContentCache,
-	structureGraph,
-	structureConfigCache,
+	// Structure config + artifact graph per project root (persists across
+	// PostToolUse calls; avoids rebuilding the graph on every edit).
+	structureCache: new StructureRootCache(),
 	filePriorityMap,
 	graphCache: _graphCache,
 	log,
@@ -314,14 +311,10 @@ function syncRuntimeIn(): void {
 	serverRuntime.rules = rules;
 	serverRuntime.compiledAllowlist = compiledAllowlist;
 	serverRuntime.trigramIndex = trigramIndex;
-	serverRuntime.structureGraph = structureGraph;
-	serverRuntime.structureConfigCache = structureConfigCache;
 	serverRuntime.filePriorityMap = filePriorityMap;
 }
 function syncRuntimeOut(): void {
 	trigramIndex = serverRuntime.trigramIndex;
-	structureGraph = serverRuntime.structureGraph;
-	structureConfigCache = serverRuntime.structureConfigCache;
 	filePriorityMap = serverRuntime.filePriorityMap;
 }
 

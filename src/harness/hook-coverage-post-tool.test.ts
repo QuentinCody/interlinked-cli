@@ -30,6 +30,17 @@ function fixture() {
 }
 
 describe("PostToolUse coverage receipts", () => {
+	it.each(["commander_option_attribute", "numeric_zero_default"])("retains %s advisory gaps while completed required checks settle the version", async name => {
+		const { root, path, watcher, event } = fixture();
+		const warning = { name, severity: "warning", measurementState: "unavailable", message: "Source evidence NOT MEASURED", detail: "Reverse importer inventory is partial" };
+		runner.mockImplementation(async (_event: HarnessEvent, _checks: object, _cwd: string, options: QualityCheckOptions) => {
+			options.outChecksRan?.push("typescript"); return [warning];
+		});
+		expect(await runQualityChecksWithCoverage({ watcher, event, cwd: root, checks: {}, options: {} })).toEqual([warning]);
+		const state = watcher.ledger.snapshot();
+		expect(state.pending.some(entry => entry.path === path)).toBe(false);
+		expect(state.checks).toEqual([expect.objectContaining({ findings: [], unavailable: [], advisoryGaps: [{ check: name, file: path, reason: "Reverse importer inventory is partial" }] })]);
+	});
     it("passes through checks and their accounting when no observer is available", async () => {
         const { root, event } = fixture(), checks: string[] = [];
         const findings = [{ name: "typescript", severity: "warning", message: "actual finding" }];

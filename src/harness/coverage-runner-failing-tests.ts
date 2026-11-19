@@ -12,8 +12,16 @@
 // while the suite is red — a missed or garbled path just falls back to the
 // filename-pair rule, never blocks more.
 
+import { stripVTControlCharacters } from "node:util";
 import type { CoverageRunResult } from "./coverage-runner.js";
 import { isTestPath } from "./coverage-test-selector.js";
+
+/** Output lines without ANSI color codes. vitest colors its output even when it
+ *  is not a TTY, and a colored ` FAIL ` row never matched the row patterns below,
+ *  so a red run blocked with no test named (2026-11-12). */
+function plainLines(text: string): string[] {
+	return stripVTControlCharacters(text).split("\n");
+}
 
 /** Cap on failing-test names captured for a block message (sugar, not data). */
 const MAX_FAILING_TEST_NAMES = 5;
@@ -33,7 +41,7 @@ const MAX_FAILING_TEST_FILES = 20;
  */
 export function parseVitestFailingTests(text: string): string[] {
 	const names: string[] = [];
-	for (const line of text.split("\n")) {
+	for (const line of plainLines(text)) {
 		const m = /^\s*(?:FAIL|×|✗|❯)\s+(.+?)\s*$/.exec(line);
 		if (!m) continue;
 		const label = m[1];
@@ -66,7 +74,7 @@ function vitestFailureFile(label: string): string | null {
  */
 export function parseVitestFailingTestFiles(text: string): string[] {
 	const files: string[] = [];
-	for (const line of text.split("\n")) {
+	for (const line of plainLines(text)) {
 		const m = /^\s*(?:FAIL|×|✗|❯)\s+(.+?)\s*$/.exec(line);
 		if (!m?.[1]) continue;
 		const file = vitestFailureFile(m[1]);

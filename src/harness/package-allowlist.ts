@@ -11,8 +11,8 @@
 //      changes.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
 import { DEFAULT_LICENSE_ALLOWLIST } from "./license-policy.js";
 import type { Ecosystem, PackageSpec } from "./package-install-parser.js";
@@ -319,4 +319,37 @@ export function matchSnapshot(al: Allowlist, lockfileName: string, lockfilePath:
 	const actual = hashLockfile(lockfilePath);
 	if (!actual) return false;
 	return actual === snap.sha256;
+}
+
+/** Snapshot key for a file: its path relative to the allowlist root, with `/`
+ *  separators. A file at the root keys by its bare name, so root grants keep
+ *  their existing keys; a file elsewhere gets its own key instead of sharing
+ *  one hash slot per file name. */
+export function snapshotKey(root: string, filePath: string): string {
+	const file = join(canonicalDir(dirname(filePath)), basename(filePath));
+	return relative(canonicalDir(root), file).split(sep).join("/");
+}
+
+/** Resolve directory symlinks (`/tmp` → `/private/tmp` on macOS) so the writer
+ *  and the guard derive the same key from two spellings of one directory. */
+function canonicalDir(dir: string): string {
+	try {
+		return realpathSync(dir);
+	} catch {
+		return dir;
+	}
+}
+
+/** Match the path-keyed grant first, then the legacy name-keyed grant. Both
+ *  still require the file's current sha256 to equal the stored one. */
+export function matchSnapshotAt(
+	al: Allowlist,
+	root: string,
+	legacyName: string,
+	filePath: string,
+): boolean {
+	return (
+		matchSnapshot(al, snapshotKey(root, filePath), filePath) ||
+		matchSnapshot(al, legacyName, filePath)
+	);
 }

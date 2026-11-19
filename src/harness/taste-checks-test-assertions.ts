@@ -11,6 +11,7 @@ import { nonNull } from "../lib/non-null.js";
 import { blankJsxText } from "./checks/nan-comparison-scan.js";
 import { stripComments } from "./strip-helpers.js";
 import { keepsRealModule, sameDirSiblingBase } from "./taste-checks-mock-real-module.js";
+import { checkMatchLimit } from "./checks/check-scan-policy.js";
 import { parameterizedTestBodies, type TestBody } from "./test-parameterized-bodies.js";
 import {
 	findBlockEnd,
@@ -247,8 +248,9 @@ export function checkAssertionFreeTest(content: string, filePath: string): Inlin
 	const sources: AssertionSources = { helpers: assertingHelpers(sLines, bound), bound };
 	const directives = expectErrorDirectiveLines(lines, commentFree);
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 	let i = 0;
-	while (i < sLines.length && matches.length < 10) {
+	while (i < sLines.length && matches.length < maxMatches) {
 		if (!isCountableTestStart(nonNull(sLines[i]))) {
 			i++;
 			continue;
@@ -261,7 +263,7 @@ export function checkAssertionFreeTest(content: string, filePath: string): Inlin
 		// The name is read from the ORIGINAL header lines (stripped collapses it);
 		// line indices align because stripCommentsAndStrings is line-preserving.
 		const exempt = SMOKE_TEST_NAME_RE.test(test.name) || hasDirectiveBetween(directives, i, test.end);
-		if (!exempt && isAssertionFreeBody(test.body, sources)) push(matches, i, lines, 10);
+		if (!exempt && isAssertionFreeBody(test.body, sources)) push(matches, i, lines, maxMatches);
 		i = test.end + 1;
 	}
 	return matches;
@@ -326,13 +328,14 @@ export function checkTautologicalAssertion(content: string, filePath: string): I
 	const sLines = stripped.split("\n");
 	const cLines = commentFree.split("\n");
 	const matches: InlineMatch[] = [];
-	for (let i = 0; i < sLines.length && matches.length < 10; i++) {
+	const maxMatches = checkMatchLimit(10);
+	for (let i = 0; i < sLines.length && matches.length < maxMatches; i++) {
 		if (
 			hasTautology(nonNull(sLines[i])) ||
 			hasEqualLiteralTautology(nonNull(cLines[i]), nonNull(sLines[i])) ||
 			hasConstantTruthiness(nonNull(cLines[i]), nonNull(sLines[i]))
 		) {
-			push(matches, i, lines, 10);
+			push(matches, i, lines, maxMatches);
 		}
 	}
 	return matches;
@@ -365,13 +368,14 @@ export function checkMockingTheSUT(content: string, filePath: string): InlineMat
 	const sLines = stripped.split("\n");
 	const codeLines = stripCommentsAndStrings(content).split("\n");
 	const matches: InlineMatch[] = [];
-	for (let i = 0; i < sLines.length && matches.length < 5; i++) {
+	const maxMatches = checkMatchLimit(5);
+	for (let i = 0; i < sLines.length && matches.length < maxMatches; i++) {
 		const m = MOCK_CALL_STATIC.exec(nonNull(sLines[i]));
 		if (!m || !mockedPathEqualsSut(nonNull(m[1]), sut)) continue;
 		if (!MOCK_CALL_AS_CODE.test(nonNull(codeLines[i]))) continue;
 		// `{ spy: true }` or a factory returning the actual module: the SUT still runs.
 		if (keepsRealModule(sLines, i, m.index + m[0].length, sut)) continue;
-		push(matches, i, lines, 5);
+		push(matches, i, lines, maxMatches);
 	}
 	return matches;
 }

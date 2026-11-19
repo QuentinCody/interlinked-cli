@@ -8,6 +8,19 @@ const health = {
 };
 
 describe("RPC response validation", () => {
+	it("retains exact supporting source identities and advisory missingness", () => {
+		const result = { decision: "allow", check_results: [{ source: "quality", name: "numeric_zero_default", severity: "warning", message: "numeric evidence", determinism: "heuristic", measurementState: "unavailable", findingCount: 0,
+			sourceEvidence: [{ file: "parser.ts", sha256: "a".repeat(64), line: 2, role: "producer" }] }] };
+		expect(parseResponseFrame(JSON.stringify({ id: "r", result }), "hook.post_tool_use")).toEqual({ id: "r", result });
+	});
+	it.each([
+		{ file: "parser.ts", sha256: "bad", line: 2, role: "producer" },
+		{ file: "parser.ts", sha256: "a".repeat(64), line: 0, role: "producer" },
+		{ file: "parser.ts", sha256: "a".repeat(64), line: 2, role: "unknown" },
+	])("rejects malformed supporting source identities %j", source => {
+		const result = { decision: "allow", check_results: [{ source: "quality", name: "numeric_zero_default", severity: "warning", message: "numeric evidence", determinism: "heuristic", sourceEvidence: [source] }] };
+		expect(parseResponseFrame(JSON.stringify({ id: "r", result }), "hook.post_tool_use")).toBeNull();
+	});
 	it("preserves a correlated method result and its optional hook metadata", () => {
 		const result = {
 			decision: "ask", reason: "confirm deletion", system_message: "user-only context",

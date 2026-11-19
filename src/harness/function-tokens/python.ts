@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
-import type { FunctionTokenEntry } from "./types.js";
+import type { FunctionTokenAnalysisOptions, FunctionTokenEntry } from "./types.js";
 
 const PYTHON_ADAPTER = String.raw`
 import ast, io, json, sys, token, tokenize
@@ -156,12 +156,14 @@ function parseAdapterOutput(value: unknown): FunctionTokenEntry[] | null {
 export function computePythonFunctionTokens(
     content: string,
     _filePath: string,
+    options: FunctionTokenAnalysisOptions = {},
 ): FunctionTokenEntry[] | null {
-    const result = spawnSync("python3", ["-c", PYTHON_ADAPTER], {
+    const foreground = options.resourcePolicy === "foreground-survey";
+    const result = spawnSync("python3", [...(foreground ? ["-I", "-S", "-B"] : []), "-c", PYTHON_ADAPTER], {
         encoding: "utf8",
         input: content,
-        maxBuffer: 8 * 1024 * 1024,
-        timeout: 2_000,
+        maxBuffer: foreground ? Infinity : 8 * 1024 * 1024,
+        timeout: foreground ? 0 : 2_000,
     });
     if (result.status !== 0 || result.error || !result.stdout) return null;
     try {

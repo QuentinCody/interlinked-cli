@@ -84,6 +84,26 @@ describe("materializeIndexSnapshot", () => {
 		snap?.cleanup();
 	});
 
+	it("symlinks each workspace package's own node_modules, not only the root one (pnpm monorepo)", () => {
+		writeRepo("packages/a/src/m.ts", "export const v = 1;\n");
+		writeRepo("packages/a/package.json", "{}\n");
+		writeRepo(".gitignore", "node_modules/\n");
+		mkdirSync(join(repo, "node_modules", "rootdep"), { recursive: true });
+		mkdirSync(join(repo, "packages", "a", "node_modules", "pkgdep"), { recursive: true });
+		writeFileSync(join(repo, "packages", "a", "node_modules", "pkgdep", "index.js"), "module.exports = 1;\n");
+		git("add", ".gitignore", "packages");
+		git("commit", "-qm", "init");
+
+		const snap = materializeIndexSnapshot(repo);
+		const root = snap?.root ?? "";
+		expect(existsSync(join(root, "node_modules", "rootdep"))).toBe(true);
+		expect(lstatSync(join(root, "packages", "a", "node_modules")).isSymbolicLink()).toBe(true);
+		expect(existsSync(join(root, "packages", "a", "node_modules", "pkgdep", "index.js"))).toBe(true);
+		// A tracked directory with no real node_modules beside it gets no link.
+		expect(existsSync(join(root, "packages", "a", "src", "node_modules"))).toBe(false);
+		snap?.cleanup();
+	});
+
 	it("returns null outside a git repo (fail-open)", () => {
 		const notRepo = mkdtempSync(join(tmpdir(), "not-a-repo-"));
 		try {

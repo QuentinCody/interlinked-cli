@@ -31,6 +31,7 @@ import { computeCyclomaticPython as mockedComputeCyclomaticPython } from "../che
 import {
 	__resetPythonDegradeWarningForTesting,
 	checkFunctionComplexityWrite,
+	selectAnalyzer,
 } from "./complexity-write-guard.js";
 
 const pythonMock = vi.mocked(mockedComputeCyclomaticPython);
@@ -87,5 +88,15 @@ describe("warnAnalyzerUnavailable — the js_ts path is a silent no-op", () => {
 		} finally {
 			stderrSpy.mockRestore();
 		}
+	});
+});
+
+describe("selectAnalyzer — module extensions", () => {
+	// test-contract: bug — every JS/TS module extension, including .cts, is gated by the cyclomatic analyzer
+	it("selects the js_ts analyzer for each TS/JS extension", () => {
+		for (const ext of ["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts"]) {
+			expect(selectAnalyzer(`src/f.${ext}`)?.language, ext).toBe("js_ts");
+		}
+		expect(selectAnalyzer("src/f.txt")).toBeNull();
 	});
 });

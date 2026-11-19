@@ -153,6 +153,10 @@ const LOCAL_PROBES = {
 		override: { spec_checks: { enabled: false } },
 		changed: (c) => c.spec_checks?.enabled === false,
 	},
+	packets: {
+		override: { packets: { enabled: true, evidence_consent: { kinds: ["command"], paths: [] } } },
+		changed: (c) => c.packets?.enabled === true && c.packets.evidence_consent?.kinds?.[0] === "command",
+	},
 	jev: {
 		override: { jev: { enabled: true, shadow_edits: true, shadow_scope: "code" } },
 		changed: (c) => c.jev?.enabled === true && c.jev.shadow_edits === true && c.jev.shadow_scope === "code",
@@ -323,6 +327,7 @@ const NOT_TEAM = {
 	scratchpad_guard: { why: "personal softening tier", probe: { code_write_mode: "warn" } },
 	spec_checks: { why: "personal tier", probe: { enabled: false } },
 	jev: { why: "personal opt-in tier (needs a per-dev API key; sends edits to a third party)", probe: { enabled: true } },
+	packets: { why: "personal opt-in tier (needs the per-dev Jev key and an explicit evidence consent; sends sanitized evidence to a third party)", probe: { enabled: true } },
 	fp_filter: { why: "personal opt-in tier (weights calibrated on one repository; hides findings)", probe: { enabled: true } },
 	decision_shadow: { why: "personal opt-in tier (per-dev backend credentials; sends masked state to a third party)", probe: { enabled: true } },
 	edit_contract: { why: "personal tier", probe: { stale_read: "off" } },
