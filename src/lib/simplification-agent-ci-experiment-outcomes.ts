@@ -5,6 +5,8 @@
 // the shared field-shape vocabulary the manifest parsers speak; the outcome
 // parsers are the one lane that needs artifact-path validation.
 
+import { exactKeys, manifestText as nonempty, isoTimestamp, sortedManifestStrings as sortedUniqueStrings } from "./simplification-schema-scope-kinds.js";
+export { exactKeys, nonempty, isoTimestamp, sortedUniqueStrings };
 import { isJsonObject, type JsonObject } from "./json-types.js";
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
@@ -43,14 +45,6 @@ export interface SimplificationExperimentOutcomes {
 	analysis_output_sha256: string;
 }
 
-export function exactKeys(value: JsonObject, expected: readonly string[]): boolean {
-	return Object.keys(value).sort().join("|") === [...expected].sort().join("|");
-}
-
-export function nonempty(value: unknown): value is string {
-	return typeof value === "string" && value.length > 0 && value.length <= 4_096;
-}
-
 export function sha256(value: unknown): value is string {
 	return typeof value === "string" && SHA256_PATTERN.test(value);
 }
@@ -63,18 +57,6 @@ function artifactPath(value: unknown): value is string {
 
 export function gitObject(value: unknown): value is string {
 	return typeof value === "string" && GIT_OBJECT_PATTERN.test(value);
-}
-
-export function isoTimestamp(value: unknown): value is string {
-	if (typeof value !== "string") return false;
-	const millis = Date.parse(value);
-	return Number.isFinite(millis) && new Date(millis).toISOString() === value;
-}
-
-export function sortedUniqueStrings(value: unknown): value is string[] {
-	if (!Array.isArray(value) || !value.every(nonempty)) return false;
-	if (new Set(value).size !== value.length) return false;
-	return value.every((entry, index) => index === 0 || entry >= (value[index - 1] ?? ""));
 }
 
 function isMetricDirection(

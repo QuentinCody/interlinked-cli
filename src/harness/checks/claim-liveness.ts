@@ -242,6 +242,22 @@ function isTestImporter(importer: string): boolean {
 
 // ---- Detector ----
 
+function* livenessSentences(text: string, verbs: RegExp, negation: RegExp | null) {
+	for (const sentence of splitIntoSentences(text)) {
+		const verb = verbs.exec(sentence)?.[0];
+		if (verb && !negation?.test(sentence)) yield { sentence, verb };
+	}
+}
+
+function unreferencedProductPath(written: string, input: ClaimLivenessInput, entries: ReadonlySet<string>, reported: ReadonlySet<string>) {
+	const path = resolveMention(written, input.files);
+	if (!path || reported.has(path) || !isProductCodePath(path)) return null;
+	if (entries.has(path) || ENTRY_SHAPE_RE.test(path)) return null;
+	const importers = input.importers(path).filter((file) => file !== path);
+	if (importers.some((file) => !isTestImporter(file))) return null;
+	return { path, testImporters: importers.length };
+}
+
 /** Pure: fires once per (claim, resolved path) for a liveness sentence whose
  *  named product file has no non-test importer and is not an entry point. */
 export function detectClaimLiveness(input: ClaimLivenessInput): ClaimLivenessFinding[] {
@@ -251,24 +267,19 @@ export function detectClaimLiveness(input: ClaimLivenessInput): ClaimLivenessFin
 	const findings: ClaimLivenessFinding[] = [];
 	for (const claim of input.claims) {
 		const reported = new Set<string>();
-		for (const sentence of splitIntoSentences(claim.text)) {
-			const verb = verbs.exec(sentence)?.[0];
-			if (!verb || (negation !== null && negation.test(sentence))) continue;
+		for (const { sentence, verb } of livenessSentences(claim.text, verbs, negation)) {
 			for (const written of extractPathMentions(sentence, input.basenames === true)) {
-				const path = resolveMention(written, input.files);
-				if (!path || reported.has(path) || !isProductCodePath(path)) continue;
-				if (entries.has(path) || ENTRY_SHAPE_RE.test(path)) continue;
-				const importers = input.importers(path).filter((i) => i !== path);
-				if (importers.some((i) => !isTestImporter(i))) continue;
-				reported.add(path);
+				const target = unreferencedProductPath(written, input, entries, reported);
+				if (!target) continue;
+				reported.add(target.path);
 				findings.push({
 					source: claim.source,
 					line: claim.line,
-					path,
+					path: target.path,
 					written,
 					verb,
 					sentence,
-					testImporters: importers.length,
+					testImporters: target.testImporters,
 				});
 			}
 		}

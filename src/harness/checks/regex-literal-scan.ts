@@ -20,29 +20,30 @@ function isLineBreak(c: string | undefined): boolean {
 	return c === "\n" || c === "\r" || c === " " || c === " ";
 }
 
-function scanBody(text: string, start: number, from: number, consumed: number, budget: Budget): number {
-	let pos = from;
-	let count = consumed;
-	while (pos < text.length && pos - start <= MAX_LITERAL_CHARS) {
+function afterCharacterClass(text: string, start: number, open: number, budget: Budget): number {
+	const close = text.indexOf("]", open + 1);
+	if (close < 0 || close - start > MAX_LITERAL_CHARS) return -1;
+	return scanBody(text, start, close + 1, budget);
+}
+
+function scanBody(text: string, start: number, from: number, budget: Budget): number {
+	const end = Math.min(text.length, start + MAX_LITERAL_CHARS + 1);
+	for (let pos = from; pos < end; pos++) {
 		if (++budget.steps > MAX_STEPS) return -1;
-		const c = text[pos];
-		if (c === "\\") {
-			if (pos + 1 >= text.length || isLineBreak(text[pos + 1])) return -1;
-			pos += 2;
-			count++;
-			continue;
-		}
-		if (c === "/") return count > 0 ? pos : -1;
-		if (c === "\n") return -1;
-		if (c === "[") {
-			const close = text.indexOf("]", pos + 1);
-			if (close >= 0 && close - start <= MAX_LITERAL_CHARS) {
-				const viaClass = scanBody(text, start, close + 1, count + 1, budget);
+		switch (text[pos]) {
+			case "\\":
+				if (++pos >= text.length || isLineBreak(text[pos])) return -1;
+				break;
+			case "/":
+				return pos === start + 1 ? -1 : pos;
+			case "\n":
+				return -1;
+			case "[": {
+				const viaClass = afterCharacterClass(text, start, pos, budget);
 				if (viaClass >= 0) return viaClass;
+				break;
 			}
 		}
-		pos++;
-		count++;
 	}
 	return -1;
 }
@@ -53,7 +54,7 @@ function scanBody(text: string, start: number, from: number, consumed: number, b
  */
 export function findRegexLiteralEnd(text: string, start: number, flags: string): number {
 	if (text[start] !== "/") return -1;
-	const close = scanBody(text, start, start + 1, 0, { steps: 0 });
+	const close = scanBody(text, start, start + 1, { steps: 0 });
 	if (close < 0) return -1;
 	let end = close + 1;
 	while (end < text.length && flags.includes(text[end] as string)) end++;

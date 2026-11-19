@@ -34,7 +34,13 @@ export function registerIndexCommand(program: Command): void {
 		.command("index")
 		.description("Manage the trigram search index for grep acceleration");
 
-	// --- build ---
+	registerBuild(index);
+	registerUpdate(index);
+	registerStatus(index);
+	registerQuery(index);
+}
+
+function registerBuild(index: Command): void {
 	index
 		.command("build")
 		.description("Build a full trigram index from the current codebase")
@@ -75,7 +81,9 @@ export function registerIndexCommand(program: Command): void {
 			console.log(`  Base commit: ${stats.baseCommit.slice(0, 8)}`);
 		});
 
-	// --- update ---
+}
+
+function registerUpdate(index: Command): void {
 	index
 		.command("update")
 		.description("Incrementally update the index from git changes")
@@ -104,7 +112,9 @@ export function registerIndexCommand(program: Command): void {
 			console.log(`Updated ${updated} files in ${elapsed}s`);
 		});
 
-	// --- status ---
+}
+
+function registerStatus(index: Command): void {
 	index
 		.command("status")
 		.description("Show index status and statistics")
@@ -136,7 +146,9 @@ export function registerIndexCommand(program: Command): void {
 			printIndexFreshness(cwd);
 		});
 
-	// --- query (debug/test) ---
+}
+
+function registerQuery(index: Command): void {
 	index
 		.command("query <pattern>")
 		.description("Query the index for candidate files (debug tool)")

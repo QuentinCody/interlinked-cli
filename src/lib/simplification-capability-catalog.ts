@@ -6,6 +6,7 @@
 // semantics. It is a Cloud-review input contract; the local CLI ships no
 // universal equivalence claims.
 
+import { exactKeys, manifestText as nonempty, isoTimestamp, sortedManifestStrings as canonicalStrings } from "./simplification-schema-scope-kinds.js";
 import { createHash } from "node:crypto";
 import { isJsonObject, type JsonObject } from "./json-types.js";
 import { canonicalSimplificationAgentCiJson } from "./simplification-agent-ci-request.js";
@@ -54,32 +55,12 @@ type SimplificationCapabilityCatalogParseResult =
 	| { ok: true; catalog: Readonly<SimplificationCapabilityCatalog> }
 	| { ok: false; reason: string };
 
-function exactKeys(value: object, expected: readonly string[]): boolean {
-	return Object.keys(value).sort().join("|") === [...expected].sort().join("|");
-}
-
-function nonempty(value: unknown): value is string {
-	return typeof value === "string" && value.length > 0 && value.length <= 4_096;
-}
-
 function sha256(value: unknown): value is string {
 	return typeof value === "string" && SHA256_PATTERN.test(value);
 }
 
-function isoTimestamp(value: unknown): value is string {
-	if (typeof value !== "string") return false;
-	const millis = Date.parse(value);
-	return Number.isFinite(millis) && new Date(millis).toISOString() === value;
-}
-
 function member<T extends readonly string[]>(value: unknown, values: T): value is T[number] {
 	return typeof value === "string" && values.some((candidate) => candidate === value);
-}
-
-function canonicalStrings(value: unknown): value is string[] {
-	if (!Array.isArray(value) || !value.every(nonempty)) return false;
-	if (new Set(value).size !== value.length) return false;
-	return value.every((entry, index) => index === 0 || entry >= (value[index - 1] ?? ""));
 }
 
 function parseTarget(value: unknown): SimplificationCapabilityEntry["target"] | null {

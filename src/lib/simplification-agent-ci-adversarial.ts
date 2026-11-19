@@ -5,10 +5,14 @@
 // local CLI. A future evaluator can run a specialist and score its structured
 // observation against the same immutable expectations.
 
+import { exactKeys, fixtureText as nonempty, fixturePath as isRepoPath, sortedFixtureStrings as canonicalStringList } from "./simplification-schema-scope-kinds.js";
+import { compareCodeUnits } from "./compare-code-units.js";
 import { createHash } from "node:crypto";
 import { isJsonObject } from "./json-types.js";
 import { canonicalSimplificationAgentCiJson } from "./simplification-agent-ci-request.js";
 import {
+	isRemedy,
+	isBoundary,
 	SIMPLIFICATION_PROTECTED_BOUNDARIES,
 	type SimplificationProtectedBoundary,
 } from "./simplification-agent-ci-plan-primitives.js";
@@ -78,41 +82,8 @@ type SimplificationAdversarialFixtureParseResult =
 	| { ok: true; fixture: SimplificationAdversarialFixture }
 	| { ok: false; reason: string };
 
-function compareCodeUnits(left: string, right: string): number {
-	if (left < right) return -1;
-	return left > right ? 1 : 0;
-}
-
-function exactKeys(value: object, expected: readonly string[]): boolean {
-	return Object.keys(value).sort().join("|") === [...expected].sort().join("|");
-}
-
-function nonempty(value: unknown): value is string {
-	return typeof value === "string" && value.length > 0 && value.length <= 32_768;
-}
-
-function isRepoPath(value: unknown): value is string {
-	return nonempty(value) && !value.startsWith("/") && !value.includes("\\") &&
-		value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
-}
-
-function canonicalStringList(value: unknown): value is string[] {
-	if (!Array.isArray(value) || !value.every(nonempty)) return false;
-	if (new Set(value).size !== value.length) return false;
-	return value.every((entry, index) => index === 0 || entry >= (value[index - 1] ?? ""));
-}
-
 function canonicalPathList(value: unknown): value is string[] {
 	return canonicalStringList(value) && value.every(isRepoPath);
-}
-
-function isRemedy(value: unknown): value is SimplificationRemedy {
-	return typeof value === "string" && SIMPLIFICATION_REMEDIES.some((remedy) => remedy === value);
-}
-
-function isBoundary(value: unknown): value is SimplificationProtectedBoundary {
-	return typeof value === "string" &&
-		SIMPLIFICATION_PROTECTED_BOUNDARIES.some((boundary) => boundary === value);
 }
 
 function isTrapKind(value: unknown): value is SimplificationAdversarialTrapKind {

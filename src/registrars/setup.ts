@@ -70,6 +70,24 @@ async function setupAction(opts: OptionValues): Promise<void> {
 
 export function registerSetupCommands(program: Command): void {
 	registerNetworkCommands(program);
+	registerMaintenanceCommands(program);
+	registerHarnessControls(program);
+	registerOnboardingCommands(program);
+	program
+		.command("update")
+		.alias("upgrade")
+		.description("Clone or pull from GitHub, rebuild, and link the CLI")
+		.option("--force", "Pull even with uncommitted changes in the source checkout")
+		.option("--json", "Machine-readable output")
+		.action(async (opts: OptionValues) => {
+			const { updateCommand } = await import("../commands/update.js");
+			await updateCommand(opts);
+		});
+
+	registerHookLifecycleCommands(program);
+}
+
+function registerMaintenanceCommands(program: Command): void {
 	program
 		.command("reload")
 		.description(
@@ -109,7 +127,9 @@ export function registerSetupCommands(program: Command): void {
 			const { contextCommand } = await import("../commands/context.js");
 			await contextCommand(opts);
 		});
+}
 
+function registerHarnessControls(program: Command): void {
 	program
 		.command("disable")
 		.description("Stand the harness down for this project (recorded); --uninstall to remove hooks + config")
@@ -150,7 +170,9 @@ export function registerSetupCommands(program: Command): void {
 			const { envCommand } = await import("../commands/env.js");
 			await envCommand(opts);
 		});
+}
 
+function registerOnboardingCommands(program: Command): void {
 	program
 		.command("init")
 		.description("One-command onboarding: detect clients, configure, login, verify")
@@ -192,19 +214,6 @@ export function registerSetupCommands(program: Command): void {
 		.option("--token <token>", "Manual token for CI/headless use")
 		.option("--dry-run", "Show what would change without modifying files")
 		.action(setupAction);
-
-	program
-		.command("update")
-		.alias("upgrade")
-		.description("Clone or pull from GitHub, rebuild, and link the CLI")
-		.option("--force", "Pull even with uncommitted changes in the source checkout")
-		.option("--json", "Machine-readable output")
-		.action(async (opts: OptionValues) => {
-			const { updateCommand } = await import("../commands/update.js");
-			await updateCommand(opts);
-		});
-
-	registerHookLifecycleCommands(program);
 }
 
 function registerHookLifecycleCommands(program: Command): void {
