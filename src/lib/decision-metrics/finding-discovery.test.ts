@@ -30,6 +30,14 @@ describe("advisory typed finding discovery", () => {
 		expect(discoverFindings(root, { files: ["missing.ts"] }).notMeasured).toContain("missing.ts: unavailable source");
 		expect(() => discoverFindings(root, { files: Array(10_001).fill("missing.ts") })).toThrow("at most 10000");
 	});
+	it("keeps an in-project declaration whose filename begins with two dots", () => {
+		const root = mkdtempSync(join(tmpdir(), "finding-discovery-")); roots.push(root);
+		writeFileSync(join(root, "..operation.ts"), 'export function save(): {ok:true}|{ok:false} { return {ok:false}; }');
+		writeFileSync(join(root, "application.ts"), 'import {save} from "./..operation";\nsave();');
+		const found = discoverFindings(root, { files: ["application.ts", "..operation.ts"] });
+		const discarded = found.cases.find(row => row.id.includes("discarded-outcome"));
+		expect(discarded?.sources.map(row => row.file)).toEqual(["application.ts", "..operation.ts"]);
+	});
 	it("keeps default source bounds while foreground surveys discover typed outcomes after 1 MB", () => {
 		const root = mkdtempSync(join(process.cwd(), "scratch", "finding-discovery-full-")); roots.push(root);
 		const source = `/* ${"padding".repeat(150_000)} */\nfunction attempt(): {ok:true}|{ok:false,error:string} { return {ok:false,error:"failure"}; }\nattempt();`;

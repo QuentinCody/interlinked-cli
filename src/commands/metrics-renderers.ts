@@ -158,6 +158,26 @@ function functionTokenHotspotLines(r: MetricsReport): string[] {
 	return lines;
 }
 
+function thresholdLines(r: MetricsReport): string[] {
+	const lines: string[] = [];
+	lines.push(c.bold("  Threshold observations (enforcement depends on project policy)"));
+	lines.push(...functionTokenGateLines(r));
+	lines.push(kvLine(`  CRAP ≥ ${r.caps.crap}`, gateStr(r.gates.functionsOverCrap), 22));
+	lines.push(kvLine(`  cyclomatic > ${r.caps.cyclomatic}`, gateStr(r.gates.functionsCyclomaticBad), 22));
+	lines.push(
+		kvLine(
+			`  cyclomatic ${r.caps.cyclomaticReview + 1}–${r.caps.cyclomatic}`,
+			String(r.gates.functionsCyclomaticReview),
+			22,
+		),
+	);
+	lines.push(kvLine("  files no companion", gateStr(r.gates.filesMissingCompanion), 22));
+	if (r.scope.coverageAvailable) {
+		lines.push(kvLine("  files no coverage", String(r.gates.filesNoCoverage), 22));
+	}
+	return lines;
+}
+
 export function renderNormal(r: MetricsReport): string {
 	const lines: string[] = [];
 	lines.push(header("Test-Quality Metrics"));
@@ -176,21 +196,7 @@ export function renderNormal(r: MetricsReport): string {
 		);
 	}
 	lines.push("");
-	lines.push(c.bold("  Threshold observations (enforcement depends on project policy)"));
-	lines.push(...functionTokenGateLines(r));
-	lines.push(kvLine(`  CRAP ≥ ${r.caps.crap}`, gateStr(r.gates.functionsOverCrap), 22));
-	lines.push(kvLine(`  cyclomatic > ${r.caps.cyclomatic}`, gateStr(r.gates.functionsCyclomaticBad), 22));
-	lines.push(
-		kvLine(
-			`  cyclomatic ${r.caps.cyclomaticReview + 1}–${r.caps.cyclomatic}`,
-			String(r.gates.functionsCyclomaticReview),
-			22,
-		),
-	);
-	lines.push(kvLine("  files no companion", gateStr(r.gates.filesMissingCompanion), 22));
-	if (r.scope.coverageAvailable) {
-		lines.push(kvLine("  files no coverage", String(r.gates.filesNoCoverage), 22));
-	}
+	lines.push(...thresholdLines(r));
 	lines.push("");
 	lines.push(c.bold("  CRAP distribution"));
 	for (const [bucket, n] of Object.entries(r.distributions.crap)) {
@@ -201,7 +207,7 @@ export function renderNormal(r: MetricsReport): string {
 	lines.push("");
 	lines.push(c.bold(`  Top ${r.hotspots.length} CRAP hotspots`));
 	if (r.hotspots.length === 0) {
-		lines.push(c.dim("    (no coverage data — CRAP unavailable)"));
+		lines.push(c.dim(r.scope.coverageAvailable ? "    (no CRAP hotspots to display)" : "    (no coverage data — CRAP unavailable)"));
 	}
 	for (const h of r.hotspots) {
 		lines.push(

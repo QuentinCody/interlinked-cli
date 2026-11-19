@@ -171,6 +171,9 @@ Full coverage reduces the score to cyclomatic, but low coverage can exceed the d
 even at modest complexity (complexity 5 at 0% coverage scores 30). Treat complexity and coverage
 as independent levers; neither cap alone guarantees a safe CRAP score.
 
+The Coverage row reports whether the source coverage report was available. With
+coverage present, an empty hotspot list means there are no CRAP rows to display.
+
 **A function with no coverage reading gets no CRAP score at all.** When the report contains no
 measurement for a function — the source moved since the last coverage run, or the instrumenter
 never emitted an entry for it — that is *unknown* coverage, not 0%. Such functions are omitted

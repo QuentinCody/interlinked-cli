@@ -1,5 +1,5 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type * as TS from "typescript";
 import { parseTsSource } from "../../harness/checks/cyclomatic-ast.js";
 import { withCheckRoot } from "../../harness/checks/check-root.js";
@@ -20,10 +20,15 @@ const detectors = [
 	{ family: "module_initialization", name: "module-initialization", run: findTopLevelSideEffects },
 ];
 
+function projectFile(root: string, path: string): boolean {
+	const rel = relative(root, path);
+	return !!rel && rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel);
+}
+
 function sourcePath(root: string, file: string): string {
-	const path = resolve(root, file), rel = relative(root, path);
-	if (!rel || isAbsolute(file) || rel.startsWith("..")) throw new Error("Discovery sources must be confined to the project");
-	if (existsSync(path) && relative(root, realpathSync(path)).startsWith("..")) throw new Error("Discovery symlinks must be confined to the project");
+	const path = resolve(root, file);
+	if (isAbsolute(file) || !projectFile(root, path)) throw new Error("Discovery sources must be confined to the project");
+	if (existsSync(path) && !projectFile(root, realpathSync(path))) throw new Error("Discovery symlinks must be confined to the project");
 	return path;
 }
 
@@ -84,34 +89,39 @@ function discoveryFiles(root: string, requested: string[], options: Pick<Invento
 	return { files, notMeasured };
 }
 
+function findingCase(root: string, sf: TS.SourceFile, ts: typeof TS, candidate: ShapeCandidate): FindingCase {
+	const { family, name, node, claim, declaration } = candidate;
+	let scope = node;
+	while (scope.parent && scope.parent !== sf && !ts.isFunctionLike(scope)) scope = scope.parent;
+	const sources = [evidenceSource(root, sf, scope)];
+	const callee = declaration?.getSourceFile();
+	if (declaration && callee && callee !== sf && projectFile(root, callee.fileName)) {
+		sources.push(evidenceSource(root, callee, declaration, "callee-contract"));
+	}
+	return { id: `${name}-${digest({ file: sf.fileName, start: node.getStart(sf), claim }).slice(0, 16)}`, family, origin: "detector", claim, sources, missing: [] };
+}
+
 /** Keep source-scoped type resolution and lexical candidates together for provenance. */
 function discoverSource(root: string, program: TS.Program, sf: TS.SourceFile, ts: typeof TS) {
 	const checker = program.getTypeChecker(), file = sf.fileName, cases: FindingCase[] = [];
 	let unresolvedCalls = 0;
-	const add = (family: string, name: string, node: TS.Node, claim: string, declaration?: TS.Node): void => {
-			let scope = node;
-			while (scope.parent && scope.parent !== sf && !ts.isFunctionLike(scope)) scope = scope.parent;
-			const sources = [evidenceSource(root, sf, scope)];
-			if (declaration && declaration.getSourceFile() !== sf && !relative(root, declaration.getSourceFile().fileName).startsWith("..")) sources.push(evidenceSource(root, declaration.getSourceFile(), declaration, "callee-contract"));
-			cases.push({ id: `${name}-${digest({ file, start: node.getStart(sf), claim }).slice(0, 16)}`, family, origin: "detector", claim, sources, missing: [] });
-		};
-		const visit = (node: TS.Node): void => {
-			for (const candidate of semanticShapeCandidates(node, checker, ts)) add(candidate.family, candidate.name, candidate.node, candidate.claim, candidate.declaration);
-			const expression = discardedCall(node, ts);
-			if (expression) {
-				const result = discardedOutcome(expression, checker, ts);
-				if (result === "unresolved") unresolvedCalls++;
-				else if (result) add(result.family, result.name, result.node, result.claim, result.declaration);
-			}
-			ts.forEachChild(node, visit);
-		};
-		visit(sf);
-		const scanned = withCheckRoot(root, () => detectors.flatMap(detector => detector.run(sf.text, file).map(match => ({ detector, match }))));
-		for (const { detector, match } of scanned.result) {
-			const position = sf.getPositionOfLineAndCharacter(match.line - 1, 0);
-			const statement = sf.statements.find(node => node.end >= position);
-			if (statement) add(detector.family, detector.name, statement, `${detector.name} candidate at line ${match.line}: ${match.text}. This is heuristic evidence, not a proven violation.`);
+	const visit = (node: TS.Node): void => {
+		for (const candidate of semanticShapeCandidates(node, checker, ts)) cases.push(findingCase(root, sf, ts, candidate));
+		const expression = discardedCall(node, ts);
+		if (expression) {
+			const result = discardedOutcome(expression, checker, ts);
+			if (result === "unresolved") unresolvedCalls++;
+			else if (result) cases.push(findingCase(root, sf, ts, result));
 		}
+		ts.forEachChild(node, visit);
+	};
+	visit(sf);
+	const scanned = withCheckRoot(root, () => detectors.flatMap(detector => detector.run(sf.text, file).map(match => ({ detector, match }))));
+	for (const { detector, match } of scanned.result) {
+		const position = sf.getPositionOfLineAndCharacter(match.line - 1, 0);
+		const statement = sf.statements.find(node => node.end >= position);
+		if (statement) cases.push(findingCase(root, sf, ts, { family: detector.family, name: detector.name, node: statement, claim: `${detector.name} candidate at line ${match.line}: ${match.text}. This is heuristic evidence, not a proven violation.` }));
+	}
 	return { cases, notMeasured: scanned.notMeasured, unresolvedCalls };
 }
 

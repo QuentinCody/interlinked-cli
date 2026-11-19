@@ -115,10 +115,12 @@ describe("renderNormal — positive (must fire)", () => {
 		expect(out).toContain("Top 1 CRAP hotspots");
 	});
 
-	// test-contract: boundary — hotspots.length === 0 must show the "no coverage data" note
-	it("P8: shows the empty-hotspots note only when hotspots is empty", () => {
-		const out = stripAnsi(renderNormal(baseReport({ hotspots: [] })));
-		expect(out).toContain("no coverage data — CRAP unavailable");
+	it("P8: distinguishes missing coverage from an empty hotspot display", () => {
+		const measured = baseReport();
+		const unavailable = { ...measured, scope: { ...measured.scope, coverageAvailable: false } };
+		expect(stripAnsi(renderNormal(unavailable))).toContain("no coverage data — CRAP unavailable");
+		expect(stripAnsi(renderNormal(measured))).toContain("no CRAP hotspots to display");
+		expect(stripAnsi(renderNormal(measured))).not.toContain("no coverage data — CRAP unavailable");
 	});
 
 	// test-contract: boundary — a non-empty hotspots list must NOT show the empty note
