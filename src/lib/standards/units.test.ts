@@ -9,7 +9,7 @@ it("retains existing source-driven function identities and adjacent comments wit
 	const result = collectStandardsUnits("/repo", [file]);
 	expect(result.units).toHaveLength(2);
 	const outer = result.units.find(row => row.name === "outer");
-	expect(outer).toMatchObject({ evidenceUnitId: "source.ts::outer:function", sourceHash: file.sha256, extractor: "semantic-evidence-v3", comment: "/** Retry boundary. */" });
+	expect(outer).toMatchObject({ evidenceUnitId: "source.ts::outer:function", sourceHash: file.sha256, extractor: "semantic-evidence-v4", comment: "/** Retry boundary. */" });
 });
 
 it("keeps function-purpose and caller evidence explicitly uncollected", () => {

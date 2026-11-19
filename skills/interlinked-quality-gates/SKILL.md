@@ -480,7 +480,7 @@ Read a reference file only when the task needs it.
 - [references/mutation-cloud-v3.md](references/mutation-cloud-v3.md): `mutation cloud`, runner connection and sharding, protocol-v3 durable jobs and the mutation journal.
 - [references/mutation-campaigns.md](references/mutation-campaigns.md): source-only mutation research helpers, the full-manifest census and survivor rounds.
 - [references/metrics.md](references/metrics.md): ranks and commit-risk nudges, the function-token inventory, model-free scoring, evidence runs, this repository's pre-push gate and the coverage index.
-- [references/decision-metrics.md](references/decision-metrics.md): the experimental `metrics decisions` namespace, including explicit frozen finding assessments and directional Astra reference reviews.
+- [references/decision-metrics.md](references/decision-metrics.md) covers changed-function evidence, declaration-level complexity, frozen finding assessments and directional Astra reference reviews in the experimental `metrics decisions` namespace.
 - [references/baselines-detail.md](references/baselines-detail.md): decomposition campaigns, the SessionEnd baseline auto-fold and `max_predicate_drift`.
 - [references/lint-debt-adoption.md](references/lint-debt-adoption.md): `interlinked lint import` and the lint-debt baseline.
 - [references/dead-code.md](references/dead-code.md): dead-code controls, evidence layers and deletion buckets.

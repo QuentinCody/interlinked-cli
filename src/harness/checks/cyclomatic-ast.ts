@@ -215,7 +215,7 @@ export function isDecisionPoint(ts: TsModule, node: TS.Node): boolean {
  * Cyclomatic = 1 + decision points inside `fn`'s own body, NOT descending into
  * nested function-likes (they are counted as their own entries).
  */
-function complexityOf(ts: TsModule, fn: TS.Node): number {
+export function cyclomaticOfFunction(ts: TsModule, fn: TS.Node): number {
 	let count = 1;
 	const visit = (node: TS.Node): void => {
 		// A nested function starts its own scope — stop here.
@@ -268,7 +268,7 @@ export function computeCyclomaticAst(
 				name: functionName(ts, node, sf),
 				line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
 				endLine: sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
-				cyclomatic: complexityOf(ts, node),
+				cyclomatic: cyclomaticOfFunction(ts, node),
 				language: "js_ts",
 			});
 		}

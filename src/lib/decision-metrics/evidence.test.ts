@@ -59,7 +59,7 @@ it("captures attached comments as source evidence and re-evaluates a comment-onl
     expect(fn?.evidence.comment).toBe("/** Returns the input plus one. */");
     expect(fn?.evidence.commentLocation).toEqual({ startLine: 1, endLine: 1 });
     expect(fn?.evidence.body).toContain("return n + 1");
-    expect(fn?.provenance.extractor).toBe("semantic-evidence-v3");
+    expect(fn?.provenance.extractor).toBe("semantic-evidence-v4");
 });
 
 it("attaches an arrow's declaration comment without borrowing a separated file header or sibling", () => {
@@ -69,4 +69,14 @@ it("attaches an arrow's declaration comment without borrowing a separated file h
     expect(rows.find(row => row.evidence.signature === "label")?.evidence.comment).toBe("/** Returns the label. */");
     expect(rows.find(row => row.evidence.signature === "plain")?.evidence).not.toHaveProperty("comment");
     expect(rows.find(row => row.evidence.signature === "other")?.evidence).not.toHaveProperty("comment");
+});
+
+it("keeps each function's complexity on a line shared with a sibling and nested callback", () => {
+    const after = "const simple = () => 1; const branch = (n: number) => { if (n) return 1; return 0; }; const outer = () => [1].map(n => { if (n) return n; return 0; });";
+    const rows = extractChangedEvidence({ file: "same-line.ts", before: "", after, diff: "", allFunctions: true,
+        repository: "repo", revision: "abc", timestamp: "2026-01-01", message: "Inventory" });
+    expect(rows.filter(row => row.unit === "function").map(row => row.evidence.metrics)).toMatchObject([
+        { cyclomatic: 1, cognitive: 0 }, { cyclomatic: 2, cognitive: 1 },
+        { cyclomatic: 1, cognitive: 0 }, { cyclomatic: 2, cognitive: 2 },
+    ]);
 });

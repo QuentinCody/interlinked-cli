@@ -102,7 +102,7 @@ observations, neither of which alone proves a runtime bug. Per-unit aggregation,
 observation per signature, retains its existing meaning. These collection repairs
 establish complete retention within the participating predicates.
 
-Source units reuse `semantic-evidence-v3` stable function identities and attached
+Source units reuse `semantic-evidence-v4` stable function identities and attached
 adjacent comments. Snapshot IDs also bind the captured source hash and exact
 function span. Occurrences reference enclosing units. Line-only detector locations
 may reference multiple enclosing functions. Module-level syntax has an empty unit

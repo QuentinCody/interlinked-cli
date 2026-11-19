@@ -52,9 +52,9 @@ test or policy evidence can limit a judgment or change its outcome. Oversized re
 fail visibly under `--max-request-bytes`. Every admitted request retains its supplied
 context completely. Plans also obey the existing 32 MB artifact read budget.
 
-The separate `metrics decisions prepare` extractor `semantic-evidence-v3` retains
+The separate `metrics decisions prepare` extractor `semantic-evidence-v4` retains
 attached function comments and retrieves functions changed only through those
-comments. File-purpose and full caller context still need explicit source spans or
+comments. It binds cyclomatic and cognitive complexity to each declaration’s syntax node, including functions that share a line. File-purpose and full caller context still need explicit source spans or
 declared missing evidence in a finding packet. Inspect the frozen state before
 judging context completeness.
 

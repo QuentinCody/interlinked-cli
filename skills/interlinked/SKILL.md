@@ -89,7 +89,8 @@ For the internal, default-off `claims --receipt-shadow` observer and its explici
 links, use **interlinked-observability** and `docs/internal/jev.md`. It logs comparisons only;
 it does not enable claim evaluation in public Stop hooks or alter a model decision.
 
-For experimental `metrics decisions` measurements, ThinkThen/Clef/Jev adapters,
+For changed-function evidence with declaration-level complexity, experimental
+`metrics decisions` measurements, ThinkThen/Clef/Jev adapters,
 calibration audits, relational ledgers and `[interlinked:decision-metrics]` advice,
 load **interlinked-quality-gates**. For Qwen embedding retrieval/resource policy,
 also load **interlinked-semantic-index**. These unvalidated judgments are advisory;

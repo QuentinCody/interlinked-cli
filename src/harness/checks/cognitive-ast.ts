@@ -194,11 +194,18 @@ export function computeCognitiveAst(
  */
 export function cognitiveEntriesFrom(ts: TsModule, sf: TS.SourceFile): CognitiveComplexityEntry[] {
 	const entries: CognitiveComplexityEntry[] = [];
+	visitCognitiveFunctions(ts, sf, (_node, entry) => entries.push(entry));
+	entries.sort((a, b) => a.line - b.line);
+	return entries;
+}
+
+/** Visit each implementation with its original syntax node and the score for its enclosing depth. */
+export function visitCognitiveFunctions(ts: TsModule, sf: TS.SourceFile, visit: (node: TS.Node, entry: CognitiveComplexityEntry) => void): void {
 	const walk = (node: TS.Node, fnDepth: number): void => {
 		if (isImplementationFunction(ts, node)) {
 			const name = functionName(ts, node, sf);
 			const { cognitive, maxNesting } = scoreUnit(ts, node, name, fnDepth);
-			entries.push({
+			visit(node, {
 				name,
 				line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
 				endLine: sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
@@ -211,8 +218,6 @@ export function cognitiveEntriesFrom(ts: TsModule, sf: TS.SourceFile): Cognitive
 		ts.forEachChild(node, (child) => walk(child, nextDepth));
 	};
 	walk(sf, 0);
-	entries.sort((a, b) => a.line - b.line);
-	return entries;
 }
 
 /**

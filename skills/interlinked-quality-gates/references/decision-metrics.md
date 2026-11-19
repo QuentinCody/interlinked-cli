@@ -33,7 +33,8 @@ plan/1 and v1/v2 run readers remain supported. The orchestrator retries zero tim
 and external adapter retry guarantees remain capability-dependent. `show --short`
 returns only artifact identity and entry count.
 
-The separate changed-function extractor `semantic-evidence-v3` includes attached
+The changed-function extractor `semantic-evidence-v4` measures complexity at each
+declaration's source offset, including siblings on the same line. It includes attached
 comments and comment-only edits. File-purpose and complete caller context still
 need explicit source evidence or a recorded missing-context field.
 
