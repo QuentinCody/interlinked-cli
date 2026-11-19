@@ -1,7 +1,5 @@
-// Live reproductions for the stale-handle detector's in-repo findings
-// (docs/reviews/stale-handle-live-precision.md). Each P<n> asserts the CORRECT
-// behavior and is expected to FAIL on current code while the bug exists; the
-// product is deliberately not fixed in the change that adds these tests.
+// Pin request ownership after an idle sidecar is replaced. The error case
+// injects a late lifecycle event independently of platform delivery timing.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeSidecarChild, type FakeSidecarChild } from "../content-scanner/test-sidecar-child.js";
 import { SidecarManager, type SpawnFn } from "../content-scanner/sidecar-manager.js";
@@ -24,8 +22,9 @@ function idOf(child: FakeSidecarChild, index: number): string {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-describe("stale-handle live findings — positive (bug reproduces)", () => {
-	it("P1: SidecarManager — a late `exit` from the idle-killed child fails the NEW child's request and orphans it", async () => {
+describe("SidecarManager request ownership", () => {
+	it.each([["exit", null], ["error", new Error("previous sidecar failed")]] as const)(
+		"a late %s from the idle-killed child preserves the replacement's pending and subsequent requests", async (event, payload) => {
 		const a = slowDyingChild();
 		const b = makeSidecarChild(202);
 		const c = makeSidecarChild(303);
@@ -51,28 +50,16 @@ describe("stale-handle live findings — positive (bug reproduces)", () => {
 		await Promise.resolve();
 		expect(spawn).toHaveBeenCalledTimes(2);
 
-		// The OLD handle's exit now arrives.
-		a.emit("exit", null);
+		a.emit(event, payload);
 		b.respond({ id: idOf(b, 0), ok: true });
 		const res = await second;
 
-		// Correct behavior: generation A's exit must not touch generation B.
 		expect(res).toEqual(expect.objectContaining({ ok: true }));
 		expect(mgr.getStatus().state).not.toBe("dormant");
 		const third = mgr.send({ op: "ping" });
 		await Promise.resolve();
 		expect(spawn).toHaveBeenCalledTimes(2); // B is reused, not leaked behind a fresh C
 		b.respond({ id: idOf(b, 1), ok: true });
-		await third;
+		expect(await third).toMatchObject({ ok: true });
 	});
-});
-
-describe("stale-handle live findings — UNSURE (no realistic trigger reproduced)", () => {
-	// sidecar-manager.ts:307 `error` handler: same missing identity guard, but a
-	// ChildProcess emits `error` on spawn failure (before replacement can occur:
-	// ensureSpawned returns early while the old child is live and unkilled), on a
-	// kill() failure (synchronous, inside kill(), before replacement) or on IPC send
-	// (no IPC channel here). No path found where an already-replaced child emits
-	// `error`, so no failing reproduction is claimed.
-	it.todo("UNSURE: SidecarManager `error` handler on a replaced child");
 });

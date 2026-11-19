@@ -584,6 +584,16 @@ describe("checkTestWithoutDescription", () => {
 		const content = `const label = "x"; it(${'""'}, () => { expect(label).toBe("x"); });`;
 		expect(checkTestWithoutDescription(content, "/x/foo.test.ts").length).toBe(1);
 	});
+
+	it("ignores anonymous tests quoted in multiline fixtures and reports the following actual test", () => {
+		const content = [
+			"const fixture = `",
+			"test(() => fake());",
+			"`;",
+			"test(() => real());",
+		].join("\n");
+		expect(checkTestWithoutDescription(content, "/x/cases.test.ts").map(match => match.line)).toEqual([4]);
+	});
 });
 
 describe("checkAssertionRoulette", () => {

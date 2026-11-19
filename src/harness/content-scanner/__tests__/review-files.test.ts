@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	cacheKey,
 	consumeDecision,
@@ -171,7 +171,10 @@ describe("listPendingReviews / countPendingReviews", () => {
 		expect(countPendingReviews(cwd)).toBe(0);
 	});
 
-	it("sorts newest-first", async () => {
+	it("sorts newest-first", ({ onTestFinished }) => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		onTestFinished(() => { vi.useRealTimers(); });
+		vi.setSystemTime(Date.UTC(2025, 0, 1));
 		writeReview({
 			cwd,
 			key: "k1",
@@ -182,9 +185,7 @@ describe("listPendingReviews / countPendingReviews", () => {
 			redactedBody: "b",
 			findings: [],
 		});
-		// Force a different timestamp by sleeping briefly between writes.
-		// interlinked-ignore: hardcoded_timeout_in_tests — forces a distinct write timestamp between two reviews, not a flaky wait
-		await new Promise((r) => setTimeout(r, 10));
+		vi.setSystemTime(Date.UTC(2025, 0, 2));
 		writeReview({
 			cwd,
 			key: "k2",

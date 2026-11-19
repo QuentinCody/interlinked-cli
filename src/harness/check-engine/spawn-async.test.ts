@@ -381,7 +381,7 @@ describe("runProcessAsync", () => {
 		expect(r.killed).toBe(true);
 	});
 
-	it("clears a pending SIGKILL-grace timer when the child errors before exiting", async () => {
+	it("clears a pending SIGKILL-grace timer when the child errors before exiting", async ({ onTestFinished }) => {
 		// If 'error' fires (e.g. the kill itself later fails asynchronously)
 		// while a SIGKILL-grace timer is still armed from an earlier timeout,
 		// finalize() must clear that pending timer itself — 'exit' never ran to
@@ -389,10 +389,12 @@ describe("runProcessAsync", () => {
 		// recycled pid, and the grace timer would keep the daemon's event loop
 		// alive for up to SIGKILL_GRACE_MS after resolution.
 		const fakeChild = makeFakeChild(999_999_997);
+		vi.useFakeTimers();
+		onTestFinished(() => { vi.useRealTimers(); });
 		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 10 });
 		// Let the timeout timer fire and call killTree(), arming the grace timer.
-		await new Promise((r) => setTimeout(r, 50));
+		await vi.advanceTimersByTimeAsync(10);
 		expect(fakeChild.kill).toHaveBeenCalledWith("SIGTERM");
 		// 'error' resolves via finalize() directly — not through the 'exit'
 		// handler that would otherwise have cleared the grace timer first.
@@ -400,6 +402,8 @@ describe("runProcessAsync", () => {
 		const r = await promise;
 		expect(r.code).toBeNull();
 		expect(r.timedOut).toBe(true);
+		await vi.runAllTimersAsync();
+		expect(fakeChild.kill).not.toHaveBeenCalledWith("SIGKILL");
 	});
 });
 

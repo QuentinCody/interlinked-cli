@@ -9,7 +9,8 @@
 
 import { nonNull } from "../lib/non-null.js";
 import { emptyCatchExcuse, tryBlockBefore } from "./empty-catch-excuses.js";
-import { stripAllLiterals, stripComments, stripStringLiterals } from "./strip-helpers.js";
+import { maskCommentsAndStrings } from "./checks/test-hygiene-masking.js";
+import { stripAllLiterals, stripComments } from "./strip-helpers.js";
 import {
 	findBlockEnd,
 	getExt,
@@ -327,9 +328,7 @@ const TEST_FN_FIRST = /^(it|test)\s*\(\s*(?:async\s+)?(?:function\b|\()/;
 const TEST_OPENER = /\b(?:it|test)\s*\(/g;
 
 /** True when the line opens a test call, outside any string literal, with an empty or missing description. */
-function opensUndescribedTest(line: string): boolean {
-	// stripStringLiterals blanks string contents in place, so a column in `blank` is the same column in `line`.
-	const blank = stripStringLiterals(line);
+function opensUndescribedTest(line: string, blank: string): boolean {
 	for (const opener of blank.matchAll(TEST_OPENER)) {
 		const tail = line.slice(opener.index);
 		if (TEST_EMPTY_DESC.test(tail) || TEST_FN_FIRST.test(tail)) return true;
@@ -342,9 +341,13 @@ export function checkTestWithoutDescription(content: string, filePath: string): 
 	const stripped = stripComments(content);
 	const lines = content.split("\n");
 	const sLines = stripped.split("\n");
+	let maskedLines: string[] | undefined;
 	const matches: InlineMatch[] = [];
 	for (let i = 0; i < sLines.length && matches.length < 10; i++) {
-		if (opensUndescribedTest(nonNull(sLines[i]))) push(matches, i, lines, 10);
+		const line = nonNull(sLines[i]);
+		if (!opensUndescribedTest(line, line)) continue;
+		maskedLines ??= maskCommentsAndStrings(content, filePath).split("\n");
+		if (opensUndescribedTest(line, nonNull(maskedLines[i]))) push(matches, i, lines, 10);
 	}
 	return matches;
 }
