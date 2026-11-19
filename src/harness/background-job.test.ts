@@ -28,7 +28,7 @@ afterEach(() => {
 it("rechecks an old worker plan against 8 GiB RAM and enforces heap and timeout limits", async () => {
     await expect(runBackgroundJob(job, cwd, new AbortController().signal)).resolves.toEqual(result);
     expect(runProcessAsync).toHaveBeenCalledWith("npx", ["vitest", "run", "--maxWorkers=1"], {
-        cwd, timeout: 600_000, signal: expect.any(AbortSignal), env: { NODE_OPTIONS: "--max-old-space-size=768" },
+        cwd, timeout: 600_000, signal: expect.any(AbortSignal), env: { NODE_OPTIONS: "--max-old-space-size=768 --max-semi-space-size=16" },
         resourceBudget: { reserveBytes: 1024 ** 3, maxRssBytes: 2 * 1024 ** 3 },
     });
 });

@@ -40,7 +40,7 @@ thread pools inherit it from the coordinator. Existing worker arguments and repo
 are retained. Custom pools are not given an inferred heap contract, but remain inside
 the combined process-tree monitor. A heap limit is not an RSS limit: the 4 GiB tree
 budget still includes native memory and subprocesses. Receipt identities include the
-coordinator and fork heap settings.
+coordinator and fork heap settings. Managed tests default to 16 MiB per young-generation semi-space and preserve an explicit Node setting.
 Percentage heap settings and ambiguous quoted/escaped heap overrides are unsupported
 and produce unavailable/deferred evidence, never a passing receipt. Unrelated runtime
 arguments are retained; prefer an unambiguous absolute heap setting when one is needed.

@@ -8,6 +8,7 @@ import {
 	readlinkSync,
 	rmSync,
 	symlinkSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -360,7 +361,7 @@ describe("materializeIndexSnapshot — tracked symlink re-pointing", () => {
 	});
 
 	it("-a mode: a repointed tracked symlink is re-created with the NEW target", () => {
-		rmSync(join(repo, "src/link.ts"));
+		unlinkSync(join(repo, "src/link.ts"));
 		symlinkSync("target-b", join(repo, "src/link.ts")); // tracked, unstaged repoint
 
 		const snap = materializeIndexSnapshot(repo, true);
@@ -376,7 +377,7 @@ describe("materializeIndexSnapshot — tracked symlink re-pointing", () => {
 	});
 
 	it("narrow constructed path: a repointed tracked symlink is re-created with the NEW target", () => {
-		rmSync(join(repo, "src/link.ts"));
+		unlinkSync(join(repo, "src/link.ts"));
 		symlinkSync("target-c", join(repo, "src/link.ts"));
 
 		const snap = materializeIndexSnapshot(repo, false, ["src/link.ts"]);
@@ -392,7 +393,7 @@ describe("materializeIndexSnapshot — tracked symlink re-pointing", () => {
 	});
 
 	it("tracked-only pathspec scope: a repointed tracked symlink is re-created with the NEW target", () => {
-		rmSync(join(repo, "src/link.ts"));
+		unlinkSync(join(repo, "src/link.ts"));
 		symlinkSync("target-d", join(repo, "src/link.ts"));
 
 		const snap = materializeIndexSnapshot(repo, false, ["src"], ["src"]);
