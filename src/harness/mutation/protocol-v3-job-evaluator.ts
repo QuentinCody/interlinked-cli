@@ -267,7 +267,7 @@ export class ProtocolV3MutationJobEvaluator implements MutationJobEvaluator {
 		this.#cwd = options.cwd;
 	}
 
-	async evaluate(input: EvaluationInput): Promise<CommitMutationEvaluationDraft> {
+	#authenticateClaim(input: EvaluationInput) {
 		const job = safeStructuredClone(input.job);
 		if (job === null) fail("journal job must be detached structured-clone data");
 		const wire = parseProtocolV3RemoteEvidence(input.evidence);
@@ -298,8 +298,13 @@ export class ProtocolV3MutationJobEvaluator implements MutationJobEvaluator {
 		if (!verified.ok) fail(`authentication failed: ${verified.reason}`);
 		const retainedEvidence = retentionFromAuthenticatedEvidence(verified.bundle.envelope, wire, report);
 
+		return { job, targetContent, targetFile: expectedJob.target_file, baseManifest, now, bundle: verified.bundle, retainedEvidence };
+	}
+
+	async evaluate(input: EvaluationInput): Promise<CommitMutationEvaluationDraft> {
+		const { job, targetContent, targetFile, baseManifest, now, bundle, retainedEvidence } = this.#authenticateClaim(input);
 		const evaluated = evaluateVerifiedMutationEvidence({
-			bundle: verified.bundle,
+			bundle,
 			targetContent,
 			baseManifest,
 			siteCountThreshold: this.#siteCountThreshold,
@@ -310,7 +315,7 @@ export class ProtocolV3MutationJobEvaluator implements MutationJobEvaluator {
 			...(this.#cwd === undefined ? {} : { cwd: this.#cwd }),
 		});
 		const verdict = verdictOf(evaluated.outcome);
-		const evidenceHash = authenticatedEvidenceHash(verified.bundle);
+		const evidenceHash = authenticatedEvidenceHash(bundle);
 		const harnessDecision = mutationOutcomeToDecision(evaluated.outcome);
 		const mutationReceipt = evaluated.outcome.kind === "unavailable" ? null : evaluated.outcome.receipt;
 
@@ -321,7 +326,7 @@ export class ProtocolV3MutationJobEvaluator implements MutationJobEvaluator {
 			retainedEvidence,
 			evaluation: {
 				evaluation_version: "1",
-				protocol_version: verified.bundle.envelope.protocol_version,
+				protocol_version: bundle.envelope.protocol_version,
 				result_hash: evaluated.resultHash,
 				evidence: evaluated.evidence,
 				outcome: journalOutcome(evaluated.outcome),
@@ -348,7 +353,7 @@ export class ProtocolV3MutationJobEvaluator implements MutationJobEvaluator {
 				source: "durable_job",
 				job_id: job.jobId,
 				remote_job_id: job.remoteJobId,
-				target: expectedJob.target_file,
+				target: targetFile,
 				result_hash: evaluated.resultHash,
 				evaluated_at: now,
 				verdict,
