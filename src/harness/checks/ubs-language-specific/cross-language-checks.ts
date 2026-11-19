@@ -219,6 +219,10 @@ function isLocalhostScannableFile(filePath: string): boolean {
 const LOCALHOST_ENDPOINT_RE =
 	/(?:\/\/|@)(?:localhost|127\.0\.0\.1)\b|\b(?:localhost|127\.0\.0\.1):\d|["'`](?:localhost|127\.0\.0\.1)["'`]/;
 
+// Git's -c user.email=... supplies commit metadata. Remove this argument only
+// so a remote URL elsewhere in the same command remains visible to the check.
+const GIT_EMAIL_OVERRIDE_RE = /(["'`])-c\1\s*,\s*(["'`])user\.email=[\w.+%-]+@localhost\2/g;
+
 /**
  * Per-line exemptions for the localhost scan, run against the comment-stripped
  * line. Returns true when a matched endpoint line is a legitimate pattern
@@ -385,7 +389,8 @@ export function checkUbsHardcodedLocalhost(content: string, filePath: string): I
 
 	for (let i = 0; i < scan.strippedLines.length; i++) {
 		if (matches.length >= MATCH_LIMIT) break;
-		if (!LOCALHOST_ENDPOINT_RE.test(nonNull(scan.strippedLines[i]))) continue;
+		const endpoints = nonNull(scan.strippedLines[i]).replace(GIT_EMAIL_OVERRIDE_RE, "");
+		if (!LOCALHOST_ENDPOINT_RE.test(endpoints)) continue;
 		if (isExemptLocalhostMatch(scan, i)) continue;
 		matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 	}

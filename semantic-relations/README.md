@@ -103,6 +103,11 @@ truth. No learned threshold, deployment qualification or automatic alert is impl
 
 From a source checkout, run `node --import tsx semantic-relations/run-experiments.ts
 prepare <new-study-directory>`, then `assess <study-directory> fixtures|A|B`.
+Preparation reads the decision-metrics `ollamaUrl` and records it in the frozen
+engine configuration. It resolves the `claude` executable through `PATH` and
+records its reported version in the engine identity.
+Finishing preparation also requires the original canary, model listing and two
+preflight JSON files under `scratch/semantic-relations-implementation/`.
 The script freezes 16 executed mechanism fixtures and 200 cases each for A and B,
 with named backends and bounded spend. The local study retains the frozen inputs,
 blind Astra references, actual backend outputs, candidate coverage and failure records.

@@ -12,16 +12,19 @@ import { auditRelations } from "../src/lib/decision-metrics/relation-audit.js";
 import { fixtureRelationPlan } from "../src/lib/decision-metrics/relation-fixtures.js";
 import { naturalRelationStudies, compactBlindReview } from "../src/lib/decision-metrics/relation-study.js";
 import { haikuIdentity } from "../src/lib/decision-metrics/relation-haiku.js";
+import { readDecisionConfig } from "../src/lib/decision-metrics/config.js";
 import { RELATION_CONTRACTS } from "../src/lib/decision-metrics/relation-contracts.js";
 import type { EngineSpec } from "../src/harness/semantic-graph/relation-types.js";
 
 const root = resolve(process.cwd()), action = process.argv[2] ?? "prepare", study = resolve(process.argv[3] ?? "semantic-relations/studies/2026-10-27-exploratory");
 mkdirSync(study, { recursive: true });
 if (action === "prepare") {
+    const haikuCommand = "claude";
+    const ollamaEndpoint = readDecisionConfig(root).ollamaUrl;
     const engines: EngineSpec[] = [
-        { id: "D", backend: "ollama", model: "clef-flash:9b", identity: "unavailable:not-installed", command: "thinkthen", endpoint: "http://127.0.0.1:11434", effort: null, maxCalls: 450, maxUsd: 1, timeoutMs: 30000, band: [.2,.8] },
+        { id: "D", backend: "ollama", model: "clef-flash:9b", identity: "unavailable:not-installed", command: "thinkthen", endpoint: ollamaEndpoint, effort: null, maxCalls: 450, maxUsd: 1, timeoutMs: 30000, band: [.2,.8] },
         { id: "J", backend: "typesafe", model: "jev-1.14.0", identity: "jev-1.14.0", command: null, endpoint: "https://api.typesafe.ai/v1/systemone", effort: null, maxCalls: 450, maxUsd: 2, timeoutMs: 20000, band: [.2,.8] },
-        { id: "H", backend: "haiku", model: "claude-haiku-5-5", identity: haikuIdentity("/Users/quentincody/.local/bin/claude", "claude-haiku-5-5"), command: "/Users/quentincody/.local/bin/claude", endpoint: null, effort: "low", maxCalls: 450, maxUsd: 8, timeoutMs: 90000, band: [.2,.8] },
+        { id: "H", backend: "haiku", model: "claude-haiku-5-5", identity: haikuIdentity(haikuCommand, "claude-haiku-5-5"), command: haikuCommand, endpoint: null, effort: "low", maxCalls: 450, maxUsd: 8, timeoutMs: 90000, band: [.2,.8] },
     ];
     writeArtifactFile(join(study, "engines.json"), engines);
     const revision = gitText(root, ["rev-parse", "HEAD"]), until = gitText(root, ["show", "-s", "--format=%cI", revision]);

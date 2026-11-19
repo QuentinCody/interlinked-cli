@@ -54,6 +54,8 @@ newline continues the same command and retains its interactive restrictions. A n
    the file already had** (multiset over whitespace-normalized text — moving a pre-existing
    finding doesn't count; a brand-new file counts everything). Fix the line(s) you *added*,
    then retry.
+   The `ubs_hardcoded_localhost` check distinguishes Git's `-c user.email=…`
+   identity argument from a remote endpoint passed to the same command.
 4. **Legitimate suppression** — only when a flagged line is genuinely deliberate:
    - Inline, on the line **above** the finding: `// interlinked-ignore: <check-id> — <why>`
      (reason separator ` — `, ` -- `, or `–`; comma-separate multiple check ids).
