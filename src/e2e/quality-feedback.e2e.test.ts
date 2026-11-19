@@ -1,4 +1,5 @@
-import { symlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { DEFAULT_QUALITY_CHECKS } from "../harness/rules/default-config-quality-checks.js";
@@ -18,6 +19,50 @@ beforeAll(async () => {
     fixture.file("src/a.test.ts", 'import { answer } from "./a"; void answer;\n');
 });
 afterAll(async () => { await fixture?.close(); });
+
+it("reports a Commander option mismatch across a registrar and an atomically edited handler", async () => {
+    const before = "export function run(opts) { return opts.dryRun; }";
+    const after = 'export function run(opts) { return opts["dry-run"]; }';
+    const owned = await createFixture({ prepare(cwd) {
+        mkdirSync(join(cwd, "src"));
+        writeFileSync(join(cwd, "package.json"), '{"name":"fixture","type":"module"}');
+        writeFileSync(join(cwd, "src/handler.ts"), before + "\n");
+        writeFileSync(join(cwd, "src/registrar.ts"), 'import { Command } from "commander";\nimport { run } from "./handler.js";\nnew Command().option("--dry-run").action(run);\n');
+        execFileSync("git", ["add", "package.json", "src"], { cwd });
+    } });
+    try {
+        const handler = join(owned.cwd, "src/handler.ts"), companion = join(owned.cwd, "src/handler.test.ts");
+        const testBody = 'import { run } from "./handler.js";\nif (run({ dryRun: true }) !== true) throw new Error("dry-run should be enabled");';
+        const input = { command: ["*** Begin Patch", "*** Update File: " + handler, "@@", "-" + before, "+" + after,
+            "*** Add File: " + companion, ...testBody.split("\n").map(line => "+" + line), "*** End Patch"].join("\n") };
+        const sessionId = "handler-update", id = "handler-and-test";
+        const pre = await owned.hook({ sessionId, tool: "apply_patch", input, payload: { tool_use_id: id } });
+        owned.assertServed(pre);
+        expect(pre.stdout, pre.stderr).not.toContain('"deny"');
+        owned.file("src/handler.ts", after + "\n");
+        owned.file("src/handler.test.ts", testBody + "\n");
+        const post = await owned.hook({ sessionId, event: "PostToolUse", tool: "apply_patch", input,
+            payload: { tool_use_id: id, tool_response: "success" } });
+        owned.assertServed(post);
+        expect(post.stdout).toContain("src/handler.test.ts");
+        const evidence = owned.ledger("check-results.jsonl");
+        expect(evidence).toContainEqual(expect.objectContaining({ session: sessionId, finding_details: expect.arrayContaining([
+            expect.objectContaining({ name: "commander_option_attribute", detail: expect.stringContaining("dryRun") }),
+        ]) }));
+    } finally { await owned.close(); }
+});
+
+it("reports a large authored edit as deferred and retains its independent security-scope receipt", async () => {
+    const content = "// one bounded-check fixture\n".padEnd(262145, " ") + "\n";
+    const file_path = fixture.file("src/large.ts", content);
+    const post = await fixture.hook({ sessionId: "source-budget", event: "PostToolUse", tool: "Edit",
+        input: { file_path, old_string: "// first revision", new_string: "// one bounded-check fixture" },
+        payload: { tool_use_id: "large-write", tool_response: "success" } });
+    fixture.assertServed(post);
+    expect(post.stdout).toContain("NOT CHECKED: source_quality");
+    const rows = fixture.ledger("check-executions.jsonl");
+    expect(rows).toContainEqual(expect.objectContaining({ schema: "source-scan-security.v1", scope: "security-only", tool_use_id: "large-write", paths: [file_path] }));
+});
 
 async function reportEdit(name: string) {
     const file_path = fixture.file("src/a.ts", "export const answer = 42;\n");

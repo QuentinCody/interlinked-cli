@@ -6,6 +6,41 @@ import { expect, it, vi } from "vitest";
 import { DEFAULT_QUALITY_CHECKS } from "../harness/rules/default-config-quality-checks.js";
 import { createFixture } from "./fixture.js";
 
+it("loads the persisted search index and summarizes a finding retained across two Stops", async () => {
+    const fixture = await createFixture();
+    try {
+        const sessionId = "indexed-edits";
+        const initial = "export const indexedAnswer = 4;\n";
+        const file_path = fixture.file("src/answer.ts", initial);
+        execFileSync("git", ["add", "src/answer.ts"], { cwd: fixture.cwd });
+        const built = await fixture.cli(["index", "build"]);
+        expect(built.code, built.stderr).toBe(0);
+        await fixture.restartDaemon();
+        await vi.waitFor(() => expect(readFileSync(join(fixture.dataDir, "statusline.snapshot"), "utf8")).toMatch(/^index_status=ready$/m));
+        const query = await fixture.cli(["index", "query", "indexedAnswer"]);
+        expect(query.stdout).toContain("src/answer.ts");
+        const after = 'export const indexedAnswer = eval("2 + 2");\n';
+        const input = { file_path, old_string: initial, new_string: after };
+        fixture.file("src/answer.ts", after);
+        const edit = await fixture.hook({ sessionId, event: "PostToolUse", tool: "Edit", input, payload: { tool_response: "success" } });
+        fixture.assertServed(edit);
+        const stop = async () => {
+            const result = await fixture.hook({ sessionId, event: "Stop" });
+            fixture.assertServed(result);
+            return result.stdout + result.stderr;
+        };
+        expect(await stop()).toContain("eval_usage");
+        fixture.file("src/answer.ts", after + "export const nextAnswer = 5;\n");
+        const next = await fixture.hook({ sessionId, event: "PostToolUse", tool: "Edit", input: { file_path,
+            old_string: after, new_string: after + "export const nextAnswer = 5;\n" }, payload: { tool_response: "success" } });
+        fixture.assertServed(next);
+        const second = await stop();
+        expect(second).toContain("nextAnswer");
+        expect(second).not.toContain("eval_usage");
+        expect(JSON.stringify(fixture.ledger("stop-digest.jsonl"))).toContain("unchanged (message suppressed)");
+    } finally { await fixture.close(); }
+});
+
 it("repairs malformed settings, reloads policy, and stays responsive through background maintenance", async () => {
     const fixture = await createFixture({ prepare(cwd) {
         mkdirSync(join(cwd, ".claude"));

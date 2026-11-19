@@ -6,6 +6,20 @@ import { createFixture, type E2eFixture } from "./fixture.js";
 let fixture: E2eFixture | undefined;
 afterEach(async () => { await fixture?.close(); fixture = undefined; });
 
+it("delivers a missing-companion warning once while allowing the write and recognizes a real companion", async () => {
+    fixture = await createFixture({ rules: { structural_checks: { test_first_mode: "warn" } } });
+    const input = { file_path: join(fixture.cwd, "src/tally.ts"), content: "export const tally = 1;\n" };
+    const before = await fixture.hook({ tool: "Write", input });
+    fixture.assertServed(before);
+    expect(before.stdout).not.toContain('"deny"');
+    expect(before.stdout.match(/\[interlinked:tdd\]/g)).toHaveLength(1);
+    fixture.file("src/tally.test.ts", 'import { expect, it } from "vitest";\nimport { tally } from "./tally.js";\nit("exposes the initial tally", () => expect(tally).toBe(1));\n');
+    const after = await fixture.hook({ tool: "Write", input });
+    fixture.assertServed(after);
+    expect(after.stdout + after.stderr).not.toContain("[interlinked:tdd]");
+    expect(after.stdout).not.toContain('"deny"');
+});
+
 // test-contract: public-api — metrics must report an incomplete repository scan as unavailable, even when its observed source prefix is small.
 it("reports coverage reach unavailable when research artifacts exhaust the traversal budget", async () => {
     fixture = await createFixture({ prepare(cwd) {
