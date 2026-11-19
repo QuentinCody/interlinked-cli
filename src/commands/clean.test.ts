@@ -188,6 +188,13 @@ describe("clean — stale hook session files", () => {
 		expect(out).toContain("Removed 1 item(s).");
 	});
 
+	it("explicit dry-run preserves files even with force", async () => {
+		await cleanCommand({ force: true, dryRun: true, json: true });
+		expect(unlinked).toEqual([]);
+		expect(written).toEqual([]);
+		expect(lastJson()).toMatchObject({ dry_run: true, total_removed: 0, removed: [] });
+	});
+
 	it("25h-old file formats age as 1d (days branch of formatAge)", async () => {
 		vfs.dirs[HOOK_SESSIONS] = ["h.json", "h2.json"];
 		vfs.files = {

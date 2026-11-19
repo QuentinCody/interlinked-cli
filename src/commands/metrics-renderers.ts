@@ -15,6 +15,9 @@ import {
 	renderFunctionTokenSummaryLines,
 } from "./metrics-function-token-renderer.js";
 import type { FunctionTokenMetricsReport } from "./metrics-function-tokens.js";
+import type { ActionInventory } from "../lib/action-inventory.js";
+import type { MetricSourceInventory } from "./metrics-coverage-reports.js";
+import { renderMetricActions } from "./metrics-actions.js";
 
 export interface FnMetric {
 	file: string;
@@ -31,6 +34,7 @@ export interface FnMetric {
 
 export interface FileMetric {
 	file: string;
+	sourceSha256?: string;
 	functions: number;
 	/** Per-file line coverage %, or null when no coverage report is present. */
 	linePct: number | null;
@@ -45,6 +49,10 @@ export interface FileMetric {
 }
 
 export interface MetricsReport {
+	/** Complete action projection; never limited by the hotspot display count. */
+	actions?: ActionInventory;
+	functions?: FnMetric[];
+	sourceInventory?: MetricSourceInventory;
 	scope: {
 		files: number;
 		functions: number;
@@ -52,10 +60,8 @@ export interface MetricsReport {
 		coverageSource: "istanbul" | "lcov" | "istanbul+lcov" | null;
 		astComplexityAvailable: boolean;
 	};
-	/** The resolved caps the gates actually enforce for this repo — read from
-	 *  `.interlinked/metric-caps.json` (else the shipped defaults). The rendered
-	 *  labels + the gate COUNTS derive from these, so the report can never show a
-	 *  threshold that disagrees with what the write/commit gates enforce. */
+	/** Resolved reporting thresholds from metric-caps.json or shipped defaults.
+	 * Enforcement additionally depends on adopted policy and edit delta semantics. */
 	caps: {
 		/** Per-function CRAP cap (`crapThresholdFor`). Functions at/over it are over-gate. */
 		crap: number;
@@ -162,12 +168,12 @@ export function renderNormal(r: MetricsReport): string {
 		lines.push(
 			kvLine(
 				"Complexity",
-				c.yellow("regex fallback — `typescript` not resolvable; install it for AST-accurate metrics"),
+				c.yellow("JS/TS complexity unavailable — optional `typescript` parser unavailable; inspect unmeasured inputs"),
 			),
 		);
 	}
 	lines.push("");
-	lines.push(c.bold("  Gates"));
+	lines.push(c.bold("  Threshold observations (enforcement depends on project policy)"));
 	lines.push(...functionTokenGateLines(r));
 	lines.push(kvLine(`  CRAP ≥ ${r.caps.crap}`, gateStr(r.gates.functionsOverCrap), 22));
 	lines.push(kvLine(`  cyclomatic > ${r.caps.cyclomatic}`, gateStr(r.gates.functionsCyclomaticBad), 22));
@@ -203,14 +209,15 @@ export function renderNormal(r: MetricsReport): string {
 		lines.push("");
 		lines.push(...renderMissingCompanionSection(r));
 	}
+	lines.push(...renderMetricActions(r.actions, false));
 	return lines.join("\n");
 }
 
 export function renderFull(r: MetricsReport): string {
-	if (!r.functionTokenMetrics) return renderNormal(r);
 	return [
 		renderNormal(r),
-		...renderFunctionTokenInventoryLines(r.functionTokenMetrics),
+		...(r.functionTokenMetrics ? renderFunctionTokenInventoryLines(r.functionTokenMetrics) : []),
+		...renderMetricActions(r.actions, true),
 	].join("\n");
 }
 

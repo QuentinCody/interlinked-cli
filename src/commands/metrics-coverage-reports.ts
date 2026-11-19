@@ -28,25 +28,22 @@ import {
 } from "../harness/coverage-lcov.js";
 import { type CoverageSummary, loadCoverageSummary } from "../harness/coverage-ratchet.js";
 import { reportMtimeMs } from "../lib/report-mtime.js";
+import { sourceLanguage, sourceRole } from "../lib/metrics/inventory-roles.js";
 import { discoverFiles } from "./verify/file-discovery.js";
 
 /** Source extensions the AST/regex complexity pass + coverage adapters cover. */
-const ANALYZABLE_EXT_RE = /\.(?:tsx?|jsx?|mjs|cjs|py|rs|go)$/;
-const TEST_EXT_RE = /\.(test|spec)\.(?:tsx?|jsx?|mjs|cjs|py|rs|go)$/;
+const ANALYZABLE_EXT_RE = /\.(?:[cm]?[jt]sx?|py|rs|go)$/;
 
 /**
- * Analyzable when the extension is a supported source language, it is not a
- * test / declaration / fixture file, AND it is in scope: either under `src/`
- * (the JS coverage-include convention) or present in the loaded coverage report
- * (so a non-TS language whose sources live outside `src/` — e.g. a Python
- * package — still appears once its LCOV report is generated).
+ * Analyzable when the extension is a supported source language and it is
+ * product source under the shared inventory role policy. Location and coverage
+ * availability never change eligibility. Test measurement is an explicit option.
  */
-function isAnalyzableSource(rel: string, covered: ReadonlySet<string>): boolean {
+function isAnalyzableSource(rel: string, includeTests: boolean): boolean {
 	if (!ANALYZABLE_EXT_RE.test(rel)) return false;
-	if (/\.d\.ts$/.test(rel)) return false;
-	if (TEST_EXT_RE.test(rel)) return false;
-	if (/(^|\/)(__tests__|__fixtures__|tests|test)\//.test(rel)) return false;
-	return rel.startsWith("src/") || covered.has(rel);
+	const role = sourceRole(rel);
+	if (role === "test") return includeTests;
+	return role === "product";
 }
 
 /**
@@ -105,7 +102,7 @@ type FnRange = { name: string; line: number; endLine: number };
 export interface MetricsCoverage {
 	available: boolean;
 	source: "istanbul" | "lcov" | "istanbul+lcov" | null;
-	/** Files the report(s) know about, repo-relative — drives non-`src/` inclusion. */
+	/** Files the report(s) know about, repo-relative; independent of source eligibility. */
 	fileSet: ReadonlySet<string>;
 	perFile(rel: string, fnRanges: FnRange[], mtime: number): PerFileCoverage | undefined;
 	linePct(rel: string): number | null;
@@ -238,12 +235,30 @@ export function loadMetricsCoverage(cwd: string): MetricsCoverage {
 
 /**
  * Repo-relative, sorted list of source files in scope for `interlinked
- * metrics` (analyzable extension, not a test/fixture, either under `src/` or
- * known to the loaded coverage report).
+ * metrics`. Coverage is retained as a compatibility argument, never as an
+ * eligibility requirement. Root libraries and workspace packages are included.
  */
-export function discoverMetricSourceFiles(cwd: string, coverage: MetricsCoverage): string[] {
-	return discoverFiles(cwd)
-		.map((file) => relative(cwd, file).replace(/\\/g, "/"))
-		.filter((file) => isAnalyzableSource(file, coverage.fileSet))
-		.sort();
+export function discoverMetricSourceFiles(cwd: string, _coverage: MetricsCoverage, includeTests = false): string[] {
+	return discoverMetricSourceInventory(cwd, includeTests).files;
+}
+
+export interface MetricSourceInventory {
+	files: string[];
+	excluded: { file: string; reason: string }[];
+	notMeasured: { file: string; reason: string }[];
+	limitations: string[];
+}
+
+/** Reuses verify discovery and shared source roles, exposing each named coverage gap. */
+export function discoverMetricSourceInventory(cwd: string, includeTests = false): MetricSourceInventory {
+	const inventory: MetricSourceInventory = { files: [], excluded: [], notMeasured: [], limitations: ["Discovery follows verify's Git/ignore and explicit source exclusions, without an implicit file-count or file-size cutoff. Unavailable inputs remain unmeasured evidence."] };
+	const discovered = discoverFiles(cwd, { onUnavailable: input => inventory.notMeasured.push(input) });
+	const files = [...new Set(discovered.map(file => relative(cwd, file).replace(/\\/g, "/")))].sort();
+	for (const file of files) {
+		if (isAnalyzableSource(file, includeTests)) { inventory.files.push(file); continue; }
+		const role = sourceRole(file), language = sourceLanguage(file);
+		if (language !== null && (role === "product" || (role === "test" && includeTests))) inventory.notMeasured.push({ file, reason: `No complexity adapter for ${language}` });
+		else inventory.excluded.push({ file, reason: `Excluded ${role} source role` });
+	}
+	return inventory;
 }

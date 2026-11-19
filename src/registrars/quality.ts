@@ -5,7 +5,7 @@
 // per-file ratchets.
 // ===========================================
 
-import { type Command, type OptionValues } from "commander";
+import { type Command, InvalidArgumentError, Option, type OptionValues } from "commander";
 import { registerMetricsCommands } from "./metrics.js";
 import { registerMutationCloudCommands } from "./mutation-cloud.js";
 import { registerCoverageCommands } from "./quality-coverage.js";
@@ -15,6 +15,14 @@ const VERIFY_DESCRIPTION =
 	"Run the default high-signal external catalog plus diff-safe inline checks. Target can be a local path, GitHub URL, or any git remote URL.";
 const VERIFY_ONLY_DESCRIPTION =
 	"Run one named external check (for example: tsc, biome, oxlint, eslint, semgrep, gitleaks, knip, docs-check, sca)";
+
+function parseVerifyTimeout(value: string): number {
+	const milliseconds = Number(value);
+	if (!/^\d+$/.test(value) || !Number.isSafeInteger(milliseconds) || milliseconds > 2_147_483_647) {
+		throw new InvalidArgumentError("Expected milliseconds from 0 to 2147483647; 0 means no deadline.");
+	}
+	return milliseconds;
+}
 
 function registerCheckAndSearchCommands(program: Command): void {
 	program
@@ -82,6 +90,9 @@ function registerVerifyCommand(program: Command): void {
 		.command("verify [target]")
 		.description(VERIFY_DESCRIPTION)
 		.option("--only <tool>", VERIFY_ONLY_DESCRIPTION)
+		.option("--timeout <ms>", "Whole command deadline in milliseconds (default: no deadline; 0 disables)", parseVerifyTimeout)
+		.option("--tool-timeout <ms>", "External analyzer deadline in milliseconds (default: no deadline; 0 disables)", parseVerifyTimeout)
+		.addOption(new Option("--gitleaks-scope <scope>", "Secret scan inputs: working-tree includes ignored files; git-visible excludes them (default: working-tree)").choices(["working-tree", "git-visible"]))
 		.option("--suggestions", "Also run scored regex heuristics (sql-injection, perf, quality)")
 		.option("--json", "Machine-readable output")
 		.option("--details", "Show per-file details for all findings")
@@ -183,7 +194,7 @@ function registerStructureCommands(program: Command): void {
 		.command("scan")
 		.description("Build or refresh local generated artifact catalogs")
 		.option("--full", "Force full rescan")
-		.option("--incremental", "Only refresh changed categories")
+		.option("--incremental", "Request incremental extraction (currently unavailable)")
 		.option("--json", "Machine-readable output")
 		.action(async (opts: OptionValues) => {
 			const { structureScanCommand } = await import("../commands/structure.js");
@@ -265,7 +276,7 @@ function registerMutationMeasurementCommands(mutationCmd: Command): void {
 	mutationCmd
 		.command("check", { isDefault: true })
 		.description("Compare the Stryker report against baseline and exit non-zero on any drop")
-		.option("--report <path>", "Path to Stryker mutation.json", "reports/mutation/mutation.json")
+		.option("--report <path>", "Path to Stryker mutation.json")
 		.option(
 			"--baseline <path>",
 			"Path to baseline (defaults to .interlinked/mutation-baseline.json)",
@@ -324,6 +335,22 @@ function registerMutationWorklistCommands(mutationCmd: Command): void {
 		.action(async (opts: OptionValues) => {
 			const { mutationSurvivorsCommand } = await import("../commands/mutation-survivors.js");
 			await mutationSurvivorsCommand(opts);
+		});
+
+	mutationCmd
+		.command("saturation")
+		.description(
+			"Per-file saturation from the recorded manifest: saturated (every mutant killed or proved equivalent on the current bytes), open, unknown (stale or unmeasured symbols), unmeasured, gone. Reads state only. A file in .interlinked/saturation-baseline.json that is no longer saturated is a regression (exit 1). Stability, not correctness.",
+		)
+		.option("--file <substr>", "Only files whose path contains this (case-insensitive)")
+		.option("--ratchet", "Add every saturated file to the saturation baseline (never removes one)")
+		.option("--top <n>", "Rows per list (default: 20)")
+		.option("--cwd <path>", "Project root (default: current directory)")
+		.option("--json", "Machine-readable output")
+		.option("--short", "One-line summary")
+		.action(async (opts: OptionValues) => {
+			const { mutationSaturationCommand } = await import("../commands/mutation-saturation.js");
+			await mutationSaturationCommand(opts);
 		});
 
 	mutationCmd

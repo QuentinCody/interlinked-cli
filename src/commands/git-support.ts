@@ -2,9 +2,10 @@
 // interlinked git — shared types, server access, and rendering helpers
 // ===========================================
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { c, header, kvLine } from "../lib/formatter.js";
-import { getCommitMessage, getHeadSha, parseInterlinkedTrailers } from "../lib/git-utils.js";
+import { parseInterlinkedTrailers } from "../lib/git-utils.js";
+import { gitArgs, gitArgsRaw } from "../lib/git-shell.js";
 import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 import { parseGitContext } from "./git-response.js";
@@ -72,6 +73,7 @@ export interface LinkCheckpointResult {
 	notes?: JsonObject | undefined;
 	notes_json?: string | undefined;
 	applied?: boolean;
+	apply_error?: string;
 	server_error?: string;
 }
 
@@ -244,10 +246,10 @@ export async function resolveCheckpointId(
 	fetchLatest: () => Promise<ServerGitContext | null>,
 ): Promise<number> {
 	let checkpointId: number | undefined;
-	if (checkpointOpt) {
-		checkpointId = Number.parseInt(checkpointOpt, 10);
-		if (Number.isNaN(checkpointId)) {
-			throw new Error(`Invalid checkpoint ID: ${checkpointOpt}. Must be a number.`);
+	if (checkpointOpt !== undefined) {
+		checkpointId = Number(checkpointOpt);
+		if (!/^\+?\d+$/.test(checkpointOpt.trim()) || !Number.isSafeInteger(checkpointId) || checkpointId <= 0) {
+			throw new Error(`Invalid checkpoint ID: ${checkpointOpt}. Must be a positive safe integer.`);
 		}
 	} else {
 		try {
@@ -258,7 +260,7 @@ export async function resolveCheckpointId(
 		}
 	}
 
-	if (!checkpointId) {
+	if (!Number.isSafeInteger(checkpointId) || checkpointId === undefined || checkpointId <= 0) {
 		throw new Error(
 			"No checkpoint ID specified and could not fetch latest from server. Use --checkpoint <id>.",
 		);
@@ -280,7 +282,7 @@ function amendWithTrailers(cwd: string, currentMsg: string, newTrailerLines: str
 	const sanitizedTrailers = newTrailerLines.map((t) => sanitizeShellArg(t)).join("\n");
 	const newMsg = `${currentMsg.trimEnd()}\n\n${sanitizedTrailers}`;
 	// Use git commit --amend with -F - to pipe message via stdin (no shell injection)
-	execSync("git commit --amend -F -", {
+	execFileSync("git", ["commit", "--amend", "-F", "-"], {
 		cwd,
 		encoding: "utf-8",
 		timeout: 10000,
@@ -289,19 +291,29 @@ function amendWithTrailers(cwd: string, currentMsg: string, newTrailerLines: str
 	});
 }
 
-/** Attach the checkpoint notes JSON to a commit, tolerating unusual git states. */
+/** Attach notes through literal argv and propagate failure to the apply result. */
 function attachCheckpointNotes(cwd: string, commitSha: string, notesJson: string): void {
-	try {
-		// Use -F - to pipe content via stdin (no shell injection)
-		execSync(`git notes add -f -F - ${commitSha}`, {
-			cwd,
-			encoding: "utf-8",
-			timeout: 10000,
-			input: notesJson,
-			stdio: ["pipe", "pipe", "pipe"],
-		});
-	} catch {
-		// Notes may fail in unusual git states
+	execFileSync("git", ["notes", "add", "-f", "-F", "-", commitSha], {
+		cwd,
+		encoding: "utf-8",
+		timeout: 10000,
+		input: notesJson,
+		stdio: ["pipe", "pipe", "pipe"],
+	});
+}
+
+function resolveCommitObject(cwd: string, ref: string): string {
+	const objectId = gitArgs(["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`], cwd);
+	if (!/^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/.test(objectId)) {
+		throw new Error(`Could not resolve commit object for ${ref}.`);
+	}
+	return objectId;
+}
+
+/** Validate before server work and again before local mutation after server work. */
+export function validateApplyTarget(cwd: string, commitSha: string): void {
+	if (resolveCommitObject(cwd, commitSha) !== resolveCommitObject(cwd, "HEAD")) {
+		throw new Error("--apply requires the selected commit to be HEAD.");
 	}
 }
 
@@ -317,8 +329,9 @@ export function applyCheckpointToHead(
 ): void {
 	if (!serverResult.trailers) return;
 	try {
+		validateApplyTarget(cwd, commitSha);
 		// Server returns trailers as string[] like ["Interlinked-Checkpoint: 42", "Interlinked-Agent: Worker"]
-		const currentMsg = getCommitMessage("HEAD", cwd) || "";
+		const currentMsg = gitArgsRaw(["log", "-1", "--format=%B", "HEAD", "--"], cwd);
 		const existingTrailers = parseInterlinkedTrailers(currentMsg);
 
 		// Filter out trailers already present
@@ -331,8 +344,7 @@ export function applyCheckpointToHead(
 		}
 
 		// Re-capture HEAD after potential amend (finding 3: notes must target new SHA)
-		const newHead = getHeadSha(cwd, false);
-		result.commit_sha = newHead || commitSha;
+		result.commit_sha = resolveCommitObject(cwd, "HEAD");
 
 		// Apply git notes if provided (use notes_json, target the post-amend SHA)
 		if (serverResult.notes_json && result.commit_sha) {
@@ -340,9 +352,9 @@ export function applyCheckpointToHead(
 		}
 
 		result.applied = true;
-	} catch {
+	} catch (error) {
 		result.applied = false;
-		// Fall through to show the result without --apply
+		result.apply_error = error instanceof Error ? error.message : String(error);
 	}
 }
 
@@ -380,8 +392,9 @@ export function formatLinkCheckpointOutput(result: LinkCheckpointResult, apply: 
 
 	if (result.notes_json) {
 		lines.push("");
-		lines.push(kvLine("Notes", c.dim("(JSON attached)"), 14));
+		lines.push(kvLine("Notes", c.dim(result.applied ? "(JSON attached)" : "(JSON available)"), 14));
 	}
+	if (result.apply_error) lines.push(kvLine("Apply error", result.apply_error, 14));
 
 	lines.push(...linkCheckpointFooterLines(result.applied, apply));
 

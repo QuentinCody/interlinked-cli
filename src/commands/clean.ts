@@ -300,7 +300,7 @@ interface CleanOptions {
 export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	const mode = getOutputMode(opts);
 	const cwd = process.cwd();
-	const isDryRun = !opts.force; // Default is dry-run unless --force
+	const isDryRun = opts.dryRun === true || !opts.force;
 	const staleItems: StaleItem[] = [];
 	const removedItems: string[] = [];
 

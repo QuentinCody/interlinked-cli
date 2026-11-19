@@ -560,8 +560,28 @@ describe("checkCommand — --only rejection paths", () => {
 	it("does not build the project graph or contact the engine for a rejected --only", async () => {
 		captureStderr();
 		graphState.data.files = ["/proj/should-not-be-scanned.ts"];
-		await checkCommand({ cwd: "/proj", only: "docs-check" });
+		await checkCommand({ cwd: "/proj", only: "dep-audit" });
 		expect(engineState.calls).toEqual([]);
+		expect(graphState.constructions).toBe(0);
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("forwards a supported --only docs-check request to its engine runner", async () => {
+		const stderr = captureStderr();
+		captureStdout();
+		const originalExitCode = process.exitCode;
+		process.exitCode = undefined;
+		try {
+			await checkCommand({ cwd: "/proj", only: "docs-check", json: true });
+			expect(engineState.calls).toEqual([{
+				cwd: "/proj", scope: { mode: "project", projectRoot: "/proj" },
+				options: { tools: ["docs-check"], timeoutMs: 30_000 },
+			}]);
+			expect(stderr.get()).not.toContain("discovery-only");
+			expect(process.exitCode).toBeUndefined();
+		} finally {
+			process.exitCode = originalExitCode;
+		}
 	});
 });
 
@@ -587,10 +607,12 @@ describe("checkCommand — --tools discovery-only drop warning", () => {
 	it("comma-joins multiple dropped discovery-only tool names in the warning", async () => {
 		const stderr = captureStderr();
 		captureStdout();
-		await checkCommand({ cwd: "/proj", tools: "dep-audit,docs-check,tsc", json: true });
+		await checkCommand({ cwd: "/proj", tools: "dep-audit,tseslint-types,docs-check,tsc", json: true });
 		expect(stderr.get()).toBe(
-			"Skipping discovery-only tool(s) dep-audit, docs-check from --tools — no interlinked check runner; run interlinked verify instead.\n  running external tools...\n",
+			"Skipping discovery-only tool(s) dep-audit, tseslint-types from --tools — no interlinked check runner; run interlinked verify instead.\n  running external tools...\n",
 		);
+		expect(engineState.calls).toHaveLength(1);
+		expect(engineState.calls[0]?.options).toEqual({ tools: ["docs-check", "tsc"], timeoutMs: 30_000 });
 	});
 
 	it("trims whitespace around comma-separated tool names before dropping", async () => {

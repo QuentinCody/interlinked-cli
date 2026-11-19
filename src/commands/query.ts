@@ -34,6 +34,7 @@ import {
 } from "./query/reverse-reader.js";
 import { QUERY_SOURCES, type ResolvedTarget, resolveTarget } from "./query/sources.js";
 import { createTimeCoverage, observeQueryTime, type QueryTimeCoverage } from "./query/time-coverage.js";
+import { renderRuntimeActions, runtimeActions } from "./query/actions.js";
 
 const DEFAULT_LIMIT = 20;
 const DEFAULT_LAST_RECORDS = 20_000;
@@ -43,6 +44,7 @@ const MAX_INFERRED_FIELDS = 4;
 const INFERRED_FIELD_SKIP = new Set(["ts", "timestamp", "schema", "schema_version", "uuid", "seq"]);
 
 export interface QueryCommandOptions {
+	actions?: boolean;
 	where?: string[];
 	fields?: string;
 	by?: string;
@@ -107,7 +109,7 @@ export function runQuery(file: string, params: QueryParams): QueryRunResult {
 
 function parsePositiveNumber(raw: string | undefined, fallback: number, flag: string): number {
 	if (raw === undefined) return fallback;
-	const n = Number.parseFloat(raw);
+	const n = Number(raw);
 	if (!Number.isFinite(n) || n <= 0) {
 		throw new Error(`Invalid ${flag}: "${raw}" — expected a positive number`);
 	}
@@ -115,16 +117,22 @@ function parsePositiveNumber(raw: string | undefined, fallback: number, flag: st
 }
 
 function buildParams(resolved: ResolvedTarget, opts: QueryCommandOptions): QueryParams {
+	if (opts.actions && (resolved.source?.name !== "checks" || opts.by !== undefined || opts.sum !== undefined || opts.fields !== undefined)) {
+		throw new Error("--actions requires the checks source and cannot combine with --by, --sum or --fields");
+	}
 	if (opts.sum !== undefined && opts.by === undefined) {
 		throw new Error("--sum requires --by (the sum is grouped by the --by key)");
 	}
 	const clauses = [...(resolved.source?.where ?? []), ...(opts.where ?? [])].map(parseWhereClause);
-	const limit = Math.floor(parsePositiveNumber(opts.limit, DEFAULT_LIMIT, "--limit"));
-	const last = Math.floor(parsePositiveNumber(opts.last, DEFAULT_LAST_RECORDS, "--last"));
+	const limit = parsePositiveNumber(opts.limit, DEFAULT_LIMIT, "--limit");
+	const last = parsePositiveNumber(opts.last, DEFAULT_LAST_RECORDS, "--last");
+	if (!Number.isSafeInteger(limit) || !Number.isSafeInteger(last)) throw new Error("--limit and --last require positive safe integers");
 	const maxMb = parsePositiveNumber(opts.maxMb, DEFAULT_MAX_MB, "--max-mb");
+	const maxBytes = Math.floor(maxMb * BYTES_PER_MB);
+	if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error("--max-mb must represent at least one byte within the safe integer range");
 	return {
 		clauses,
-		budget: { maxRecords: last, maxBytes: Math.round(maxMb * BYTES_PER_MB) },
+		budget: { maxRecords: last, maxBytes },
 		limit,
 		...(opts.since !== undefined ? { sinceMs: resolveTimeBound(opts.since) } : {}),
 		...(opts.by !== undefined ? { by: opts.by } : {}),
@@ -188,7 +196,9 @@ interface QueryView {
 
 function emitResult(mode: OutputMode, view: QueryView): void {
 	const { resolved, params, result, opts } = view;
+	const actions = opts.actions ? runtimeActions(result.rows) : undefined;
 	const jsonPayload = () => ({
+		...(actions ? { actions } : {}),
 		source: resolved.label,
 		file: resolved.file,
 		stats: {
@@ -212,6 +222,7 @@ function emitResult(mode: OutputMode, view: QueryView): void {
 			limitStopped: result.limitStopped,
 		});
 	const renderBody = (full: boolean): string => {
+		if (actions) return renderRuntimeActions(actions);
 		const lines =
 			result.aggregate !== undefined
 				? renderAggregate(result.aggregate)
@@ -237,6 +248,7 @@ export async function queryCommand(
 	let params: QueryParams | undefined;
 	try {
 		resolved = resolveTarget(target, opts.file, cwd);
+		if (opts.actions && resolved === undefined) throw new Error("--actions requires the checks source");
 		if (resolved !== undefined) params = buildParams(resolved, opts);
 	} catch (error) {
 		// SAFETY: target and CLI argument parsers throw Error, as do their native

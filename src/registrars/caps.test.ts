@@ -24,6 +24,25 @@ vi.mock("../commands/metrics-complexity.js", () => ({
 }));
 
 describe("registerCapsCommands", () => {
+	it.each([
+		{ args: ["set", "coverage", "85"], action: capsSetAction },
+		{ args: ["explain", "crap"], action: capsExplainAction },
+		{ args: ["ratchet", "cyclomatic", "--to", "16", "--dry-run"], action: capsRatchetAction },
+		{ args: ["propose"], action: capsProposeAction },
+		{ args: ["status"], action: capsStatusAction },
+	])("forwards caps --json to $args with either flag position", async ({ args, action }) => {
+		for (const commandArgs of [["--json", ...args], [...args, "--json"]]) {
+			vi.mocked(action).mockClear();
+			const program = new Command();
+			program.exitOverride();
+			registerCapsCommands(program);
+			await program.parseAsync(["node", "interlinked", "caps", ...commandArgs]);
+			expect(action).toHaveBeenCalledTimes(1);
+			const call = vi.mocked(action).mock.calls[0]!;
+			expect(call[call.length - 1]).toEqual(expect.objectContaining({ json: true }));
+		}
+	});
+
 	it("registers the caps group with set + explain subcommands", () => {
 		const program = new Command();
 		registerCapsCommands(program);

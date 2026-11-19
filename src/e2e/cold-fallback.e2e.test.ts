@@ -31,7 +31,10 @@ describe.each(["entry", "generated"] as const)("%s cold fallback", (runtime) => 
         } });
         expect(result.receipt.outcome).toBe("cold");
         expect(result.stdout).not.toContain('"deny"');
-        if (runtime === "generated") expect(result.stderr).toContain("standalone cold fallback has no AST oracle");
+        if (runtime === "generated") {
+            expect(result.stderr).toContain("standalone cold fallback has no AST oracle");
+            expect(result.stderr).toContain("[interlinked:file-size:not-measured]");
+        }
         else expect(result.stderr).toContain("advisory");
     });
 });

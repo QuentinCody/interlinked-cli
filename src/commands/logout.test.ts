@@ -214,6 +214,15 @@ describe("logout --all — clears agent handle", () => {
 		mockIsConfigured.mockReturnValue(true);
 	});
 
+	it("clears a handle after credentials have already been removed", async () => {
+		mockReadLocalConfig.mockReturnValue({ agent_handle: "agent-7" });
+
+		await logoutCommand({ all: true, json: true });
+
+		expect(mockUpdateLocalConfig).toHaveBeenCalledWith(expect.objectContaining({ agent_handle: undefined }), process.cwd());
+		expect(jsonOut()).toMatchObject({ status: "logged_out", cleared: { agent_handle: true } });
+	});
+
 	it("human mode: clears agent_handle and prints re-registration note", async () => {
 		mockReadLocalConfig.mockReturnValue({
 			access_token: "tok",

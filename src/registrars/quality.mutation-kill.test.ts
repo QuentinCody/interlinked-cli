@@ -108,6 +108,9 @@ describe("registerQualityCommands — command + option descriptions (mutation-ki
 			"Run the default high-signal external catalog plus diff-safe inline checks. Target can be a local path, GitHub URL, or any git remote URL.",
 		);
 		expect(optionDescriptions(cmd)).toEqual({
+			"--timeout": "Whole command deadline in milliseconds (default: no deadline; 0 disables)",
+			"--tool-timeout": "External analyzer deadline in milliseconds (default: no deadline; 0 disables)",
+			"--gitleaks-scope": "Secret scan inputs: working-tree includes ignored files; git-visible excludes them (default: working-tree)",
 			"--only":
 				"Run one named external check (for example: tsc, biome, oxlint, eslint, semgrep, gitleaks, knip, docs-check, sca)",
 			"--suggestions": "Also run scored regex heuristics (sql-injection, perf, quality)",
@@ -185,7 +188,7 @@ describe("registerQualityCommands — command + option descriptions (mutation-ki
 		expect(cmd.description()).toBe("Build or refresh local generated artifact catalogs");
 		expect(optionDescriptions(cmd)).toEqual({
 			"--full": "Force full rescan",
-			"--incremental": "Only refresh changed categories",
+			"--incremental": "Request incremental extraction (currently unavailable)",
 			"--json": "Machine-readable output",
 		});
 	});

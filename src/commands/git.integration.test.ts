@@ -23,7 +23,25 @@ import { nonNull } from "../lib/non-null.js";
 // --- mock surfaces ---------------------------------------------------------
 
 const mockExecSync = vi.fn<typeof import("node:child_process").execSync>();
+const applyRef = vi.hoisted(() => ({ selected: "" }));
 vi.mock("node:child_process", () => ({
+	execFileSync: (command: string, args: string[], options: import("node:child_process").ExecSyncOptions) => {
+		if (args[0] === "rev-parse") {
+			const ref = String(args.at(-1)).replace("^{commit}", "");
+			if (ref !== "HEAD") {
+				applyRef.selected = ref;
+				return ref;
+			}
+			if (mockExecSync.mock.calls.length === 0) return applyRef.selected;
+			return mockGetHeadSha(options.cwd ? String(options.cwd) : process.cwd(), false);
+		}
+		if (args[0] === "log") {
+			const message = mockGetCommitMessage("HEAD", options.cwd ? String(options.cwd) : process.cwd());
+			if (message === null) throw new Error("HEAD commit message unavailable");
+			return message;
+		}
+		return mockExecSync([command, ...args].join(" "), options);
+	},
 	execSync: (...args: Parameters<typeof mockExecSync>) => mockExecSync(...args),
 }));
 
@@ -80,7 +98,7 @@ beforeEach(() => {
 	mockIsGitRepo.mockReturnValue(true);
 	mockGetCurrentBranch.mockReturnValue("main");
 	mockGetHeadSha.mockImplementation((_cwd, short) =>
-		short === false ? "abc123f456789abcdef0123456789012345678901" : "abc123f",
+		short === false ? "abc123f456789abcdef012345678901234567890" : "abc123f",
 	);
 	mockGetCommitMessage.mockReturnValue("Subject line\n\nBody text");
 	mockReadAttributionTrailer.mockReturnValue(null);
@@ -474,13 +492,13 @@ describe("gitLinkCheckpointCommand — server call wiring", () => {
 
 		expect(mockCallTool).toHaveBeenCalledWith("push_checkpoint_to_git", {
 			checkpoint_id: 42, // number, not "42"
-			commit_sha: "abc123f456789abcdef0123456789012345678901",
+			commit_sha: "abc123f456789abcdef012345678901234567890",
 			branch_name: "main",
 		});
 		const out = parseWire(lastJson(), wireObject({ "checkpoint_id": wireNumber, "applied": wireBoolean, "commit_sha": wireString }), "test JSON value");
 		expect(out.checkpoint_id).toBe(42);
 		expect(out.applied).toBe(false);
-		expect(out.commit_sha).toBe("abc123f456789abcdef0123456789012345678901");
+		expect(out.commit_sha).toBe("abc123f456789abcdef012345678901234567890");
 	});
 
 	it("omits branch_name when detached HEAD (branch null → spread skipped)", async () => {
@@ -560,8 +578,8 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 		mockGetCommitMessage.mockReturnValue("Subject\n\nbody");
 		// getHeadSha(short=false): first the pre-amend SHA, then the re-captured post-amend SHA.
 		mockGetHeadSha
-			.mockReturnValueOnce("preamendsha000000000000000000000000000000") // commitSha
-			.mockReturnValueOnce("postamendsha11111111111111111111111111111"); // newHead after amend
+			.mockReturnValueOnce("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") // commitSha
+			.mockReturnValueOnce("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"); // newHead after amend
 		mockCallTool.mockResolvedValue(pushResult);
 
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
@@ -579,12 +597,12 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 		// 2) notes target the RE-CAPTURED post-amend SHA, fed via stdin.
 		const [notesCmd, notesOptions] = nonNull(mockExecSync.mock.calls[1]);
 		const notesOpts = nonNull(notesOptions);
-		expect(notesCmd).toBe("git notes add -f -F - postamendsha11111111111111111111111111111");
+		expect(notesCmd).toBe("git notes add -f -F - bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 		expect(notesOpts.input).toBe('{"checkpoint_id":42}');
 
 		const out = parseWire(lastJson(), wireObject({ "applied": wireBoolean, "commit_sha": wireString }), "test JSON value");
 		expect(out.applied).toBe(true);
-		expect(out.commit_sha).toBe("postamendsha11111111111111111111111111111");
+		expect(out.commit_sha).toBe("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 	});
 
 	it("filters out trailers already present, sanitizes values, and amends with only the new one", async () => {
@@ -631,8 +649,8 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 		expect(lastJson()).toHaveProperty(["applied"], true);
 	});
 
-	it("null current message coerces to '' (|| '') so amend still builds", async () => {
-		mockGetCommitMessage.mockReturnValue(null); // currentMsg = ""
+	it("an intentionally empty current message can receive trailers", async () => {
+		mockGetCommitMessage.mockReturnValue("");
 		mockCallTool.mockResolvedValue({
 			checkpoint_id: 42,
 			trailers: ["Interlinked-Checkpoint: 42"],
@@ -646,10 +664,10 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 		expect(amendOpts.input).toContain("Interlinked-Checkpoint: 42");
 	});
 
-	it("post-amend getHeadSha null → commit_sha falls back to the original (newHead || commitSha)", async () => {
+	it("post-amend identity discovery failure reports incomplete apply without writing notes", async () => {
 		mockGetCommitMessage.mockReturnValue("Subject");
 		mockGetHeadSha
-			.mockReturnValueOnce("origcommitsha0000000000000000000000000000") // commitSha
+			.mockReturnValueOnce("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") // commitSha
 			.mockReturnValueOnce(null); // re-capture fails → fallback
 		mockCallTool.mockResolvedValue({
 			checkpoint_id: 42,
@@ -660,13 +678,14 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
 		const out = parseWire(lastJson(), wireObject({ "commit_sha": wireString, "applied": wireBoolean }), "test JSON value");
-		expect(out.commit_sha).toBe("origcommitsha0000000000000000000000000000");
-		expect(out.applied).toBe(true);
-		// notes still attached, targeting the fallback SHA.
+		expect(out.commit_sha).toBe("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+		expect(out.applied).toBe(false);
+		expect(process.exitCode).toBe(1);
+		// The original identity remains metadata. Notes require a verified current object.
 		const notesCall = mockExecSync.mock.calls.find((call) =>
 			String(call[0]).startsWith("git notes add"),
 		);
-		expect(notesCall?.[0]).toContain("origcommitsha0000000000000000000000000000");
+		expect(notesCall).toBeUndefined();
 	});
 
 	it("amend execSync throwing flips applied=false (outer apply try/catch)", async () => {
@@ -682,16 +701,16 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
-		// Amend threw → caught → applied stays false; command still succeeds (exit 0).
-		expect(process.exitCode).toBe(0);
+		// An incomplete requested apply has a failing exit.
+		expect(process.exitCode).toBe(1);
 		expect(lastJson()).toHaveProperty(["applied"], false);
 	});
 
-	it("notes execSync throwing is swallowed (inner catch) — applied stays true", async () => {
+	it("notes failure reports incomplete apply with a failing exit", async () => {
 		mockGetCommitMessage.mockReturnValue("Subject");
 		mockGetHeadSha
-			.mockReturnValueOnce("preamendsha000000000000000000000000000000")
-			.mockReturnValueOnce("postamendsha11111111111111111111111111111");
+			.mockReturnValueOnce("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+			.mockReturnValueOnce("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 		// First call (amend) succeeds; second call (notes) throws.
 		mockExecSync.mockReturnValueOnce("").mockImplementationOnce(() => {
 			throw new Error("notes refused");
@@ -704,9 +723,9 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
-		// Notes failure swallowed by the inner try/catch → applied true, exit 0.
-		expect(process.exitCode).toBe(0);
-		expect(lastJson()).toHaveProperty(["applied"], true);
+		expect(process.exitCode).toBe(1);
+		expect(lastJson()).toHaveProperty(["applied"], false);
+		expect(lastJson()).toHaveProperty(["apply_error"], "notes refused");
 		expect(mockExecSync).toHaveBeenCalledTimes(2);
 	});
 
@@ -778,6 +797,6 @@ describe("gitLinkCheckpointCommand — normal (human) rendering", () => {
 
 		// commit_sha is the full SHA from getHeadSha (the || 'unknown' fallback
 		// is structurally exercised by the operator but commit_sha is always set).
-		expect(stdout()).toContain("abc123f456789abcdef0123456789012345678901");
+		expect(stdout()).toContain("abc123f456789abcdef012345678901234567890");
 	});
 });

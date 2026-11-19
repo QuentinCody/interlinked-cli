@@ -12,6 +12,7 @@ import { doctorCommand } from "../commands/doctor.js";
 import { enableCommand } from "../commands/enable.js";
 import { loginCommand } from "../commands/login.js";
 import { resolveAuthToken } from "../lib/auth.js";
+import { resolveConfig } from "../lib/config.js";
 import { c } from "../lib/formatter.js";
 import { ensureRemoteOnboarding } from "../lib/onboarding.js";
 import { registerNetworkCommands } from "./network.js";
@@ -31,6 +32,9 @@ const RUNNER_LIST_HELP =
 	"Comma-separated runners: claude-code,copilot-cli,cursor,gemini-cli,codex,opencode,pi; explicit experimental: factory-droid,windsurf,antigravity,crush. Defaults to established adapters.";
 
 async function setupAction(opts: OptionValues): Promise<void> {
+	if (opts.token !== undefined && opts.token.trim().length === 0) {
+		throw new Error("--token cannot be empty.");
+	}
 	await enableCommand({
 		server: opts.server,
 		agent: opts.agent,
@@ -46,6 +50,8 @@ async function setupAction(opts: OptionValues): Promise<void> {
 		await loginCommand({ server: opts.server, token: opts.token });
 		return;
 	}
+	const serverUrl = opts.server ?? resolveConfig().server_url;
+	if (["localhost", "127.0.0.1", "[::1]"].includes(new URL(serverUrl).hostname)) return;
 	if (!resolveAuthToken()) {
 		await loginCommand({ server: opts.server });
 		return;
@@ -90,7 +96,7 @@ export function registerSetupCommands(program: Command): void {
 		.description("Output shell completion script (bash, zsh, fish)")
 		.action(async (shell: string) => {
 			const { completionsCommand } = await import("../commands/completions.js");
-			await completionsCommand(shell);
+			await completionsCommand(shell, program);
 		});
 
 	program

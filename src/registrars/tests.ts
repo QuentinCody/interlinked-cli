@@ -138,6 +138,79 @@ function registerFaults(tests: Command): void {
             await testsFaultsRunCommand(options);
         });
 }
+/** Mutation-grounded test proof: one mutant, the tests that claim to catch it, local execution, a receipt. */
+function registerKillProof(tests: Command): void {
+    tests.command("prove-kill")
+        .description("Prove that the named tests pass now and fail under ONE mutant: a manifest survivor (--mutant) or an explicit fault (--file/--find/--replace); or under EVERY manifest survivor of --file (--all-survivors, one shared baseline). A killed proof writes a receipt bound to the source, test and runtime bytes.")
+        .option("--test <file>", "Test file that must catch the mutant; repeat for more files", (value: string, previous: string[] = []) => [...previous, value])
+        .option("--mutant <id>", "16-hex mutant id from the mutation manifest (list: interlinked mutation survivors --file <src>)")
+        .option("--file <path>", "Source file to mutate; required for an explicit fault and for --all-survivors, narrows --mutant")
+        .option("--find <text>", "Explicit fault: text that occurs exactly once in --file")
+        .option("--replace <text>", "Explicit fault: the text that replaces --find")
+        .option("--all-survivors", "Prove every open manifest survivor of --file: one baseline, one mutant copy and one receipt each, a table and a k/s/i/u summary")
+        // No commander default: a defined `max` is how the command tells "--max was passed" (a default made every single-mutant run a batch request).
+        .option("--max <n>", "With --all-survivors: run at most n survivors (source order; default 50) and say how many were skipped")
+        .option("--run-timeout <ms>", "Budget in ms for EACH vitest run (baseline, mutant, then repeat or canary copies)", "300000")
+        .option("--timeout <ms>", "Whole-command deadline in ms, enforced by the CLI supervisor (exit 75 when it passes; default 3600000, the maximum); with --all-survivors it bounds the whole batch")
+        .option("--vitest-config <file>", "vitest config to run with (default: the --config in scripts.test, else vitest's own discovery)")
+        .option("--cwd <path>", "Project root (default: the current directory)")
+        .option("--json", "Machine-readable result")
+        .addHelpText("after", `
+Examples:
+  interlinked tests prove-kill --test test/clamp.test.ts --file src/math.ts \\
+    --find 'if (value > max) return max;' --replace 'if (value > max) return value;'
+  interlinked tests prove-kill --test src/a.test.ts --mutant 575ddae6cc2946f9
+  interlinked tests prove-kill --file src/a.ts --test src/a.mutation-kill.test.ts --all-survivors
+
+Exit codes: 0 killed; 1 survived or not-passing-now; 2 inconclusive, unavailable or a bad argument.
+With --all-survivors: 0 only when every survivor that ran is killed; 1 when any survived or a test is
+not-passing-now; 2 when nothing could run (no manifest, file not measured, no open survivor).
+Guide: docs/mutation-grounded-test-proof.md`)
+        // A usage error (unknown option, missing value) exits 2 like every other undecided run — never 1, which a
+        // caller reads as "survived" (kill-proof review round 4, M7). --help keeps exit 0.
+        .exitOverride(error => process.exit(error.exitCode === 0 ? 0 : 2))
+        .action(async (options: OptionValues) => {
+
+            const { testsProveKillCommand } = await import("../commands/tests-prove-kill.js");
+            await testsProveKillCommand(options);
+        });
+    tests.command("edit-protection [tests...]")
+        .description("Re-prove every kill a kill-proof receipt recorded for each edited test file against its CURRENT bytes: kept, lost, retired (the source no longer holds the mutant) or undecided. A lost kill in a source this change did not touch, that no other test still kills, is a finding (saturation testing's requirement-change path).")
+        .option("--base <ref>", "git base of the change-set (default HEAD); with no tests named, the edited tests come from it")
+        .option("--source <path>", "Source path that counts as changed (repeat); replaces the git change-set's sources", (value: string, previous: string[] = []) => [...previous, value])
+        .option("--max <n>", "Re-prove at most n prior kills (default 50) and say how many were skipped")
+        .option("--run-timeout <ms>", "Budget in ms for EACH vitest run", "300000")
+        .option("--vitest-config <file>", "vitest config to run with (default: the --config in scripts.test, else vitest's own discovery)")
+        .option("--cwd <path>", "Project root (default: the current directory)")
+        .option("--json", "Machine-readable result")
+        .addHelpText("after", `
+Examples:
+  interlinked tests edit-protection                       # every edited test with a stale killed receipt
+  interlinked tests edit-protection src/a.test.ts --json
+
+No receipt is written: a re-proof that survived must never replace the killed receipt that recorded the protection.
+Exit codes: 0 no finding; 1 a finding; 2 an undecided prior kill or a bad argument.`)
+        .exitOverride(error => process.exit(error.exitCode === 0 ? 0 : 2))
+        .action(async (tests: string[], options: OptionValues) => {
+            const { testsEditProtectionCommand } = await import("../commands/tests-edit-protection.js");
+            await testsEditProtectionCommand(options, tests);
+        });
+    tests.command("kill-proofs")
+        .description("List recorded kill proofs. With --verify, check each against the bytes and runtime on disk.")
+        .option("--verify", "Re-hash source, tests, config and setup files, re-locate the mutant, compare node and vitest")
+        .option("--prune", "Remove orphaned receipts: their source or a named test file no longer exists, so they can never be re-proved")
+        .option("--dry-run", "With --prune: list the orphans, remove nothing")
+        .option("--cwd <path>", "Project root (default: the current directory)")
+        .option("--json", "Machine-readable list")
+        .addHelpText("after", `
+Freshness (with --verify): FRESH, UNCOMMITTED (fresh, but the proven bytes differ from HEAD), STALE (re-run prove-kill).
+--prune never removes a stale proof whose files exist (re-prove it) or an unreadable receipt (it may record a hand edit).
+Exit codes: 0, or 1 when --verify finds a KILLED proof stale or unreadable; 2 on an error.`)
+        .action(async (options: OptionValues) => {
+            const { testsKillProofsCommand } = await import("../commands/tests-prove-kill.js");
+            testsKillProofsCommand(options);
+        });
+}
 /** Verification-efficiency step 1: one trace explains a push — owners, phases, the fallback cause, fresh runs. */
 function registerTrace(tests: Command): void {
     tests.command("trace")
@@ -201,6 +274,7 @@ export function registerTestsCommands(program: Command): void {
         });
     registerFailBeforeFix(tests);
     registerFaults(tests);
+    registerKillProof(tests);
     tests.command("readiness <language>")
         .description("Inspect test prerequisites without installing; Python also reports approved provisioning argv")
         .option("--cwd <path>", "Project root")

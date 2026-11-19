@@ -93,6 +93,18 @@ async function runIndex(...args: string[]): Promise<void> {
 	await newProgram().parseAsync(["index", ...args], { from: "user" });
 }
 
+describe("registered index build numeric boundaries", () => {
+	it.each(["NaN", "1junk", "1.5", "-1", "", "9007199254740992"])("rejects invalid byte limit %j before indexing", async (value) => {
+		await expect(runIndex("build", "--max-file-size", value)).rejects.toMatchObject({ code: "commander.invalidArgument" });
+		expect(h.build).not.toHaveBeenCalled();
+	});
+
+	it.each(["NaN", "0.3junk", "-0.1", "1.1", "", "Infinity"])("rejects invalid stop threshold %j before indexing", async (value) => {
+		await expect(runIndex("build", "--stop-threshold", value)).rejects.toMatchObject({ code: "commander.invalidArgument" });
+		expect(h.build).not.toHaveBeenCalled();
+	});
+});
+
 // A fake index instance returned by build()/load(). Wires the shared
 // instance-method spies so assertions can inspect calls.
 function fakeIndex(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -148,6 +160,12 @@ describe("registerIndexCommand", () => {
 // build
 // ===========================================
 describe("index build", () => {
+	it.each(["0", "1", "1e-1"])("preserves supported threshold %j and a zero-byte file scope", async (ratio) => {
+		h.stats.mockReturnValue(fullStats);
+		h.build.mockReturnValue(fakeIndex());
+		await runIndex("build", "--max-file-size", "0", "--stop-threshold", ratio);
+		expect(h.build).toHaveBeenCalledWith(expect.objectContaining({ maxFileSize: 0, stopThreshold: Number(ratio) }));
+	});
 	it("builds, saves, and prints formatted stats (MB branch + toLocaleString)", async () => {
 		h.stats.mockReturnValue(fullStats);
 		h.build.mockReturnValue(fakeIndex());

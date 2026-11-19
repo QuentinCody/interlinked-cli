@@ -20,6 +20,8 @@ import { parseWire, wireArray, wireObject, wireString, wireUnknown } from "../li
 // ternaries, &&/||/?? short-circuits, catch handlers).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Command } from "commander";
+import { registerQualityCommands } from "../registrars/quality.js";
 import type {
 	ArtifactNode,
 	CatalogMeta,
@@ -456,11 +458,11 @@ describe("structureScanCommand", () => {
 		expect(writtenMeta.last_scanned_commit).toBe("deadbeef");
 	});
 
-	it("incremental default kicks in when a cache exists", async () => {
+	it("reports the full extraction it performs when a cache exists", async () => {
 		primeExtractors();
 		readCatalogMeta.mockReturnValue(meta());
 		await structureScanCommand({});
-		expect(stdout()).toContain("incremental scan");
+		expect(stdout()).toContain("full scan");
 	});
 
 	it("--full forces a full scan even when a cache exists", async () => {
@@ -470,13 +472,17 @@ describe("structureScanCommand", () => {
 		expect(stdout()).toContain("full scan");
 	});
 
-	it("--incremental with no cache prints the fallback notice", async () => {
+	it.each([false, true])("reports unsupported incremental selection through the real parser, cached=%s", async cached => {
 		primeExtractors();
-		readCatalogMeta.mockReturnValue(null);
-		await structureScanCommand({ incremental: true });
-		expect(stdout()).toContain("No cache found. Running full scan.");
-		// incremental requested but reported as incremental mode (opts.incremental wins)
-		expect(stdout()).toContain("incremental scan");
+		readCatalogMeta.mockReturnValue(cached ? meta() : null);
+		const program = new Command();
+		registerQualityCommands(program);
+		await program.parseAsync(["structure", "scan", "--incremental", "--json"], { from: "user" });
+		expect(stdout()).toBe("");
+		expect(JSON.parse(stderr()).error).toMatch(/Incremental.*unavailable/);
+		expect(process.exitCode).toBe(1);
+		expect(runAllExtractors).not.toHaveBeenCalled();
+		expect(writeCatalogMeta).not.toHaveBeenCalled();
 	});
 
 	it("surfaces loader errors as warnings and uses the loaded config mode", async () => {
@@ -1939,7 +1945,7 @@ describe("structure.ts mutation survivors — pass1_w12 (residue)", () => {
 		await structureScanCommand({});
 		expect(stdout()).toBe(
 			"Scan complete.\n\n" +
-				"  Mode:    incremental scan\n" +
+				"  Mode:    full scan\n" +
 				"  Config:  minimal\n" +
 				"  Nodes:   0\n" +
 				"  Edges:   0\n" +

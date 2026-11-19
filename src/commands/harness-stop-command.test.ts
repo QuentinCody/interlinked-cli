@@ -92,6 +92,14 @@ describe("harnessStopCommand", () => {
 		await harnessStopCommand({});
 		const printed = logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
 		expect(printed).toContain("survived SIGKILL");
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("returns a failed status for surviving PIDs in JSON mode", async () => {
+		mocks.stopAllDaemons.mockResolvedValue({ stopped: [], survived: [456] });
+		await harnessStopCommand({ json: true });
+		expect(JSON.parse(String(logSpy.mock.calls[0]?.[0]))).toMatchObject({ status: "still_running", survived: [456] });
+		expect(process.exitCode).toBe(1);
 	});
 
 	it("emits the JSON shape under --json", async () => {

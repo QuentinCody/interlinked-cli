@@ -177,6 +177,10 @@ async function daemonStep(args: {
 	} else {
 		await harnessRestartCommand({ json: false });
 	}
+	if (process.exitCode !== undefined && process.exitCode !== 0) {
+		args.say("  Daemon:      restart failed — inspect the error above and retry interlinked harness restart");
+		return false;
+	}
 	args.say(`  Daemon:      ${why}restarted on build ${args.after}`);
 	return true;
 }

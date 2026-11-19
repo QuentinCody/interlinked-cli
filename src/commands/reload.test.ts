@@ -883,3 +883,24 @@ describe("reloadCommand — missing checkout", () => {
 		expect(logLines(logSpy)).toHaveLength(0);
 	});
 });
+
+describe("reloadCommand — restart failure", () => {
+	it("reports daemon.restarted false when restart returns with a failed exit status", async () => {
+		harnessRestartMock.mockImplementation(async () => { process.exitCode = 1; });
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await reloadCommand({ json: true, cwd: dir, build: false, force: true });
+
+		expect(parseJson(logSpy).daemon.restarted).toBe(false);
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("reports a failed restart in human output", async () => {
+		harnessRestartMock.mockImplementation(async () => { process.exitCode = 1; });
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await reloadCommand({ cwd: dir, build: false, force: true });
+
+		expect(logLines(logSpy)).toContain("  Daemon:      restart failed — inspect the error above and retry interlinked harness restart");
+	});
+});

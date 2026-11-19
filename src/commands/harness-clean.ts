@@ -9,6 +9,7 @@
 
 import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { classifyDaemonSocket } from "../harness/session-paths.js";
 import { getConfigDir } from "../lib/config.js";
 import { c } from "../lib/formatter.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
@@ -41,6 +42,13 @@ export async function harnessCleanCommand(options: HarnessCleanOptions = {}): Pr
 	// rob us of the ability to report it as "removed" to the user.
 	const pidExisted = existsSync(pidPath);
 	const sockExisted = existsSync(sockPath);
+	// A missing or stale PID never establishes ownership of a socket path.
+	// Preserve both records while a listener accepts connections, even if its
+	// protocol is unresponsive. Probe before the PID helper can remove records.
+	if ((await classifyDaemonSocket(sockPath)) !== "absent") {
+		outputError(mode, "Harness socket is occupied. Stop its owner before cleaning harness state.");
+		return;
+	}
 
 	const status = isHarnessRunning(cwd);
 	if (status.running && status.pid !== undefined) {
@@ -48,6 +56,10 @@ export async function harnessCleanCommand(options: HarnessCleanOptions = {}): Pr
 			mode,
 			`Harness is currently running (PID ${status.pid}). Stop it first: interlinked harness stop`,
 		);
+		return;
+	}
+	if ((await classifyDaemonSocket(sockPath)) !== "absent") {
+		outputError(mode, "Harness socket became occupied. Stop its owner before cleaning harness state.");
 		return;
 	}
 

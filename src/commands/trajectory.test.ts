@@ -9,6 +9,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Command } from "commander";
+import { registerObservabilityLogCommands } from "../registrars/observability-logs.js";
 
 import {
 	summarizeValue,
@@ -22,8 +24,10 @@ describe("trajectory commands", () => {
 	let consoleLogs: string[];
 	let logSpy: ReturnType<typeof vi.spyOn>;
 	let errSpy: ReturnType<typeof vi.spyOn>;
+	let originalExitCode: typeof process.exitCode;
 
 	beforeEach(() => {
+		originalExitCode = process.exitCode;
 		dir = mkdtempSync(join(tmpdir(), "trajectory-cmd-"));
 		consoleLogs = [];
 		logSpy = vi.spyOn(console, "log").mockImplementation((msg?: unknown) => {
@@ -33,6 +37,7 @@ describe("trajectory commands", () => {
 	});
 
 	afterEach(() => {
+		process.exitCode = originalExitCode;
 		rmSync(dir, { recursive: true, force: true });
 		logSpy.mockRestore();
 		errSpy.mockRestore();
@@ -104,7 +109,7 @@ describe("trajectory commands", () => {
 			// mtimes differ. utimesSync lets us pin a deterministic ordering.
 			const older = writeSnapshot("older", { session_id: "older" });
 			const newer = writeSnapshot("newer", { session_id: "newer" });
-			const base = Date.now() / 1000;
+			const base = Date.parse("2026-05-27T12:00:00Z") / 1000;
 			utimesSync(older, base - 1000, base - 1000);
 			utimesSync(newer, base, base);
 			await trajectoryListCommand({ cwd: dir, json: true });
@@ -190,7 +195,7 @@ describe("trajectory commands", () => {
 			// Default-target branch: target = snapshots[0]. Two files, pin mtimes.
 			const a = writeSnapshot("aaa", { session_id: "aaa", agent_name: "old" });
 			const b = writeSnapshot("bbb", { session_id: "bbb", agent_name: "fresh" });
-			const base = Date.now() / 1000;
+			const base = Date.parse("2026-05-27T12:00:00Z") / 1000;
 			utimesSync(a, base - 500, base - 500);
 			utimesSync(b, base, base);
 			await trajectoryShowCommand({ cwd: dir });
@@ -260,7 +265,7 @@ describe("trajectory commands", () => {
 			expect(joined).toContain("other: 1");
 		});
 
-		it("prints raw JSON unparsed under --json", async () => {
+		it("preserves valid raw JSON formatting under --json", async () => {
 			const body = { session_id: "rawjson", agent_name: "tester", k: 1 };
 			writeSnapshot("rawjson", body);
 			await trajectoryShowCommand({ session: "rawjson", cwd: dir, json: true });
@@ -277,14 +282,16 @@ describe("trajectory commands", () => {
 			).rejects.toThrow(/malformed/i);
 		});
 
-		it("emits raw bytes under --json even when the content is malformed", async () => {
-			// --json short-circuits before JSON.parse, so malformed content is
-			// echoed verbatim rather than throwing.
+		it("rejects malformed saved JSON through the real parser with a structured error", async () => {
 			const sessDir = join(dir, ".interlinked", "sessions");
 			mkdirSync(sessDir, { recursive: true });
 			writeFileSync(join(sessDir, "raw.trajectory.json"), "{ not json", "utf-8");
-			await trajectoryShowCommand({ session: "raw", cwd: dir, json: true });
-			expect(consoleLogs.join("\n")).toContain("{ not json");
+			const program = new Command();
+			registerObservabilityLogCommands(program);
+			await program.parseAsync(["trajectory", "show", "--session", "raw", "--cwd", dir, "--json"], { from: "user" });
+			expect(consoleLogs).toEqual([]);
+			expect(JSON.parse(String(errSpy.mock.calls[0]?.[0])).error).toMatch(/malformed/);
+			expect(process.exitCode).toBe(1);
 		});
 	});
 

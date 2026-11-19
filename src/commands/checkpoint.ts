@@ -209,9 +209,11 @@ export function checkpointPruneCommand(opts: {
 	const mode = getOutputMode(opts);
 
 	try {
+		const olderThan = parseRetentionOption(opts.olderThan, "--older-than");
+		const keepLatest = parseRetentionOption(opts.keepLatest, "--keep-latest");
 		const removed = pruneCheckpoints({
-			...(opts.olderThan ? { older_than_days: Number.parseInt(opts.olderThan, 10) } : {}),
-			...(opts.keepLatest ? { keep_latest: Number.parseInt(opts.keepLatest, 10) } : {}),
+			...(olderThan !== undefined ? { older_than_days: olderThan } : {}),
+			...(keepLatest !== undefined ? { keep_latest: keepLatest } : {}),
 		});
 
 		output(
@@ -228,6 +230,15 @@ export function checkpointPruneCommand(opts: {
 	} catch (err) {
 		outputError(mode, err instanceof Error ? err.message : String(err));
 	}
+}
+
+function parseRetentionOption(value: string | undefined, flag: string): number | undefined {
+	if (value === undefined) return undefined;
+	const number = Number(value);
+	if (!/^\d+$/.test(value) || !Number.isSafeInteger(number) || number <= 0) {
+		throw new Error(`${flag} must be a positive safe integer`);
+	}
+	return number;
 }
 
 export function checkpointArchiveCommand(opts: { json?: boolean }): void {

@@ -29,7 +29,25 @@ import { kvLine, stripAnsi } from "../lib/formatter.js";
 // --- mock surfaces (same pattern as git.integration.test.ts) --------------
 
 const mockExecSync = vi.fn<typeof import("node:child_process").execSync>();
+const applyRef = vi.hoisted(() => ({ selected: "" }));
 vi.mock("node:child_process", () => ({
+	execFileSync: (command: string, args: string[], options: import("node:child_process").ExecSyncOptions) => {
+		if (args[0] === "rev-parse") {
+			const ref = String(args.at(-1)).replace("^{commit}", "");
+			if (ref !== "HEAD") {
+				applyRef.selected = ref;
+				return ref;
+			}
+			if (mockExecSync.mock.calls.length === 0) return applyRef.selected;
+			return mockGetHeadSha(options.cwd ? String(options.cwd) : process.cwd(), false);
+		}
+		if (args[0] === "log") {
+			const message = mockGetCommitMessage("HEAD", options.cwd ? String(options.cwd) : process.cwd());
+			if (message === null) throw new Error("HEAD commit message unavailable");
+			return message;
+		}
+		return mockExecSync([command, ...args].join(" "), options);
+	},
 	execSync: (...args: Parameters<typeof mockExecSync>) => mockExecSync(...args),
 }));
 
@@ -76,7 +94,7 @@ beforeEach(() => {
 	mockIsGitRepo.mockReturnValue(true);
 	mockGetCurrentBranch.mockReturnValue("main");
 	mockGetHeadSha.mockImplementation((_cwd, short) =>
-		short === true ? "abc123f" : "abc123f456789abcdef0123456789012345678901",
+		short === true ? "abc123f" : "abc123f456789abcdef012345678901234567890",
 	);
 	mockGetCommitMessage.mockReturnValue("Subject line\n\nBody text");
 	mockReadAttributionTrailer.mockReturnValue(null);
@@ -263,7 +281,7 @@ describe("gitLinkCheckpointCommand — mutation-kill", () => {
 
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
-		expect(process.exitCode).toBe(0);
+		expect(process.exitCode).toBe(1);
 		expect(lastJson()).toHaveProperty(["applied"], false);
 		expect(mockExecSync).not.toHaveBeenCalled();
 	});
@@ -286,8 +304,8 @@ describe("gitLinkCheckpointCommand — mutation-kill", () => {
 			if (short === true) return "abc123f";
 			headShaCallCount++;
 			return headShaCallCount === 1
-				? "preamendsha000000000000000000000000000000"
-				: "postamendsha11111111111111111111111111111";
+				? "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 		});
 		mockCallTool.mockResolvedValue({
 			checkpoint_id: 42,
@@ -317,7 +335,7 @@ describe("gitLinkCheckpointCommand — mutation-kill", () => {
 		for (const call of mockGetHeadSha.mock.calls) {
 			if (call[1] !== true) expect(call[1]).toBe(false);
 		}
-		expect(lastJson()).toHaveProperty(["commit_sha"], "postamendsha11111111111111111111111111111");
+		expect(lastJson()).toHaveProperty(["commit_sha"], "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 	});
 
 	// test-contract: public-api — --apply trims only TRAILING whitespace off
@@ -356,12 +374,11 @@ describe("gitLinkCheckpointCommand — mutation-kill", () => {
 	});
 
 	// test-contract: public-api — the pre-amend commit message is always read
-	// from "HEAD" (never any other ref), and a missing message falls back to
-	// an empty string rather than leaking a placeholder into the amend.
-	it("--apply reads the message at ref='HEAD'; a missing message falls back to ''", async () => {
+	// from HEAD. An empty existing message is a supported Git state.
+	it("--apply reads an intentionally empty HEAD message before appending trailers", async () => {
 		// kills: 1e03485730c5dd73 ("HEAD" -> ""), c306ec3f100e496b (the || ""
 		// fallback -> "Stryker was here!")
-		mockGetCommitMessage.mockReturnValue(null);
+		mockGetCommitMessage.mockReturnValue("");
 		mockCallTool.mockResolvedValue({
 			checkpoint_id: 42,
 			trailers: ["Interlinked-Foo: bar-value"],

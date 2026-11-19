@@ -17,6 +17,7 @@ import {
 import { maxFunctionTokensFor } from "../harness/metric-caps.js";
 import { functionTokenProvenance, type FunctionTokenProvenance } from "../harness/function-tokens/provenance.js";
 import { discoverFunctionTokenFiles } from "./verify/file-discovery.js";
+import { sourceRole } from "../lib/metrics/inventory-roles.js";
 
 type FunctionTokenSourceScope = "product" | "test";
 
@@ -148,13 +149,13 @@ function isInsideResolvedRoot(root: string, file: string): boolean {
 function isEligibleTestSource(root: string, file: string, content: string): boolean {
     if (!isInsideRoot(root, file)) return false;
     const rel = slashPath(relative(root, file));
-    return isTestOrSpecPath(rel)
+    return (isTestOrSpecPath(rel) || sourceRole(rel) === "test")
         && isHandwrittenCodeFile({ filePath: file, content, root });
 }
 
 function isCandidatePath(file: string, includeTests: boolean): boolean {
-    if (file.endsWith(".d.ts") || selectFunctionTokenAnalyzer(file) === null) return false;
-    return includeTests || !isTestOrSpecPath(file);
+    if (/\.d\.[cm]?ts$/.test(file) || selectFunctionTokenAnalyzer(file) === null) return false;
+    return includeTests || !(isTestOrSpecPath(file) || sourceRole(file) === "test");
 }
 
 function sourceScopeFor(args: {
@@ -163,12 +164,11 @@ function sourceScopeFor(args: {
     content: string;
     includeTests: boolean;
 }): FunctionTokenSourceScope | null {
+    if (isEligibleTestSource(args.root, args.file, args.content)) return args.includeTests ? "test" : null;
     if (isCappableFile({ filePath: args.file, content: args.content, root: args.root })) {
         return "product";
     }
-    return args.includeTests && isEligibleTestSource(args.root, args.file, args.content)
-        ? "test"
-        : null;
+    return null;
 }
 
 function issueForUnreadable(
@@ -187,10 +187,17 @@ function issueForUnreadable(
     };
 }
 
-function discoverReportSources(root: string, includeTests: boolean): SourceDiscovery {
-    const discovered = discoverFunctionTokenFiles(root);
+function discoverReportSources(root: string, includeTests: boolean, sourceFiles?: readonly string[]): SourceDiscovery {
     const sources: ReportSource[] = [];
     const issues: FunctionTokenNotMeasured[] = [];
+    const discovered = sourceFiles ?? discoverFunctionTokenFiles(root, { onUnavailable: ({ file, reason }) => {
+        const path = slashPath(file);
+        const sourceScope = isTestOrSpecPath(path) || sourceRole(path) === "test" ? "test" : "product";
+        if (sourceScope === "test" && !includeTests) return;
+        issues.push({ file: path, language: functionTokenAnalyzerStatus(path).language,
+            reason: `Source discovery unavailable: ${reason}`, kind: "unreadable", sourceScope,
+            capEnforced: sourceScope === "product" });
+    } });
     const seen = new Set<string>();
     let candidateFiles = 0;
 
@@ -275,7 +282,7 @@ function measureSources(sources: ReportSource[]): {
         }
         let entries: FunctionTokenEntry[] | null;
         try {
-            entries = computeFunctionTokens(source.content, source.absolutePath);
+            entries = computeFunctionTokens(source.content, source.absolutePath, { resourcePolicy: "foreground-survey" });
         } catch {
             entries = null;
         }
@@ -428,13 +435,15 @@ export function buildFunctionTokenMetricsReport(args: {
     topN?: number;
     includeTests?: boolean;
     cap?: number;
+    /** Shared absolute inventory when composed with other repository metrics. */
+    sourceFiles?: readonly string[];
 }): FunctionTokenMetricsReport {
     const startedAt = Date.now();
     const root = realpathSync(resolve(args.cwd));
     const includeTests = args.includeTests ?? false;
     const topN = Math.max(1, Math.min(200, args.topN ?? 10));
     const cap = args.cap ?? maxFunctionTokensFor(root);
-    const discovery = discoverReportSources(root, includeTests);
+    const discovery = discoverReportSources(root, includeTests, args.sourceFiles);
     const measurement = measureSources(discovery.sources);
     const functions = functionRows(measurement.measured, cap);
     const files = measurement.measured.map((source) => fileRow(source, cap))
@@ -447,7 +456,7 @@ export function buildFunctionTokenMetricsReport(args: {
     return {
         schemaVersion: 1,
         tokenizer: CANONICAL_TOKENIZER_ID,
-        measurement: functionTokenProvenance(measurement.measured.map(item => item.source.status.language)),
+        measurement: functionTokenProvenance(measurement.measured.map(item => item.source.status.language), { resourcePolicy: "foreground-survey" }),
         cap,
         elapsedMs: Date.now() - startedAt,
         scope: reportScope({ includeTests, discovery, functions, files, notMeasured }),

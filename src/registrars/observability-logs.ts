@@ -287,6 +287,7 @@ export function registerObservabilityLogCommands(program: Command): void {
 			"Filter: key=value | key!=v | key~=substr | key>n (AND; dot paths fan out over arrays)",
 		)
 		.option("--fields <csv>", "Columns to display (dot paths)")
+		.option("--actions", "Project selected checks records as historical actions; revalidate before acting")
 		.option("--by <path>", "Aggregate: count records per value of <path>")
 		.option("--sum <path>", "With --by: sum this numeric field per group")
 		.option("--since <dur|iso>", "Only records at/after (30m, 2h, 7d, or an ISO timestamp)")

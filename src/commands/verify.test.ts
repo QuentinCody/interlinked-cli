@@ -16,6 +16,7 @@ import { nonNull } from "../lib/non-null.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ScanProgress } from "./verify/scan-progress.js";
+import type { SkipEntry } from "../harness/check-engine/types.js";
 
 // --all-checks intentionally gained the advisory catalogue. Preserve this
 // suite's orchestration-only boundary; catalogue behavior has its own tests.
@@ -36,7 +37,7 @@ type ToolResult = { tool: string; file: string; message: string };
 // --- node:fs ---------------------------------------------------------------
 const existsSyncMock = vi.fn<(p: string) => boolean>(() => true);
 const rmSyncMock = vi.fn<(p: string, opts?: unknown) => void>();
-const statSyncMock = vi.fn<(p: string) => { isDirectory: () => boolean }>(() => ({
+const statSyncMock = vi.fn<(p: string) => { isDirectory: () => boolean; isFile?: () => boolean }>(() => ({
 	isDirectory: () => true,
 }));
 vi.mock("node:fs", () => ({
@@ -47,12 +48,17 @@ vi.mock("node:fs", () => ({
 
 // --- harness/check-engine --------------------------------------------------
 const discoverToolsMock = vi.fn<() => unknown[]>(() => []);
-const runChecksMock = vi.fn<(scope: unknown, opts: unknown) => { results: ToolResult[]; toolsRun?: { id: string }[] }>(() => ({
+const runChecksMock = vi.fn<(scope: unknown, opts: unknown) => { results: ToolResult[]; toolsRun?: { id: string }[]; skipped?: SkipEntry[] }>(() => ({
 	results: [],
 }));
 const runDepAuditMock = vi.fn<() => unknown>(() => ({ kind: "audit" }));
+vi.mock("./verify/dependency-audit.js", async original => {
+	const actual = await original<typeof import("./verify/dependency-audit.js")>();
+	return { ...actual, runBatchDependencyAudit: vi.fn(async (_report: unknown, _root: string, only: string | undefined, skip: ReadonlySet<string>) => actual.dependencyAuditRequested(only, skip) ? runDepAuditMock() : null) };
+});
+const engineOptionsMock = vi.fn<(options: unknown) => void>();
 class FakeCheckEngine {
-	constructor(public root: string) {}
+	constructor(public root: string, options?: unknown) { engineOptionsMock(options); }
 	discoverTools = discoverToolsMock;
 	runChecks = runChecksMock;
 	runChecksAsync = (scope: unknown, options: unknown) => ({ toolsRun: [], ...runChecksMock(scope, options) });
@@ -70,8 +76,12 @@ const releaseHeavyProcessMock = vi.fn<() => void>();
 const tryAcquireProjectHeavyProcessLeaseMock = vi.fn<() => (() => void) | null>(
 	() => releaseHeavyProcessMock,
 );
+const acquireProjectHeavyProcessLeaseMock = vi.fn<(cwd: string, deadline: number, signal: AbortSignal) => Promise<(() => void) | null>>(
+	async () => releaseHeavyProcessMock,
+);
 vi.mock("../harness/project-heavy-process-lock.js", () => ({
 	tryAcquireProjectHeavyProcessLease: tryAcquireProjectHeavyProcessLeaseMock,
+	acquireProjectHeavyProcessLease: acquireProjectHeavyProcessLeaseMock,
 }));
 vi.mock("../harness/test-capacity.js", () => ({
     acquireTestCapacity: vi.fn(async () => ({ release: vi.fn() })),
@@ -189,6 +199,14 @@ vi.mock("./verify/project-e2e-section.js", () => ({
 	}),
 }));
 
+// --- verify/kill-proofs-section -----------------------------------------------
+// Same reason: the real section would read receipts through the mocked fs.
+const absentKillProofs = { present: false, failed: false, rows: [], findings: [], lines: [], json: undefined };
+vi.mock("./verify/kill-proofs-section.js", () => ({
+	killProofsSection: vi.fn(() => absentKillProofs),
+	streamKillProofsSection: vi.fn(() => false),
+}));
+
 // --- verify/tool-results ---------------------------------------------------
 const checkProjectSetupMock = vi.fn<(cwd: string) => unknown[]>(() => []);
 const clearCodeQualityResultsMock = vi.fn<(r: unknown) => void>();
@@ -257,6 +275,7 @@ beforeEach(() => {
 	runDepAuditMock.mockReturnValue({ kind: "audit" });
 	formatToolReportMock.mockReturnValue("TOOL-REPORT");
 	tryAcquireProjectHeavyProcessLeaseMock.mockReturnValue(releaseHeavyProcessMock);
+	acquireProjectHeavyProcessLeaseMock.mockResolvedValue(releaseHeavyProcessMock);
 	detectDecisionSurfaceMock.mockReturnValue({ ds: true });
 	detectLockfileMultiplicityMock.mockReturnValue({ lm: true });
 	computeDecisionSurfaceRatchetMock.mockReturnValue({ dsr: true });
@@ -434,16 +453,46 @@ describe("verifyCommand — applySuppressions", () => {
 // ===========================================
 
 describe("verifyCommand — dispatch", () => {
-	it("defers without a clean verdict and releases the project slot when host capacity is busy", async () => {
+	it.each([{}, { toolTimeout: 1234 }])("uses the foreground tool deadline for availability probes: %j", async options => {
+		const { verifyCommand } = await importVerify();
+		await verifyCommand({ cwd: "/repo", json: true, ...options });
+		expect(engineOptionsMock).toHaveBeenCalledWith(expect.objectContaining({ discoveryTimeoutMs: options.toolTimeout ?? 0 }));
+	});
+
+	it.each([false, true])("applies explicit security skips before discovery in JSON=%s", async json => {
+		getEffectiveSkipChecksMock.mockReturnValue(new Set(["semgrep", "gitleaks"]));
+		getSkipToolsMock.mockReturnValue(["semgrep", "gitleaks"]);
+		const { verifyCommand } = await importVerify();
+		await verifyCommand({ cwd: "/repo", json, skip: "semgrep,gitleaks" });
+		expect(engineOptionsMock).toHaveBeenCalledWith(expect.objectContaining({ discoverySelection: { skipTools: ["semgrep", "gitleaks"] } }));
+	});
+
+	it("preserves diagnostics from tools without dedicated JSON summary sections", async () => {
+		const { verifyCommand } = await importVerify();
+		const finding = { tool: "shellcheck", file: "/repo/run.sh", line: 2, message: "Quote expansion", severity: "warning" };
+		runChecksMock.mockReturnValue({ results: [finding], toolsRun: [{ id: "shellcheck" }] });
+		await verifyCommand({ cwd: "/repo", json: true, only: "shellcheck" });
+		expect(outputJsonMock).toHaveBeenCalledWith(expect.objectContaining({ externalDiagnostics: [finding] }));
+	});
+
+	it("returns no verdict and releases the project slot when waiting for host capacity is interrupted", async () => {
 		const { acquireTestCapacity } = await import("../harness/test-capacity.js");
 		vi.mocked(acquireTestCapacity).mockResolvedValueOnce(null);
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo", json: true });
 		expect(process.exitCode).toBe(1);
-		expect(stderr).toContain("host capacity is busy; no verification verdict was produced");
+		expect(stderr).toContain("host capacity wait interrupted; no verification verdict was produced");
 		expect(stdout).toBe("");
 		expect(discoverFilesMock).not.toHaveBeenCalled();
 		expect(releaseHeavyProcessMock).toHaveBeenCalledExactlyOnceWith();
+	});
+
+	it("waits for the sequential host lane without a capacity deadline and passes verify resource policy to tools", async () => {
+		const { acquireTestCapacity } = await import("../harness/test-capacity.js");
+		const { verifyCommand } = await importVerify();
+		await verifyCommand({ cwd: "/repo", json: true });
+		expect(acquireTestCapacity).toHaveBeenCalledWith("foreground", Number.POSITIVE_INFINITY, expect.any(AbortSignal));
+		expect(runChecksMock).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ admissionAlreadyHeld: true, resourcePolicy: "foreground-verify" }));
 	});
 
 	it("routes --structure-only to runStructureVerify and returns early", async () => {
@@ -468,7 +517,7 @@ describe("verifyCommand — dispatch", () => {
 		const { verifyCommand } = await importVerify();
 		isGitUrlMock.mockReturnValue(true);
 		await verifyCommand({ target: "https://github.com/o/r", json: true });
-		expect(cloneRepoMock).toHaveBeenCalledWith("https://github.com/o/r", { branch: undefined });
+		expect(cloneRepoMock).toHaveBeenCalledWith("https://github.com/o/r", { branch: undefined, timeoutMs: 0 });
 		// The URL is never treated as a local path. Rule fingerprinting may stat
 		// configuration files while the verifier scans the cloned repository.
 		expect(statSyncMock).not.toHaveBeenCalledWith("https://github.com/o/r");
@@ -536,7 +585,7 @@ describe("verifyCommand — remote verify", () => {
 		expect(normalizeGitUrlMock).toHaveBeenCalledWith("https://github.com/o/r");
 		expect(stderr).toContain("cloning repo(https://github.com/o/r)...");
 		expect(stderr).toContain("cloned in 1.5s");
-		expect(cloneRepoMock).toHaveBeenCalledWith("https://github.com/o/r", { branch: undefined });
+		expect(cloneRepoMock).toHaveBeenCalledWith("https://github.com/o/r", { branch: undefined, timeoutMs: 0 });
 		// finally → cleanup of clone dir
 		expect(rmSyncMock).toHaveBeenCalledWith("/clone/dir", { recursive: true, force: true });
 	});
@@ -553,7 +602,7 @@ describe("verifyCommand — remote verify", () => {
 	it("passes --branch through to cloneRepo", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ target: "https://github.com/o/r", branch: "dev", json: true });
-		expect(cloneRepoMock).toHaveBeenCalledWith("https://github.com/o/r", { branch: "dev" });
+		expect(cloneRepoMock).toHaveBeenCalledWith("https://github.com/o/r", { branch: "dev", timeoutMs: 0 });
 	});
 
 	it("scans the subdir under the clone dir when --subdir is given", async () => {
@@ -608,24 +657,76 @@ describe("verifyCommand — remote verify", () => {
 // ===========================================
 
 describe("runVerify — streaming output path", () => {
-	it("defers without a verdict when another process owns the project lane", async () => {
-		tryAcquireProjectHeavyProcessLeaseMock.mockReturnValueOnce(null);
+	it("waits for project ownership before scanning and emits a notice only after one second", async () => {
 		const { verifyCommand } = await importVerify();
+		let grant: (release: () => void) => void = () => { throw new Error("Project waiter is not initialized"); };
+		acquireProjectHeavyProcessLeaseMock.mockReturnValueOnce(new Promise(resolve => { grant = resolve; }));
+		vi.useFakeTimers();
+		const running = verifyCommand({ cwd: "/repo" });
+		try {
+			await vi.advanceTimersByTimeAsync(999);
+			expect(acquireProjectHeavyProcessLeaseMock).toHaveBeenCalledWith("/repo", Infinity, expect.any(AbortSignal));
+			expect(stderr).not.toContain("verify waiting for the project check lane");
+			expect(discoverFilesMock).not.toHaveBeenCalled();
+			expect(runCodeQualityChecksProgressiveMock).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(1);
+			expect(stderr).toContain("verify waiting for the project check lane");
+		} finally {
+			grant(releaseHeavyProcessMock); await running; vi.useRealTimers();
+		}
+		expect(discoverFilesMock).toHaveBeenCalledExactlyOnceWith("/repo");
+		expect(releaseHeavyProcessMock).toHaveBeenCalledExactlyOnceWith();
+	});
 
-		await verifyCommand({ cwd: "/repo" });
-
-		expect(stderr).toContain("verify deferred");
-		expect(stderr).toContain("no verification verdict was produced");
+	it("cancels project admission before starting host admission or a scan", async () => {
+		const { withProcessCancellation } = await import("../harness/check-engine/process-cancellation.js");
+		const { acquireTestCapacity } = await import("../harness/test-capacity.js");
+		const controller = new AbortController();
+		acquireProjectHeavyProcessLeaseMock.mockImplementationOnce(async (_cwd, _deadline, signal) => new Promise(resolve => {
+			signal.addEventListener("abort", () => resolve(null), { once: true });
+		}));
+		const { verifyCommand } = await importVerify();
+		const running = withProcessCancellation(controller.signal, () => verifyCommand({ cwd: "/repo", json: true }));
+		controller.abort(); await running;
 		expect(process.exitCode).toBe(1);
+		expect(stderr).toContain("project capacity wait interrupted; no verification verdict was produced");
+		expect(acquireTestCapacity).not.toHaveBeenCalled();
 		expect(discoverFilesMock).not.toHaveBeenCalled();
-		expect(runCodeQualityChecksProgressiveMock).not.toHaveBeenCalled();
 		expect(releaseHeavyProcessMock).not.toHaveBeenCalled();
 	});
 
+	it("retains no verdict for an already-cancelled waiter and clears its notice timer", async () => {
+		const { withProcessCancellation } = await import("../harness/check-engine/process-cancellation.js");
+		const { acquireTestCapacity } = await import("../harness/test-capacity.js");
+		const controller = new AbortController(); controller.abort();
+		acquireProjectHeavyProcessLeaseMock.mockResolvedValueOnce(null);
+		const { verifyCommand } = await importVerify();
+		vi.useFakeTimers();
+		try {
+			await withProcessCancellation(controller.signal, () => verifyCommand({ cwd: "/repo" }));
+			expect(process.exitCode).toBe(1);
+			expect(acquireTestCapacity).not.toHaveBeenCalled();
+			expect(discoverFilesMock).not.toHaveBeenCalled();
+			expect(vi.getTimerCount()).toBe(0);
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(stderr).not.toContain("verify waiting for the project check lane");
+		} finally { vi.useRealTimers(); }
+	});
+
+	it("releases a newly acquired project lane if cancellation wins before host admission", async () => {
+		const { withProcessCancellation } = await import("../harness/check-engine/process-cancellation.js");
+		const { acquireTestCapacity } = await import("../harness/test-capacity.js");
+		const controller = new AbortController();
+		acquireProjectHeavyProcessLeaseMock.mockImplementationOnce(async () => { controller.abort(new Error("cancelled after admission")); return releaseHeavyProcessMock; });
+		const { verifyCommand } = await importVerify();
+		await expect(withProcessCancellation(controller.signal, () => verifyCommand({ cwd: "/repo" }))).rejects.toThrow("cancelled after admission");
+		expect(acquireTestCapacity).not.toHaveBeenCalled();
+		expect(discoverFilesMock).not.toHaveBeenCalled();
+		expect(releaseHeavyProcessMock).toHaveBeenCalledExactlyOnceWith();
+	});
+
 	it("reports an unavailable no-verdict when project admission itself fails", async () => {
-		tryAcquireProjectHeavyProcessLeaseMock.mockImplementationOnce(() => {
-			throw new Error("lock directory unavailable");
-		});
+		acquireProjectHeavyProcessLeaseMock.mockRejectedValueOnce(new Error("lock directory unavailable"));
 		const { verifyCommand } = await importVerify();
 
 		await verifyCommand({ cwd: "/repo" });
@@ -669,12 +770,24 @@ describe("runVerify — streaming output path", () => {
 		expect(callArg.opts.only).toBe("tsc");
 	});
 
+	it("opts a human --only advisory tool in while retaining explicit exclusions", async () => {
+		const { verifyCommand } = await importVerify();
+		getEffectiveSkipChecksMock.mockImplementation((skip, all) => new Set(all ? skip?.split(",") : ["knip"]));
+		try {
+			await verifyCommand({ cwd: "/repo", only: "knip", skip: "semgrep" });
+			expect(streamExternalToolsMock.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ skipChecks: new Set(["semgrep"]) }));
+			expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith("semgrep", true);
+		} finally {
+			getEffectiveSkipChecksMock.mockImplementation(() => new Set());
+		}
+	});
+
 	it("drives the full streaming pipeline and emits the run record (default mode)", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo" });
 
 		// skip-check resolution + propagation
-		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith(undefined, undefined);
+		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith(undefined, false);
 		expect(setActiveSkipChecksMock).toHaveBeenCalledTimes(1);
 
 		// header + the four project-level streams
@@ -731,7 +844,7 @@ describe("runVerify — streaming output path", () => {
 	it("forwards the --skip arg into skip-check resolution", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo", skip: "complexity,magic_number" });
-		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith("complexity,magic_number", undefined);
+		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith("complexity,magic_number", false);
 	});
 
 	it("runs the suggestions summary when --suggestions is set", async () => {
@@ -793,6 +906,13 @@ describe("runVerify — tally line variants", () => {
 // ===========================================
 
 describe("runVerifyBatchJson — json output path", () => {
+	it("retains an explicit external timeout as partial verification", async () => {
+		runChecksMock.mockReturnValue({ results: [], skipped: [{ check: "tsc", category: "timeout", reason: "Explicit analyzer deadline expired" }] });
+		const { verifyCommand } = await importVerify();
+		await verifyCommand({ cwd: "/repo", json: true });
+		expect(process.exitCode).toBe(75);
+	});
+
     it("fails JSON verification when required project E2E evidence is open", async () => {
         const { verifyCommand } = await importVerify();
         const { projectE2eSection } = await import("./verify/project-e2e-section.js");
@@ -801,6 +921,24 @@ describe("runVerifyBatchJson — json output path", () => {
         expect(process.exitCode).toBe(1);
         expect(projectE2eSection).toHaveBeenCalledWith("/repo");
         expect(outputJsonMock).toHaveBeenCalledTimes(1);
+    });
+    it("fails JSON verification when a KILLED kill proof is stale, and passes the section's JSON through as `killProofs`", async () => {
+        const { verifyCommand } = await importVerify();
+        const { killProofsSection } = await import("./verify/kill-proofs-section.js");
+        const json = { issues: 1, files: ["src/a.test.ts"], details: [], receipts: [], skipped: false };
+        vi.mocked(killProofsSection).mockReturnValueOnce({ present: true, failed: true, rows: [], findings: [], lines: [], json });
+        await verifyCommand({ cwd: "/repo", json: true });
+        expect(process.exitCode).toBe(1);
+        expect(killProofsSection).toHaveBeenCalledWith("/repo", expect.any(Set));
+        expect(outputJsonMock).toHaveBeenCalledTimes(1);
+        expect(nonNull(outputJsonMock.mock.calls.at(-1)?.[0]).killProofs).toEqual(json);
+    });
+    it("passes JSON verification when every kill proof is fresh or only uncommitted (present, not failed)", async () => {
+        const { verifyCommand } = await importVerify();
+        const { killProofsSection } = await import("./verify/kill-proofs-section.js");
+        vi.mocked(killProofsSection).mockReturnValueOnce({ present: true, failed: false, rows: [], findings: [], lines: [], json: { issues: 0, files: [], details: [], receipts: [], skipped: false } });
+        await verifyCommand({ cwd: "/repo", json: true });
+        expect(process.exitCode).not.toBe(1);
     });
 	it("includes imported lint findings and runs all configured cadences for --all-checks", async () => {
 		const { verifyCommand } = await importVerify();
@@ -829,8 +967,8 @@ describe("runVerifyBatchJson — json output path", () => {
 		// runChecks got the assembled skipTools list (empty here)
 		expect(runChecksMock).toHaveBeenCalledTimes(1);
 		const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ "skipTools": wireArray(wireString), "timeoutMs": wireNumber }), "test JSON value");
-		expect(checkOpts.skipTools).toEqual([]);
-		expect(checkOpts.timeoutMs).toBe(30_000);
+		expect(checkOpts.skipTools).toEqual(["dep-audit"]);
+		expect(checkOpts.timeoutMs).toBe(0);
 
 		const arg = lastJsonArg();
 		expect(arg.tscResults).toEqual([{ tool: "tsc", file: "a.ts", message: "m1" }]);
@@ -880,13 +1018,13 @@ describe("runVerifyBatchJson — json output path", () => {
 		expect(arg.tscResults).toEqual([{ tool: "tsc", file: "kept.ts", message: "keep" }]);
 	});
 
-	it("builds the only-skip-tools list and skips the audit for --only !== sca", async () => {
+	it("selects only the requested catalog tool and preserves explicit skips", async () => {
 		const { verifyCommand } = await importVerify();
 		getSkipToolsMock.mockReturnValue(["mypy"]);
 		await verifyCommand({ cwd: "/repo", json: true, only: "tsc" });
-		// onlySkipTools = TOOL_IDS minus "tsc" (and its dash-variant) → biome, dep-audit
-		const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ "skipTools": wireArray(wireString) }), "test JSON value");
-		expect(checkOpts.skipTools).toEqual(expect.arrayContaining(["biome", "dep-audit", "mypy"]));
+		const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ tools: wireArray(wireString), skipTools: wireArray(wireString) }), "test JSON value");
+		expect(checkOpts.tools).toEqual(["tsc"]);
+		expect(checkOpts.skipTools).toEqual(["mypy", "dep-audit"]);
 		expect(checkOpts.skipTools).not.toContain("tsc");
 		// only set and != "sca" → audit skipped, auditResult null
 		expect(runDepAuditMock).not.toHaveBeenCalled();
@@ -895,15 +1033,99 @@ describe("runVerifyBatchJson — json output path", () => {
 		// run before the requested compiler process.
 		expect(runCodeQualityChecksProgressiveMock).not.toHaveBeenCalled();
 		expect(filterCodeQualityResultsInPlaceMock).not.toHaveBeenCalled();
+		expect(runChecksMock.mock.calls[0]?.[1]).toMatchObject({ timeoutMs: 0, resourcePolicy: "foreground-verify" });
 	});
 
-	it("normalizes the underscore form of --only when excluding tools", async () => {
+	it("forwards the caller's positive tool timeout to JSON execution", async () => {
 		const { verifyCommand } = await importVerify();
-		// "dep_audit" should keep "dep-audit" in the run set (only.replace("_","-") match)
+		await verifyCommand({ cwd: "/repo", json: true, only: "tsc", toolTimeout: 1234 });
+		expect(runChecksMock.mock.calls[0]?.[1]).toMatchObject({ timeoutMs: 1234, resourcePolicy: "foreground-verify" });
+	});
+
+	it("normalizes the underscore form of --only through the catalog", async () => {
+		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo", json: true, only: "dep_audit" });
-		const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ "skipTools": wireArray(wireString) }), "test JSON value");
-		expect(checkOpts.skipTools).not.toContain("dep-audit");
-		expect(checkOpts.skipTools).toEqual(expect.arrayContaining(["tsc", "biome"]));
+		const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ tools: wireArray(wireString) }), "test JSON value");
+		expect(checkOpts.tools).toEqual(["dep-audit"]);
+	});
+
+	it("leaves unrecognized --only names with an empty external selection", async () => {
+		const { verifyCommand } = await importVerify();
+		await verifyCommand({ cwd: "/repo", json: true, only: "unknown-tool" });
+		expect(runChecksMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ tools: [] }));
+	});
+
+	it("keeps real Commander --only selection isolated through the orchestrator", async () => {
+		await importVerify();
+		const { Command } = await import("commander");
+		const { registerQualityCommands } = await import("../registrars/quality.js");
+		const program = new Command();
+		registerQualityCommands(program);
+		await program.parseAsync(["verify", "/repo", "--only", "tsc", "--json"], { from: "user" });
+		expect(runChecksMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ tools: ["tsc"] }));
+		expect(runCodeQualityChecksProgressiveMock).not.toHaveBeenCalled();
+		expect(runDepAuditMock).not.toHaveBeenCalled();
+	});
+
+	it("treats an explicitly requested advisory tool as opted in", async () => {
+		const { verifyCommand } = await importVerify();
+		await verifyCommand({ cwd: "/repo", json: true, only: "knip" });
+		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith(undefined, true);
+		expect(runChecksMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ tools: ["knip"] }));
+	});
+
+	it("retains the final native input scope and reports its omissions separately", async () => {
+		const { verifyCommand } = await importVerify();
+		const scope = { tool: "gitleaks", selectedFiles: 5, targets: ["./src", "./.env"],
+			excludedInputs: [{ file: ".git", reason: "Git storage" }],
+			unavailableInputs: [{ file: "changed.env", reason: "Changed during scan" }] };
+		runChecksMock.mockImplementation((_scope, options) => {
+			if (options && typeof options === "object" && "onInputScope" in options && typeof options.onInputScope === "function") {
+				options.onInputScope({ ...scope, unavailableInputs: [] });
+				options.onInputScope(scope);
+			}
+			return { results: [] };
+		});
+		await verifyCommand({ cwd: "/repo", json: true, only: "gitleaks" });
+		expect(lastJsonArg().toolInputScopes).toEqual([scope]);
+		expect(lastJsonArg().checkTimings).toContainEqual(expect.objectContaining({ check: "gitleaks",
+			unavailable_inputs: scope.unavailableInputs, excluded_inputs: scope.excludedInputs }));
+		expect(process.exitCode).toBe(75);
+	});
+
+	it.each(["working-tree", "git-visible"] as const)("forwards explicit Gitleaks %s selection into the native tool request", async gitleaksScope => {
+		const { verifyCommand } = await importVerify();
+		await verifyCommand({ cwd: "/repo", json: true, only: "gitleaks", gitleaksScope });
+		expect(runChecksMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ gitleaksScope }));
+	});
+
+	it.each(["error", "resource_busy"] as const)("reports JSON %s tool failures as partial verification", async (category) => {
+		const { verifyCommand } = await importVerify();
+		const skipped = [{ check: "gitleaks", category, reason: "Runner unavailable" }];
+		runChecksMock.mockReturnValue({ results: [], skipped });
+		await verifyCommand({ cwd: "/repo", json: true, only: "gitleaks" });
+		expect(process.exitCode).toBe(75);
+		expect(lastJsonArg().checkCoverage).toEqual({ toolsRun: [], skipped });
+		expect(lastJsonArg().checkTimings).toContainEqual(expect.objectContaining({ check: "gitleaks", skipped: 1, unavailable_inputs: [{ file: "<project>", reason: "Runner unavailable" }] }));
+		expect(stderr).toContain("partial verification");
+	});
+
+	it.each(["config_disabled", "file_type_mismatch", "tool_missing"] as const)("preserves JSON %s skip exit semantics", async (category) => {
+		const { verifyCommand } = await importVerify();
+		const skipped = [{ check: "gitleaks", category, reason: "Tool skipped" }];
+		runChecksMock.mockReturnValue({ results: [], skipped });
+		await verifyCommand({ cwd: "/repo", json: true, only: "gitleaks" });
+		expect(process.exitCode).toBeUndefined();
+		expect(lastJsonArg().checkCoverage).toEqual({ toolsRun: [], skipped });
+		expect(stderr).not.toContain("partial verification");
+	});
+
+	it.each([undefined, "tsc"])("retains inline selection intent with external-only %s", async (only) => {
+		const { verifyCommand } = await importVerify();
+		getEffectiveSkipChecksMock.mockReturnValue(new Set(["z_check", "a_check"]));
+		await verifyCommand({ cwd: "/repo", json: true, ...(only ? { only } : {}) });
+		expect(lastJsonArg().checkSelection).toEqual({ inlineRequested: !only, externalOnly: only ?? null, excludedIds: ["a_check", "z_check"] });
+		expect(process.exitCode).toBeUndefined();
 	});
 
 	it("runs the dep audit for --only sca", async () => {
@@ -911,6 +1133,41 @@ describe("runVerifyBatchJson — json output path", () => {
 		await verifyCommand({ cwd: "/repo", json: true, only: "sca" });
 		expect(runDepAuditMock).toHaveBeenCalledTimes(1);
 		expect(lastJsonArg().auditResult).toEqual({ kind: "audit" });
+	});
+
+	it.each(["sca", "dep-audit", "dependency_audit"])("runs the dedicated audit once for --only %s", async only => {
+		const { verifyCommand } = await importVerify();
+		await verifyCommand({ cwd: "/repo", json: true, only });
+		expect(runDepAuditMock).toHaveBeenCalledTimes(1);
+		expect(runChecksMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ skipTools: ["dep-audit"] }));
+	});
+
+	it.each(["sca", "dep-audit", "dependency_audit"])("preserves explicit dedicated audit exclusion %s", async skip => {
+		const { verifyCommand } = await importVerify();
+		getEffectiveSkipChecksMock.mockReturnValue(new Set([skip]));
+		await verifyCommand({ cwd: "/repo", json: true, only: "dep-audit", skip });
+		expect(runDepAuditMock).not.toHaveBeenCalled();
+		expect(lastJsonArg().auditResult).toBeNull();
+	});
+
+	it.each([true, false])("retains actual dedicated audit completion/failure evidence (success=%s)", async success => {
+		const { verifyCommand } = await importVerify();
+		const audit = await import("./verify/dependency-audit.js");
+		const actual = await vi.importActual<typeof import("./verify/dependency-audit.js")>("./verify/dependency-audit.js");
+		const runner = await import("../harness/check-engine/spawn-async.js");
+		const resolver = await import("../harness/quality-checks/dependency-audit.js");
+		const resolverSpy = vi.spyOn(resolver, "resolveDependencyAuditCommandAsync").mockResolvedValue({ parser: "npm-audit", cmd: ["npm", "audit", "--json", "--audit-level=moderate"] });
+		statSyncMock.mockReturnValue({ isDirectory: () => true, isFile: () => true });
+		const processSpy = vi.spyOn(runner, "runProcessAsync").mockResolvedValue({ code: success ? 0 : 1, killed: false, timedOut: false, stderr: "", stdout: success ? JSON.stringify({ metadata: { vulnerabilities: { low: 0, moderate: 0, high: 0, critical: 0, total: 0 } } }) : '{"error":{"code":"ENOLOCK"}}' });
+		vi.mocked(audit.runBatchDependencyAudit).mockImplementationOnce(actual.runBatchDependencyAudit);
+		try {
+			await verifyCommand({ cwd: "/repo", json: true, only: "dep-audit" });
+			expect(processSpy).toHaveBeenCalledTimes(1);
+			expect(process.exitCode).toBe(success ? undefined : 75);
+			expect(lastJsonArg().checkCoverage).toEqual(success
+				? { toolsRun: [{ id: "dep-audit", available: true }], skipped: [] }
+				: { toolsRun: [], skipped: [expect.objectContaining({ check: "dep-audit", category: "error" })] });
+		} finally { processSpy.mockRestore(); resolverSpy.mockRestore(); }
 	});
 
 	it("includes scored suggestions in the JSON payload under --suggestions", async () => {
@@ -986,6 +1243,19 @@ function driveProgressMidScan(): void {
 }
 
 describe("runVerify — scan progress", () => {
+	it.each([false, true])("does not dispatch excluded inline detectors in json=%s", async (json) => {
+		const { verifyCommand } = await importVerify();
+		const { toIssues } = await import("./verify/file-checks-shared.js");
+		const detector = vi.fn(() => [{ line: 1, text: "excluded candidate" }]);
+		getEffectiveSkipChecksMock.mockReturnValue(new Set(["dead_exports"]));
+		runCodeQualityChecksProgressiveMock.mockImplementation(async () => ({
+			undocumentedEnvVars: [],
+			deadExports: toIssues("dead_exports", "a.ts", detector),
+		}));
+		await verifyCommand({ cwd: "/repo", json });
+		expect(runCodeQualityChecksProgressiveMock).toHaveBeenCalled();
+		expect(detector).not.toHaveBeenCalled();
+	});
 	it("hands the scan a reporter sized to the discovered file count", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo" });

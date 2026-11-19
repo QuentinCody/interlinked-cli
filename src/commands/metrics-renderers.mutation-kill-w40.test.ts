@@ -62,23 +62,23 @@ describe("renderNormal — positive (must fire)", () => {
 		expect(out).toMatch(/Coverage\s+present \(istanbul\)/);
 	});
 
-	// test-contract: public-api — astComplexityAvailable false must show the fallback Complexity line
-	it("P3: shows regex-fallback Complexity line when astComplexityAvailable is false", () => {
+	// test-contract: public-api — an unavailable exact parser must show the named Complexity gap.
+	it("P3: shows unavailable Complexity when astComplexityAvailable is false", () => {
 		const r = baseReport({
 			scope: { ...baseReport().scope, astComplexityAvailable: false },
 		});
 		const out = stripAnsi(renderNormal(r));
 		expect(out).toContain("Complexity");
-		expect(out).toContain("regex fallback");
+		expect(out).toContain("JS/TS complexity unavailable");
 	});
 
-	// test-contract: public-api — astComplexityAvailable true must NOT show the fallback line
-	it("N3: omits the Complexity fallback line when astComplexityAvailable is true", () => {
+	// test-contract: public-api — an available exact parser carries no parser-unavailable warning.
+	it("N3: omits the unavailable Complexity line when astComplexityAvailable is true", () => {
 		const r = baseReport({
 			scope: { ...baseReport().scope, astComplexityAvailable: true },
 		});
 		const out = stripAnsi(renderNormal(r));
-		expect(out).not.toContain("regex fallback");
+		expect(out).not.toContain("JS/TS complexity unavailable");
 	});
 
 	// test-contract: public-api — "Complexity" label text itself must render literally
@@ -87,7 +87,7 @@ describe("renderNormal — positive (must fire)", () => {
 			scope: { ...baseReport().scope, astComplexityAvailable: false },
 		});
 		const out = stripAnsi(renderNormal(r));
-		expect(out).toMatch(/Complexity\s+regex fallback/);
+		expect(out).toMatch(/Complexity\s+JS\/TS complexity unavailable/);
 	});
 
 	// test-contract: public-api — "files no companion" label must render literally
@@ -176,10 +176,10 @@ describe("renderNormal — positive (must fire)", () => {
 		expect(out).not.toContain("Stryker was here");
 	});
 
-	// test-contract: boundary — the blank separator before "Gates" must be an actual empty line
-	it("P12: has a truly blank line between the scope block and the Gates block", () => {
+	// test-contract: boundary — the separator before threshold observations is an empty line.
+	it("P12: has a truly blank line between scope and threshold observations", () => {
 		const lines = stripAnsi(renderNormal(baseReport())).split("\n");
-		const gatesIdx = lines.findIndex((l) => l.includes("Gates"));
+		const gatesIdx = lines.findIndex((l) => l.includes("Threshold observations"));
 		expect(lines[gatesIdx - 1]).toBe("");
 	});
 

@@ -21,7 +21,8 @@ import { readFileSync, statSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { computeCrapForFile } from "../harness/checks/crap.js";
 import { computeCyclomaticComplexity, type FunctionComplexityEntry } from "../harness/checks/cyclomatic.js";
-import { astComplexityAvailable, computeCyclomaticAst } from "../harness/checks/cyclomatic-ast.js";
+import { astComplexityAvailable, computeCyclomaticAst, parseTsSource } from "../harness/checks/cyclomatic-ast.js";
+import { hasExactSyntax } from "../harness/function-tokens/ast-tokens.js";
 import type { PerFileCoverage } from "../harness/coverage-final-reader.js";
 import {
 	isTddExemptPath,
@@ -30,7 +31,9 @@ import { hasCompanionTest } from "../harness/evaluator/companion-test.js";
 import { minCoverageFor } from "../harness/tested-file-policy.js";
 import { crapThresholdFor, maxCyclomaticFor } from "../harness/metric-caps.js";
 import { getOutputMode, output } from "../lib/output.js";
-import { discoverMetricSourceFiles, loadMetricsCoverage } from "./metrics-coverage.js";
+import { hashBytes } from "../lib/metrics/inventory.js";
+import { metricActions } from "./metrics-actions.js";
+import { discoverMetricSourceInventory, loadMetricsCoverage } from "./metrics-coverage.js";
 import {
 	type FileMetric,
 	type FnMetric,
@@ -138,15 +141,14 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 	// gates enforce, so the report's labels + counts can never drift from them.
 	const crapGate = crapThresholdFor(cwd);
 	const cyclomaticBad = maxCyclomaticFor(cwd);
-	const tokenContext = functionTokenMetricsContext({ cwd, topN, includeTests });
+	const cov = loadMetricsCoverage(cwd);
+	const sourceInventory = discoverMetricSourceInventory(cwd, includeTests);
+	const sourceFiles = sourceInventory.files;
+	const tokenContext = functionTokenMetricsContext({ cwd, topN, includeTests, sourceFiles: sourceFiles.map(file => join(cwd, file)) });
 	const functionTokenCap = tokenContext.cap;
 	const functionTokenMetrics = tokenContext.report;
 	const tokenCounts = tokenContext.countsByFile;
 	const tokenFiles = tokenContext.filesByPath;
-	const cov = loadMetricsCoverage(cwd);
-	// discoverFiles returns absolute paths — normalize to repo-relative for
-	// coverage lookup, companion paths, and display.
-	const sourceFiles = discoverMetricSourceFiles(cwd, cov);
 
 	const fns: FnMetric[] = [];
 	const tokenFns: FnMetric[] = [];
@@ -157,16 +159,25 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 	for (const rel of sourceFiles) {
 		const abs = join(cwd, rel);
 		let content: string;
+		let fileMtime: number;
 		try {
 			content = readFileSync(abs, "utf-8");
+			fileMtime = statSync(abs).mtimeMs;
 		} catch {
+			sourceInventory.notMeasured.push({ file: rel, reason: "Source could not be read or stat'ed" });
 			continue;
 		}
-		// Measure complexity on EVERY source file. The AST pass has no test-file
-		// exemption — that exemption (in computeCyclomaticComplexity) is for
-		// content-quality scans, not measurement, and would hide the harness's
-		// own checks/ tree. Fall back to the guarded walker only sans typescript.
-		const fileMtime = statSync(abs).mtimeMs;
+		// Explicit reports require an exact JS/TS parse, including test files.
+		// The compatibility helper retains its separate approximate fallback.
+		if (JS_TS_METRIC_EXTS.has(extname(abs).toLowerCase())) {
+			const parsed = parseTsSource(content, abs);
+			if (!parsed || !hasExactSyntax(parsed)) {
+				sourceInventory.notMeasured.push({ file: rel, reason: parsed
+					? "Source requires parser recovery; complexity is unavailable"
+					: "TypeScript parser unavailable; exact complexity is unavailable" });
+				continue;
+			}
+		}
 		const comps = cyclomaticForMetrics(content, abs);
 		const perFile = cov.perFile(rel, comps, fileMtime);
 		if (cov.available && !perFile) filesNoCoverage++;
@@ -178,7 +189,7 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 			rel,
 			fileMtime,
 		});
-		fns.push(...fileFns);
+		for (const fn of fileFns) fns.push(fn);
 
 		const companionExpected = !isTddExemptPath(rel);
 		// hasCompanionTest (not the raw candidate list): recognizes qualified
@@ -190,6 +201,7 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 
 		files.push({
 			file: rel,
+			sourceSha256: hashBytes(content),
 			functions: fileFns.length,
 			linePct: cov.linePct(rel),
 			maxCyclomatic: fileFns.reduce((m, f) => Math.max(m, f.cyclomatic), 0),
@@ -262,6 +274,8 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 		functionTokenMetrics,
 		missingCompanion,
 		files,
+		functions: fns,
+		sourceInventory,
 	};
 }
 
@@ -282,6 +296,7 @@ export async function metricsCommand(opts: MetricsOptions): Promise<void> {
 	const cwd = resolve(opts.cwd || process.cwd());
 	const topN = Math.max(1, Math.min(200, Number.parseInt(opts.top ?? "25", 10) || 25));
 	const report = buildReport(cwd, topN, opts.includeTests ?? false);
+	report.actions = metricActions({ functions: report.functions ?? [], files: report.files, caps: report.caps, notMeasured: report.sourceInventory?.notMeasured ?? [] });
 
 	output(mode, report, {
 		json: () => report,

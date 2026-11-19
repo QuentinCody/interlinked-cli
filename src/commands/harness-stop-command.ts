@@ -39,6 +39,7 @@ export async function harnessStopCommand(opts: { json?: boolean }): Promise<void
 
 	try {
 		const { stopped, survived } = await stopAllDaemons(cwd);
+		if (survived.length > 0) process.exitCode = 1;
 		if (stopped.length === 0 && survived.length === 0) {
 			output(
 				mode,

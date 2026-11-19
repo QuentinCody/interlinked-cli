@@ -2,8 +2,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { buildMetricsScoreReport } from "./metrics-score.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildMetricsScoreReport, metricsScoreCommand } from "./metrics-score.js";
+import * as compositeReports from "../lib/metrics/composite-report.js";
 
 const roots: string[] = [];
 function fixture(): string {
@@ -13,9 +14,35 @@ function fixture(): string {
     writeFileSync(join(root, "src/index.ts"), "export function answer() { return 42; }\n");
     return root;
 }
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("metrics score", () => {
+    it("exports all existing composite findings and evidence gaps after one local collection", () => {
+        const root = fixture();
+        const collector = vi.spyOn(compositeReports, "collectCompositeScoreReport");
+        const stdout = vi.spyOn(console, "log").mockImplementation(() => undefined);
+        metricsScoreCommand({ cwd: root, json: true });
+        const report = JSON.parse(String(stdout.mock.calls[0]?.[0]));
+        expect(collector).toHaveBeenCalledExactlyOnceWith(root);
+        expect(report.modelCalls).toBe(0);
+        expect(report.actions.schema).toBe("interlinked.actions/1");
+        expect(report.actions.modelCalls).toBe(0);
+        expect(report.actions.actions.some((row: { classification: string }) => row.classification === "evidence_gap")).toBe(true);
+        expect(report.metrics.length).toBeGreaterThan(0);
+    });
+
+    it("renders the complete structural action list in full mode without adopting thresholds", () => {
+        const root = fixture();
+        writeFileSync(join(root, "src/index.ts"), `export function route(n: number) { switch(n) { ${Array.from({ length: 20 }, (_, i) => `case ${i}: return ${i};`).join(" ")} default: return -1; } }`);
+        const stdout = vi.spyOn(console, "log").mockImplementation(() => undefined);
+        metricsScoreCommand({ cwd: root, profile: "structure-v1", json: true });
+        const report = JSON.parse(String(stdout.mock.calls[0]?.[0]));
+        expect(report.actions.actions.some((row: { classification: string }) => row.classification === "measurement")).toBe(true);
+        metricsScoreCommand({ cwd: root, profile: "structure-v1", full: true });
+        const full = String(stdout.mock.calls[1]?.[0]);
+        for (const row of report.actions.actions) for (const evidence of row.evidence) expect(full).toContain(evidence.message);
+        expect(full).toContain("not an enforcement threshold");
+    });
     it("reports a repeatable structural score with explicit missing full-score evidence", () => {
         const root = fixture();
         const report = buildMetricsScoreReport(root);

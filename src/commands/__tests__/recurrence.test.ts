@@ -10,6 +10,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Command } from "commander";
+import { registerObservabilityLogCommands } from "../../registrars/observability-logs.js";
 import {
 	loadRecurrenceEvents,
 	recordHarnessCaught,
@@ -27,13 +29,19 @@ import {
 let dir: string;
 let logSpy: ReturnType<typeof vi.spyOn>;
 let errSpy: ReturnType<typeof vi.spyOn>;
+let originalExitCode: typeof process.exitCode;
 
 beforeEach(() => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime(new Date("2026-05-27T12:00:00Z"));
+	originalExitCode = process.exitCode;
 	dir = mkdtempSync(join(tmpdir(), "interlinked-rec-cli-"));
 	logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 	errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => {
+	vi.useRealTimers();
+	process.exitCode = originalExitCode;
 	rmSync(dir, { recursive: true, force: true });
 	logSpy.mockRestore();
 	errSpy.mockRestore();
@@ -149,6 +157,14 @@ describe("recurrence flag", () => {
 });
 
 describe("recurrence propose", () => {
+	it("reports a missing proposal as a JSON error through the real parser", async () => {
+		const program = new Command();
+		registerObservabilityLogCommands(program);
+		await program.parseAsync(["recurrence", "propose", "missing-review", "--cwd", dir, "--json"], { from: "user" });
+		expect(captured()).toBe("");
+		expect(JSON.parse(errCaptured())).toEqual({ error: "No recurrence row found for signature: missing-review" });
+		expect(process.exitCode).toBe(1);
+	});
 	it("prints a ratchet headline for harness_caught rows", async () => {
 		seedThreeCaughtEvents();
 		await recurrenceProposeCommand("harness_caught:misused_promises:claude", { cwd: dir });

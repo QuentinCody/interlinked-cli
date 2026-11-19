@@ -10,6 +10,7 @@ import type { ArtifactFileKey } from "../harness/structure/types.js";
 import { c } from "../lib/formatter.js";
 import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
+import { outputError } from "../lib/output.js";
 import { buildAcceptLines, collectAccepts } from "./structure-accept.js";
 import type { Issue } from "./structure-helpers.js";
 import {
@@ -134,6 +135,10 @@ export async function structureInitCommand(opts: InitOpts): Promise<void> {
 
 // --- 2. structure scan ---
 export async function structureScanCommand(opts: ScanOpts): Promise<void> {
+	if (opts.incremental) {
+		outputError(opts.json ? "json" : "normal", "Incremental structure scans are unavailable. Run structure scan --full for a complete extraction.");
+		return;
+	}
 	try {
 		const cwd = process.cwd();
 		const t0 = Date.now();
@@ -145,10 +150,6 @@ export async function structureScanCommand(opts: ScanOpts): Promise<void> {
 		const loaded = loader.loadStructureConfig(cwd);
 		const config = loaded.config || loader.getImplicitConfig();
 		for (const err of loaded.errors) console.error(c.yellow(`  Warning: ${err}`));
-
-		const existing = cm.readCatalogMeta(cwd);
-		const incremental = opts.incremental ?? (opts.full ? false : !!existing);
-		if (incremental && !existing) console.log(c.dim("No cache found. Running full scan."));
 
 		const result = runAllExtractors(cwd);
 		const graph = new ArtifactGraph();
@@ -185,7 +186,7 @@ export async function structureScanCommand(opts: ScanOpts): Promise<void> {
 
 		const ms = Date.now() - t0;
 		const summary = {
-			mode: incremental ? "incremental" : "full",
+			mode: "full",
 			nodes: graph.nodeCount,
 			edges: graph.edgeCount,
 			elapsed_ms: ms,
@@ -397,13 +398,13 @@ export async function structureDoctorCommand(opts: StructureOpts): Promise<void>
 				message: "Scan cache is stale. Re-run `interlinked structure scan`.",
 			});
 
+		if (issues.some((i) => i.severity === "error")) process.exitCode = 1;
 		if (opts.json) return out(true, { issues, total: issues.length }, "");
 		if (issues.length === 0)
 			return void console.log(c.green("Structure doctor: no issues found."));
 		const lines = [c.bold(`Structure Doctor: ${String(issues.length)} issue(s)`), ""];
 		for (const i of issues) lines.push(`  ${badge(i.severity)}  ${i.message}`);
 		console.log(lines.join("\n"));
-		if (issues.some((i) => i.severity === "error")) process.exitCode = 1;
 	} catch (e) {
 		console.error(c.red(`structure doctor failed: ${errorMessage(e)}`));
 		process.exitCode = 1;

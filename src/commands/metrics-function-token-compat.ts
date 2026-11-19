@@ -51,6 +51,7 @@ export function functionTokenMetricsContext(args: {
     cwd: string;
     topN: number;
     includeTests: boolean;
+    sourceFiles?: readonly string[];
 }): FunctionTokenMetricsContext {
     const cap = maxFunctionTokensFor(args.cwd);
     const report = buildFunctionTokenMetricsReport({ ...args, cap });

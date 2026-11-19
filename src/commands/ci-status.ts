@@ -9,10 +9,10 @@
 // can stub the gh subprocess without touching the network.
 
 import { execFileSync } from "node:child_process";
-import type { Command } from "commander";
+import { type Command, InvalidArgumentError } from "commander";
 import { c } from "../lib/formatter.js";
 import { isJsonObject } from "../lib/json-types.js";
-import { getOutputMode, output } from "../lib/output.js";
+import { getOutputMode, output, outputError } from "../lib/output.js";
 
 export interface CiRun {
 	databaseId: number;
@@ -63,20 +63,13 @@ export class GhCliFetcher implements CiStatusFetcher {
 		if (opts.branch) {
 			args.push("--branch", opts.branch);
 		}
-		try {
-			const raw = execFileSync("gh", args, {
-				encoding: "utf-8",
-				timeout: 15_000,
-			});
-			// `parsed` stays `unknown` (not JSON.parse's implicit `any`) until the
-			// Array.isArray guard narrows it -- every element is then re-validated
-			// by parseCiRun below, so this is a shape gate, not a value trust.
-			const parsed: unknown = JSON.parse(raw);
-			if (!Array.isArray(parsed)) return [];
-			return parsed.map(parseCiRun).filter((r): r is CiRun => r !== null);
-		} catch {
-			return [];
-		}
+		const raw = execFileSync("gh", args, {
+			encoding: "utf-8",
+			timeout: 15_000,
+		});
+		const parsed: unknown = JSON.parse(raw);
+		if (!Array.isArray(parsed)) throw new Error("Invalid gh run list response: expected an array.");
+		return parsed.map(parseCiRun).filter((r): r is CiRun => r !== null);
 	}
 }
 
@@ -193,6 +186,10 @@ export async function ciStatusCommand(
 	fetcher: CiStatusFetcher = new GhCliFetcher(),
 ): Promise<void> {
 	const mode = getOutputMode(opts);
+	if (opts.limit !== undefined && !Number.isSafeInteger(opts.limit)) {
+		outputError(mode, "Invalid --limit. Expected a safe integer.");
+		return;
+	}
 	const limit = Math.max(MIN_LIMIT, Math.min(MAX_LIMIT, opts.limit ?? DEFAULT_LIMIT));
 
 	if (!fetcher.available()) {
@@ -206,7 +203,13 @@ export async function ciStatusCommand(
 		return;
 	}
 
-	const runs = fetcher.listRuns({ limit, branch: opts.branch });
+	let runs: CiRun[];
+	try {
+		runs = fetcher.listRuns({ limit, branch: opts.branch });
+	} catch (error) {
+		outputError(mode, error instanceof Error ? error.message : String(error));
+		return;
+	}
 	const agg = aggregateRuns(runs);
 
 	output(mode, agg, {
@@ -283,13 +286,20 @@ function formatFull(
 	return lines.join("\n");
 }
 
+function parseCiLimit(value: string): number {
+	const text = value.trim();
+	const parsed = Number(text);
+	if (!/^[+-]?\d+$/.test(text) || !Number.isSafeInteger(parsed)) {
+		throw new InvalidArgumentError("Expected a safe integer.");
+	}
+	return parsed;
+}
+
 export function registerCiCommand(program: Command): void {
 	program
 		.command("ci-status")
 		.description("Surface CI failure-rate patterns from GitHub Actions (uses gh CLI)")
-		.option("--limit <n>", "Number of recent runs to fetch (default 30, max 100)", (v) =>
-			Number.parseInt(v, 10),
-		)
+		.option("--limit <n>", "Number of recent runs to fetch (default 30, max 100)", parseCiLimit)
 		.option("--branch <name>", "Restrict to a specific branch (default: all branches)")
 		.option("--json", "Output JSON")
 		.option("--short", "One-line summary")

@@ -92,10 +92,6 @@ async function loginWithManualToken(
 	cwd: string,
 ): Promise<void> {
 	const manualToken = token.trim();
-	if (!manualToken) {
-		console.error(`\n${c.red("Invalid token.")} --token cannot be empty.`);
-		process.exit(1);
-	}
 
 	try {
 		const testClient = new InterlinkedClient({
@@ -217,6 +213,10 @@ async function loginWithOAuth(serverUrl: string, cwd: string): Promise<void> {
 }
 
 export async function loginCommand(options: LoginOptions): Promise<void> {
+	if (options.token !== undefined && options.token.trim().length === 0) {
+		console.error(`\n${c.red("Invalid token.")} --token cannot be empty.`);
+		process.exit(1);
+	}
 	const cwd = process.cwd();
 
 	console.log(c.bold("Interlinked CLI — Login"));
@@ -225,7 +225,7 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
 	const serverUrl = resolveLoginServerUrl(options, cwd);
 
 	// Path 1: Manual token injection (CI/headless)
-	if (options.token) {
+	if (options.token !== undefined) {
 		await loginWithManualToken(options.token, serverUrl, cwd);
 		return;
 	}

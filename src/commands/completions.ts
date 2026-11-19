@@ -1,203 +1,182 @@
-// ===========================================
-// interlinked completions — Shell completion scripts
-// ===========================================
-// Emits bash / zsh / fish completion scripts for the current top-level
-// command surface. The COMMANDS and SUBCOMMANDS tables below are the
-// single source of truth; anytime a new command is wired in index.ts,
-// mirror it here. Drift is visible in `interlinked verify` via the
-// docs-freshness tests.
+// Shell completion is derived from the active Commander tree. Generating a
+// script only reads registration metadata and never invokes command handlers.
+import type { Command, Option } from "commander";
 
-const COMMANDS = [
-	"activity",
-	"attach",
-	"check",
-	"checkpoint",
-	"clean",
-	"completions",
-	"context",
-	"coverage",
-	"daemons",
-	"disable",
-	"doctor",
-	"enable",
-	"env",
-	"explain",
-	"git",
-	"guard",
-	"handoff",
-	"harness",
-	"inbox",
-	"init",
-	"install-hooks",
-	"login",
-	"logout",
-	"logs",
-	"mode",
-	"multi-edit",
-	"mutation",
-	"reminder",
-	"reset",
-	"resume",
-	"rewind",
-	"search",
-	"send",
-	"setup",
-	"status",
-	"structure",
-	"sync",
-	"tasks",
-	"telemetry",
-	"trace",
-	"uninstall-hooks",
-	"update",
-	"verify",
-	"version",
-	"watch",
-	"workspace",
-	"write",
-];
+interface CompletionNode {
+	path: string;
+	candidates: string[];
+	transitions: { word: string; path: string }[];
+	valueFlags: string[];
+}
 
-// Subcommand tables — keep in sync with src/index.ts groups.
-const SUBCOMMANDS: Record<string, string> = {
-	checkpoint: "list show compare prune archive",
-	completions: "bash zsh fish",
-	coverage: "check baseline",
-	git: "context link-checkpoint",
-	guard: "install check status uninstall",
-	harness: "start stop restart status test",
-	mutation: "check baseline",
-	reminder: "add list remove",
-	structure: "init scan status accept doctor baseline",
-	tasks: "list create show claim complete",
-	trace: "export import",
-	workspace: "list switch",
-};
+function optionFlags(option: Option): string[] {
+	return [option.short, option.long].filter((flag): flag is string => flag !== undefined);
+}
 
-const GLOBAL_OPTIONS = ["--json", "--short", "--full", "--help"];
+function completionNodes(program: Command): CompletionNode[] {
+	const nodes: CompletionNode[] = [];
+	function visit(command: Command, path: string, inherited: Option[]): void {
+		const help = command.createHelp();
+		const children = help.visibleCommands(command);
+		const options = [...inherited, ...help.visibleOptions(command)];
+		const transitions = children.flatMap((child) =>
+			[child.name(), ...child.aliases()].map((word) => ({
+				word,
+				path: path ? path + "/" + child.name() : child.name(),
+			})),
+		);
+		// The shell argument is an existing public enum, rather than a command.
+		const choices = path === "completions" ? ["bash", "zsh", "fish"] : [];
+		nodes.push({
+			path,
+			candidates: [...new Set([...transitions.map((entry) => entry.word), ...choices, ...options.flatMap(optionFlags)])],
+			transitions,
+			valueFlags: options.filter((option) => option.required).flatMap(optionFlags),
+		});
+		for (const child of children) visit(child, path ? path + "/" + child.name() : child.name(), options);
+	}
+	visit(program, "", []);
+	return nodes;
+}
 
-export async function completionsCommand(shell: string): Promise<void> {
-	switch (shell.toLowerCase()) {
+/** Literal shell words. Metadata must never become executable shell text. */
+function quote(value: string): string {
+	return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+function fishQuote(value: string): string {
+	return "'" + value.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
+}
+
+export async function completionsCommand(shell: string, program?: Command): Promise<void> {
+	const normalized = shell.toLowerCase();
+	if (!["bash", "zsh", "fish"].includes(normalized)) {
+		console.error(`Unknown shell: ${shell}. Supported: bash, zsh, fish`);
+		process.exitCode = 1;
+		return;
+	}
+	const activeProgram = program ?? (await import("../cli-program.js")).buildProgram("completion");
+	const nodes = completionNodes(activeProgram);
+	switch (normalized) {
 		case "bash":
-			console.log(generateBashCompletions());
+			console.log(generateBash(nodes));
 			break;
 		case "zsh":
-			console.log(generateZshCompletions());
+			console.log(generateZsh(nodes));
 			break;
 		case "fish":
-			console.log(generateFishCompletions());
+			console.log(generateFish(nodes));
 			break;
-		default:
-			console.error(`Unknown shell: ${shell}. Supported: bash, zsh, fish`);
-			process.exitCode = 1;
 	}
 }
 
-function generateBashCompletions(): string {
-	const caseBlocks = Object.entries(SUBCOMMANDS)
-		.map(
-			([cmd, subs]) => `        ${cmd})
-            COMPREPLY=( $(compgen -W "${subs}" -- "\${cur}") )
-            ;;`,
-		)
-		.join("\n");
+function transitionCases(nodes: CompletionNode[]): string {
+	return nodes.flatMap((node) => [
+		...node.transitions.map((entry) =>
+			`            ${quote(node.path + "/" + entry.word)}) command_path=${quote(entry.path)} ;;`,
+		),
+		...node.valueFlags.map((flag) =>
+			`            ${quote(node.path + "/" + flag)}) skip=1 ;;`,
+		),
+	]).join("\n");
+}
 
+function candidateCases(nodes: CompletionNode[]): string {
+	return nodes.map((node) =>
+		`        ${quote(node.path)}) candidates=(${node.candidates.map(quote).join(" ")}) ;;`,
+	).join("\n");
+}
+
+function generateBash(nodes: CompletionNode[]): string {
 	return `# interlinked bash completion
 # Add to ~/.bashrc: eval "$(interlinked completions bash)"
 _interlinked_completions() {
-    local cur prev commands
+    local command_path="" word cur skip=0 i candidate
+    local -a candidates
     COMPREPLY=()
     cur="\${COMP_WORDS[COMP_CWORD]}"
-    prev="\${COMP_WORDS[COMP_CWORD-1]}"
-    commands="${COMMANDS.join(" ")}"
-
-    if [[ \${COMP_CWORD} -eq 1 ]]; then
-        COMPREPLY=( $(compgen -W "\${commands}" -- "\${cur}") )
-        return 0
-    fi
-
-    case "\${prev}" in
-${caseBlocks}
-        *)
-            COMPREPLY=( $(compgen -W "${GLOBAL_OPTIONS.join(" ")}" -- "\${cur}") )
-            ;;
+    for ((i=1; i<COMP_CWORD; i++)); do
+        word="\${COMP_WORDS[i]}"
+        if [[ $skip -eq 1 ]]; then skip=0; continue; fi
+        if [[ $word == -- ]]; then return 0; fi
+        case "$command_path/$word" in
+${transitionCases(nodes)}
+        esac
+    done
+    if [[ $skip -eq 1 ]]; then return 0; fi
+    case "$command_path" in
+${candidateCases(nodes)}
     esac
-    return 0
+    for candidate in "\${candidates[@]}"; do
+        if [[ $candidate == "$cur"* ]]; then COMPREPLY+=("$candidate"); fi
+    done
 }
 complete -F _interlinked_completions interlinked
 `;
 }
 
-function generateZshCompletions(): string {
-	const caseBlocks = Object.entries(SUBCOMMANDS)
-		.map(
-			([cmd, subs]) => `                ${cmd})
-                    _values 'subcommand' ${subs}
-                    ;;`,
-		)
-		.join("\n");
-
+function generateZsh(nodes: CompletionNode[]): string {
 	return `#compdef interlinked
 # interlinked zsh completion
 # Add to ~/.zshrc: eval "$(interlinked completions zsh)"
-
 _interlinked() {
-    local -a commands
-    commands=(
-${COMMANDS.map((c) => `        '${c}:${c} command'`).join("\n")}
-    )
-
-    _arguments -C \\
-        '1:command:->cmd' \\
-        '*::arg:->args'
-
-    case $state in
-        cmd)
-            _describe -t commands 'interlinked commands' commands
-            ;;
-        args)
-            case $words[1] in
-${caseBlocks}
-                *)
-                    _arguments \\
-                        '--json[Machine-readable output]' \\
-                        '--short[One-line summary]' \\
-                        '--full[Detailed output]'
-                    ;;
-            esac
-            ;;
+    local command_path="" word skip=0 i
+    local -a candidates
+    for ((i=2; i<CURRENT; i++)); do
+        word="\${words[i]}"
+        if [[ $skip -eq 1 ]]; then skip=0; continue; fi
+        if [[ $word == -- ]]; then return 0; fi
+        case "$command_path/$word" in
+${transitionCases(nodes)}
+        esac
+    done
+    if [[ $skip -eq 1 ]]; then return 0; fi
+    case "$command_path" in
+${candidateCases(nodes)}
     esac
+    compadd -- "\${candidates[@]}"
 }
-
-_interlinked "$@"
+compdef _interlinked interlinked
 `;
 }
 
-function generateFishCompletions(): string {
-	const lines = [
-		"# interlinked fish completion",
-		"# Add to config: interlinked completions fish | source",
-		"",
-		"# Disable file completions for interlinked",
-		"complete -c interlinked -f",
-		"",
-		"# Main commands",
-	];
-
-	for (const cmd of COMMANDS) {
-		lines.push(`complete -c interlinked -n '__fish_use_subcommand' -a '${cmd}' -d '${cmd}'`);
-	}
-
-	lines.push("");
-	lines.push("# Subcommands");
-	for (const [cmd, subs] of Object.entries(SUBCOMMANDS)) {
-		lines.push(`complete -c interlinked -n '__fish_seen_subcommand_from ${cmd}' -a '${subs}'`);
-	}
-
-	lines.push("");
-	lines.push("# Global options");
-	lines.push("complete -c interlinked -l json -d 'Machine-readable output'");
-	lines.push("complete -c interlinked -l short -d 'One-line summary'");
-	lines.push("complete -c interlinked -l full -d 'Detailed output'");
-
-	return `${lines.join("\n")}\n`;
+function generateFish(nodes: CompletionNode[]): string {
+	const transitions = nodes.flatMap((node) => [
+		...node.transitions.map((entry) =>
+			`            case ${fishQuote(node.path + "/" + entry.word)}\n                set command_path ${fishQuote(entry.path)}`,
+		),
+		...node.valueFlags.map((flag) =>
+			`            case ${fishQuote(node.path + "/" + flag)}\n                set skip 1`,
+		),
+	]).join("\n");
+	const candidates = nodes.map((node) =>
+		`        case ${fishQuote(node.path)}\n            printf '%s\\n' ${node.candidates.map(fishQuote).join(" ")}`,
+	).join("\n");
+	return `# interlinked fish completion
+# Add to config: interlinked completions fish | source
+function __interlinked_candidates
+    set -l command_path ''
+    set -l skip 0
+    set -l words (commandline -opc)
+    for word in $words[2..-1]
+        if test $skip -eq 1
+            set skip 0
+            continue
+        end
+        if test "$word" = --
+            return
+        end
+        switch "$command_path/$word"
+${transitions}
+        end
+    end
+    if test $skip -eq 1
+        return
+    end
+    switch "$command_path"
+${candidates}
+    end
+end
+complete -c interlinked -f -a '(__interlinked_candidates)'
+`;
 }

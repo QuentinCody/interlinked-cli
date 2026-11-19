@@ -467,8 +467,10 @@ export async function statusCommand(opts: {
 
 		// Recurring refresh (serialized to avoid piling up overlapping requests)
 		const tick = async () => {
-			process.stdout.write("\x1B[2J\x1B[0f");
-			console.log(c.dim(`Refreshing every ${normalizedWatch}s... (Ctrl+C to stop)\n`));
+			if (mode !== "json") {
+				process.stdout.write("\x1B[2J\x1B[0f");
+				console.log(c.dim(`Refreshing every ${normalizedWatch}s... (Ctrl+C to stop)\n`));
+			}
 			await runOnce();
 			setTimeout(tick, intervalMs);
 		};

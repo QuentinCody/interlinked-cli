@@ -86,7 +86,7 @@ describe("registerSupplyChainCommands — structure", () => {
 		);
 		expect(optsFor("remove")).toEqual(["--cwd"]);
 		expect(optsFor("list")).toEqual(["--cwd", "--ecosystem", "--json"].sort());
-		expect(optsFor("snapshot")).toEqual(["--by", "--cwd", "--lockfile", "--reason"].sort());
+		expect(optsFor("snapshot")).toEqual(["--by", "--cwd", "--dir", "--lockfile", "--reason"].sort());
 		expect(optsFor("verify")).toEqual(["--cwd"]);
         expect(optsFor("propose")).toEqual(["--cwd", "--json", "--package-version", "--reason"]);
 	});
@@ -256,6 +256,21 @@ describe("allowlist snapshot — action wiring", () => {
 			cwdSpy.mockRestore();
 		}
 		expect(snapshotAllowlistCommand).toHaveBeenCalledWith({ cwd: "/sd", by: "me" });
+	});
+
+	it("forwards --dir as `dir` beside the project-root cwd, and documents the option", async () => {
+		const program = build();
+		await program.parseAsync(
+			["allowlist", "snapshot", "--by", "me", "--cwd", "/s", "--dir", "/tmp/checkout"],
+			{ from: "user" },
+		);
+		expect(snapshotAllowlistCommand).toHaveBeenCalledWith({ cwd: "/s", by: "me", dir: "/tmp/checkout" });
+		const snapshot = program.commands
+			.find((c) => c.name() === "allowlist")
+			?.commands.find((c) => c.name() === "snapshot");
+		expect(snapshot?.options.find((o) => o.long === "--dir")?.description).toBe(
+			"Hash another directory's files into this project's allowlist, keyed by path",
+		);
 	});
 
 	it("exits 2 when --by is missing and never calls the impl", async () => {

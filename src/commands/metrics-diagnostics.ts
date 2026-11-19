@@ -1,12 +1,12 @@
 import { collectDiagnosticReport, type DiagnosticReport } from "../lib/metrics/diagnostic-report.js";
-import { collectPythonDiagnosticReport } from "../lib/metrics/diagnostic-python.js";
+import { collectPythonDiagnosticReportAsync } from "../lib/metrics/diagnostic-python.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 
 interface Options { cwd?: string; json?: boolean; short?: boolean; profile?: string; }
 
-function collectProfile(options: Options): DiagnosticReport {
+async function collectProfile(options: Options): Promise<DiagnosticReport> {
     const root = options.cwd ?? process.cwd();
-    if (options.profile === "python") return collectPythonDiagnosticReport(root);
+    if (options.profile === "python") return collectPythonDiagnosticReportAsync(root, { resourcePolicy: "foreground-survey" });
     if (!options.profile || options.profile === "js-ts") return collectDiagnosticReport(root);
     throw new Error("Diagnostic profile must be js-ts or python");
 }
@@ -31,10 +31,10 @@ function renderReport(report: DiagnosticReport): string {
     return [...lines, "", ...report.limitations].join("\n");
 }
 
-export function metricsDiagnosticsCommand(options: Options): void {
+export async function metricsDiagnosticsCommand(options: Options): Promise<void> {
     const mode = getOutputMode(options);
     try {
-        const report = collectProfile(options);
+        const report = await collectProfile(options);
         output(mode, report, { normal: () => renderReport(report), short: () => renderSummary(report) });
     } catch (error) {
         outputError(mode, error instanceof Error ? error.message : "Diagnostic measurement failed");

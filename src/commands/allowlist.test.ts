@@ -45,6 +45,9 @@ vi.mock("node:fs", async () => {
 	};
 });
 
+import { evaluatePackageInstall } from "../harness/evaluator/package-install-guard.js";
+import { hashLockfile, loadAllowlist, snapshotKey } from "../harness/package-allowlist.js";
+import { parseInstallCommands } from "../harness/package-install-parser.js";
 import {
 	addAllowlistCommand,
 	libyearsBehind,
@@ -609,6 +612,66 @@ describe("snapshotAllowlistCommand", () => {
 		expect(parsed.lockfile_snapshots["App.csproj"]).toBeDefined();
 		expect(parsed.lockfile_snapshots["random-notes.txt"]).toBeUndefined();
 		expect(out).not.toMatch(/random-notes\.txt/);
+	});
+});
+
+// The install guard reads the allowlist of the project a command runs in. A
+// directory outside that project (a source checkout in a temp folder) is
+// approved with `--dir`: its files are hashed into THIS project's allowlist
+// under path keys, so the root's grant for the same file name is not replaced.
+describe("snapshotAllowlistCommand — --dir", () => {
+	const snapshotsShape = wireObject({ "lockfile_snapshots": wireRecord(wireObject({ "sha256": wireString })) });
+	let outside: string;
+	beforeEach(() => {
+		outside = mkdtempSync(join(tmpdir(), "allowlist-cmd-outside-"));
+	});
+	afterEach(() => {
+		rmSync(outside, { recursive: true, force: true });
+		vi.restoreAllMocks();
+	});
+
+	it("hashes the other directory into the cwd allowlist under a path key and keeps the root grant", () => {
+		writeFileSync(join(workspace, "Cargo.lock"), "# root\n");
+		writeFileSync(join(outside, "Cargo.lock"), "# outside\n");
+		snapshotAllowlistCommand({ cwd: workspace, by: "x" });
+		const out = capture(() => snapshotAllowlistCommand({ cwd: workspace, dir: outside, by: "x" }));
+		const key = snapshotKey(workspace, join(outside, "Cargo.lock"));
+		const snaps = parseWire(readAllowlistFile(), snapshotsShape, "test JSON value").lockfile_snapshots;
+		expect(key).not.toBe("Cargo.lock");
+		expect(nonNull(snaps["Cargo.lock"]).sha256).toBe(hashLockfile(join(workspace, "Cargo.lock")));
+		expect(nonNull(snaps[key]).sha256).toBe(hashLockfile(join(outside, "Cargo.lock")));
+		expect(out).toBe(`snapshotted 1 file(s):\n  ${key}\n`);
+		expect(existsSync(join(outside, ".interlinked"))).toBe(false);
+	});
+
+	it("resolves a relative --dir against cwd", () => {
+		mkdirSync(join(workspace, "packages", "app"), { recursive: true });
+		writeFileSync(join(workspace, "packages", "app", "package.json"), '{"name":"app"}');
+		snapshotAllowlistCommand({ cwd: workspace, dir: "packages/app", by: "x" });
+		const snaps = parseWire(readAllowlistFile(), snapshotsShape, "test JSON value").lockfile_snapshots;
+		expect(Object.keys(snaps)).toEqual(["packages/app/package.json"]);
+	});
+
+	it("produces a grant the install guard accepts for `cd <dir> && cargo build --locked`", () => {
+		writeFileSync(join(workspace, "Cargo.lock"), "# root\n");
+		writeFileSync(join(outside, "Cargo.lock"), "# outside\n");
+		snapshotAllowlistCommand({ cwd: workspace, by: "x" });
+		const command = parseInstallCommands(`cd ${outside} && cargo build --locked`);
+		expect(evaluatePackageInstall(command, workspace, loadAllowlist(workspace))?.decision).toBe("block");
+		snapshotAllowlistCommand({ cwd: workspace, dir: outside, by: "x" });
+		expect(evaluatePackageInstall(command, workspace, loadAllowlist(workspace))).toEqual({ decision: "allow" });
+	});
+
+	it("notes on stderr when the snapshot creates a new allowlist file, and names --dir", () => {
+		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		writeFileSync(join(workspace, "package.json"), '{"name":"x"}');
+		capture(() => snapshotAllowlistCommand({ cwd: workspace, by: "x" }));
+		expect(stderr).toHaveBeenCalledTimes(1);
+		expect(String(stderr.mock.calls[0]?.[0])).toBe(
+			`note: created ${join(workspace, ".interlinked", "package-allowlist.json")}. The install guard reads the allowlist of the project a command runs in; to approve this directory for another project, run \`interlinked allowlist snapshot --dir ${workspace}\` from that project's root.\n`,
+		);
+		capture(() => snapshotAllowlistCommand({ cwd: workspace, by: "x" }));
+		expect(stderr).toHaveBeenCalledTimes(1);
 	});
 });
 

@@ -55,6 +55,9 @@ const SERVER_REACHABLE_TIMEOUT_MS = 2000;
 interface InitOptions {
 	server?: string;
 	agent?: string;
+	syncMode?: string;
+	dryRun?: boolean;
+	// Keep the historical direct-call spelling while accepting Commander options.
 	"sync-mode"?: string;
 	"dry-run"?: boolean;
 	json?: boolean;
@@ -344,7 +347,8 @@ async function setupHarness(
 
 export async function initCommand(options: InitOptions): Promise<void> {
 	const cwd = process.cwd();
-	const dryRun = options["dry-run"] || false;
+	const dryRun = options.dryRun ?? options["dry-run"] ?? false;
+	const syncMode = parseSyncMode(options.syncMode ?? options["sync-mode"] ?? "realtime");
 	const isJson = options.json || false;
 	const autoConfirm = options.yes || !isInteractiveTty();
 
@@ -366,9 +370,6 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
 	// Step 4: Agent name
 	const agentName = await resolveAgentName(options, detectedNames, autoConfirm, isJson);
-
-	// Step 5: Sync mode
-	const syncMode = parseSyncMode(options["sync-mode"] || "realtime");
 
 	if (dryRun) {
 		emitDryRun(serverUrl, agentName, projectName, syncMode, detectedNames, isJson);

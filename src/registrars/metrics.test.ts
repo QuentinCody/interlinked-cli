@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { metricsComplexityCommand } from "../commands/metrics-complexity.js";
 import { metricsJitCommand } from "../commands/metrics-jit.js";
 import { metricsScoreCommand } from "../commands/metrics-score.js";
+import { metricsStandardsCommand } from "../commands/metrics-standards.js";
 import { metricsDiagnosticsCommand } from "../commands/metrics-diagnostics.js";
 import { metricsDiagnosticsCompareCommand } from "../commands/metrics-diagnostics-compare.js";
 import { metricsSplitPlanCommand } from "../commands/metrics-split-plan.js";
@@ -19,11 +20,26 @@ vi.mock("../commands/metrics-split-plan.js", () => ({
 vi.mock("../commands/metrics-score.js", () => ({
 	metricsScoreCommand: vi.fn(),
 }));
+vi.mock("../commands/metrics-standards.js", () => ({ metricsStandardsCommand: vi.fn() }));
 vi.mock("../commands/metrics-jit.js", () => ({ metricsJitCommand: vi.fn() }));
 vi.mock("../commands/metrics-diagnostics.js", () => ({ metricsDiagnosticsCommand: vi.fn() }));
 vi.mock("../commands/metrics-diagnostics-compare.js", () => ({ metricsDiagnosticsCompareCommand: vi.fn() }));
 
 describe("registerMetricsCommands", () => {
+    it("registers standards on the public metrics tree with inherited root and full output", async () => {
+        vi.mocked(metricsStandardsCommand).mockClear();
+        const program = new Command();
+        registerMetricsCommands(program);
+        await program.parseAsync(["metrics", "--cwd", "/foreign", "--full", "standards", "--scope", "product"], { from: "user" });
+        expect(metricsStandardsCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cwd: "/foreign", full: true, scope: "product", profile: "dmmulroy-typescript" }));
+    });
+    it.each([["metrics", "--full", "score"], ["metrics", "score", "--full"]])("forwards score full evidence through either supported position %j", async (...args) => {
+        vi.mocked(metricsScoreCommand).mockClear();
+        const program = new Command();
+        registerMetricsCommands(program);
+        await program.parseAsync(args, { from: "user" });
+        expect(metricsScoreCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ full: true }));
+    });
     it("routes commit risk with a ref, calibration size, and inherited scope", async () => {
         vi.mocked(metricsJitCommand).mockClear();
         const program = new Command();

@@ -7,8 +7,8 @@
 // `--update-baseline` persists the new high-water mark; otherwise any
 // per-file score drop is an error and exits non-zero.
 
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { loadCheckPolicy } from "../harness/check-policy.js";
 import {
 	compareMutation,
@@ -17,7 +17,9 @@ import {
 	loadMutationReport,
 	type MutationFinding,
 	type MutationGateResult,
+	type MutationReport,
 	mutationBaselinePath,
+	resolveMutationBaselineTarget,
 	saveMutationBaseline,
 } from "../harness/mutation-gate.js";
 import type { MeasureOutcome } from "../harness/mutation/measure.js";
@@ -26,6 +28,7 @@ import { parseChangedFiles } from "../lib/changed-files-option.js";
 import { getConfigDir } from "../lib/config.js";
 import { c, header, kvLine } from "../lib/formatter.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
+import { withFileMutationLock } from "../lib/file-mutation-lock.js";
 
 const DEFAULT_REPORT_PATHS = [
 	"reports/mutation/mutation.json",
@@ -35,6 +38,7 @@ const DEFAULT_REPORT_PATHS = [
 
 interface MutationCheckOptions {
 	report?: string;
+	baseline?: string;
 	updateBaseline?: boolean;
 	minScore?: string;
 	changedFiles?: string;
@@ -69,24 +73,24 @@ export async function mutationCheckCommand(opts: MutationCheckOptions): Promise<
 		const minScore = opts.minScore
 			? clampScore(Number.parseFloat(opts.minScore))
 			: policy.mutation_gate.min_score;
-		const baseline = loadMutationBaseline(configDir);
+		if (opts.baseline !== undefined && !opts.baseline.trim()) throw new Error("--baseline path must be nonempty");
+		const selection = { path: opts.baseline === undefined ? mutationBaselinePath(configDir) : resolve(cwd, opts.baseline),
+			directory: configDir, explicit: opts.baseline !== undefined, update: opts.updateBaseline === true };
 		const changedFiles = parseChangedFiles(opts.changedFiles);
-		const result = compareMutation(report, baseline, {
+		const { result, baseline } = compareSelectedBaseline(report, selection, {
 			config: { ...policy.mutation_gate, min_score: minScore },
 			repoRoot: cwd,
 			...(changedFiles !== undefined ? { changedFiles } : {}),
 		});
 
-		output(mode, buildJsonPayload(reportPath, result, minScore), {
-			json: () => buildJsonPayload(reportPath, result, minScore),
-			normal: () => renderNormal(reportPath, result, minScore),
+		output(mode, { ...buildJsonPayload(reportPath, result, minScore), baseline }, {
+			normal: () => [renderNormal(reportPath, result, minScore), ...(selection.explicit ? [`Comparison baseline: ${selection.path}`] : [])].join("\n"),
 		});
 
 		if (opts.updateBaseline) {
-			saveMutationBaseline(configDir, result.nextBaseline);
 			if (mode !== "json") {
 				process.stderr.write(
-					`\n  ${c.green("✓")} Mutation baseline updated at ${join(".interlinked", "mutation-baseline.json")}\n`,
+					`\n  ${c.green("✓")} Mutation baseline updated at ${selection.explicit ? selection.path : join(".interlinked", "mutation-baseline.json")}\n`,
 				);
 			}
 		}
@@ -147,7 +151,8 @@ export function mutationBaselineCommand(opts: { cwd?: string; json?: boolean }):
 // ===========================================
 
 function resolveReportPath(cwd: string, explicit?: string): string | null {
-	if (explicit) {
+	if (explicit !== undefined) {
+		if (!explicit.trim()) throw new Error("--report path must be nonempty");
 		const resolved = resolve(cwd, explicit);
 		return existsSync(resolved) ? resolved : null;
 	}
@@ -156,6 +161,25 @@ function resolveReportPath(cwd: string, explicit?: string): string | null {
 		if (existsSync(resolved)) return resolved;
 	}
 	return null;
+}
+
+interface BaselineSelection { directory: string; path: string; explicit: boolean; update: boolean; }
+
+/** Keep comparison and any selected-baseline update under the same cross-process claim. */
+function compareSelectedBaseline(report: MutationReport, selection: BaselineSelection, options: Parameters<typeof compareMutation>[2]) {
+	const target = resolveMutationBaselineTarget(selection.path);
+	const compare = (): MutationGateResult => {
+		const path = selection.explicit ? target : undefined;
+		const result = compareMutation(report, loadMutationBaseline(selection.directory, path), options);
+		if (selection.update) saveMutationBaseline(selection.directory, result.nextBaseline, path);
+		return result;
+	};
+	let result: MutationGateResult;
+	if (selection.update) {
+		mkdirSync(dirname(target), { recursive: true });
+		result = withFileMutationLock(target, compare, { waitMs: 0 });
+	} else result = compare();
+	return { result, baseline: { path: selection.path, resolvedPath: target, source: selection.explicit ? "explicit" : "project", updated: selection.update } };
 }
 
 function clampScore(raw: number): number {

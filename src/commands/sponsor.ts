@@ -77,7 +77,7 @@ export async function sponsorEnableAction(
 	if (opts.feedUrl) sponsor.feed_url = opts.feedUrl;
 
 	if (opts.spinner) {
-		await applySpinnerOptIn(sponsor, claudeSettingsPath, fetchImpl);
+		await applySpinnerOptIn(sponsor, claudeSettingsPath, fetchImpl, opts.json === true);
 	}
 
 	updateLocalConfig({ install_id: installId, sponsor }, cwd);
@@ -104,26 +104,28 @@ export async function sponsorDisableAction(
 	const existing = readLocalConfig(cwd) ?? {};
 	const prior: SponsorConfig = existing.sponsor ?? {};
 	const written = prior.spinner_verbs_written ?? [];
+	let cleanupError: string | undefined;
 	if (written.length > 0) {
 		const res = removeSponsorSpinnerVerbs(claudeSettingsPath, written);
 		if (!res.ok) {
-			console.error(c.yellow(`Spinner verbs not removed: ${res.reason ?? "unknown"}`));
+			cleanupError = res.reason ?? "unknown";
+			console.error(c.yellow(`Spinner verbs not removed: ${cleanupError}`));
 		}
 	}
 	const sponsor: SponsorConfig = {
 		...prior,
 		enabled: false,
 		spinner: false,
-		spinner_verbs_written: [],
+		spinner_verbs_written: cleanupError !== undefined ? written : [],
 	};
 	updateLocalConfig({ sponsor }, cwd);
 	clearSponsorStatus(interlinkedDir(cwd));
 	if (opts.json) {
-		console.log(JSON.stringify({ enabled: false }, null, 2));
-		return 0;
+		console.log(JSON.stringify({ enabled: false, ...(cleanupError !== undefined ? { cleanup_error: cleanupError } : {}) }, null, 2));
+		return cleanupError !== undefined ? 1 : 0;
 	}
 	console.log(c.green("Sponsor slot disabled — row clears on the next statusline refresh."));
-	return 0;
+	return cleanupError !== undefined ? 1 : 0;
 }
 
 /** `interlinked sponsor status [--json]` */
@@ -170,6 +172,7 @@ async function applySpinnerOptIn(
 	sponsor: SponsorConfig,
 	claudeSettingsPath: string,
 	fetchImpl: typeof fetch,
+	json: boolean,
 ): Promise<void> {
 	const verb = await resolveSpinnerVerb(sponsor.feed_url ?? DEFAULT_FEED_URL, fetchImpl);
 	if (!verb) {
@@ -187,8 +190,10 @@ async function applySpinnerOptIn(
 	const written = new Set(sponsor.spinner_verbs_written ?? []);
 	written.add(res.written);
 	sponsor.spinner_verbs_written = [...written];
-	console.log(c.green(`Spinner verb installed: "${res.written}"`));
-	console.log(c.dim("Claude Code reads spinnerVerbs at boot — restart to see it."));
+	if (!json) {
+		console.log(c.green(`Spinner verb installed: "${res.written}"`));
+		console.log(c.dim("Claude Code reads spinnerVerbs at boot — restart to see it."));
+	}
 }
 
 /** Fetch + verify the feed once (admission-time network) and derive the verb. */

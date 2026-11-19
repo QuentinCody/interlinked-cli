@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { decisionsAction, type DecisionsOptions } from "../commands/metrics-decisions.js";
 import { registerRelationCommands } from "./metrics-relations.js";
+import { registerFindingCommands } from "./metrics-findings.js";
 
 export function registerDecisionMetricCommands(metrics: Command): void {
     const group = metrics
@@ -9,6 +10,7 @@ export function registerDecisionMetricCommands(metrics: Command): void {
             "Experimental semantic measurements with local decision models, ThinkThen, and auditable uncertainty",
         );
     registerRelationCommands(group);
+    registerFindingCommands(group);
     const definitions = [
         ["init", "Write a disabled, local-first decision configuration"],
         ["catalog", "Show versioned metric contracts and the ThinkThen question set"],
@@ -71,12 +73,12 @@ export function registerDecisionMetricCommands(metrics: Command): void {
             )
             .option("--json", "Machine-readable output (always enabled)");
         if (spec!.includes("<input>"))
-            command.action(async (input: string, options: DecisionsOptions) => {
-                process.exitCode = await decisionsAction(name, input, options);
+            command.action(async (input: string, options: DecisionsOptions, leaf: Command) => {
+                process.exitCode = await decisionsAction(name, input, { ...leaf.optsWithGlobals(), ...options });
             });
         else
-            command.action(async (options: DecisionsOptions) => {
-                process.exitCode = await decisionsAction(name, undefined, options);
+            command.action(async (options: DecisionsOptions, leaf: Command) => {
+                process.exitCode = await decisionsAction(name, undefined, { ...leaf.optsWithGlobals(), ...options });
             });
     }
 }

@@ -48,6 +48,7 @@ const DOCS = [
 	join(ROOT, "landing/public/index.html"),
 	join(ROOT, "README.md"),
 	join(ROOT, "CLAUDE.md"),
+	join(ROOT, "AGENTS.md"),
 	join(ROOT, "docs/harness.md"),
 ];
 
