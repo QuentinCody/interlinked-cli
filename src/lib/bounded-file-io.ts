@@ -32,10 +32,10 @@ export function sha256File(
 	chunkBytes: number = FILE_IO_CHUNK_BYTES,
 ): string {
 	const fileSize = statSync(path).size;
-	const fd = openSync(path, "r");
 	const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(chunkBytes, Math.max(1, fileSize))));
 	const hash = createHash("sha256");
 	let position = 0;
+	const fd = openSync(path, "r");
 	try {
 		while (position < fileSize) {
 			const requested = Math.min(buffer.length, fileSize - position);
@@ -175,11 +175,11 @@ export function scanFileLines(
 		0,
 		Math.floor(options.maxCapturedLineBytes ?? MAX_CAPTURED_JSONL_LINE_BYTES),
 	);
-	const fd = openSync(path, "r");
 	const buffer = Buffer.allocUnsafe(Math.min(chunkBytes, endExclusive - startOffset));
 	const accumulator = new LineAccumulator(startOffset, captureLimit);
 	let position = startOffset;
 	let keepGoing = true;
+	const fd = openSync(path, "r");
 	try {
 		while (position < endExclusive && keepGoing) {
 			const requested = Math.min(buffer.length, endExclusive - position);
@@ -310,10 +310,10 @@ export function findTailStartForLines(
 	if (maxLines <= 0) return statSync(path).size;
 	const fileSize = statSync(path).size;
 	if (fileSize <= 0) return 0;
-	const fd = openSync(path, "r");
 	const buffer = Buffer.allocUnsafe(Math.min(Math.max(1, chunkBytes), fileSize));
 	let position = fileSize;
 	const state: TailScanState = { nonEmpty: false, found: 0 };
+	const fd = openSync(path, "r");
 	try {
 		while (position > 0) {
 			const requested = Math.min(buffer.length, position);

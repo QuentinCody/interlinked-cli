@@ -12,6 +12,8 @@
 import {
 	mkdirSync,
 	mkdtempSync,
+	openSync,
+	fstatSync,
 	readFileSync,
 	rmSync,
 	unlinkSync,
@@ -26,11 +28,12 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
+		openSync: vi.fn(actual.openSync),
 		unlinkSync: vi.fn(actual.unlinkSync),
 	};
 });
 
-import { gzipFileRange } from "./bounded-file-transfer.js";
+import { copyFileRange, gzipFileRange } from "./bounded-file-transfer.js";
 
 describe("bounded file transfer — gzipFileRange destination claims", () => {
 	let tmp: string;
@@ -41,6 +44,30 @@ describe("bounded file transfer — gzipFileRange destination claims", () => {
 
 	afterEach(() => {
 		rmSync(tmp, { recursive: true, force: true });
+		vi.clearAllMocks();
+	});
+
+	// test-contract: bug — every acquired descriptor must close when a later acquisition fails.
+	it("closes the large-copy source when the destination cannot be opened", () => {
+		const source = join(tmp, "source.txt");
+		writeFileSync(source, "tiny");
+		expect(() => copyFileRange(source, join(tmp, "missing", "dest"), 0, MAX_MATERIALIZED_RANGE_BYTES + 1)).toThrow(/ENOENT/);
+		const acquired = vi.mocked(openSync).mock.results.filter(result => result.type === "return");
+		expect(acquired.length).toBeGreaterThan(0);
+		for (const result of acquired) expect(() => fstatSync(result.value)).toThrow(/EBADF/);
+	});
+
+	// test-contract: bug — an invalid allocation size must not leave an acquired source open.
+	it.each([copyFileRange, gzipFileRange])("does not leak handles when buffer allocation fails", (operation) => {
+		const source = join(tmp, "source.txt");
+		writeFileSync(source, "tiny");
+		const invoke = operation === copyFileRange
+			? () => copyFileRange(source, join(tmp, "copy"), 0, MAX_MATERIALIZED_RANGE_BYTES + 1, NaN)
+			: () => gzipFileRange(source, 0, MAX_MATERIALIZED_RANGE_BYTES + 1, undefined, NaN);
+		expect(invoke).toThrow();
+		for (const result of vi.mocked(openSync).mock.results) {
+			if (result.type === "return") expect(() => fstatSync(result.value)).toThrow(/EBADF/);
+		}
 	});
 
 	it("reports an unclaimed small-range destination without touching its contents", () => {

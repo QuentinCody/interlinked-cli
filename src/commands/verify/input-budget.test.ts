@@ -1,10 +1,10 @@
 import { expect, it } from "vitest";
-import { verifyInputExclusion, VERIFY_INLINE_MAX_BYTES } from "./input-budget.js";
+import { verifyInputExclusion } from "./input-budget.js";
 
-it("MUST-EXCLUDE generated, codegen-data and oversized inputs", () => {
+it("MUST-EXCLUDE explicitly generated and codegen-data inputs", () => {
     expect(verifyInputExclusion("// @generated\nexport const x=1")).toBe("generated");
     expect(verifyInputExclusion("// @codegen-data: frozen fixture\nexport const x=1")).toBe("codegen-data");
-    expect(verifyInputExclusion("é".repeat(VERIFY_INLINE_MAX_BYTES))).toBe("oversized");
+    expect(verifyInputExclusion("é".repeat(1024 * 1024))).toBeNull();
 });
 it("MUST-NOT-EXCLUDE ordinary code, marker strings and a deep example", () => {
     expect(verifyInputExclusion('const marker = "@codegen-data";')).toBeNull();

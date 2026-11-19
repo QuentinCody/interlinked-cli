@@ -206,6 +206,15 @@ describe("imported lint source freshness", () => {
         expect(runProcessAsync).not.toHaveBeenCalled();
     });
 
+    it("retains long diagnostic source anchors for a complete foreground measurement", async () => {
+        const root = project();
+        write(root, "a.py", `${"x".repeat(1024 * 1024 + 1)}\n`);
+        const { policy } = prepareLintImport(root, {});
+        vi.mocked(runProcessAsync).mockResolvedValue({ ...clean, stdout: JSON.stringify([{ filename: "a.py", location: { row: 1 }, code: "F401", message: "fixture finding" }]) });
+        expect((await measureImportedLint(root, policy))[0]).toMatchObject({ status: "unavailable", reason: expect.stringContaining("anchor budget") });
+        expect((await measureImportedLint(root, policy, { timeoutMs: 0, resourcePolicy: "foreground-verify" }))[0]).toMatchObject({ status: "measured", findings: [expect.objectContaining({ file: "a.py" })] });
+    });
+
     it("refuses linked external directory contents whose closure is outside the project", async () => {
         const root = project();
         const external = project();

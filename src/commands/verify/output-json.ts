@@ -19,6 +19,9 @@ import type { RulesFingerprint } from "../../lib/rules-fingerprint.js";
 import { summarizeTestQualitySections } from "./output-json-test-quality.js";
 import type { AuditResult, CodeQualityResults, DiagnosticResult } from "./tool-results-types.js";
 import type { CatalogueResult } from "./catalogue-types.js";
+import { verifyActions } from "./action-projection.js";
+import type { CheckReport, ToolInputScope } from "../../harness/check-engine/types.js";
+import type { VerifyCheckTiming } from "./check-timing.js";
 
 /**
  * Shape tag for the `verify --json` object. Bump when a top-level key changes
@@ -49,6 +52,7 @@ function summarizeWithDetails(list: readonly FileKeyedRow[]): JsonObject {
 
 function summarizeSupplementalChecks(cq: CodeQualityResults): JsonObject {
     return {
+		commander_option_attribute: summarizeWithDetails(cq.commanderOptionAttribute),
         expression_size: summarizeWithDetails(cq.expressionSize),
         inline_callback_count: summarizeWithDetails(cq.inlineCallbackCount),
         control_flow_depth: summarizeWithDetails(cq.controlFlowDepth),
@@ -62,7 +66,14 @@ function summarizeSupplementalChecks(cq: CodeQualityResults): JsonObject {
     };
 }
 
-interface OutputJsonArgs {
+export interface OutputJsonArgs {
+	externalDiagnostics?: readonly DiagnosticResult[];
+	toolInputScopes?: readonly ToolInputScope[];
+	unavailableChecks?: readonly { check: string; reason: string }[];
+	checkCoverage?: Pick<CheckReport, "toolsRun" | "skipped">;
+	/** Invocation selection only. Excluded IDs are the configured skip set, not executed checks. */
+	checkSelection?: { inlineRequested: boolean; externalOnly: string | null; excludedIds: string[] };
+	checkTimings?: readonly VerifyCheckTiming[];
 	catalogue?: Record<string, CatalogueResult> | undefined;
 	tscResults: DiagnosticResult[];
 	linterResults: DiagnosticResult[];
@@ -85,6 +96,8 @@ interface OutputJsonArgs {
 	rules?: RulesFingerprint;
 	/** E18 fp_filter would-suppress counts (`verify/fp-filter-section.ts`); absent → no key. */
 	fpFilter?: JsonObject | undefined;
+	/** Kill-proof receipts (`verify/kill-proofs-section.ts`); absent (no receipt on disk) → no key. */
+	killProofs?: JsonObject | undefined;
 }
 
 /**
@@ -114,6 +127,7 @@ export function outputJson(args: OutputJsonArgs): void {
 
 	const result: JsonObject = {
 		files_scanned: totalFiles,
+		external_diagnostics: args.externalDiagnostics ?? null,
 		project_setup: {
 			issues: setupIssues?.length ?? 0,
 			details:
@@ -299,6 +313,13 @@ export function outputJson(args: OutputJsonArgs): void {
 		ubs_hardcoded_localhost: summarizeWithDetails(cq.ubsHardcodedLocalhost),
 		raw_control_bytes: summarizeWithDetails(cq.rawControlBytes),
 		lossy_error_rethrow: summarizeWithDetails(cq.lossyErrorRethrow),
+		json_stringify_error: summarizeWithDetails(cq.jsonStringifyError),
+		catch_rewrap_loses_cause: summarizeWithDetails(cq.catchRewrapLosesCause),
+		resource_handle_leak: summarizeWithDetails(cq.resourceHandleLeak),
+		public_api_leaks_internal_type: summarizeWithDetails(cq.publicApiLeaksInternalType),
+		jsdoc_param_drift: summarizeWithDetails(cq.jsdocParamDrift),
+		unvalidated_input_boundary: summarizeWithDetails(cq.unvalidatedInputBoundary),
+		numeric_zero_default: summarizeWithDetails(cq.numericZeroDefault),
 		import_from_own_barrel: summarizeWithDetails(cq.importFromOwnBarrel),
 		error_dispatch_by_instanceof: summarizeWithDetails(cq.errorDispatchByInstanceof),
 		silent_promise_catch: summarizeWithDetails(cq.silentPromiseSwallow),
@@ -362,6 +383,9 @@ export function outputJson(args: OutputJsonArgs): void {
 	if (structureSection) {
 		result.structure = structureSection;
 	}
+	result.actions = verifyActions(args);
+	result.check_coverage = { tools: args.checkCoverage ?? null, timings: args.checkTimings ?? null, selection: args.checkSelection ?? null,
+		input_scopes: args.toolInputScopes?.map(scope => ({ ...scope })) ?? [] };
 	process.stdout.write(serializeVerifyJson(result, args));
 }
 
@@ -370,7 +394,7 @@ export function outputJson(args: OutputJsonArgs): void {
  * keys a consumer sees. `rules` is null (never absent) when no fingerprint was
  * computed, so "not computed" stays distinguishable from a pre-schema report.
  */
-function serializeVerifyJson(result: JsonObject, { rules, projectE2e, fpFilter, catalogue }: Pick<OutputJsonArgs, "rules" | "projectE2e" | "fpFilter" | "catalogue">): string {
+function serializeVerifyJson(result: JsonObject, { rules, projectE2e, fpFilter, catalogue, killProofs }: Pick<OutputJsonArgs, "rules" | "projectE2e" | "fpFilter" | "catalogue" | "killProofs">): string {
 	const tagged: JsonObject = {
 		schema_version: VERIFY_JSON_SCHEMA,
 		rules: rules ? { schema: rules.schema, rules_hash: rules.rules_hash, inputs: rules.inputs } : null,
@@ -379,6 +403,8 @@ function serializeVerifyJson(result: JsonObject, { rules, projectE2e, fpFilter, 
 		...(catalogue ? { catalogue_advisories: JSON.parse(JSON.stringify(catalogue)) as JsonObject } : {}),
 		// F6: the project e2e verdict (`verify/project-e2e-section.ts`); absent policy ⇒ unconfigured.
 		project_e2e: projectE2e ?? { status: "unconfigured" },
+		// Kill-proof receipts (`verify/kill-proofs-section.ts`); no receipt on disk ⇒ no key, zero cost.
+		...(killProofs ? { kill_proofs: killProofs } : {}),
 	};
 	return `${JSON.stringify(tagged, null, 2)}\n`;
 }

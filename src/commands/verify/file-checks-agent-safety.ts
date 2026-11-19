@@ -20,6 +20,7 @@ import {
 	detectReturnArrayPush,
 } from "../../harness/checks/array-method-misuse.js";
 import { checkRawControlBytes } from "../../harness/checks/control-bytes.js";
+import { detectCommanderOptionAttribute } from "../../harness/checks/commander-option-attribute.js";
 import { computeCrap } from "../../harness/checks/crap.js";
 import { computeCyclomaticComplexity } from "../../harness/checks/cyclomatic.js";
 import { detectDesignSlop } from "../../harness/checks/design-slop.js";
@@ -188,6 +189,9 @@ function runContentHygieneChecks({ content, file, relPath, r }: FileCheckContext
  */
 export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 	const { content, file, relPath, cwd, r } = ctx;
+	r.commanderOptionAttribute.push(
+		...toIssues("commander_option_attribute", relPath, detectCommanderOptionAttribute, content, file),
+	);
 
 	r.exportRipple.push(
 		...toIssues("export_ripple", relPath, checkExportRipple, content, file, cwd),
@@ -212,30 +216,24 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 	r.misusedPromises.push(
 		...toIssues("misused_promises", relPath, checkMisusedPromises, content, file),
 	);
-	r.floatingPromises.push(
-		...toIssues("floating_promises", relPath, checkFloatingPromises, content, file),
-	);
+	for (const issue of toIssues("floating_promises", relPath, checkFloatingPromises, content, file)) {
+		r.floatingPromises.push(issue);
+	}
 	r.broadObjectTypes.push(
 		...toIssues("broad_object_types", relPath, checkBroadObjectTypes, content, file),
 	);
-	r.booleanTrap.push(...toIssues("boolean_trap", relPath, checkBooleanTrap, content, file));
-	r.positionalOptionalBoolean.push(
-		...toIssues(
-			"positional_optional_boolean",
-			relPath,
-			checkPositionalOptionalBoolean, content, file,
-		),
-	);
-	r.manyOptionalParams.push(
-		...toIssues("many_optional_params", relPath, checkManyOptionalParams, content, file),
-	);
-	r.sameTypedPrimitiveParams.push(
-		...toIssues(
-			"same_typed_primitive_params",
-			relPath,
-			checkSameTypedPrimitiveParams, content, file,
-		),
-	);
+	for (const issue of toIssues("boolean_trap", relPath, checkBooleanTrap, content, file)) {
+		r.booleanTrap.push(issue);
+	}
+	for (const issue of toIssues("positional_optional_boolean", relPath, checkPositionalOptionalBoolean, content, file)) {
+		r.positionalOptionalBoolean.push(issue);
+	}
+	for (const issue of toIssues("many_optional_params", relPath, checkManyOptionalParams, content, file)) {
+		r.manyOptionalParams.push(issue);
+	}
+	for (const issue of toIssues("same_typed_primitive_params", relPath, checkSameTypedPrimitiveParams, content, file)) {
+		r.sameTypedPrimitiveParams.push(issue);
+	}
 	// Comment-vs-behavior drift (Mythos Phase 2 verify-side wiring).
 	r.commentClaimsLimitNoGuard.push(
 		...toIssues(
@@ -282,13 +280,9 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 			checkFreshCollectionKeyLookup, content, file,
 		),
 	);
-	r.discriminatedUnionExhaustiveness.push(
-		...toIssues(
-			"discriminated_union_exhaustiveness",
-			relPath,
-			checkDiscriminatedUnionExhaustiveness, content, file,
-		),
-	);
+	for (const issue of toIssues("discriminated_union_exhaustiveness", relPath, checkDiscriminatedUnionExhaustiveness, content, file)) {
+		r.discriminatedUnionExhaustiveness.push(issue);
+	}
 	r.indexBoundsUnchecked.push(
 		...toIssues(
 			"index_bounds_unchecked",
@@ -437,52 +431,48 @@ export function runAgentSafetyChecks(ctx: FileCheckContext): void {
 	r.suppressionBlockSpan.push(
 		...toIssues("suppression_block_span", relPath, checkSuppressionSpan, content, file),
 	);
-	r.asyncPromiseExecutor.push(
-		...toIssues("async_promise_executor", relPath, checkAsyncPromiseExecutor, content, file),
-	);
+	for (const issue of toIssues("async_promise_executor", relPath, checkAsyncPromiseExecutor, content, file)) {
+		r.asyncPromiseExecutor.push(issue);
+	}
 	r.selfImports.push(...toIssues("self_import", relPath, checkSelfImport, content, file));
 	r.extraneousDeps.push(
 		...toIssues("extraneous_deps", relPath, checkExtraneousDependencies, content, file),
 	);
-	r.nonNullAssertions.push(
-		...toIssues("non_null_assertion", relPath, checkNonNullAssertions, content, file),
-	);
+	for (const issue of toIssues("non_null_assertion", relPath, checkNonNullAssertions, content, file)) {
+		r.nonNullAssertions.push(issue);
+	}
 	r.evalUsage.push(...toIssues("eval_usage", relPath, checkEvalUsage, content, file));
 	r.innerHtml.push(...toIssues("inner_html", relPath, checkInnerHtmlUsage, content, file));
-	r.nanComparison.push(...toIssues("nan_comparison", relPath, checkNanComparison, content, file));
+	for (const issue of toIssues("nan_comparison", relPath, checkNanComparison, content, file)) {
+		r.nanComparison.push(issue);
+	}
 	r.constantCondition.push(
 		...toIssues("constant_condition", relPath, checkConstantCondition, content, file),
 	);
-	r.unsafeOptionalChaining.push(
-		...toIssues(
-			"unsafe_optional_chaining",
-			relPath,
-			checkUnsafeOptionalChaining, content, file,
-		),
-	);
+	for (const issue of toIssues("unsafe_optional_chaining", relPath, checkUnsafeOptionalChaining, content, file)) {
+		r.unsafeOptionalChaining.push(issue);
+	}
 	r.numberPrecisionLoss.push(
 		...toIssues("number_precision_loss", relPath, checkNumberPrecisionLoss, content, file),
 	);
-	r.throwLiteral.push(...toIssues("throw_literal", relPath, checkThrowLiteral, content, file));
-	r.promiseRejectNonError.push(
-		...toIssues("promise_reject_non_error", relPath, checkPromiseRejectNonError, content, file),
-	);
+	for (const issue of toIssues("throw_literal", relPath, checkThrowLiteral, content, file)) {
+		r.throwLiteral.push(issue);
+	}
+	for (const issue of toIssues("promise_reject_non_error", relPath, checkPromiseRejectNonError, content, file)) {
+		r.promiseRejectNonError.push(issue);
+	}
 	r.rawControlBytes.push(
 		...toIssues("raw_control_bytes", relPath, checkRawControlBytes, content, file),
 	);
-	r.lossyErrorRethrow.push(
-		...toIssues("lossy_error_rethrow", relPath, checkLossyErrorRethrow, content, file),
-	);
-	r.importFromOwnBarrel.push(
-		...toIssues("import_from_own_barrel", relPath, checkImportFromOwnBarrel, content, file),
-	);
-	r.errorDispatchByInstanceof.push(
-		...toIssues(
-			"error_dispatch_by_instanceof",
-			relPath,
-			checkErrorDispatchByInstanceof, content, file,
-		),
-	);
+	for (const issue of toIssues("lossy_error_rethrow", relPath, checkLossyErrorRethrow, content, file)) {
+		r.lossyErrorRethrow.push(issue);
+	}
+	for (const issue of toIssues("import_from_own_barrel", relPath, checkImportFromOwnBarrel, content, file)) {
+		r.importFromOwnBarrel.push(issue);
+	}
+	for (const issue of toIssues("error_dispatch_by_instanceof", relPath, checkErrorDispatchByInstanceof, content, file)) {
+		r.errorDispatchByInstanceof.push(issue);
+	}
 	r.silentPromiseSwallow.push(
 		...toIssues("silent_promise_catch", relPath, checkSilentPromiseSwallow, content, file),
 	);

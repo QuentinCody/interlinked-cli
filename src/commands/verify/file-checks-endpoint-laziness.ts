@@ -113,9 +113,7 @@ export function runEndpointAndLazinessChecks(ctx: FileCheckContext): void {
 			checkUntestableTimeInSource, content, file,
 		),
 	);
-	r.doubleCastUnknown.push(
-		...toIssues("double_cast_unknown", relPath, checkDoubleCastUnknown, content, file),
-	);
+	for (const issue of toIssues("double_cast_unknown", relPath, checkDoubleCastUnknown, content, file)) r.doubleCastUnknown.push(issue);
 	r.typeSmuggling.push(
 		...toIssues("type_smuggling", relPath, checkTypeSmuggling, content, file),
 	);
@@ -163,9 +161,9 @@ export function runEndpointAndLazinessChecks(ctx: FileCheckContext): void {
 			checkTestMissingSutImport, content, file,
 		),
 	);
-	r.mockingTheSutSelf.push(
-		...toIssues("mocking_the_sut_self", relPath, checkMockingTheSutSelf, content, file),
-	);
+	for (const issue of toIssues("mocking_the_sut_self", relPath, checkMockingTheSutSelf, content, file)) {
+		r.mockingTheSutSelf.push(issue);
+	}
 	r.testSubprocessDefaultTimeout.push(
 		...toIssues(
 			"test_subprocess_default_timeout",
@@ -173,13 +171,15 @@ export function runEndpointAndLazinessChecks(ctx: FileCheckContext): void {
 			checkTestSubprocessDefaultTimeout, content, file,
 		),
 	);
-	r.mockOnlyTest.push(...toIssues("mock_only_test", relPath, checkMockOnlyTest, content, file));
+	for (const issue of toIssues("mock_only_test", relPath, checkMockOnlyTest, content, file)) {
+		r.mockOnlyTest.push(issue);
+	}
 	r.happyPathOnlyTest.push(
 		...toIssues("happy_path_only_test", relPath, checkHappyPathOnlyTest, content, file),
 	);
-	r.introvertedTest.push(
-		...toIssues("introverted_test", relPath, checkIntrovertedTest, content, file),
-	);
+	for (const issue of toIssues("introverted_test", relPath, checkIntrovertedTest, content, file)) {
+		r.introvertedTest.push(issue);
+	}
 	r.testLegitimacy.push(
 		...toIssues("test_legitimacy", relPath, checkTestLegitimacy, content, file),
 	);

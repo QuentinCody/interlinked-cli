@@ -19,7 +19,8 @@ export function runOverExtractionChecks(ctx: FileCheckContext): void {
 		r.extractedHelperDuplicate.push(...toIssues("extracted_helper_duplicate", relPath, checkExistingPartialOverlap, content, file, ctx.cwd));
 	}
     r.pythonSimplification.push(...toIssues("python_simplification", relPath, checkPythonSimplification, content, file));
-    r.repeatedImplementation.push(...toIssues("repeated_implementation", relPath, checkRepeatedImplementation, content, file));
+	if (ctx.repeatedImplementation !== undefined) r.repeatedImplementation.push(...toIssues("repeated_implementation", relPath, ctx.repeatedImplementation));
+	else r.repeatedImplementation.push(...toIssues("repeated_implementation", relPath, checkRepeatedImplementation, content, file));
 	r.singleUseTrivialHelper.push(
 		...toIssues("single_use_trivial_helper", relPath, checkSingleUseTrivialHelper, content, file),
 	);

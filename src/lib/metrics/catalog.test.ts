@@ -30,4 +30,14 @@ describe("complete metric catalog", () => {
         expect(checks).toHaveLength(6);
         expect(checks.map(check => [check.disposition, check.dimension])).toEqual(ids.map(() => ["advisory", null]));
     });
+    it("keeps Commander option evidence advisory without scoring authority", () => {
+        const check = buildMetricCatalog().checks.find(row => row.key === "inline:commander_option_attribute");
+        expect(check).toMatchObject({ determinism: "heuristic", disposition: "advisory", dimension: null });
+        expect(SCORED_CHECKS.commander_option_attribute).toBeUndefined();
+    });
+    it("keeps numeric zero-default observations advisory without scoring authority", () => {
+        const check = buildMetricCatalog().checks.find(row => row.key === "inline:numeric_zero_default");
+        expect(check).toMatchObject({ determinism: "heuristic", disposition: "advisory", dimension: null });
+        expect(SCORED_CHECKS.numeric_zero_default).toBeUndefined();
+    });
 });

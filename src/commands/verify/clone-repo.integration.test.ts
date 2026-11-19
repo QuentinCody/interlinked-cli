@@ -98,6 +98,13 @@ describe("repoDisplayName", () => {
 });
 
 describe("cloneRepo", () => {
+	it.each([0, 1234, 7_200_000])("honors an explicit clone timeout of %i milliseconds", timeoutMs => {
+		execFileSyncMock.mockReturnValue(Buffer.from(""));
+		cloneRepo("https://github.com/owner/repo", { branch: "main", timeoutMs });
+		expect(execFileSyncMock).toHaveBeenCalledWith("git", expect.arrayContaining(["--branch", "main"]),
+			expect.objectContaining({ timeout: timeoutMs, env: expect.objectContaining({ GIT_TERMINAL_PROMPT: "0" }) }));
+	});
+
 	it("rejects URLs with shell metacharacters", () => {
 		expect(() => cloneRepo("https://evil.com;rm -rf /", {})).toThrow(/shell metacharacters/);
 	});

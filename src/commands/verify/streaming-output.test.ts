@@ -458,7 +458,8 @@ describe("runToolWithSpinner", () => {
 		expect(spawnMock).toHaveBeenCalledTimes(1);
 		expect(spawnMock).toHaveBeenCalledWith("tsc", ["--noEmit", "-p", "."], {
 			cwd: "/work",
-			stdio: ["pipe", "pipe", "pipe"],
+			env: process.env,
+			detached: true,
 		});
 
 		// Drive the spinner: advance ~1.1s so the interval (80ms) fires and the
@@ -579,7 +580,7 @@ describe("runToolWithSpinner", () => {
 		expect(child.kill).not.toHaveBeenCalled();
 	});
 
-	it("passes the close exit code (including null) through to parseOutput", async () => {
+	it("reports a null exit as unavailable without parsing partial output as findings", async () => {
 		const child = makeChild();
 		spawnMock.mockReturnValue(child);
 		const parseOutput = vi.fn((_o: string, code: number | null) => [code]);
@@ -592,8 +593,9 @@ describe("runToolWithSpinner", () => {
 		});
 		child.emit("close", null);
 		const result = await promise;
-		expect(parseOutput).toHaveBeenCalledWith("", null);
-		expect(result.items).toEqual([null]);
+		expect(parseOutput).not.toHaveBeenCalled();
+		expect(result.items).toEqual([]);
+		expect(result.unavailable).toContain("no complete verdict");
 	});
 });
 
@@ -620,7 +622,8 @@ describe("runToolSilent", () => {
 		});
 		expect(spawnMock).toHaveBeenCalledWith("oxlint", ["src"], {
 			cwd: "/repo",
-			stdio: ["pipe", "pipe", "pipe"],
+			env: process.env,
+			detached: true,
 		});
 
 		child.stdout.emitData("hello ");
@@ -695,7 +698,7 @@ describe("runToolSilent", () => {
 		expect(child.kill).not.toHaveBeenCalled();
 	});
 
-	it("passes a null exit code through to parseOutput on close", async () => {
+	it("reports a null exit as unavailable without parsing partial output as a clean run", async () => {
 		const child = makeChild();
 		spawnMock.mockReturnValue(child);
 		const parseOutput = vi.fn((_o: string, code: number | null) => [code]);
@@ -707,7 +710,8 @@ describe("runToolSilent", () => {
 		});
 		child.emit("close", null);
 		const result = await promise;
-		expect(parseOutput).toHaveBeenCalledWith("", null);
-		expect(result.items).toEqual([null]);
+		expect(parseOutput).not.toHaveBeenCalled();
+		expect(result.items).toEqual([]);
+		expect(result.unavailable).toContain("no complete verdict");
 	});
 });

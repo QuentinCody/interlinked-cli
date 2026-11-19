@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runProcessAsync } from "../../harness/check-engine/spawn-async.js";
+import { currentProcessCaptureLimit } from "../../harness/check-engine/process-capture-policy.js";
 import { discoverLint } from "./discovery.js";
 import { planLintImport } from "./policy.js";
 import { measureImportedLint } from "./runner.js";
@@ -25,6 +26,17 @@ afterEach(() => {
 });
 
 describe("imported lint execution", () => {
+    it("treats timeout zero as unbounded while retaining complete foreground capture", async () => {
+        const root = project();
+        const policy = planLintImport(discoverLint(root)).policy;
+        vi.mocked(runProcessAsync).mockImplementation(async () => {
+            expect(currentProcessCaptureLimit()).toBeNull();
+            return { code: 0, stdout: "[]", stderr: "", timedOut: false, killed: false };
+        });
+        const results = await measureImportedLint(root, policy, { timeoutMs: 0, resourcePolicy: "foreground-verify" });
+        expect(results[0]?.status).toBe("measured");
+        expect(runProcessAsync).toHaveBeenCalledWith("ruff", expect.any(Array), expect.objectContaining({ timeout: 0 }));
+    });
     it("rejects a source added while default file targets are selected", async () => {
         const root = project();
         rmSync(join(root, "ruff.toml"));

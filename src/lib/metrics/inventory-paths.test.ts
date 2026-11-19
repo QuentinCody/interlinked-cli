@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { collectRepositoryInventory } from "./inventory.js";
+import { inventoryPaths } from "./inventory-paths.js";
 
 const roots: string[] = [];
 const GIT_SELECTION = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"] as const;
@@ -28,6 +29,37 @@ it("preserves an empty Git scope instead of measuring ignored source files", () 
     expect(inventory.discovery).toBe("git");
     expect(inventory.files).toEqual([]);
     expect(inventory.issues).toEqual([]);
+});
+
+it("retains native Git inventory output beyond thirty-two MiB for an explicit foreground survey", () => {
+	const root = fixture(); execFileSync("git", ["init", "--quiet"], { cwd: root });
+	const prefix = ["a".repeat(240), "b".repeat(240), "c".repeat(240)];
+	const directory = join(root, ...prefix); mkdirSync(directory, { recursive: true });
+	const count = 48_000;
+	for (let index = 0; index < count; index++) writeFileSync(join(directory, `file-${String(index).padStart(5, "0")}.ts`), "");
+	writeFileSync(join(root, ".gitignore"), "ignored.ts\n"); writeFileSync(join(root, "ignored.ts"), "export const ignored = true;");
+	const result = inventoryPaths(root, { resourcePolicy: "foreground-survey" });
+	expect(result.discovery).toBe("git"); expect(result.issues).toEqual([]);
+	expect(result.paths).toHaveLength(count + 1); expect(result.paths).not.toContain("ignored.ts");
+	expect(Buffer.byteLength(result.paths.join("\0"))).toBeGreaterThan(32 * 1024 * 1024);
+	expect(result.paths).toContain([...prefix, "file-47999.ts"].join("/"));
+}, 90_000);
+
+it("does not replace a failed native Git inventory with ignored files", () => {
+	const root = fixture(); execFileSync("git", ["init", "--quiet"], { cwd: root });
+	writeFileSync(join(root, ".gitignore"), "ignored.ts\n"); writeFileSync(join(root, "ignored.ts"), "export const ignored = true;");
+	writeFileSync(join(root, ".git/index"), "corrupt index");
+	const result = inventoryPaths(root, { resourcePolicy: "foreground-survey" });
+	expect(result).toMatchObject({ discovery: "git", paths: [] }); expect(result.issues.join(" ")).toMatch(/Git inventory unavailable/);
+});
+
+it("preserves explicit ignored-child foreground scope with inherited Git selectors", () => {
+	for (const name of GIT_SELECTION) vi.stubEnv(name, undefined);
+	const root = fixture(), foreign = fixture(), selected = join(root, "selected");
+	execFileSync("git", ["init", "--quiet"], { cwd: root }); execFileSync("git", ["init", "--quiet"], { cwd: foreign });
+	mkdirSync(selected); writeFileSync(join(root, ".gitignore"), "selected/\n"); writeFileSync(join(selected, "local.ts"), "export {};");
+	for (const name of GIT_SELECTION) vi.stubEnv(name, name === "GIT_WORK_TREE" ? foreign : name === "GIT_INDEX_FILE" ? join(foreign, ".git/index") : join(foreign, ".git"));
+	expect(inventoryPaths(selected, { resourcePolicy: "foreground-survey" })).toEqual({ discovery: "filesystem", paths: ["local.ts"], issues: [] });
 });
 
 // Release requirement: explicit ignored-directory selection keeps its filesystem

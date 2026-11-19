@@ -16,6 +16,7 @@ import { measureVerifyCheck } from "./check-timing.js";
 // array is independent, the only ordering that matters is per-bucket
 // statement order — preserved verbatim across the split.
 
+import { createHash } from "node:crypto";
 import { basename, extname, relative } from "node:path";
 import { isGeneratedFile } from "../../harness/checks/shared.js";
 import {
@@ -55,6 +56,9 @@ import { loadMetricsCoverage, type MetricsCoverage } from "../metrics-coverage.j
 import { JS_TS_EXTS } from "./advisory.js";
 import { directiveKey, directiveLineFor, unusedInlineDirectives } from "./suppression-hygiene.js";
 import { runAgentSafetyChecks, runCrapCheck } from "./file-checks-agent-safety.js";
+import { runErrorContextChecks } from "./file-checks-error-context.js";
+import { runApiBoundaryChecks } from "./file-checks-api-boundary.js";
+import { runNumericZeroDefaultCheck } from "./file-checks-numeric-zero.js";
 import { runOverExtractionChecks } from "./file-checks-over-extraction.js";
 import { runTypeRedundancyChecks } from "./file-checks-type-redundancy.js";
 import { runEndpointAndLazinessChecks } from "./file-checks-endpoint-laziness.js";
@@ -120,6 +124,7 @@ interface RunFileChecksArgs {
 	moduleExportsCache: Map<string, string[]>;
 	allEnvRefs: Map<string, Array<{ file: string; line: number }>>;
 	piiOpts: PiiOpts;
+	repeatedImplementation?: FileCheckContext["repeatedImplementation"];
 }
 
 /**
@@ -147,13 +152,27 @@ export function runPerFileChecks(args: RunFileChecksArgs): void {
 
 	collectPerFileFindings(args);
 
-	// Files with no ignore comments take a fast path: scanInlineSuppressions
-	// returns an empty map and we change nothing.
 	const inlineSuppressions = scanInlineSuppressions(content);
-	if (inlineSuppressions.size === 0) return;
+	if (inlineSuppressions.size > 0) {
+		const used = dropInlineSuppressed(r, before, inlineSuppressions);
+		for (const issue of unusedInlineDirectives(relative(args.cwd, args.file), inlineSuppressions, used)) r.suppressionHygiene.push(issue);
+	}
+	bindFileEvidence(args, before);
+}
 
-	const used = dropInlineSuppressed(r, before, inlineSuppressions);
-	r.suppressionHygiene.push(...unusedInlineDirectives(relative(args.cwd, args.file), inlineSuppressions, used));
+/** Bind only newly emitted findings on this primary file. Cross-file dependencies
+ * need their own evidence; rereading disk during output would certify wrong bytes. */
+function bindFileEvidence(args: RunFileChecksArgs, before: Map<keyof CodeQualityResults, number>): void {
+	const relPath = relative(args.cwd, args.file);
+	let sourceHash: string | undefined;
+	for (const key of CQ_RESULT_KEYS) {
+		for (let index = before.get(key) ?? 0; index < args.r[key].length; index++) {
+			const row = args.r[key][index];
+			if (!row || row.file !== relPath && row.file !== args.file) continue;
+			sourceHash ??= createHash("sha256").update(args.content).digest("hex");
+			row.sourceHash = sourceHash;
+		}
+	}
 }
 
 /**
@@ -182,7 +201,7 @@ function dropInlineSuppressed(
 		if (bucket.length === start) continue; // nothing new for this file
 		const kept = bucket.slice(start).filter((issue) => !suppresses(issue));
 		bucket.length = start;
-		bucket.push(...kept);
+		for (const issue of kept) bucket.push(issue);
 	}
 	return used;
 }
@@ -432,13 +451,16 @@ function collectPerFileFindings(args: RunFileChecksArgs): void {
 	// Remaining stateless detector groups — fanned out to sibling modules. The
 	// shared context carries everything they need; each group mutates `r` in
 	// place, preserving the original inline statement order per bucket.
-	const ctx: FileCheckContext = { file, content, relPath, cwd, r, piiOpts };
+	const ctx: FileCheckContext = { file, content, relPath, cwd, r, piiOpts, ...(args.repeatedImplementation === undefined ? {} : { repeatedImplementation: args.repeatedImplementation }) };
     runStatelessChecks(ctx);
 }
 
 function runStatelessChecks(ctx: FileCheckContext): void {
     runCrapCheck(ctx);
     runAgentSafetyChecks(ctx);
+    runErrorContextChecks(ctx);
+    runApiBoundaryChecks(ctx);
+    runNumericZeroDefaultCheck(ctx);
     runTypeRedundancyChecks(ctx);
     runOverExtractionChecks(ctx);
     runReactAndTasteChecks(ctx);

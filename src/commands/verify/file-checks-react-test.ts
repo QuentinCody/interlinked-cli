@@ -95,17 +95,15 @@ export function runReactAndTasteChecks(ctx: FileCheckContext): void {
 	r.jsonParseUnsafe.push(
 		...toIssues("json_parse_unsafe", relPath, checkJsonParseUnsafe, content, file),
 	);
-	r.unvalidatedJsonBoundary.push(
-		...toIssues(
-			"unvalidated_json_boundary",
-			relPath,
-			checkUnvalidatedJsonBoundary, content, file,
-		),
-	);
+	for (const issue of toIssues("unvalidated_json_boundary", relPath, checkUnvalidatedJsonBoundary, content, file)) {
+		r.unvalidatedJsonBoundary.push(issue);
+	}
 	r.hardcodedTimeout.push(
 		...toIssues("hardcoded_timeout", relPath, checkHardcodedTimeout, content, file),
 	);
-	r.disabledTests.push(...toIssues("disabled_tests", relPath, checkDisabledTests, content, file));
+	for (const issue of toIssues("disabled_tests", relPath, checkDisabledTests, content, file)) {
+		r.disabledTests.push(issue);
+	}
 	r.placeholderTest.push(
 		...toIssues("placeholder_test", relPath, checkPlaceholderTests, content, file),
 	);
@@ -133,7 +131,9 @@ export function runReactAndTasteChecks(ctx: FileCheckContext): void {
 	r.overMocking.push(...toIssues("over_mocking", relPath, checkOverMocking, content, file));
 
 	// --- Coding-agent feedback checks ---
-	r.focusedTests.push(...toIssues("focused_tests", relPath, checkFocusedTests, content, file));
+	for (const issue of toIssues("focused_tests", relPath, checkFocusedTests, content, file)) {
+		r.focusedTests.push(issue);
+	}
 	r.migrationOrdering.push(
 		...toIssues("migration_ordering", relPath, checkMigrationOrdering, content, file),
 	);
@@ -154,22 +154,18 @@ export function runReactAndTasteChecks(ctx: FileCheckContext): void {
 	);
 
 	// --- Taste checks ---
-	r.assertionFreeTest.push(
-		...toIssues("assertion_free_test", relPath, checkAssertionFreeTest, content, file),
-	);
-	r.tautologicalAssertion.push(
-		...toIssues("tautological_assertion", relPath, checkTautologicalAssertion, content, file),
-	);
-	r.mockingTheSut.push(
-		...toIssues("mocking_the_sut", relPath, checkMockingTheSUT, content, file),
-	);
-	r.privateMemberTestAccess.push(
-		...toIssues(
-			"private_member_test_access",
-			relPath,
-			checkPrivateMemberTestAccess, content, file,
-		),
-	);
+	for (const issue of toIssues("assertion_free_test", relPath, checkAssertionFreeTest, content, file)) {
+		r.assertionFreeTest.push(issue);
+	}
+	for (const issue of toIssues("tautological_assertion", relPath, checkTautologicalAssertion, content, file)) {
+		r.tautologicalAssertion.push(issue);
+	}
+	for (const issue of toIssues("mocking_the_sut", relPath, checkMockingTheSUT, content, file)) {
+		r.mockingTheSut.push(issue);
+	}
+	for (const issue of toIssues("private_member_test_access", relPath, checkPrivateMemberTestAccess, content, file)) {
+		r.privateMemberTestAccess.push(issue);
+	}
 	r.loopNestingDepth.push(
 		...toIssues("loop_nesting_depth", relPath, checkLoopNestingDepth, content, file),
 	);
@@ -181,14 +177,12 @@ export function runReactAndTasteChecks(ctx: FileCheckContext): void {
 			checkDuplicateSwitchDiscriminant, content, file,
 		),
 	);
-	r.hybridClass.push(...toIssues("hybrid_class", relPath, checkHybridClass, content, file));
-	r.fuzzyResponsibilityName.push(
-		...toIssues(
-			"fuzzy_responsibility_name",
-			relPath,
-			checkFuzzyResponsibilityName, content, file,
-		),
-	);
+	for (const issue of toIssues("hybrid_class", relPath, checkHybridClass, content, file)) {
+		r.hybridClass.push(issue);
+	}
+	for (const issue of toIssues("fuzzy_responsibility_name", relPath, checkFuzzyResponsibilityName, content, file)) {
+		r.fuzzyResponsibilityName.push(issue);
+	}
 	r.lawOfDemeter.push(...toIssues("law_of_demeter", relPath, checkLawOfDemeter, content, file));
 	r.flagArgument.push(...toIssues("flag_argument", relPath, checkFlagArgument, content, file));
 	r.commentedOutCode.push(

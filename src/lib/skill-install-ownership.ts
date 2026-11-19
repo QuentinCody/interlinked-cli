@@ -194,6 +194,25 @@ export function saveSkillInstallManifest(cwd: string, manifest: SkillInstallMani
     }
 }
 
+/** Why a managed write must not replace the existing `previous` bytes of
+ * `spec`: `modified` (manifest-owned, edited since install) or `unowned` (no
+ * manifest entry, not a recognized old copy). Null when the write may proceed.
+ * The one ownership rule, shared by installs and the read-only doctor view. */
+export function overwriteRefusal(
+    manifest: SkillInstallManifest,
+    spec: Pick<ManagedSkillFile, "relPath" | "isRecognizedLegacy">,
+    previous: Buffer,
+): "modified" | "unowned" | null {
+    const entry = manifest.files[spec.relPath];
+    if (entry) return digest(previous) === entry.sha256 ? null : "modified";
+    return spec.isRecognizedLegacy?.(previous) === true ? null : "unowned";
+}
+
+const REFUSAL_MESSAGES = {
+    modified: "Refusing to overwrite modified managed skill file",
+    unowned: "Refusing to overwrite unowned skill file",
+} as const;
+
 function preflightWrite(
     cwd: string,
     manifest: SkillInstallManifest,
@@ -202,21 +221,9 @@ function preflightWrite(
     const target = assertSafeSkillPath(cwd, spec.relPath);
     const previous = existsSync(target) ? readFileSync(target) : null;
     const previousEntry = manifest.files[spec.relPath];
-    if (previous === null) {
-        return { spec, previous, previousEntry };
-    }
-
-    if (previousEntry) {
-        if (digest(previous) !== previousEntry.sha256) {
-            throw new Error(`Refusing to overwrite modified managed skill file: ${spec.relPath}`);
-        }
-        return { spec, previous, previousEntry };
-    }
-
-    if (spec.isRecognizedLegacy?.(previous) === true) {
-        return { spec, previous, previousEntry };
-    }
-    throw new Error(`Refusing to overwrite unowned skill file: ${spec.relPath}`);
+    const refusal = previous === null ? null : overwriteRefusal(manifest, spec, previous);
+    if (refusal !== null) throw new Error(`${REFUSAL_MESSAGES[refusal]}: ${spec.relPath}`);
+    return { spec, previous, previousEntry };
 }
 
 function restoreWrite(cwd: string, plan: PlannedWrite): void {

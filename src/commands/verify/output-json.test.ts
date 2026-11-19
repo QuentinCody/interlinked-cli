@@ -33,6 +33,49 @@ function captureStdout(fn: () => void): string {
 }
 
 describe("outputJson", () => {
+	it("retains every external tool diagnostic in the report and actionable queue", () => {
+		const externalDiagnostics = [
+			{ tool: "rustfmt" as const, file: "src/main.rs", line: 1, severity: "warning" as const, message: "Formatting differs", ruleId: "format" },
+			{ tool: "shellcheck" as const, file: "scripts/run.sh", line: 3, severity: "warning" as const, message: "Quote this expansion", ruleId: "SC2086" },
+		];
+		const parsed = JSON.parse(captureStdout(() => outputJson({ tscResults: [], linterResults: [],
+			linterName: "biome", semgrepResults: [], gitleaksResults: [], auditResult: null,
+			cq: emptyCq(), suggestions: null, totalFiles: 2, externalDiagnostics })));
+		expect(parsed.external_diagnostics).toEqual(externalDiagnostics);
+		expect(parsed.actions.actions).toHaveLength(2);
+		expect(parsed.actions.actions.map((action: { file: string }) => action.file).sort()).toEqual(["scripts/run.sh", "src/main.rs"]);
+	});
+	it("keeps external security scope distinct from the ordinary source count", () => {
+		const toolInputScopes = [{ tool: "gitleaks" as const, selectedFiles: 5, targets: ["./src", "./.env"],
+			excludedInputs: [{ file: ".git", reason: "Git storage is outside working-input scan" }],
+			unavailableInputs: [{ file: "changed.env", reason: "Changed during scan" }] }];
+		const parsed = JSON.parse(captureStdout(() => outputJson({ tscResults: [], linterResults: [],
+			linterName: "biome", semgrepResults: [], gitleaksResults: [], auditResult: null,
+			cq: emptyCq(), suggestions: null, totalFiles: 2, toolInputScopes })));
+		expect(parsed.files_scanned).toBe(2);
+		expect(parsed.check_coverage.input_scopes).toEqual(toolInputScopes);
+	});
+	it("retains selection metadata and external failure evidence in action exports", () => {
+		const checkSelection = { inlineRequested: false, externalOnly: "gitleaks", excludedIds: ["semgrep"] };
+		const skipped = [
+			{ check: "gitleaks", category: "error" as const, reason: "Runner failed" },
+			{ check: "semgrep", category: "config_disabled" as const, reason: "Explicitly excluded" },
+			{ check: "ruff", category: "file_type_mismatch" as const, reason: "No Python files" },
+		];
+		const parsed = JSON.parse(captureStdout(() => outputJson({ tscResults: [], linterResults: [], linterName: "biome", semgrepResults: [], gitleaksResults: [], auditResult: null, cq: emptyCq(), suggestions: null, totalFiles: 0, checkSelection, checkCoverage: { toolsRun: [], skipped } })));
+		expect(parsed.check_coverage.selection).toEqual(checkSelection);
+		expect(parsed.check_coverage.tools.skipped).toEqual(skipped);
+		expect(parsed.actions.actions).toHaveLength(1);
+		expect(parsed.actions.actions[0]).toMatchObject({ classification: "evidence_gap", evidence: [expect.objectContaining({ check: "gitleaks", message: "Runner failed" })] });
+	});
+	it("exports complete actionable findings even for historically summary-only sections", () => {
+		const cq = emptyCq();
+		cq.silentCatches.push({ check: "silent_catch", file: "index.ts", line: 8, message: "Inspect swallowed failure" });
+		const parsed = JSON.parse(captureStdout(() => outputJson({ tscResults: [], linterResults: [], linterName: "biome", semgrepResults: [], gitleaksResults: [], auditResult: null, cq, suggestions: null, totalFiles: 1 })));
+		expect(parsed.actions.schema).toBe("interlinked.actions/1");
+		expect(parsed.actions.actions).toHaveLength(1);
+		expect(parsed.actions.actions[0]).toMatchObject({ file: "index.ts", line: 8, classification: "candidate", freshness: "unknown", enforcement: "report" });
+	});
     it("preserves catalogue findings and unavailable counts for JSON consumers", () => {
         const catalogue = { unread_config_key: {
             findings: [{ check: "unread_config_key", file: "docs/config.md", line: 4, message: "No static read", evidence: "config.retired" }],
@@ -759,5 +802,19 @@ describe("outputJson", () => {
 		expect(parsed.oxlint.files).toEqual(["src/x.ts"]);
 		// No `biome` key when the linter is named oxlint.
 		expect(parsed).not.toHaveProperty("biome");
+	});
+});
+
+describe("outputJson — kill_proofs key", () => {
+	const base = () => ({ tscResults: [], linterResults: [], linterName: "biome", semgrepResults: [], gitleaksResults: [], auditResult: null, cq: emptyCq(), suggestions: null, totalFiles: 0 });
+	it("P1: emits `kill_proofs` verbatim when the section is present", () => {
+		const killProofs = { issues: 1, files: ["src/a.test.ts"], details: [{ check: "kill_proof_stale", id: "0123456789abcdef" }], receipts: [{ id: "0123456789abcdef", verdict: "killed", freshness: "stale" }], skipped: false };
+		const parsed = JSON.parse(captureStdout(() => outputJson({ ...base(), killProofs }))) as Record<string, unknown>;
+		expect(parsed.kill_proofs).toEqual(killProofs);
+	});
+	it("N1: omits the key when no receipt exists (the section is absent, not empty)", () => {
+		const parsed = JSON.parse(captureStdout(() => outputJson({ ...base(), killProofs: undefined }))) as Record<string, unknown>;
+		expect("kill_proofs" in parsed).toBe(false);
+		expect(parsed.project_e2e).toEqual({ status: "unconfigured" });
 	});
 });

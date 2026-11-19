@@ -3,13 +3,27 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-export interface VerifyCheckTiming { check: string; duration_ms: number; calls: number; max_call_ms: number; skipped: number; errors: number; unavailable_inputs?: { file: string; reason: string }[]; }
-export interface VerifyTimingRun { root: string; runId: string; budgetMs: number; rows: Map<string, VerifyCheckTiming>; }
+export interface VerifyCheckTiming { check: string; duration_ms: number; calls: number; max_call_ms: number; skipped: number; errors: number; unavailable_inputs?: { file: string; reason: string }[]; excluded?: number; excluded_inputs?: { file: string; reason: string }[]; }
+export interface VerifyTimingRun { root: string; runId: string; budgetMs: number; rows: Map<string, VerifyCheckTiming>; skipChecks?: ReadonlySet<string>; }
 const active = new AsyncLocalStorage<VerifyTimingRun>();
-export const VERIFY_CHECK_BUDGET_MS = 30_000;
+/** Compatibility callers outside public verify still need their unavailable disclosures. */
+export function hasVerifyTimingContext(): boolean { return active.getStore() !== undefined; }
+/** Foreground census measures every selected input; callers may explicitly bound work. */
+export const VERIFY_CHECK_BUDGET_MS = Number.POSITIVE_INFINITY;
 
 export function timingSnapshot(run: VerifyTimingRun): VerifyCheckTiming[] {
     return [...run.rows.values()].map(row => ({ ...row })).sort((a, b) => b.duration_ms - a.duration_ms);
+}
+
+/** Read the current run's measured and deferred scope before emitting its report. */
+export function currentVerifyTimings(): VerifyCheckTiming[] {
+    const run = active.getStore();
+    return run ? timingSnapshot(run) : [];
+}
+
+/** Selection is invocation-local; excluded detectors are not budget-deferred work. */
+export function isVerifyCheckSelected(check: string): boolean {
+    return !active.getStore()?.skipChecks?.has(check);
 }
 
 export function appendVerifyTiming(root: string, row: Record<string, unknown>): void {
@@ -34,21 +48,31 @@ export function recordVerifyInputDeferral(check: string, input?: { file: string;
         row.skipped++;
         if (input) {
             row.unavailable_inputs ??= [];
-            if (row.unavailable_inputs.length < 100) row.unavailable_inputs.push(input);
+            row.unavailable_inputs.push(input);
         }
     }
 }
 
+/** Intentional scope exclusions are neither completed checks nor unavailable inputs. */
+export function recordVerifyInputExclusion(check: string, input: { file: string; reason: string }): void {
+    recordVerifyMeasurement(check, 0);
+    const row = active.getStore()?.rows.get(check);
+    if (!row) return;
+    row.excluded = (row.excluded ?? 0) + 1;
+    row.excluded_inputs ??= [];
+    row.excluded_inputs.push(input);
+}
+
 /** Aggregate one row/check/run, including unsuccessful and budget-deferred work. */
-export async function withVerifyTimings<T>(root: string, work: () => T | Promise<T>, options: { budgetMs?: number; onFinish?: (run: VerifyTimingRun) => void } = {}): Promise<T> {
-    const run: VerifyTimingRun = { root, runId: randomUUID(), budgetMs: options.budgetMs ?? VERIFY_CHECK_BUDGET_MS, rows: new Map() };
+export async function withVerifyTimings<T>(root: string, work: () => T | Promise<T>, options: { budgetMs?: number; skipChecks?: ReadonlySet<string>; onFinish?: (run: VerifyTimingRun) => void } = {}): Promise<T> {
+    const run: VerifyTimingRun = { root, runId: randomUUID(), budgetMs: options.budgetMs ?? VERIFY_CHECK_BUDGET_MS, rows: new Map(), ...(options.skipChecks ? { skipChecks: new Set(options.skipChecks) } : {}) };
     try { return await active.run(run, work); }
     finally {
         for (const row of timingSnapshot(run)) appendVerifyTiming(root, { run_id: run.runId, ...row, status: row.errors ? "error" : row.skipped ? "partial" : "complete" });
         options.onFinish?.(run);
         const deferred = [...run.rows.values()].filter(row => row.skipped > 0);
         if (deferred.length) {
-            process.stderr.write(`[verify] ${deferred.length} checks have deferred inputs under size/time budgets; partial verification, no clean verdict.\n`);
+            process.stderr.write(`[verify] ${deferred.length} checks have unavailable or deferred inputs; partial verification, no clean verdict.\n`);
             process.exitCode = 75;
         }
     }

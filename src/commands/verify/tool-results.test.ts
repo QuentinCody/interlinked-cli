@@ -10,7 +10,7 @@
 //   - .d.ts skip in the export-collection pass
 // plus filterCodeQualityResults and runSuggestions.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,6 +26,7 @@ import {
 	runSuggestions,
 } from "./tool-results.js";
 import type { CodeQualityResults } from "./tool-results-types.js";
+import { discoverFiles } from "./file-discovery.js";
 
 let tempDir: string;
 let counter = 0;
@@ -54,6 +55,21 @@ function fixture(relPath: string, content: string): string {
 }
 
 describe("runCodeQualityChecks", () => {
+	it("retains contained file-alias findings under the selected alias without inventing resolved paths", () => {
+		const target = fixture("source.ts", "export function source(value: any) { return value; }\n");
+		const alias = join(tempDir, "alias.ts"); symlinkSync("source.ts", alias);
+		const files = discoverFiles(tempDir);
+		expect(files.sort()).toEqual([alias, target].sort());
+		const result = runCodeQualityChecks(files, tempDir);
+		expect(new Set(result.strongTyping.map(issue => issue.file))).toEqual(new Set(["alias.ts", "source.ts"]));
+	});
+
+	it.each([256 * 1024 + 1, 1_000_001])("finds meaningful end-of-file AST evidence beyond %i bytes", (bytes) => {
+		const file = fixture("whole-body.ts", `/*${" ".repeat(bytes)}*/\nexport function endOfFile(value: any) { return value; }\n`);
+		const result = runCodeQualityChecks([file], tempDir);
+		expect(result.strongTyping).toContainEqual(expect.objectContaining({ file: "whole-body.ts", line: 2 }));
+	});
+
 	it("returns a full CodeQualityResults object for an empty file set", () => {
 		const r = runCodeQualityChecks([], tempDir);
 		expect(r.strongTyping).toEqual([]);

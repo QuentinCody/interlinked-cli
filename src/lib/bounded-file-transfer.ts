@@ -30,8 +30,8 @@ function gzipLargeRange(
 	destinationFd: number | null,
 	chunkBytes: number,
 ): number {
-	const sourceFd = openSync(path, "r");
 	const buffer = Buffer.allocUnsafe(Math.min(Math.max(1, chunkBytes), endExclusive - start));
+	const sourceFd = openSync(path, "r");
 	let position = start;
 	let gzipBytes = 0;
 	try {
@@ -132,11 +132,12 @@ function copyLargeRange(
 	chunkBytes: number,
 	sourceMode: number,
 ): void {
-	const sourceFd = openSync(sourcePath, "r");
-	const destinationFd = openSync(destinationPath, "w", sourceMode);
 	const buffer = Buffer.allocUnsafe(Math.min(Math.max(1, chunkBytes), endExclusive - start));
+	const sourceFd = openSync(sourcePath, "r");
+	let destinationFd: number | null = null;
 	let position = start;
 	try {
+		destinationFd = openSync(destinationPath, "w", sourceMode);
 		while (position < endExclusive) {
 			const requested = Math.min(buffer.length, endExclusive - position);
 			const read = readSync(sourceFd, buffer, 0, requested, position);
@@ -146,7 +147,7 @@ function copyLargeRange(
 		}
 	} finally {
 		closeFileQuietly(sourceFd);
-		closeFileQuietly(destinationFd);
+		if (destinationFd !== null) closeFileQuietly(destinationFd);
 	}
 }
 

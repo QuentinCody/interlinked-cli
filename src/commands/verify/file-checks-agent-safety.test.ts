@@ -6,10 +6,12 @@
 // same order) via an equivalence check.
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { withCheckRoot } from "../../harness/checks/check-root.js";
 import { nonNull } from "../../lib/non-null.js";
 import { type FileCheckContext, runPerFileChecks } from "./file-checks.js";
 import { runAgentSafetyChecks, runCrapCheck } from "./file-checks-agent-safety.js";
@@ -59,7 +61,9 @@ describe("runAgentSafetyChecks", () => {
 		const src = 'throw "boom";\n';
 		const c = ctx(src);
 		runAgentSafetyChecks(c);
-		expect(c.r.throwLiteral).toEqual(orchestrate(src).throwLiteral);
+		expect(orchestrate(src).throwLiteral).toEqual(c.r.throwLiteral.map(issue => ({ ...issue,
+			sourceHash: createHash("sha256").update(src).digest("hex"),
+		})));
 	});
 
 	it("is a no-op on benign content", () => {
@@ -583,18 +587,22 @@ describe("runAgentSafetyChecks — check-id mutation coverage (positive, exact i
 		expect(nonNull(c.r.lossyErrorRethrow[0]).check).toBe("lossy_error_rethrow");
 	});
 
-	it("import_from_own_barrel — import from './index' in a non-barrel file", () => {
-		const c: FileCheckContext = {
-			file: "/tmp/pkg/foo.ts",
-			content: 'import { bar } from "./index";\n',
-			relPath: "pkg/foo.ts",
-			cwd: "/tmp",
-			r: emptyResults(),
-			piiOpts: {},
-		};
-		runAgentSafetyChecks(c);
-		expect(c.r.importFromOwnBarrel).toHaveLength(1);
-		expect(nonNull(c.r.importFromOwnBarrel[0]).check).toBe("import_from_own_barrel");
+	it("import_from_own_barrel — a resolved index re-exports its importing module", () => {
+		const root = mkdtempSync(join(process.cwd(), "scratch", "verify-own-barrel-"));
+		try {
+			const content = 'import { bar } from "./index.js";\nexport const foo = bar;\n';
+			writeFileSync(join(root, "foo.ts"), content);
+			writeFileSync(join(root, "index.ts"), 'export * from "./foo.js";\nexport const bar = 1;\n');
+			const c: FileCheckContext = {
+				file: join(root, "foo.ts"), content, relPath: "foo.ts", cwd: root,
+				r: emptyResults(), piiOpts: {},
+			};
+			withCheckRoot(root, () => runAgentSafetyChecks(c));
+			expect(c.r.importFromOwnBarrel).toHaveLength(1);
+			expect(nonNull(c.r.importFromOwnBarrel[0]).check).toBe("import_from_own_barrel");
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 
 	it("error_dispatch_by_instanceof — instanceof TypeError inside a catch block", () => {

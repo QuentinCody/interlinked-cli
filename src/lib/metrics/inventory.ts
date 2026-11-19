@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { inventoryPaths } from "./inventory-paths.js";
+import { inventoryPaths, type InventoryOptions } from "./inventory-paths.js";
 import { isScoreInput, sourceLanguage, sourceRole } from "./inventory-roles.js";
 import type { InventoryFile, RepositoryInventory } from "./measurement-types.js";
 
@@ -27,7 +27,8 @@ export function containedFile(root: string, path: string): string {
     return absolute;
 }
 
-function readInput(inventory: RepositoryInventory, path: string): void {
+function readInput(inventory: RepositoryInventory, path: string, options: InventoryOptions): void {
+    options.signal?.throwIfAborted();
     const role = sourceRole(path);
     if (!isScoreInput(role) || /(^|\/)\.(git|interlinked|claude|codex|agents)(\/|$)/.test(path)) {
         inventory.excluded.push({ path, role, reason: "Excluded by source-role policy" });
@@ -35,22 +36,25 @@ function readInput(inventory: RepositoryInventory, path: string): void {
     }
     try {
         const absolute = containedFile(inventory.root, path);
-        if (lstatSync(absolute).size > 2 * 1024 * 1024) throw new Error("Input exceeds 2 MiB analysis limit");
+        if (options.resourcePolicy !== "foreground-survey" && lstatSync(absolute).size > 2 * 1024 * 1024) throw new Error("Input exceeds 2 MiB runtime analysis limit");
         const content = readFileSync(absolute, "utf8");
+        options.signal?.throwIfAborted();
         inventory.files.push({ path, role, content, language: sourceLanguage(path), sha256: hashBytes(content) });
     } catch (error) {
+        options.signal?.throwIfAborted();
         inventory.gaps.push({ path, role, reason: error instanceof Error ? error.message : String(error) });
     }
 }
 
-export function collectRepositoryInventory(directory: string): RepositoryInventory {
+export function collectRepositoryInventory(directory: string, options: InventoryOptions = {}): RepositoryInventory {
+    options.signal?.throwIfAborted();
     const root = realpathSync(directory);
-    const paths = inventoryPaths(root);
+    const paths = inventoryPaths(root, options);
     const inventory: RepositoryInventory = {
         version: SOURCE_ROLE_VERSION, root, discovery: paths.discovery, files: [], gaps: [],
         excluded: [], inputHash: "", sourceHash: "", issues: paths.issues,
     };
-    for (const path of paths.paths) readInput(inventory, path.replaceAll("\\", "/"));
+    for (const path of paths.paths) readInput(inventory, path.replaceAll("\\", "/"), options);
     inventory.inputHash = inventoryHash(inventory.files);
     inventory.sourceHash = inventoryHash(inventory.files.filter(file => file.role === "product"));
     return inventory;

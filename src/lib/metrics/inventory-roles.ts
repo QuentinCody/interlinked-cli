@@ -28,7 +28,7 @@ export function sourceRole(path: string): SourceRole {
     // A test FILE is a test wherever it lives: the runner discovers `*.test.ts` under `__fixtures__/` and fixture
     // project trees too (this repo: 4 of 2501), and the coverage index needs every executed test in the inventory
     // (roles v3, 2026-09-29). Fixture DIRECTORIES still classify everything else they hold.
-    if (/\.(test|spec|bench)\.[cm]?[jt]sx?$/.test(p) && !/(^|\/)(\.?scratch|evals)(\/|$)|\.overlay-/.test(p)) return "test";
+    if (/(?:^|\/|\.)(test|spec|bench)\.[cm]?[jt]sx?$/.test(p) && !/(^|\/)(\.?scratch|evals)(\/|$)|\.overlay-/.test(p)) return "test";
     if (/(^|\/)(\.?scratch|bench|benchmarks?|fixtures?|__fixtures__|evals)(\/|$)|(^|\/)_[^/]*fixtures[^/]*\/|\.overlay-/.test(p)) return "fixture";
     if (/(^|\/)(__tests__|__mocks__|tests?|test-setup)(\/|$)/.test(p)) return "test";
     if (/\.(md|mdx|rst)$/.test(p)) return "documentation";

@@ -49,7 +49,7 @@ export const SHELL_META = /[;|&`$(){}!<>'"\\#\n\r]/;
  */
 export function cloneRepo(
 	url: string,
-	opts: { branch?: string | undefined },
+	opts: { branch?: string | undefined; timeoutMs?: number },
 ): { dir: string; elapsed_ms: number } {
 	if (SHELL_META.test(url)) {
 		throw new Error(`Refusing to clone — URL contains shell metacharacters: ${url}`);
@@ -67,14 +67,15 @@ export function cloneRepo(
 	try {
 		execFileSync("git", args, {
 			stdio: ["pipe", "pipe", "inherit"],
-			timeout: CLONE_TIMEOUT_MS,
+			timeout: opts.timeoutMs ?? CLONE_TIMEOUT_MS,
 			env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
 		});
 	} catch (err: unknown) {
 		try {
 			rmSync(tempDir, { recursive: true, force: true });
-		} catch {
-			/* intentional: temp-dir cleanup is best-effort after clone failure */
+		} catch (cleanupError) {
+			// Preserve the clone failure when best-effort cleanup also fails.
+			void cleanupError;
 		}
 		const msg = err instanceof Error ? err.message : String(err);
 		throw new Error(`Clone failed: ${msg}`);

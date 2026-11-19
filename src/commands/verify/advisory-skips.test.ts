@@ -7,6 +7,12 @@ import { DEFAULT_ADVISORY_SKIPS, TOOL_IDS } from "./advisory.js";
 import { getEffectiveSkipChecks, getSkipTools } from "./advisory-skips.js";
 
 describe("getEffectiveSkipChecks", () => {
+	it.each(["json_stringify_error", "catch_rewrap_loses_cause", "resource_handle_leak", "public_api_leaks_internal_type", "jsdoc_param_drift", "unvalidated_input_boundary", "numeric_zero_default"])("keeps %s advisory and preserves explicit exclusion", check => {
+		expect(getEffectiveSkipChecks(undefined, false).has(check)).toBe(true);
+		expect(getEffectiveSkipChecks(undefined, true).has(check)).toBe(false);
+		expect(getEffectiveSkipChecks(check, true).has(check)).toBe(true);
+	});
+
 	it("includes every advisory default when --all-checks is off", () => {
 		const skip = getEffectiveSkipChecks(undefined, false);
 		for (const id of DEFAULT_ADVISORY_SKIPS) expect(skip.has(id)).toBe(true);
@@ -42,5 +48,9 @@ describe("getSkipTools", () => {
 
 	it("returns empty for an empty skip set", () => {
 		expect(getSkipTools(new Set())).toEqual([]);
+	});
+
+	it("resolves additional catalog tools and configuration aliases", () => {
+		expect(getSkipTools(new Set(["rustfmt", "typescript", "cargo_clippy"]))).toEqual(["rustfmt", "tsc", "cargo-clippy"]);
 	});
 });

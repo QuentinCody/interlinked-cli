@@ -134,9 +134,11 @@ export function emitVerifyRun(
 	}
 }
 
+// --no-optional-locks: a read-only probe must never take .git/index.lock. `git status` otherwise does, and the
+// 3 s timeout kills it while it holds the lock — a stale lock that blocks every later git add/commit (2026-11-13).
 function safeGitOutput(args: string[], cwd: string): string {
 	try {
-		const out = execFileSync("git", args, {
+		const out = execFileSync("git", ["--no-optional-locks", ...args], {
 			cwd,
 			encoding: "utf-8",
 			stdio: ["ignore", "pipe", "ignore"],

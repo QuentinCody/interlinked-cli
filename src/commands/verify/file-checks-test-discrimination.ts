@@ -34,9 +34,9 @@ export function runTestDiscriminationChecks(ctx: FileCheckContext): void {
 			checkDuplicateThrowMessageAssertion, content, file,
 		),
 	);
-	r.fallbackOnlyAssertion.push(
-		...toIssues("fallback_only_assertion", relPath, checkFallbackOnlyAssertion, content, file),
-	);
+	for (const issue of toIssues("fallback_only_assertion", relPath, checkFallbackOnlyAssertion, content, file)) {
+		r.fallbackOnlyAssertion.push(issue);
+	}
 	r.spyCallUnpinnedArgs.push(
 		...toIssues("spy_call_unpinned_args", relPath, checkSpyCallUnpinnedArgs, content, file),
 	);
@@ -49,13 +49,9 @@ export function runTestDiscriminationChecks(ctx: FileCheckContext): void {
 	r.inTreeTempFixture.push(
 		...toIssues("in_tree_temp_fixture", relPath, checkInTreeTempFixture, content, file),
 	);
-	r.catchWithoutAssertionGuard.push(
-		...toIssues(
-			"catch_without_assertion_guard",
-			relPath,
-			checkCatchWithoutAssertionGuard, content, file,
-		),
-	);
+	for (const issue of toIssues("catch_without_assertion_guard", relPath, checkCatchWithoutAssertionGuard, content, file)) {
+		r.catchWithoutAssertionGuard.push(issue);
+	}
 	r.duplicateExpectedLiteralPosNeg.push(
 		...toIssues(
 			"duplicate_expected_literal_pos_neg",
@@ -64,14 +60,18 @@ export function runTestDiscriminationChecks(ctx: FileCheckContext): void {
 		),
 	);
 	// Round 2 (2026-09-07)
-	r.vacuousLoopAssertion.push(
-		...toIssues("vacuous_loop_assertion", relPath, checkVacuousLoopAssertion, content, file),
-	);
-	r.mockReturnEcho.push(...toIssues("mock_return_echo", relPath, checkMockReturnEcho, content, file));
+	for (const issue of toIssues("vacuous_loop_assertion", relPath, checkVacuousLoopAssertion, content, file)) {
+		r.vacuousLoopAssertion.push(issue);
+	}
+	for (const issue of toIssues("mock_return_echo", relPath, checkMockReturnEcho, content, file)) {
+		r.mockReturnEcho.push(issue);
+	}
 	r.duplicateTestBody.push(
 		...toIssues("duplicate_test_body", relPath, checkDuplicateTestBody, content, file),
 	);
 	r.spyWithoutRestore.push(...toIssues("spy_without_restore", relPath, checkSpyWithoutRestore, content, file));
 	r.exportExistenceSmokeTest.push(...toIssues("export_existence_smoke_test", relPath, checkExportExistenceSmokeTest, content, file));
-	r.commentedOutAssertion.push(...toIssues("commented_out_assertion", relPath, checkCommentedOutAssertion, content, file));
+	for (const issue of toIssues("commented_out_assertion", relPath, checkCommentedOutAssertion, content, file)) {
+		r.commentedOutAssertion.push(issue);
+	}
 }

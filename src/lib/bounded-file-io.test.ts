@@ -2,6 +2,7 @@ import {
 	closeSync,
 	existsSync,
 	ftruncateSync,
+	fstatSync,
 	mkdirSync,
 	mkdtempSync,
 	openSync,
@@ -13,7 +14,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("node:fs", async importOriginal => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return { ...actual, openSync: vi.fn(actual.openSync) };
+});
 import {
 	countNonEmptyFileLines,
 	findLineBoundaryAtOrBefore,
@@ -34,6 +39,21 @@ describe("bounded file I/O", () => {
 
 	afterEach(() => {
 		rmSync(tmp, { recursive: true, force: true });
+		vi.clearAllMocks();
+	});
+
+	it.each(["hash", "scan", "tail"])("closes any acquired descriptor when %s buffer allocation rejects its size", operation => {
+		const path = join(tmp, "input.jsonl");
+		writeFileSync(path, "record\n");
+		const invoke = () => {
+			if (operation === "hash") sha256File(path, NaN);
+			else if (operation === "scan") scanFileLines(path, () => {}, { chunkBytes: NaN });
+			else findTailStartForLines(path, 1, NaN);
+		};
+		expect(invoke).toThrow();
+		for (const acquired of vi.mocked(openSync).mock.results) {
+			if (acquired.type === "return") expect(() => fstatSync(acquired.value)).toThrow(/EBADF/);
+		}
 	});
 
 	it("scans records and boundaries correctly across tiny chunks", () => {

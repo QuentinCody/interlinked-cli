@@ -148,9 +148,9 @@ export function runUbsChecks(ctx: FileCheckContext): void {
 			checkSubprocessShellTrue, content, file,
 		),
 	);
-	r.tlsVerifyDisabled.push(
-		...toIssues("ubs_tls_verify_disabled", relPath, checkTlsVerifyDisabled, content, file),
-	);
+	for (const issue of toIssues("ubs_tls_verify_disabled", relPath, checkTlsVerifyDisabled, content, file)) {
+		r.tlsVerifyDisabled.push(issue);
+	}
 	r.pyNoneEquality.push(
 		...toIssues("ubs_py_none_equality", relPath, checkPyNoneEquality, content, file),
 	);

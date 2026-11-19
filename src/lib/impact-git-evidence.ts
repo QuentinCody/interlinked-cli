@@ -38,8 +38,10 @@ export interface DependencyDeltaEvidence {
     reason?: string | undefined;
 }
 
+// --no-optional-locks: a read-only probe must never take .git/index.lock. `git status` otherwise does, and the
+// timeout kills it while it holds the lock — a stale lock that blocks every later git add/commit (2026-11-13).
 function git(cwd: string, args: string[]): string {
-    return execFileSync("git", args, {
+    return execFileSync("git", ["--no-optional-locks", ...args], {
         cwd,
         encoding: "utf8",
         timeout: 10_000,

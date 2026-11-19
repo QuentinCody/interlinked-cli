@@ -3,14 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./git-shell.js", () => ({ gitShell: vi.fn(() => "fixture-repository") }));
+vi.mock("./git-shell.js", () => ({
+    gitShell: vi.fn(() => "fixture-repository"),
+    gitArgs: vi.fn(() => ""),
+    gitArgsRaw: vi.fn((args: readonly string[]) => args[0] === "diff" || args[0] === "ls-files" ? "fixture-path\0" : ""),
+}));
 import { archiveCheckpoints, createCheckpoint, listCheckpoints, pruneCheckpoints, type Checkpoint } from "./checkpoints.js";
-import { gitShell } from "./git-shell.js";
+import { gitArgs, gitShell } from "./git-shell.js";
 
 const roots: string[] = [];
 beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(gitShell).mockImplementation(() => "fixture-repository");
+    vi.mocked(gitShell).mockImplementation((command) => command === "rev-parse HEAD" ? "a".repeat(40) : "fixture-repository");
 });
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
@@ -60,9 +64,15 @@ describe("checkpoint metadata preservation", () => {
     it("retains a checkpoint appended while the git snapshot is being captured", () => {
         const { root, path } = fixture(JSON.stringify([retained]));
         const concurrent = { ...retained, id: "concurrent" };
-        vi.mocked(gitShell).mockImplementation(command => {
-            if (command.startsWith("stash push")) writeFileSync(path, JSON.stringify([retained, concurrent]));
-            return "fixture-repository";
+        let stashMessage = "";
+        vi.mocked(gitArgs).mockImplementation(args => {
+            if (args[0] === "stash" && args[1] === "push") {
+                stashMessage = args[4] ?? "";
+                writeFileSync(path, JSON.stringify([retained, concurrent]));
+            }
+            if (args[0] === "stash" && args[1] === "list") return `${"e".repeat(40)}:${stashMessage}`;
+            if (args[0] === "rev-list") return `${"e".repeat(40)} ${"a".repeat(40)} ${"f".repeat(40)}`;
+            return "";
         });
         const created = createCheckpoint({ cwd: root, sessionId: "session", agent: "worker", message: "Next", trigger: "manual" });
         expect(new Set(listCheckpoints({ cwd: root }).map(checkpoint => checkpoint.id))).toEqual(new Set([retained.id, concurrent.id, created.id]));

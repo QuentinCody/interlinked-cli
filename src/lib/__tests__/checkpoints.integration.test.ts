@@ -12,6 +12,20 @@ vi.mock("node:fs", () => ({
 
 vi.mock("node:child_process", () => ({
 	execSync: vi.fn(),
+	execFileSync: vi.fn((file: string, args: readonly string[], options: Parameters<typeof execSync>[1]) => {
+		if (args[0] === "diff" && args[1] === "--name-only") return String(execSync("git diff --name-only HEAD", options)).split("\n").join("\0");
+		if (args[0] === "ls-files") return String(execSync("git ls-files --others --exclude-standard", options)).split("\n").join("\0");
+		if (args[0] === "rev-list") {
+			const capturing = vi.mocked(execSync).mock.calls.some(([command]) => String(command).includes("stash push"));
+			return `${"e".repeat(40)} ${capturing ? "a".repeat(40) : storedBaseCommit()} ${"f".repeat(40)}`;
+		}
+		if (args[0] === "ls-tree") return "";
+		if (args[0] === "rev-parse" && args[1] === "--verify") {
+			if (args[3]?.endsWith("^1")) return storedBaseCommit();
+			return "a".repeat(40);
+		}
+		return execSync(`${file} ${args.join(" ")}`, options);
+	}),
 }));
 
 vi.mock("node:crypto", () => ({
@@ -36,6 +50,12 @@ const mockReadFileSync = vi.mocked(readFileSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
 const mockExecSync = vi.mocked(execSync);
 
+function storedBaseCommit(): string {
+	const value: unknown = JSON.parse(String(mockReadFileSync.mock.results.at(-1)?.value));
+	if (!Array.isArray(value) || !isJsonObject(value[0]) || typeof value[0].base_commit !== "string") throw new Error("Expected checkpoint fixture metadata");
+	return value[0].base_commit;
+}
+
 function writtenCheckpoints(): JsonObject[] {
 	const written = mockWriteFileSync.mock.calls.at(-1)?.[1];
 	if (typeof written !== "string") throw new Error("Expected a checkpoint JSON write");
@@ -55,10 +75,11 @@ function mkCheckpoint(over: Partial<Checkpoint> & { id: string }): Checkpoint {
 		agent: "agent-x",
 		message: "msg",
 		timestamp: "2025-01-01T00:00:00Z",
-		base_commit: "base000",
+		base_commit: "d".repeat(40),
 		trigger: "manual",
 		files_changed: [],
 		restorable: true,
+		stash_ref: "e".repeat(40),
 		...over,
 	};
 }
@@ -86,13 +107,14 @@ describe("createCheckpoint", () => {
 	it("creates a checkpoint with stash", () => {
 		// Mock git commands
 		mockExecSync
+			.mockReturnValue("")
 			.mockReturnValueOnce("ok") // rev-parse --git-dir
-			.mockReturnValueOnce("abc123\n") // rev-parse HEAD
+			.mockReturnValueOnce("a".repeat(40)) // rev-parse HEAD
 			.mockReturnValueOnce("src/index.ts\nsrc/lib/config.ts\n") // diff --name-only
 			.mockReturnValueOnce("") // ls-files --others
 			.mockReturnValueOnce("") // stash push
-			.mockReturnValueOnce("deadbeef\n") // stash list -1
-			.mockReturnValueOnce(""); // stash pop
+			.mockReturnValueOnce(`${"e".repeat(40)}:interlinked:checkpoint:abcdef123456:{}`)
+			.mockReturnValueOnce(""); // durable ref update
 
 		// Mock checkpoints file
 		mockExistsSync.mockImplementation((path: string | Buffer | URL) => {
@@ -114,7 +136,7 @@ describe("createCheckpoint", () => {
 		expect(cp.agent).toBe("test-agent");
 		expect(cp.message).toBe("Test checkpoint");
 		expect(cp.trigger).toBe("manual");
-		expect(cp.base_commit).toBe("abc123");
+		expect(cp.base_commit).toBe("a".repeat(40));
 		expect(cp.files_changed).toEqual(["src/index.ts", "src/lib/config.ts"]);
 		expect(cp.restorable).toBe(true);
 		expect(mockWriteFileSync).toHaveBeenCalled();
@@ -364,7 +386,7 @@ describe("compareCheckpoints", () => {
 				agent: "a",
 				message: "from",
 				timestamp: "2025-01-01T00:00:00Z",
-				base_commit: "aaa",
+				base_commit: "a".repeat(40),
 				trigger: "manual",
 				files_changed: ["a.ts", "b.ts"],
 				restorable: true,
@@ -375,7 +397,7 @@ describe("compareCheckpoints", () => {
 				agent: "a",
 				message: "to",
 				timestamp: "2025-01-02T00:00:00Z",
-				base_commit: "bbb",
+				base_commit: "b".repeat(40),
 				trigger: "manual",
 				files_changed: ["b.ts", "c.ts"],
 				restorable: true,
@@ -394,8 +416,8 @@ describe("compareCheckpoints", () => {
 
 	it("falls back to computed counts when git diff fails", () => {
 		const cps = [
-			mkCheckpoint({ id: "f", base_commit: "aaa", files_changed: ["a.ts", "b.ts"] }),
-			mkCheckpoint({ id: "t", base_commit: "bbb", files_changed: ["b.ts", "c.ts"] }),
+			mkCheckpoint({ id: "f", base_commit: "a".repeat(40), files_changed: ["a.ts", "b.ts"] }),
+			mkCheckpoint({ id: "t", base_commit: "b".repeat(40), files_changed: ["b.ts", "c.ts"] }),
 		];
 		onlyCheckpointsFileExists();
 		mockReadFileSync.mockReturnValue(JSON.stringify(cps));
@@ -444,8 +466,7 @@ describe("readCheckpointsFile (via getCheckpoint)", () => {
 });
 
 describe("createCheckpoint (edge cases)", () => {
-	it("records a metadata-only checkpoint when stash fails (no changes to stash)", () => {
-		// rev-parse --git-dir ok, rev-parse HEAD ok, diff/ls-files ok, but stash push throws.
+	it("records a metadata-only checkpoint without stashing when there are no changes", () => {
 		mockExecSync.mockImplementation((cmd: string) => {
 			if (cmd.includes("rev-parse --git-dir")) return "ok";
 			if (cmd.includes("rev-parse HEAD")) return "headcommit\n";
@@ -480,11 +501,11 @@ describe("createCheckpoint (edge cases)", () => {
 	it("captures untracked files and persists supplied metadata", () => {
 		mockExecSync.mockImplementation((cmd: string) => {
 			if (cmd.includes("rev-parse --git-dir")) return "ok";
-			if (cmd.includes("rev-parse HEAD")) return "abc999\n";
+			if (cmd.includes("rev-parse HEAD")) return "a".repeat(40);
 			if (cmd.includes("diff --name-only")) return "tracked.ts\n";
 			if (cmd.includes("ls-files")) return "new-untracked.ts\n";
 			if (cmd.includes("stash push")) return "";
-			if (cmd.includes("stash list")) return "feedbeef\n";
+			if (cmd.includes("stash list")) return `${"e".repeat(40)}:interlinked:checkpoint:abcdef123456:{}`;
 			if (cmd.includes("stash pop")) return "";
 			return "";
 		});
@@ -506,7 +527,7 @@ describe("createCheckpoint (edge cases)", () => {
 
 		expect(cp.files_changed).toEqual(["tracked.ts", "new-untracked.ts"]);
 		expect(cp.restorable).toBe(true);
-		expect(cp.stash_ref).toBe("feedbeef");
+		expect(cp.stash_ref).toBe("e".repeat(40));
 		expect(cp.metadata).toEqual({ task: "ABC-1", count: 3 });
 
 		// Newly written array appends to the prior checkpoint (read-modify-write).
@@ -516,7 +537,7 @@ describe("createCheckpoint (edge cases)", () => {
 		expect(parsed[1].id).toBe(cp.id);
 	});
 
-	it("leaves files_changed empty when the diff command throws (empty repo)", () => {
+	it("fails without writing metadata when Git cannot discover changed files", () => {
 		mockExecSync.mockImplementation((cmd: string) => {
 			if (cmd.includes("rev-parse --git-dir")) return "ok";
 			if (cmd.includes("rev-parse HEAD")) return "root0\n";
@@ -529,16 +550,14 @@ describe("createCheckpoint (edge cases)", () => {
 			return true;
 		});
 
-		const cp = createCheckpoint({
+		expect(() => createCheckpoint({
 			sessionId: "sz",
 			agent: "agent-z",
 			message: "empty repo",
 			trigger: "session_start",
 			cwd: "/test/repo",
-		});
-
-		expect(cp.files_changed).toEqual([]);
-		expect(cp.restorable).toBe(false);
+		})).toThrow("no HEAD yet");
+		expect(mockWriteFileSync).not.toHaveBeenCalled();
 	});
 });
 
@@ -639,13 +658,11 @@ describe("archiveCheckpoints (limit + no-op paths)", () => {
 
 			const parsed = writtenCheckpoints();
 			const stillRestorable = parsed.filter((c) => c.restorable);
-			// The loop walks newest-first and archives while count > max, decrementing
-			// each time; so the newest two (r1, r2) get archived and the oldest of the
-			// three recent ones (r3) is the single survivor.
+			// Archive the oldest excess checkpoints and retain the newest one.
 			expect(stillRestorable).toHaveLength(1);
-			expect(stillRestorable[0].id).toBe("r3");
+			expect(stillRestorable[0].id).toBe("r1");
 			const archivedOnes = parsed.filter((c) => !c.restorable);
-			expect(archivedOnes.map((c) => c.id).sort()).toEqual(["r1", "r2"]);
+			expect(archivedOnes.map((c) => c.id).sort()).toEqual(["r2", "r3"]);
 			expect(archivedOnes.every((c) => c.stash_ref === undefined)).toBe(true);
 		} finally {
 			vi.useRealTimers();
@@ -724,7 +741,7 @@ describe("rewindToCheckpoint", () => {
 			JSON.stringify([
 				mkCheckpoint({
 					id: "cp1",
-					base_commit: "targetbase",
+					base_commit: "a".repeat(40),
 					files_changed: ["x.ts", "y.ts"],
 				}),
 			]),
@@ -746,25 +763,25 @@ describe("rewindToCheckpoint", () => {
 		expect(result.warning).toBeUndefined();
 		expect(result.files_restored).toEqual(["x.ts", "y.ts"]);
 		// Force path must discard local changes.
-		expect(calls.some((c) => c.includes("checkout -- ."))).toBe(true);
+		expect(calls.some((c) => c.includes(`restore --source ${"a".repeat(40)} --staged --worktree`))).toBe(true);
 		expect(calls.some((c) => c.includes("clean -fd"))).toBe(true);
 		// HEAD differed from base -> checkout of the base commit.
-		expect(calls.some((c) => c.includes("checkout targetbase"))).toBe(true);
+		expect(calls.some((c) => c.includes(`update-ref --no-deref HEAD ${"a".repeat(40)}`))).toBe(true);
 		// The matching stash (stash@{1}) is applied, not the unrelated WIP one.
-		expect(calls.some((c) => c.includes("stash apply stash@{1}"))).toBe(true);
+		expect(calls.some((c) => c.includes(`restore --source ${"e".repeat(40)} --worktree`))).toBe(true);
 	});
 
 	it("applies a stash on a clean tree without touching checkout/clean", () => {
 		onlyCheckpointsFileExists();
 		mockReadFileSync.mockReturnValue(
-			JSON.stringify([mkCheckpoint({ id: "cp2", base_commit: "samehead", files_changed: ["z.ts"] })]),
+			JSON.stringify([mkCheckpoint({ id: "cp2", base_commit: "b".repeat(40), files_changed: ["z.ts"] })]),
 		);
 		const calls: string[] = [];
 		mockExecSync.mockImplementation((cmd: string) => {
 			calls.push(cmd);
 			if (cmd.includes("rev-parse --git-dir")) return "ok";
 			if (cmd.includes("status --porcelain")) return ""; // clean
-			if (cmd.includes("rev-parse HEAD")) return "samehead\n"; // matches base_commit
+			if (cmd.includes("rev-parse HEAD")) return "b".repeat(40); // matches base_commit
 			if (cmd.includes("stash list")) return "stash@{0}:interlinked:checkpoint:cp2:{}\n";
 			return "";
 		});
@@ -775,34 +792,31 @@ describe("rewindToCheckpoint", () => {
 		// Clean tree -> no discard, and HEAD already matches base -> no checkout of base.
 		expect(calls.some((c) => c.includes("checkout -- ."))).toBe(false);
 		expect(calls.some((c) => c.includes("clean -fd"))).toBe(false);
-		expect(calls.some((c) => c.includes("checkout samehead"))).toBe(false);
-		expect(calls.some((c) => c.includes("stash apply"))).toBe(true);
+		expect(calls.some((c) => c.includes(`checkout --detach ${"b".repeat(40)}`))).toBe(false);
+		expect(calls.some((c) => c.includes(`restore --source ${"e".repeat(40)}`))).toBe(true);
 	});
 
-	it("warns when no matching stash is found", () => {
+	it("refuses restoration before changing HEAD when snapshot data is missing", () => {
 		onlyCheckpointsFileExists();
 		mockReadFileSync.mockReturnValue(
-			JSON.stringify([mkCheckpoint({ id: "lost", base_commit: "h0", files_changed: ["a.ts"] })]),
+			JSON.stringify([mkCheckpoint({ id: "lost", base_commit: "c".repeat(40), stash_ref: undefined, files_changed: ["a.ts"] })]),
 		);
 		mockExecSync.mockImplementation((cmd: string) => {
 			if (cmd.includes("rev-parse --git-dir")) return "ok";
 			if (cmd.includes("status --porcelain")) return "";
-			if (cmd.includes("rev-parse HEAD")) return "h0\n";
+			if (cmd.includes("rev-parse HEAD")) return "c".repeat(40);
 			// stash list returns only unrelated entries -> no match.
 			if (cmd.includes("stash list")) return "stash@{0}:some other work\n";
 			return "";
 		});
 
-		const result = rewindToCheckpoint("lost", { cwd: "/test" });
-		expect(result.success).toBe(true);
-		expect(result.warning).toContain("Stash not found");
-		expect(result.files_restored).toEqual(["a.ts"]);
+		expect(() => rewindToCheckpoint("lost", { cwd: "/test" })).toThrow("Checkpoint snapshot unavailable");
 	});
 
-	it("continues to stash apply when the base-commit checkout fails", () => {
+	it("stops before stash apply when the base-commit checkout fails", () => {
 		onlyCheckpointsFileExists();
 		mockReadFileSync.mockReturnValue(
-			JSON.stringify([mkCheckpoint({ id: "cp3", base_commit: "gonecommit", files_changed: [] })]),
+			JSON.stringify([mkCheckpoint({ id: "cp3", base_commit: "e".repeat(40), files_changed: [] })]),
 		);
 		const calls: string[] = [];
 		mockExecSync.mockImplementation((cmd: string) => {
@@ -810,22 +824,19 @@ describe("rewindToCheckpoint", () => {
 			if (cmd.includes("rev-parse --git-dir")) return "ok";
 			if (cmd.includes("status --porcelain")) return "";
 			if (cmd.includes("rev-parse HEAD")) return "otherhead\n";
-			if (cmd.includes("checkout gonecommit")) throw new Error("unknown revision");
+			if (cmd.includes(`update-ref --no-deref HEAD ${"e".repeat(40)}`)) throw new Error("unknown revision");
 			if (cmd.includes("stash list")) return "stash@{0}:interlinked:checkpoint:cp3:{}\n";
 			return "";
 		});
 
-		const result = rewindToCheckpoint("cp3", { cwd: "/test" });
-		// Checkout threw but the function swallows it and still applies the stash.
-		expect(result.success).toBe(true);
-		expect(result.warning).toBeUndefined();
-		expect(calls.some((c) => c.includes("stash apply stash@{0}"))).toBe(true);
+		expect(() => rewindToCheckpoint("cp3", { cwd: "/test" })).toThrow("unknown revision");
+		expect(calls.some((command) => command.includes("stash"))).toBe(false);
 	});
 
-	it("treats a failed status check as a clean tree", () => {
+	it("stops when git cannot establish the working-tree status", () => {
 		onlyCheckpointsFileExists();
 		mockReadFileSync.mockReturnValue(
-			JSON.stringify([mkCheckpoint({ id: "cp4", base_commit: "hh", files_changed: [] })]),
+			JSON.stringify([mkCheckpoint({ id: "cp4", base_commit: "f".repeat(40), files_changed: [] })]),
 		);
 		mockExecSync.mockImplementation((cmd: string) => {
 			if (cmd.includes("rev-parse --git-dir")) return "ok";
@@ -835,16 +846,14 @@ describe("rewindToCheckpoint", () => {
 			return "";
 		});
 
-		// status throwing -> hasChanges stays false -> no dirty-tree error even without force.
-		const result = rewindToCheckpoint("cp4", { cwd: "/test" });
-		expect(result.success).toBe(true);
-		expect(result.warning).toBeUndefined();
+		expect(() => rewindToCheckpoint("cp4", { cwd: "/test" })).toThrow("status blew up");
+		expect(mockExecSync.mock.calls).toHaveLength(2);
 	});
 
-	it("warns when the stash list command itself fails", () => {
+	it("refuses restoration when legacy snapshot discovery fails", () => {
 		onlyCheckpointsFileExists();
 		mockReadFileSync.mockReturnValue(
-			JSON.stringify([mkCheckpoint({ id: "cp5", base_commit: "kk", files_changed: ["q.ts"] })]),
+			JSON.stringify([mkCheckpoint({ id: "cp5", base_commit: "a".repeat(40), stash_ref: undefined, files_changed: ["q.ts"] })]),
 		);
 		mockExecSync.mockImplementation((cmd: string) => {
 			if (cmd.includes("rev-parse --git-dir")) return "ok";
@@ -854,9 +863,7 @@ describe("rewindToCheckpoint", () => {
 			return "";
 		});
 
-		const result = rewindToCheckpoint("cp5", { cwd: "/test" });
-		expect(result.success).toBe(true);
-		expect(result.warning).toContain("Stash not found");
+		expect(() => rewindToCheckpoint("cp5", { cwd: "/test" })).toThrow("Checkpoint snapshot unavailable");
 	});
 });
 
@@ -902,8 +909,8 @@ describe("default cwd fallthrough (no cwd argument)", () => {
 		onlyCheckpointsFileExists();
 		mockReadFileSync.mockReturnValue(
 			JSON.stringify([
-				mkCheckpoint({ id: "df", base_commit: "a", files_changed: ["a.ts"] }),
-				mkCheckpoint({ id: "dt", base_commit: "b", files_changed: ["b.ts"] }),
+				mkCheckpoint({ id: "df", base_commit: "a".repeat(40), files_changed: ["a.ts"] }),
+				mkCheckpoint({ id: "dt", base_commit: "b".repeat(40), files_changed: ["b.ts"] }),
 			]),
 		);
 		mockExecSync.mockReturnValue("1 file changed\n");
@@ -917,12 +924,12 @@ describe("default cwd fallthrough (no cwd argument)", () => {
 	it("rewindToCheckpoint defaults cwd to process.cwd()", () => {
 		onlyCheckpointsFileExists();
 		mockReadFileSync.mockReturnValue(
-			JSON.stringify([mkCheckpoint({ id: "dr", base_commit: "dh", files_changed: ["r.ts"] })]),
+			JSON.stringify([mkCheckpoint({ id: "dr", base_commit: "d".repeat(40), files_changed: ["r.ts"] })]),
 		);
 		mockExecSync.mockImplementation((cmd: string) => {
 			if (cmd.includes("rev-parse --git-dir")) return "ok";
 			if (cmd.includes("status --porcelain")) return "";
-			if (cmd.includes("rev-parse HEAD")) return "dh\n";
+			if (cmd.includes("rev-parse HEAD")) return "d".repeat(40);
 			if (cmd.includes("stash list")) return "stash@{0}:interlinked:checkpoint:dr:{}\n";
 			return "";
 		});

@@ -1,4 +1,4 @@
-import type { Band, DecisionQuestion, Json, MetricContract } from "./types.js";
+import type { DecisionQuestion, Json, MetricContract } from "./types.js";
 
 type Definition = Omit<MetricContract, "version" | "population" | "aggregation">;
 function metric(definition: Definition): MetricContract {
@@ -336,23 +336,55 @@ export function selectEvidence(
     return result;
 }
 
-export function questionSet(contracts: DecisionQuestion[], band: Band): Record<string, Json> {
+const EVIDENCE_VIEW = "interlinked.evidence:";
+
+/**
+ * The JSON pointer a ThinkThen 0.2 question reads. A 0.2 question reads exactly one
+ * field, so a contract that reads several evidence fields reads one derived field,
+ * which `evidenceInput` adds to the record.
+ */
+export function evidenceField(contract: Pick<DecisionQuestion, "id" | "on">): string {
+    if (contract.on.length === 1) return contract.on[0]!;
+    return `/${EVIDENCE_VIEW}${contract.id.replace(/~/g, "~0").replace(/\//g, "~1")}`;
+}
+
+/** The record sent to ThinkThen: the evidence plus one derived field per multi-field question. */
+export function evidenceInput(
+    evidence: Record<string, Json>,
+    contracts: Pick<DecisionQuestion, "id" | "on">[],
+): Record<string, Json> {
+    const input: Record<string, Json> = { ...evidence };
+    for (const contract of contracts) {
+        if (contract.on.length === 1) continue;
+        const key = `${EVIDENCE_VIEW}${contract.id}`;
+        if (Object.hasOwn(evidence, key))
+            throw new Error(`evidence key collides with a derived evidence field: ${key}`);
+        input[key] = { ...selectEvidence(evidence, contract.on) };
+    }
+    return input;
+}
+
+/**
+ * The ThinkThen 0.2 `annotate` toolbox for these contracts. It carries no threshold:
+ * Interlinked interprets the raw probabilities with its own band, so ThinkThen's own
+ * answered/unsure verdict is not read.
+ */
+export function questionSet(contracts: DecisionQuestion[]): { questions: Record<string, Json> } {
     const questions: Record<string, Json> = Object.create(null);
     for (const contract of contracts) {
         const question: Record<string, Json> = {
-            [contract.kind]: contract.question,
-            on: contract.on,
+            function: contract.kind,
+            question: contract.question,
+            field: evidenceField(contract),
         };
-        if (contract.options) {
-            question.options = contract.options;
-            question.threshold = band[1];
-        }
+        if (contract.options)
+            question.choices = Object.entries(contract.options).map(([name, description]) => ({
+                name,
+                description,
+            }));
         if (contract.levels) question.levels = contract.levels;
-        if (contract.labels) {
-            question.labels = contract.labels;
-            question.threshold = band[1];
-        }
+        if (contract.labels) question.labels = contract.labels;
         questions[contract.id] = question;
     }
-    return { version: 1, threshold: `${band[0]}:${band[1]}`, questions };
+    return { questions };
 }

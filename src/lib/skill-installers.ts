@@ -6,9 +6,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ClientName } from "./settings.js";
 import {
-    countMatchingSkillFiles,
+    countCurrentSkillFiles,
     errorText,
+    noteRefusedSkillFiles,
     reportLegacySkillTargets,
+    type SkillInspectionLedger,
 } from "./skill-install-inspect.js";
 import {
     assertSafeSkillPath,
@@ -16,9 +18,16 @@ import {
     type ManagedSkillFile,
     removeManagedSkillFiles,
     removeOwnedFilesForClients,
+    SKILL_INSTALL_MANIFEST,
     type SkillInstallManifest,
     writeManagedSkillFiles,
 } from "./skill-install-ownership.js";
+import {
+    hasSkillName,
+    legacyComparableText,
+    recognizedCursorAlias,
+    recognizedLegacySkill,
+} from "./skill-legacy-match.js";
 import {
     buildSkillConfig,
     type RunnerSkillTarget,
@@ -52,56 +61,16 @@ interface SkillInstallationInspection {
     expectedFiles: number;
     currentFiles: number;
     issues: string[];
+    /** Sorted names of the bundled skills with at least one issue or refusal. */
+    staleSkills: string[];
+    /** Existing files a refresh would refuse: `<relPath> (modified|unowned)`. */
+    blockedFiles: string[];
 }
 
 function sourceSkillContent(files: readonly SkillSourceFile[]): string {
     const entry = files.find((file) => file.relPath === "SKILL.md");
     if (!entry) throw new Error("Bundled skill has no SKILL.md entry");
     return entry.content.toString("utf-8");
-}
-
-function normalizedDescription(content: string): string {
-    return content.replace(
-        /^(description\s*:\s*).+$/m,
-        "$1\"__INTERLINKED_MANAGED_DESCRIPTION__\"",
-    );
-}
-
-function hasSkillName(content: string, name: string): boolean {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`^name\\s*:\\s*${escaped}\\s*$`, "m").test(content);
-}
-
-function recognizedLegacySkill(
-    expected: Buffer,
-    name: string,
-    evidencedLegacy?: Buffer,
-): (content: Buffer) => boolean {
-    const expectedText = expected.toString("utf-8");
-    return (content) => {
-        const currentText = content.toString("utf-8");
-        if (!hasSkillName(currentText, name)) return false;
-        return (
-            normalizedDescription(currentText) === normalizedDescription(expectedText) ||
-            evidencedLegacy?.equals(content) === true
-        );
-    };
-}
-
-/** Both headings the pre-native-Cursor installer emitted: the generated
- * teaching-skill alias used `# <name>`, the hand-written enforce alias used the
- * slash-command form `# /<name>`. Recognizing only the first left every
- * `.cursor/rules/enforce.mdc` un-flagged by `doctor` and undeleted by
- * uninstall. Both still require the canonical-path pointer as corroboration. */
-function recognizedCursorAlias(name: string): (content: Buffer) => boolean {
-    const headings = [`# ${name} — Cursor rule alias`, `# /${name} — Cursor rule alias`];
-    return (content) => {
-        const text = content.toString("utf-8");
-        return (
-            headings.some((heading) => text.includes(heading)) &&
-            text.includes(`.interlinked/skills/${name}/SKILL.md`)
-        );
-    };
 }
 
 function oldSkillRelPath(client: ClientName, name: string): string | null {
@@ -131,6 +100,7 @@ function collectLegacyEvidence(
     const canonicalRel = join(CANONICAL_SKILLS_DIR, name, "SKILL.md");
     const canonical = readCandidate(cwd, canonicalRel);
     if (!canonical || !hasSkillName(canonical.toString("utf-8"), name)) return evidence;
+    const canonicalShape = legacyComparableText(canonical.toString("utf-8"));
     const candidates = clients.flatMap((client) => {
         const current = runnerTargets(client, name, config)
             .filter((target) => target.kind === "spec")
@@ -141,12 +111,7 @@ function collectLegacyEvidence(
     for (const relPath of candidates) {
         const runnerCopy = readCandidate(cwd, relPath);
         if (!runnerCopy || !hasSkillName(runnerCopy.toString("utf-8"), name)) continue;
-        if (
-            normalizedDescription(runnerCopy.toString("utf-8")) !==
-            normalizedDescription(canonical.toString("utf-8"))
-        ) {
-            continue;
-        }
+        if (legacyComparableText(runnerCopy.toString("utf-8")) !== canonicalShape) continue;
         evidence.set(canonicalRel, canonical);
         evidence.set(relPath, runnerCopy);
     }
@@ -191,12 +156,7 @@ function specTargetFiles(args: {
         const content =
             file.relPath === "SKILL.md"
                 ? Buffer.from(
-                      renderTargetContent(
-                          args.client,
-                          args.config,
-                          args.target,
-                          args.skillContent,
-                      ),
+                      renderTargetContent(args.config, args.target, args.skillContent),
                   )
                 : file.content;
         return {
@@ -233,7 +193,7 @@ function targetFiles(
         return [
             {
                 relPath: target.relPath,
-                content: Buffer.from(renderTargetContent(client, config, target, skillContent)),
+                content: Buffer.from(renderTargetContent(config, target, skillContent)),
                 skill: name,
                 owner: client,
                 kind: target.kind,
@@ -261,7 +221,7 @@ function legacyTargets(
     const oldRelPath = oldSkillRelPath(client, name);
     if (!oldRelPath) return [];
     const oldTarget: RunnerSkillTarget = { kind: "spec", relPath: oldRelPath };
-    const oldContent = Buffer.from(renderTargetContent(client, config, oldTarget, skillContent));
+    const oldContent = Buffer.from(renderTargetContent(config, oldTarget, skillContent));
     return [
         {
             relPath: oldRelPath,
@@ -445,24 +405,61 @@ export function uninstallEnforceSkill(cwd: string, clients: readonly ClientName[
     return changed;
 }
 
+/** The manifest for the read-only view. An unreadable one is an issue, and
+ * every differing file then reads as unowned, as an install would treat it. */
+function inspectionManifest(cwd: string, issues: string[]): SkillInstallManifest {
+    try {
+        return loadSkillInstallManifest(cwd);
+    } catch (err) {
+        issues.push(`${SKILL_INSTALL_MANIFEST}: ${errorText(err)}`);
+        return { version: 1, files: {} };
+    }
+}
+
+/** Inspect one bundled skill with the same legacy evidence an install would
+ * use, so a predicted refusal matches what `doctor --fix` would do. */
+function inspectOneSkill(
+    cwd: string,
+    clients: readonly ClientName[],
+    name: string,
+    files: readonly SkillSourceFile[],
+    ledger: SkillInspectionLedger,
+): { expected: number; current: number } {
+    const skillContent = sourceSkillContent(files);
+    const config = buildSkillConfig(name);
+    const evidence = collectLegacyEvidence(cwd, clients, name, config);
+    if (clients.length > 0) noteRefusedSkillFiles(cwd, canonicalSpecs(name, files, evidence), ledger);
+    let expected = 0;
+    let current = 0;
+    for (const client of clients) {
+        const specs = targetFiles(client, name, config, files, skillContent, evidence);
+        expected += specs.length;
+        current += countCurrentSkillFiles(cwd, specs, ledger);
+        const legacy = legacyTargets(client, name, config, skillContent, evidence);
+        reportLegacySkillTargets(cwd, legacy, ledger.issues);
+    }
+    return { expected, current };
+}
+
+/** Read-only: compare every runner copy with the bundled source and predict
+ * which files a refresh would refuse to replace. Writes nothing. */
 export function inspectInstalledSkills(
     cwd: string,
     clients: readonly ClientName[],
 ): SkillInstallationInspection {
+    const issues: string[] = [];
+    const ledger: SkillInspectionLedger = { manifest: inspectionManifest(cwd, issues), issues, blockedFiles: [] };
     let expectedFiles = 0;
     let currentFiles = 0;
-    const issues: string[] = [];
+    const staleSkills: string[] = [];
     for (const name of listInstallableSkills()) {
         const files = readSkillSourceFiles(name);
         if (!files) continue;
-        const skillContent = sourceSkillContent(files);
-        const config = buildSkillConfig(name);
-        for (const client of clients) {
-            const specs = targetFiles(client, name, config, files, skillContent);
-            expectedFiles += specs.length;
-            currentFiles += countMatchingSkillFiles(cwd, specs, issues);
-            reportLegacySkillTargets(cwd, legacyTargets(client, name, config, skillContent), issues);
-        }
+        const findingsBefore = issues.length + ledger.blockedFiles.length;
+        const counts = inspectOneSkill(cwd, clients, name, files, ledger);
+        expectedFiles += counts.expected;
+        currentFiles += counts.current;
+        if (issues.length + ledger.blockedFiles.length > findingsBefore) staleSkills.push(name);
     }
-    return { expectedFiles, currentFiles, issues };
+    return { expectedFiles, currentFiles, issues, staleSkills, blockedFiles: ledger.blockedFiles };
 }
