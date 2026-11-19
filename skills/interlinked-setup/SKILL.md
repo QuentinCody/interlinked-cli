@@ -5,61 +5,6 @@ description: "Install, operate, and troubleshoot the Interlinked CLI harness in 
 
 # interlinked-setup — install, operate & troubleshoot the harness
 
-Hook project discovery walks up from the tool call's cwd to a configured ancestor:
-`.interlinked/config.json`, `guard-rules.json`, `harness.pid`, or a socket marks a
-project. A descendant directory containing only hook receipts or prediction state
-does not shadow that ancestor. An explicitly marked nested project retains its own
-identity. If no configured ancestor exists within the bounded walk, the nearest
-`.interlinked/` remains the fallback; directory presence alone does not prove a live daemon.
-
-The local guard-prediction oracle defaults to `shadow`, independently of the
-optional Supermodel graph protocol. Shared `.interlinked/config.json` accepts
-`harness.guard_prediction.mode: "enforced" | "shadow" | "off"`. Use
-**interlinked-harness** for exact prediction/reconciliation receipts and limitations.
-Receipts are required only in explicit enforced mode. Edit-time function token,
-cyclomatic and cognitive cap crossings are advisory by default; shared
-`harness.edit_metrics.mode: "enforced"` restores refusal, while `"advisory"`
-states the default explicitly. Cap values and protected baselines do not change.
-Native cold fallback can run this AST oracle; standalone generated hooks need the
-daemon and report NOT CHECKED without it. Physical file size is advisory in both
-warm and cold paths; rebuilding must not revive the old line-count block.
-
-Claude compiler batching activates only after a session sends native `PostToolBatch`.
-After daemon restart, edits use the ordinary compiler path until that boundary is
-observed again; previously queued work remains durable and is checked at Stop/commit.
-Keep the installed PostToolBatch hook current. It delivers repair context rather than
-cancelling the agent loop for ordinary compiler findings. See **interlinked-verify**.
-
-Skill refresh preserves modified installed copies. If they still describe sub-cap
-complexity slew blocks, compare them with canonical `skills/*/SKILL.md`, retain local
-customizations/backups, and reconcile deliberately. Restarting a daemon cannot erase
-guidance already loaded into a model's conversation.
-
-Non-gating native hook commands use a compact missing-runtime diagnostic and exit 1;
-gating hooks retain the self-contained fail-closed fallback and exact repair allowlist.
-After rebuilding, use `interlinked install-hooks --refresh --preserve-mode` to refresh
-installed command text, then verify `interlinked harness status --json` shows the serving
-build. Keep PostToolUse scoped to mutating tools; do not add PostToolUseFailure duplicates.
-
-Provider qualification must exercise native edit routes, advisory file-size delivery,
-and completion after ordinary Stop advisories. Claude and Codex keep those advisories on
-stderr; explicit repair blocks still request continuation. Codex rewrites include
-`permissionDecision: allow`. Retain registrations and native transcripts: an encoded
-response alone does not prove native enforcement.
-
-Before behavioral qualification, use `interlinked tests readiness <language> --json`, then
-run a real project suite. Python readiness probes the selected environment for pytest,
-pytest-cov and coverage; it does not install or infer passing tests. The hook installer also
-ignores the named generated payload-key, enforcement-status and coverage-runtime-estimate
-outputs. These ignore entries never exempt policy files or make runtime-input caching sound.
-
-For an externally frozen policy, keep the policy files on read-only supervisor mounts and
-pin their parent directories as mount points; a read-only file under a replaceable parent is
-insufficient. Keep daemon sockets, atomic receipt writes, proposals and intended ratchet state
-writable. Qualify CLI mutations, direct replacement, local overrides and daemon restart under
-the actual non-root agent identity before claiming immutable effective policy. A same-UID
-daemon and `--by` labels do not provide an authorization boundary.
-
 Interlinked is a **local, offline-first guard layer** for AI coding agents. Repository
 config, logs, and daemon state live under `<repo>/.interlinked/`; installation also writes
 selected providers' settings, managed bridge files, and installed skill directories at
@@ -151,7 +96,10 @@ ladder. `custom` applies nothing.
 
 **Trigram indexing is opt-in:** `enable` installs hooks and starts the daemon
 without building the repository's search index. Run `interlinked index build`
-to enable grep acceleration; an existing index continues to load normally.
+to enable grep acceleration. Its `--max-file-size` accepts a nonnegative safe
+integer and `--stop-threshold` accepts a finite ratio between zero and one.
+Explicit malformed numeric values fail before indexing. An existing index
+continues to load normally.
 Keeping the repository scan out of onboarding allows setup to finish on large
 repositories without exhausting the CLI's heap. `adopt` still builds the index
 and snapshots existing manifests/lockfiles into the install allowlist
@@ -173,6 +121,10 @@ enforcement mode exits nonzero before config, hook, manifest, stand-down, binary
 daemon, or login writes.
 Only an omitted option receives its documented default.
 
+`init --dry-run` previews hooks and config without installing, logging in, onboarding,
+or starting the daemon. `init --sync-mode` accepts exactly `realtime`, `local`, or
+`manual`, including during preview. An explicit empty value is invalid.
+
 ```bash
 interlinked enable --agent my-bot                 # detects clients, starts daemon
 interlinked enable --clients claude --dry-run      # preview without writing
@@ -183,45 +135,6 @@ interlinked install-hooks --runner claude-code --scope project
 > not a PATH probe for the binary. Codex automatically detects skill changes; if an active session
 > does not, restart it. Copilot needs `/skills reload` to pick up skill changes. OpenCode/Pi native
 > skill copies live under `.opencode/skills/` and `.pi/skills/`.
-
-## Native shell sandbox posture
-
-For command-network failures, run `interlinked network check <http(s)-endpoints...> --json`
-inside the affected agent shell. It makes bounded, credential-free HEAD requests to the
-origins with curl, honors host proxy settings, and never follows redirects or performs
-inference. HTTP 4xx/5xx from the service proves transport access, not service health or
-authentication. Recognized proxy denials remain failures. The report records the current
-thread/runtime markers; success in a host terminal does not attest another agent session.
-DNS, OS permission, connection, timeout, TLS and missing-curl failures stay distinct.
-
-Prepare a reusable Codex profile with:
-`interlinked network codex-profile research --allow http://127.0.0.1:11434 https://api.typesafe.ai`.
-The command previews by default; `--write` creates `$CODEX_HOME/research.config.toml`
-(default `~/.codex`). It preserves existing differing files and rejects profile-file
-symlinks. The profile extends `:workspace`, enables hooks and the native network proxy,
-and allows only the supplied exact host rules (all ports for each host). No broad local
-network exception or approval bypass is added. Other loaded configuration and managed
-requirements can still affect the effective policy. Current Codex config-file profiles
-and permission-profile support are required; validate against the installed CLI's help.
-
-Select it with `codex --profile research`, or `codex --profile research resume <session-id>`.
-Creating it does not change a running session or the user's default config. Legacy
-`sandbox_mode`/`sandbox_workspace_write` settings and `--sandbox` can override profiles;
-review those conflicts on the host instead of silently rewriting them. Managed requirements
-remain authoritative. Recheck access from the resumed agent before claiming it unblocked.
-Hook installation, daemon restarts and clearing Interlinked state cannot lift an OS sandbox.
-See https://learn.chatgpt.com/docs/permissions for the native permission contract.
-
-Enable each client's strictest usable native sandbox separately; Interlinked hook installation does
-not turn the provider sandbox on. Bash PreToolUse reports `[interlinked:sandbox]` as `attested`,
-`configured`, `disabled`, or `unknown`. Treat `configured` as weaker than per-call attestation because
-CLI/profile overrides can change the active call. Explicit Codex escalated/`danger-full-access` calls
-and Claude unsandboxed settings are reported as disabled evidence.
-
-Native workspace-write sandboxes constrain host/network reach but still allow real writes inside the
-project. They complement Interlinked's post-call filesystem ChangeSet and Stop residue backstop; they
-do not provide rollback or replace the deterministic PreToolUse guards. See **interlinked-harness**
-for interpreting the warning.
 
 ## Operating the daemon
 
@@ -265,6 +178,7 @@ Use `data health`/`data status` for producer coverage and index freshness; load
 | `interlinked harness status [--json]` | **Liveness** (three states, below) + socket, RSS, mode, orphan count, build staleness. `--json` adds `liveness` (is anything SERVING — raw StatusQuery or a framed `daemon.health`), `socket_answered`, and `pid_running` (alias of `running`; BOTH mean only "the legacy `harness.pid` names a live process" — a framed-only daemon can be `liveness: "listening"` while `running`/`pid_running` are false). Build staleness ignores test files (`*.test.*`, `__tests__/`) — they are not bundled into the daemon. |
 | `interlinked daemons [--cleanup]` | List **all** per-session daemons; `--cleanup` purges dead-PID records. |
 | `interlinked harness reap [--force] [--all]` | List (default) or kill orphan daemons. |
+| `interlinked harness clean [--json]` | Remove stale socket and PID records after confirming the socket has no listener. A listening or ambiguously occupied socket refuses cleanup even when its PID record is missing or stale. |
 
 ```bash
 interlinked harness status --json      # is it up? which mode?
@@ -303,245 +217,6 @@ diagnostics, and repairs proceed through the inline fallback while deterministic
 operations can still be refused. Status/start/restart/doctor/disable and exact preserve-mode hook
 refresh commands are excluded from auto-recovery so the hook never races the operator.
 
-### Restart defers to an in-flight start, and backs off under churn (2026-08-22)
-
-`interlinked harness restart` used to stop-then-start unconditionally, so two overlapping
-restart triggers (a build-refresh handover, an rss-ceiling recycle, a second manual restart)
-could kill a successor the other had just spawned, before it finished binding. Now:
-
-- If a start is already in flight (the daemon is mid-boot), `restart` waits for its socket
-  instead of killing it — printing "already in flight" and doing nothing further once it
-  answers.
-- If too many restart attempts (any trigger) went unresolved in the last ~10 minutes, `restart`
-  refuses and prints "Too many restart attempts … backing off" instead of adding to the churn.
-  Check `.interlinked/daemon-events.jsonl` for the pattern before retrying by hand.
-
-Neither path is silent: every deferral or backoff writes a `handover` row to the daemon ledger
-(`daemon-ledger.ts` / `handover-churn.ts`), so `daemon-events.jsonl` always explains what
-`restart` actually did.
-
-Since 2026-08-29 every handover attempt is one ID across the whole chain: the parent daemon
-writes `requested` → `launcher_spawned` (the restart CLI was launched), the restart CLI
-adopts the id and writes its own `requested` intent, the actual daemon spawn writes the
-COUNTING `daemon_spawned` row, and the successor's `listening` row acknowledges that exact
-id — order-independent. Terminal rows (`refused` on backoff/deferral, `spawn_failed`,
-`no_artifact`, `start_failed`, and a `startup-failed` exit stamped with the id) resolve the
-attempt the same way. Only an unresolved `daemon_spawned` counts toward the backoff;
-`explicit-restart` / `explicit-stop` / deferral rows are audit facts and never count. A
-manual `interlinked harness start` (id-less `listening`) still pays off one preceding
-unresolved attempt. If the backoff refuses `restart` during a genuine outage,
-`interlinked harness stop` + `interlinked harness start` is the ungated recovery path.
-
-### Over the memory ceiling, the daemon stops before replacement (2026-08-31)
-
-Interlinked CLI's proposed design baseline is an 8 GB whole host, shared with the
-editor, browser and coding agents. The operator plan is
-`docs/plans/8gb-host-resource-plan.md` (private operator material, absent from public clones).
-Its aggregate budgets and qualification criteria are not shipped defaults or a claim of
-8 GB readiness. Keep the current limits below until retention improvements and constrained
-workflow measurements justify replacing them; lowering heap flags alone can cause restart loops.
-
-SessionEnd jobs now run through a detached supervisor with a 128 MiB V8 heap cap.
-The supervisor holds a per-project/job lease through child cleanup, including when the
-daemon exits, and admits only one background runner per host at a time.
-Scheduled foreground Vitest runs and verify share this host slot. A waiting
-foreground request prevents another background admission; the supervisor's monitor
-aborts the active background child group so foreground work can proceed. The
-daemon's async project-test and legacy affected-test processes share this slot too;
-outer project admission does not exempt them from host admission. Their Node heap is
-bounded at 768 MiB and `VITEST_MAX_WORKERS=1` bounds compatible Vitest runners.
-Independent
-`npm test` processes remain outside this admission system. A duplicate background job
-is skipped; a different job waits at most two minutes. Each admitted runner has a ten-minute
-deadline and a 768 MiB Node V8 heap cap. Fuzz and benchmark commands receive an explicit
-`--maxWorkers` value, rechecked after waiting for admission.
-
-Admission respects physical RAM and any process/container limit. On an unconstrained Mac,
-available memory is estimated from free plus inactive pages (`vm_stat`), with native
-`kern.memorystatus_vm_pressure_level` required to be normal. Node's free-page reading alone
-does not account for reclaimable cache. Warning/critical pressure or unavailable telemetry
-defers work. Samples are cached for at most 500 ms and commands have bounded time/output.
-Managed test and background
-runners budget at most 4 GiB or one quarter of total memory, whichever is smaller,
-and preserve at least 1 GiB or one eighth of total memory as host
-headroom. Worker planning budgets 1 GiB for coordination plus 1 GiB per worker. Thus an otherwise idle
-8 GiB machine gets at most one worker and a 16 GiB machine at most three. Missing or
-insufficient available-memory readings defer work. A 500 ms monitor measures runner and descendant
-RSS with bounded, non-overlapping `ps` samples. It aborts the child process group when the runner
-exceeds its budget, headroom disappears, or telemetry fails. Scheduled foreground tests use this
-monitor too, and their coordinator receives a 1536 MiB V8 heap ceiling. Interruption retains
-the pending request and produces no reusable pass. Timeout and termination reap the child process
-group before releasing admission. This is sampled protection, not an OS-enforced RSS limit:
-allocations can overshoot between samples, descendants that escape the process group are not
-contained, and unsupported `ps` telemetry interrupts the run. Public `verify` and `tests`
-CLI entry points additionally run under a separate supervising process, so a busy CLI event
-loop does not prevent sampling. The child retains its normal project/host admission and
-consumes the private parent marker before dispatch and evidence capture. These heavy CLI
-commands wait within their command deadline, for at most ten minutes of admission, for a
-heavy budget; they do not silently substitute a 1 GiB light budget. Admission and execution
-share the deadline. Interrupted or unavailable runs exit 75 without a verdict.
-These controls do not change the daemon's limits below or govern commands
-launched independently by the user. `INTERLINKED_DISABLE_SESSION_END_JOBS=1` still opts out.
-
-Indexed coverage checks and warm runs install a scoped cancellation owner through
-discovery, capture and promotion. SIGINT/SIGTERM abort their children and prevent a
-passing result from incomplete evidence. Lightweight status/help commands retain their
-normal execution. The repository's optional post-push index comparison is default-off;
-enable it explicitly with `INTERLINKED_PRE_PUSH_COVERAGE_COMPARE=1` when collecting
-comparison evidence. See **interlinked-quality-gates** for its cost and limitations.
-
-In this repository, pre-push heavy commands also use the host lane through
-`scripts/run-resource-bounded.ts`. The supervisor retains ownership through child cleanup,
-and heavy commands wait at most ten minutes for admission so an existing five-minute
-daemon push check can finish first. Light diagnostics retain a five-second admission wait.
-The supervisor
-streams output, gives a heavy command's Node heap 80% of the admitted tree budget
-(3276 MiB at the 4 GiB ceiling; light commands 512 MiB), and limits common native thread
-pools. The heap share accommodates the repository's stable TypeScript compiler (about
-2.9 GB of heap, measured 2026-10-02, past the former fixed 2560 MiB); the 4 GiB aggregate
-tree ceiling remains enforced independently by the resident-memory watcher.
-Resource interruptions exit 75 and block the push. For small diagnostic/test batches,
-`node --max-old-space-size=128 --import tsx scripts/run-resource-bounded.ts --light <command> [args...]`
-uses a stricter 1 GiB tree ceiling, a 512 MiB Node heap ceiling, and 2 GiB of host headroom.
-It cannot run an oversized check successfully: the same monitor interrupts it. Pre-push
-keeps the heavy profile and its full exact-revision test/coverage contract.
-
-The default daemon V8 heap cap is 1536MB and the hard RSS recycle ceiling is 2048MB.
-Repeated Gitleaks recovery scans are bounded to two Go execution threads (or one
-when `GOMAXPROCS=1`). Interrupted scans remain NOT CHECKED and are not retried for
-each receipt batch within the same daemon-owned recovery job. The idle drain does
-not relaunch an unchanged completed plan, even after restart. Inspect
-`interlinked harness coverage status --progress --json`; after resolving a tool or
-capacity failure, explicitly retry with `interlinked harness coverage verify --json`.
-New observed file versions can trigger another automatic plan. No pending evidence
-is discarded by these limits.
-
-`INTERLINKED_HARNESS_HEAP_MB` is accepted only when it is finite and at least 1; fractional
-values are floored, and every invalid value falls back to 1536. The CLI, hook self-heal path,
-and generated runtimes use that same parser. At the RSS
-ceiling the daemon does **not** spawn a successor beside its already-bloated heap and does not
-keep serving indefinitely. It first holds the project startup mutex under its own PID, then
-shuts down gracefully. Cold hooks continue their bounded deterministic guards, see the live
-owner during the short teardown, and do not spawn an overlapping daemon; after the old PID
-exits, dead-owner reclamation opens the same single-flight self-heal path. A valid
-`interlinked disable --reason …` stand-down marker suppresses that recovery entirely.
-
-The dominant measured spike was an append-only activity log that had grown past 1GiB and was
-being read into one JS string on daemon sequence checks. Live activity, daemon-ledger, and
-timeline-dedup readers now read byte-bounded tails directly. Explicit history/backfill commands
-may still scan complete logs; they are operator work, not the per-hook daemon path.
-
-Idle and heap-pressure shrink now drops every reconstructible PostTool cache together: mutation
-manifests, per-file external-check diagnostics, the TypeScript overlay service, and the trigram
-index's dirty layer. This bounds retained state from long multi-file/parallel-agent sessions;
-the next request rebuilds only what it needs.
-
-### A missing or broken hook binary degrades reads and fails closed on writes (2026-08-31)
-
-The installed hook command accepts its baked binary only when it is a regular, non-empty file.
-When it is gone, empty, or fails to return an intentional allow/block status (unbuilt clone,
-moved checkout, interrupted build, corrupt JavaScript), its self-contained wrapper still parses
-the provider's native tool identity. Claude/Codex reserved read builtins and Cursor's dedicated
-`beforeReadFile` event proceed with exit 0 and a degraded warning. Ambiguous generic names on
-Copilot, Gemini, Cursor `preToolUse`, and MCP/custom events do not earn that exception. Mutating
-tools and unknown future tool names receive the provider's native deny response (not a fictional
-uniform exit-code contract), with the repair instruction on stderr. A shell command is never
-inferred read-only from command text, even when it looks like `cat` or `git status`; only the exact
-operator commands below escape. Claude's native
-`WorktreeCreate` also stays fail-closed. Non-gating events normalize runtime failures to exit 1
-(a logged failure that does not claim a block).
-
-The standalone generated runtime has the same terminal boundary for the supported pair. Once a
-parseable Claude/Codex `PreToolUse` or `PermissionRequest` payload identifies the native event, an
-unexpected top-level exception emits that event's exact deny envelope; a non-gating exception
-emits no stdout and exits 1. Provider stdout is staged until the surrounding audit work succeeds,
-so a late exception discards the staged object before the terminal response and can never produce
-partial or duplicate JSON. The installed foreground wrapper remains the outer fail-closed boundary
-for experimental providers. Empty or malformed stdin cannot identify a native event and is treated
-as an invalid hook invocation rather than guessed into a provider decision.
-
-The foreground fail-closed wrapper keeps exact operator recovery commands executable before it
-invokes even a present runtime: bounded `harness start` / `restart`, `harness status [--json]`,
-read-only `doctor [--json]`, non-destructive `disable`, and
-`interlinked install-hooks --refresh --preserve-mode`. Exact `node dist/index.js` and
-`npx tsx src/index.ts` forms are recognized too; an arbitrary absolute `*/dist/index.js` is not.
-The two source-build spellings (`npm run build` and `node scripts/build-atomic-cli.mjs`) are a
-checkout-local exception only: the current directory must be the same checkout that owns the
-baked `dist/hook-entry.js` path, its package must be named `interlinked-cli`, and it must carry
-the canonical build declaration and script file. An application repo does not bypass its
-installed hook merely because it happens to use either build spelling. This prevents a missing or stale runtime
-from locking out its own diagnosis and repair. It is deliberately not a general shell allowlist:
-prefixes, suffixes, extra flags outside the bounded command grammar, pipes, and compound commands
-still run the normal hook and remain blocked. A matching string in a non-shell payload also runs
-the normal hook; warn-open events never get this escape. If neither the installed command nor a
-built checkout is available, reinstall or rebuild first, then run the preserve-mode refresh.
-
-Claude `PreToolUse` and `PermissionRequest` are supported. On PermissionRequest, Interlinked
-emits deterministic denies with Claude's dedicated
-`hookSpecificOutput.decision = { behavior: "deny", message }` object; that is distinct from
-PreToolUse's `permissionDecision`. Allow/ask abstain on stdout so Claude's configured policy and
-native user prompt retain authority. Non-blocking PermissionRequest diagnostics stay on stderr
-because that event does not accept generic `additionalContext`. Codex follows the same
-abstain-on-allow/ask rule through its provider-specific PermissionRequest response path.
-
-Codex `additionalContextLimit` applies only to `SessionStart`, `UserPromptSubmit`,
-`PreToolUse`, `PostToolUse`, and `SubagentStart`. Permission decisions, Stop/SubagentStop
-continuation reasons and compaction diagnostics use separate output channels. Installing
-limits on those events causes Codex configuration warnings. Both install paths omit them;
-reinstalling also removes obsolete limits from Interlinked-owned handlers while preserving
-foreign hooks. Use the manifest-scoped refresh below for an existing adapter install.
-Changed project hook definitions may need renewed review in Codex `/hooks`.
-Stop/SubagentStop continuation is emitted only for an explicit harness `block`.
-Allowed or approval-requested diagnostics stay on exit-0 stderr without restarting
-the agent; Stop has no approval channel. Updating this translation requires the
-compiled hook runtime to be rebuilt or upgraded, not a hook-matcher change.
-
-Claude's installed `WorktreeCreate` hook is a deliberate hard stop: that native event replaces
-Claude's default Git behavior, and Interlinked fails it without returning a path. Across every
-client, the shared shell guard also blocks `git worktree add`; `list`, `remove`, and `prune`
-remain available. Interlinked uses a ban rather than a race-prone concurrent-count cap.
-
-Stale installed hooks (the pre-2026-08-28 SILENT fallback, a deregistered event entry, an old
-binary path) are repaired with `interlinked install-hooks --refresh --preserve-mode` — the
-hooks-only path (added 2026-08-29, hardened 2026-08-30). It re-renders ONLY the
-Interlinked-owned entries already in `installer-manifest.json` at their recorded scopes. A
-Codex install made before the 12-event `Interrupt` catalog also needs this refresh, followed by
-review in Codex `/hooks`: adding the event changes the definition hash and therefore trust state.
-A corrupt manifest refuses with the bytes preserved (strict per-row validation). Restore a
-trusted backup or repair it to the valid schema; do not delete it and then run refresh, because
-the missing ownership record also refuses and cannot identify which hooks are Interlinked-owned. Every file the
-run can touch — project AND $HOME-scope settings, Codex's config.toml, the manifest — is
-snapshotted (bytes + file mode) first; any install failure, any skipped target, or any failed
-final-state verification restores the whole snapshot and fails. That rollback covers HANDLED
-failures only — an OS crash mid-write cannot run the in-memory restore. Verification is
-STRUCTURAL (shared with the doctor `install drift` check): each expected hook entry exactly
-once at its native JSON path, any Interlinked-owned command outside the adapter's current
-render fails (the canonical ownership recognizer, so old binaries and legacy `.mjs` installs
-are caught whatever their quoting), and Codex's `[features] hooks = true` via the table-aware
-reader — duplicate `[features]` tables or duplicate assignments fail. The manifest itself is
-strictly validated: unknown runners, invalid scopes, prototype-chain path segments, duplicate
-runner rows, and any settings path that does not match the adapter's own derivation all read
-as CORRUPT, and install/uninstall/refresh refuse rather than overwrite the evidence.
-Uninstall removes hooks by owned-entry recognition, never by stored array index — a user hook
-added after install is safe wherever it sits. Ownership is shell-position parsed. An adapter
-entry needs the exact `hook-entry.js` / `interlinked-hook` basename, a registered `--runner`,
-and a present `--event`; legacy `.mjs` ownership needs the reserved
-`.interlinked/hooks/interlinked-activity.mjs` path or its exact generated assignment form. A
-command that only prints, comments on, looks like, or invokes a user script with the same basename
-without those required shapes is not claimed. Project attribution reads the invoked script path, not
-text elsewhere in the command. It NEVER writes enforcement mode, cloud
-config, or guard rules. Do NOT repair with a plain `interlinked enable` or a plain
-`install-hooks` — both also select and write an enforcement mode (the `--mode` default is
-"balanced"). `--dry-run` previews; a second run reports `unchanged`.
-
-A normal install replaces ownership only after the adapter finishes its semantic post-install
-step. A selected runner that is skipped (for example, malformed project settings) cannot purge a
-working hook at another scope. If a replacement's post-install step fails, its attempted settings
-file is restored and the prior one-row manifest entry remains authoritative; a first-time failure
-has no prior state to restore, so its partial hook and failed manifest row remain together for
-`uninstall-hooks` to remove. In either case the command reports failure rather than claiming the
-runner is ready.
-
 ## Diagnosing problems
 
 Project E2E `interlinked tests e2e doctor` retains report version 1 and adds optional
@@ -552,93 +227,6 @@ independently. POSIX command inspection checks regular executable files under th
 PATH/cwd. A same-suite artifact expected after preparation is a warning, not verified
 availability; preparation commands never receive that exemption. Runtime placeholders or
 unsupported platform lookup stay unverified. The doctor does not execute preparation.
-
-### Hook capability inventory and experimental clients
-
-`interlinked harness capabilities --json` includes the sourced ecosystem catalog,
-adapter event/control declarations, installer manifest, last provider emission and
-filesystem coverage state. `selected` describes the adapter's subscription policy;
-inspect the manifest to establish installation. An emitted response or matching
-definition hash does not certify that the provider enforced it. Native enforcement
-remains `unmeasured` until a provider/version/mode conformance run establishes it.
-
-Factory Droid (`factory-droid`), Windsurf (`windsurf`), Google Antigravity
-(`antigravity`) and Crush (`crush`) are explicit experimental adapters through
-`interlinked install-hooks --runner <id>`. They require a built hook-entry runtime.
-They are separate from the seven `enable --clients` integrations and do not expand
-skill installation targets. Their command wrappers currently target POSIX shells;
-Windows shell behavior and native headless behavior are not certified. Antigravity
-uses `.agents/hooks.json`, separate from Gemini CLI's `.gemini/settings.json`.
-
-Claude FileChanged installs without a static matcher. SessionStart, CwdChanged and
-FileChanged responses publish the complete current `watchPaths` list. FileChanged
-is an observation after a write; it cannot deny or undo that write. PostToolBatch
-can cancel the loop before the next model request. Codex does not acquire either
-native event merely because it uses Claude-shaped payloads; daemon filesystem
-observation supplies a separate local fallback. Expanded boundary handling requires
-the compiled runtime. The adapter installer refuses a generated compatibility script
-instead of registering events that it cannot serve. Build the checkout and refresh
-hooks; previously installed legacy scripts retain their older compatibility behavior.
-
-The public `interlinked-cli/hook-bridge` export provides an application-owned Think
-tool bridge and a Durable Object storage journal adapter. It is not installed with
-coding-client command hooks. See the repository's `docs/hook-normalization.md` for
-its admission, replay and deployment contract.
-
-`interlinked doctor` is the first stop. It runs local + system + server checks and **exits
-non-zero if any check fails**. `--fix` repairs common drift (regenerates a drifted hook
-script, safely refreshes Interlinked-owned skill copies, strips malformed permission rules,
-migrates legacy config).
-
-```bash
-interlinked doctor            # diagnose
-interlinked doctor --fix      # auto-repair what it safely can
-interlinked context --json    # show the effective merged config
-interlinked env               # list supported env vars + current values
-```
-
-**What doctor's client rows do and do not prove (2026-08-30).** Doctor checks the hook-config
-location for **every** client in the settings registry — Claude Code, Codex, Copilot, Gemini,
-Cursor, OpenCode, and Pi — reading each path from that one registry instead of restating it (the hardcoded copy it
-replaced pointed Codex at `.codex/config.toml`, which holds only the feature flag, so doctor
-warned that every CORRECT Codex install was missing its hooks). Consequences worth knowing:
-
-- **Codex gets three rows, deliberately.** The hooks row reads `.codex/hooks.json`; a second row
-  reads the `[features] hooks = true` gate in `config.toml`, **table-aware** — a `hooks = true`
-  under some other table does not count. Installed hooks with the flag off are reported as
-  INERT, not missing, because those are different repairs. The third row checks
-  `.interlinked/hook-runtime.json`: it passes only after Codex executes the current
-  `hooks.json` definition hash. If it warns, open `/hooks`, review the definition, and run a
-  hooked action.
-- **The flag writer canonicalizes to a single `hooks` key.** Whatever mix of `hooks` /
-  `codex_hooks`, true / false, duplicated or commented, `[features]` already holds, the writer
-  leaves a single `hooks = true` — comments, unrelated tables and the file's line endings intact.
-  Duplicate TOML keys are a parse error, so the old "add a canonical key beside what we found"
-  behavior could report a successful migration for a config Codex then refused.
-- **A failed post-install now fails the install.** Codex is the one runner whose hooks.json is
-  inert without a second write, so when that write throws, `install-hooks` reports `ok: false`,
-  lists the runner under `post_install_failures`, marks the manifest entry `post_install:
-  "failed"`, exits non-zero, and `enable` reports the client as not installed. It used to log one
-  stderr line and report success.
-- **A passing hooks row means the config is present, not that execution is verified.** The
-  Codex execution row is the stronger live proof for the current definition. Codex installs all
-  twelve native events from the shared capability catalog. Copilot and Gemini adapter
-  normalization and the Cursor duplicate-invocation question are open work; treat those three
-  runners as unproven. OpenCode/Pi have managed-bridge execution tests, but their narrower native
-  APIs still make them experimental rather than Claude/Codex-equivalent.
-
-Likewise `enable --dry-run`'s per-client **event counts are computed from the adapter that
-performs the install** (they were prose literals that had drifted, so the preview promised
-numbers the install did not deliver). They count REGISTRATIONS, not verified provider
-capabilities.
-
-What "healthy" looks like in `doctor`: config dir + both config files present, hook script
-present, per-client "Hooks installed", and **Harness server: Running (PID …) -- socket
-answering**. A zombie is a **`fail`** here, never a pass. Hook detection shares one ownership
-predicate with the installers, so an adapter (`hook-entry.js`) install is recognised as
-installed rather than reported missing. A manifest-tracked hook binary that no longer exists is
-a **`fail`**, even when the settings document still has the expected entries. A missing token on a non-localhost server is a `fail`;
-on localhost it is only a `warn` (dev mode allows unauthenticated).
 
 ### When the daemon will not stay up
 
@@ -660,6 +248,8 @@ file is cleared and retried.
 **Dev loop after editing the CLI source:** `interlinked reload` rebuilds the CLI in its own
 checkout, refreshes this repo's hooks and deployed skills, and restarts the daemon **only if
 something the daemon executes changed**.
+If the nested restart fails, reload exits nonzero and reports `daemon.restarted:false`
+in JSON output. Inspect the restart diagnostic before retrying.
 
 Step budgets are unlimited at every sensitivity level. After reload, each session's next
 event refreshes its stored limit from current policy, including sessions restored from old
@@ -680,7 +270,59 @@ publication can therefore leave harmless new immutable files in `dist/`, but it 
 entry generation in place. Fix the reported error and retry instead of reconstructing `dist/` by
 hand.
 
+## Native shell sandbox posture
+
+For command-network failures, run `interlinked network check <http(s)-endpoints...> --json`
+inside the affected agent shell. It makes bounded, credential-free HEAD requests to the
+origins with curl, honors host proxy settings, and never follows redirects or performs
+inference. HTTP 4xx/5xx from the service proves transport access, not service health or
+authentication. Recognized proxy denials remain failures. The report records the current
+thread/runtime markers; success in a host terminal does not attest another agent session.
+DNS, OS permission, connection, timeout, TLS and missing-curl failures stay distinct.
+
+Prepare a reusable Codex profile with:
+`interlinked network codex-profile research --allow http://127.0.0.1:11434 https://api.typesafe.ai`.
+The command previews by default; `--write` creates `$CODEX_HOME/research.config.toml`
+(default `~/.codex`). It preserves existing differing files and rejects profile-file
+symlinks. The profile extends `:workspace`, enables hooks and the native network proxy,
+and allows only the supplied exact host rules (all ports for each host). No broad local
+network exception or approval bypass is added. Other loaded configuration and managed
+requirements can still affect the effective policy. Current Codex config-file profiles
+and permission-profile support are required; validate against the installed CLI's help.
+
+Select it with `codex --profile research`, or `codex --profile research resume <session-id>`.
+Creating it does not change a running session or the user's default config. Legacy
+`sandbox_mode`/`sandbox_workspace_write` settings and `--sandbox` can override profiles;
+review those conflicts on the host instead of silently rewriting them. Managed requirements
+remain authoritative. Recheck access from the resumed agent before claiming it unblocked.
+Hook installation, daemon restarts and clearing Interlinked state cannot lift an OS sandbox.
+See https://learn.chatgpt.com/docs/permissions for the native permission contract.
+
+Enable each client's strictest usable native sandbox separately; Interlinked hook installation does
+not turn the provider sandbox on. Bash PreToolUse reports `[interlinked:sandbox]` as `attested`,
+`configured`, `disabled`, or `unknown`. Treat `configured` as weaker than per-call attestation because
+CLI/profile overrides can change the active call. Explicit Codex escalated/`danger-full-access` calls
+and Claude unsandboxed settings are reported as disabled evidence.
+
+Native workspace-write sandboxes constrain host/network reach but still allow real writes inside the
+project. They complement Interlinked's post-call filesystem ChangeSet and Stop residue backstop; they
+do not provide rollback or replace the deterministic PreToolUse guards. See **interlinked-harness**
+for interpreting the warning.
+
 ## Config & environment
+
+`interlinked env` masks token values in normal, short and full human output.
+`env --json` exports the current values for machine consumption.
+`interlinked completions bash|zsh|fish` derives commands, nested subcommands,
+aliases and visible flags from the registered CLI. Regenerate the shell script
+after CLI updates. Bash and zsh support evaluation of the emitted setup script,
+and fish supports piping it to `source`.
+
+`interlinked sponsor enable --spinner --json` emits one JSON document on stdout,
+including when the spinner verb is installed. Human diagnostics remain on stderr.
+Sponsor disable retains managed spinner ownership when settings cleanup fails,
+so a later retry can remove those entries. That partial cleanup exits nonzero
+and JSON includes `cleanup_error` while the sponsor row is disabled.
 
 - **`.interlinked/config.json`** (committed): `server_url`, `default_project`, `mode`
   (operational tier), `skip_paths`, `pii_patterns`, nested `harness` feature flags.
@@ -726,13 +368,23 @@ interlinked attach --agent my-bot --auto              # link identity + workspac
 interlinked logout [--all]
 ```
 
-- **localhost/127.0.0.1 = dev mode → auth skipped** (`setup`/`init` skip login for local servers).
+- `setup` skips remote login and onboarding for resolved `localhost`, `127.0.0.1`,
+  and IPv6 loopback servers. An explicit manual token still requests login.
+  `init` also skips login for localhost and 127.0.0.1 servers.
 - Token resolution: CLI token in `config.local.json` → auto-refresh → Claude Code
   credential fallback (`~/.claude/.credentials.json`).
 - Sync modes: `realtime` (default; per-event post + session-end batch), `manual`
   (per-event only), `local` (no server posts at all).
+- `login --token` and `setup --token` reject an empty or whitespace-only value before
+  creating config or starting authentication. `logout --all` also clears an agent handle after the
+  credentials have already been removed.
 
 ## Turning it off
+
+`harness stop` exits nonzero when a verified daemon survives shutdown.
+`disable --uninstall` confirms shutdown through the stop result, legacy process
+state and daemon socket before removing hook or config ownership. A failed
+confirmation preserves those files for inspection and retry.
 
 | Command | Effect |
 |---|---|
@@ -740,6 +392,11 @@ interlinked logout [--all]
 | `interlinked disable --uninstall [--keep-config]` | Destructive teardown: removes hooks + the installed skills **and deletes the `.interlinked/` config dir** — pass `--keep-config` to keep the config. |
 | `interlinked reset --force` | **Nuclear**: delete the entire `.interlinked/` dir and strip hook entries. Irreversible; `--force` required. |
 | `interlinked uninstall-hooks` | Remove **only** what `install-hooks` recorded in its manifest. |
+
+`uninstall-hooks --runner` rejects empty and unknown selections before removal.
+Omitting the filter or supplying `all` selects every manifest runner.
+`clean` previews by default. `clean --force` performs cleanup, and an explicit
+`--dry-run` preserves preview behavior when both flags are supplied.
 
 > A valid stand-down marker suppresses hook self-heal. If `disable` reports the old daemon is
 > still running, run `interlinked harness stop`: that already-running process may continue to
@@ -776,15 +433,23 @@ interlinked logout [--all]
   resolves to (typically a `~/.local/bin` symlink), not the current repo.
 - `--json` support is per-command; unknown flags error. `doctor` takes only `--fix`/`--json`.
 
+## Permission learner behavior
+
+Repeated tool observations now generate bounded, conservative proposals only. The learner does not edit `.claude/settings.json` or expand guard permissions. Existing permission entries are left intact; repeated use, a non-blocked hook, and a proposal are not approval. No automatic migration or daemon restart is required by the schema. A running daemon continues using its loaded code until the normal explicit reload workflow.
+
+Use `interlinked harness explain <topic> --client claude --json` (or another supported client) to inspect implementation, local policy, declared client capability and retained observations separately. Registration does not prove native activation. Use the native capability probes for that claim.
+
+## References
+
+Read a reference file only when the task needs it.
+
+- [references/daemon-operations.md](references/daemon-operations.md): restart deferral and backoff, the memory ceiling, and a missing or broken hook binary.
+- [references/hook-capabilities.md](references/hook-capabilities.md): `harness capabilities --json`, the hook capability inventory and experimental clients.
+- [references/setup-notes.md](references/setup-notes.md): hook project discovery, the guard-prediction default, compiler batching, skill refresh, missing-runtime diagnostics, provider qualification, `tests readiness` and externally frozen policy.
+
 ## Related skills
 - **interlinked-verify** — project e2e adoption after enable: `interlinked tests e2e discover --out report.json`, review, `tests e2e adopt --from report.json` (advisory unless `--mode required`), `tests e2e doctor`. Discovery proposes; it never accepts inferred behavior.
 - **interlinked-harness** — what the guard blocks and how to respond when a tool call is refused.
 - **interlinked-observability** — inspect the activity the hooks capture (`status`, `activity`, `logs`).
 - **interlinked-coordination** — the optional server-backed side (tasks, messages, workspaces).
 - **interlinked-semantic-index** — explicitly install a model and build/query the local function index.
-
-## Permission learner behavior
-
-Repeated tool observations now generate bounded, conservative proposals only. The learner does not edit `.claude/settings.json` or expand guard permissions. Existing permission entries are left intact; repeated use, a non-blocked hook, and a proposal are not approval. No automatic migration or daemon restart is required by the schema. A running daemon continues using its loaded code until the normal explicit reload workflow.
-
-Use `interlinked harness explain <topic> --client claude --json` (or another supported client) to inspect implementation, local policy, declared client capability and retained observations separately. Registration does not prove native activation. Use the native capability probes for that claim.

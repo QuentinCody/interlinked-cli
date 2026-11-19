@@ -83,4 +83,4 @@ Native cold fallback runs the same oracle. Self-contained generated hooks cannot
 load an AST parser without the daemon and report NOT CHECKED. Arbitrary shell
 mutation, cross-file moves, deleted/changed statements, loops, switches and exception
 dominance remain outside this oracle. See the canonical
-[harness skill](../skills/interlinked-harness/SKILL.md) for receipt recovery guidance.
+[harness skill](../skills/interlinked-harness/references/guard-prediction.md) for receipt recovery guidance.

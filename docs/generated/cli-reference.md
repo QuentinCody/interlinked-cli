@@ -64,6 +64,7 @@ Commands:
   multi-edit [options] [path]                Apply N old/new string edits atomically to one or more files. Gate runs once on final content. Ambiguity evaluated after prior edits.
   mutation                                   Mutation testing: report-score ratchet, local runner measurement, and experimental durable cloud jobs
   network                                    Diagnose command-network access and prepare host permission profiles
+  packets                                    Instruction packets: instruction-file rules compiled into Jev-evaluated hook questions (shadow by default; warn/cosign only on a measured holdout)
   plan                                       Show agent-emitted plans captured from TaskCreate / ExitPlanMode / structured prompts
   query [options] [source]                   Bounded query over .interlinked JSONL logs (blocks/checks/recurrences/costs/… or a .jsonl path)
   recurrence                                 Surface repeating agent behaviors (harness_caught / harness_missed / codebase_existing / tool_failure)
@@ -714,7 +715,7 @@ Build or refresh local generated artifact catalogs
 
 Options:
   --full         Force full rescan
-  --incremental  Only refresh changed categories
+  --incremental  Request incremental extraction (currently unavailable)
   --json         Machine-readable output
   -h, --help     display help for command
 ```
@@ -776,31 +777,39 @@ Run the default high-signal external catalog plus diff-safe inline checks.
 Target can be a local path, GitHub URL, or any git remote URL.
 
 Options:
-  --only <tool>            Run one named external check (for example: tsc,
-                           biome, oxlint, eslint, semgrep, gitleaks, knip,
-                           docs-check, sca)
-  --suggestions            Also run scored regex heuristics (sql-injection,
-                           perf, quality)
-  --json                   Machine-readable output
-  --details                Show per-file details for all findings
-  --cwd <path>             Project root (default: current directory)
-  --branch <ref>           Branch, tag, or commit to check (remote repos)
-  --subdir <path>          Only scan a subdirectory (useful for monorepos)
-  --skip <checks>          Skip specific checks (comma-separated:
-                           semgrep,knip,complexity,silent_catches,...)
-  --suppress <entries...>  Suppress a finding: file:check or file:check:reason
-  --show-suppressions      List all active suppressions
-  --structure              Include generic artifact structure checks
-  --structure-only         Run only structure checks
-  --adoption-gate          Fail when adopted categories drop below thresholds
-  --all-checks             Include broad advisory smell checks and dead-code
-                           scans in addition to the default high-signal audit
-  --dead-code              Run Supermodel's cloud dead-code analysis (opt-in;
-                           requires the `supermodel` CLI)
-  --fp-filter              Report per check how many [heuristic] findings the
-                           E18 fp_filter would suppress (also on when
-                           fp_filter.enabled)
-  -h, --help               display help for command
+  --only <tool>             Run one named external check (for example: tsc,
+                            biome, oxlint, eslint, semgrep, gitleaks, knip,
+                            docs-check, sca)
+  --timeout <ms>            Whole command deadline in milliseconds (default: no
+                            deadline; 0 disables)
+  --tool-timeout <ms>       External analyzer deadline in milliseconds
+                            (default: no deadline; 0 disables)
+  --gitleaks-scope <scope>  Secret scan inputs: working-tree includes ignored
+                            files; git-visible excludes them (default:
+                            working-tree) (choices: "working-tree",
+                            "git-visible")
+  --suggestions             Also run scored regex heuristics (sql-injection,
+                            perf, quality)
+  --json                    Machine-readable output
+  --details                 Show per-file details for all findings
+  --cwd <path>              Project root (default: current directory)
+  --branch <ref>            Branch, tag, or commit to check (remote repos)
+  --subdir <path>           Only scan a subdirectory (useful for monorepos)
+  --skip <checks>           Skip specific checks (comma-separated:
+                            semgrep,knip,complexity,silent_catches,...)
+  --suppress <entries...>   Suppress a finding: file:check or file:check:reason
+  --show-suppressions       List all active suppressions
+  --structure               Include generic artifact structure checks
+  --structure-only          Run only structure checks
+  --adoption-gate           Fail when adopted categories drop below thresholds
+  --all-checks              Include broad advisory smell checks and dead-code
+                            scans in addition to the default high-signal audit
+  --dead-code               Run Supermodel's cloud dead-code analysis (opt-in;
+                            requires the `supermodel` CLI)
+  --fp-filter               Report per check how many [heuristic] findings the
+                            E18 fp_filter would suppress (also on when
+                            fp_filter.enabled)
+  -h, --help                display help for command
 ```
 
 ## Lint
@@ -937,10 +946,15 @@ Commands:
   score [options]                     Explained 0–100 quality burden with
                                       explicit evidence completeness; no model
                                       calls
+  standards [options]                 Measure pinned source guidance with
+                                      explicit syntax, detector, candidate and
+                                      unknown coverage
   jit [options] [ref]                 Just-in-time commit risk (Kamei 2013):
                                       score one commit or the staged diff and
                                       rank it against the repo's own recent
                                       commits
+  policies                            Inspect, export and evaluate data-only
+                                      metric and detector profiles
   expressions [options] [target]      Measure JS/TS expression tokens,
                                       callbacks and presentation; advisory
                                       findings
@@ -1074,7 +1088,96 @@ Options:
   --json            Full measurements, profile, hashes and explicit evidence
                     gaps
   --short           One-line score and evidence status
+  --full            Complete local action evidence and next steps
   -h, --help        display help for command
+```
+
+### metrics standards
+
+```
+Usage: interlinked metrics standards [options]
+
+Measure pinned source guidance with explicit syntax, detector, candidate and
+unknown coverage
+
+Options:
+  --profile <name>  Guidance profile (dmmulroy-typescript) (default:
+                    "dmmulroy-typescript")
+  --scope <scope>   Measured source roles: all or product (default: "all")
+  --cwd <path>      Repository root
+  --json            Complete source-bound report
+  --short           One-line measurement summary
+  --full            Complete structured report with every occurrence and
+                    context gap
+  -h, --help        display help for command
+```
+
+### metrics policies
+
+```
+Usage: interlinked metrics policies [options] [command]
+
+Inspect, export and evaluate data-only metric and detector profiles
+
+Options:
+  -h, --help                    display help for command
+
+Commands:
+  export [options]              Export configured metric entries as a shareable
+                                profile without changing settings
+  inspect [options] <profile>   Validate known references and inspect an
+                                integrity-checked structural proposal
+  evaluate [options] [profile]  Evaluate a local profile or configured metric
+                                policies with retained raw measurements
+  help [command]                display help for command
+```
+
+### metrics policies export
+
+```
+Usage: interlinked metrics policies export [options]
+
+Export configured metric entries as a shareable profile without changing
+settings
+
+Options:
+  --cwd <path>  Repository root
+  --json        Complete machine-readable evidence
+  --short       Compact summary
+  --full        All policy evidence and limitations
+  --id <id>     Stable profile identity (default: "current-repository")
+  -h, --help    display help for command
+```
+
+### metrics policies inspect
+
+```
+Usage: interlinked metrics policies inspect [options] <profile>
+
+Validate known references and inspect an integrity-checked structural proposal
+
+Options:
+  --cwd <path>  Repository root
+  --json        Complete machine-readable evidence
+  --short       Compact summary
+  --full        All policy evidence and limitations
+  -h, --help    display help for command
+```
+
+### metrics policies evaluate
+
+```
+Usage: interlinked metrics policies evaluate [options] [profile]
+
+Evaluate a local profile or configured metric policies with retained raw
+measurements
+
+Options:
+  --cwd <path>  Repository root
+  --json        Complete machine-readable evidence
+  --short       Compact summary
+  --full        All policy evidence and limitations
+  -h, --help    display help for command
 ```
 
 ### metrics diagnostics
@@ -1365,6 +1468,8 @@ Commands:
   relations                      Experimental invariant, coupling, and
                                  before/after judgments over pinned graph
                                  evidence
+  findings                       Experimental advisory review of frozen code
+                                 evidence; never gates edits
   init [options]                 Write a disabled, local-first decision
                                  configuration
   catalog [options]              Show versioned metric contracts and the
@@ -1399,6 +1504,223 @@ Commands:
   diff [options] <input>         Compare retained answers and report
                                  model/question drift
   help [command]                 display help for command
+```
+
+### metrics decisions findings
+
+```
+Usage: interlinked metrics decisions findings [options] [command]
+
+Experimental advisory review of frozen code evidence; never gates edits
+
+Options:
+  -h, --help                   display help for command
+
+Commands:
+  catalog [options]            Show explicit semantic finding contracts
+  discover [options] <input>   Collect advisory parser, resource,
+                               initialization and typed discarded-outcome
+                               candidates from an explicit files array
+  prepare [options] <input>    Freeze a JSON case plan into bounded, redacted
+                               source evidence locally
+  questions [options] <input>  Freeze versioned alternative question
+                               instructions and criteria locally
+  plan [options] <input>       Preview selected frozen requests, exact semantic
+                               context, provider identity and labeled cost
+                               estimates
+  assess [options] <input>     Assess an explicitly approved or
+                               estimate-authorized frozen plan through an
+                               optional provider
+  show [options] <input>       View a saved bundle, plan or assessment locally
+                               without inference
+  labels [options] <input>     Create a blind reviewer template from an
+                               evidence bundle
+  review [options] <input>     Compare a retained run against reviewer labels
+                               by direction
+  help [command]               display help for command
+```
+
+### metrics decisions findings discover
+
+```
+Usage: interlinked metrics decisions findings discover [options] <input>
+
+Collect advisory parser, resource, initialization and typed discarded-outcome
+candidates from an explicit files array
+
+Options:
+  --cwd <path>     Project root
+  --output <file>  Write immutable JSON; required for assessment
+  --dry-run        Prepare output without inference or writes
+  --json           Machine-readable output
+  --short          One-line summary
+  --full           Full retained evidence
+  -h, --help       display help for command
+```
+
+### metrics decisions findings prepare
+
+```
+Usage: interlinked metrics decisions findings prepare [options] <input>
+
+Freeze a JSON case plan into bounded, redacted source evidence locally
+
+Options:
+  --cwd <path>     Project root
+  --output <file>  Write immutable JSON; required for assessment
+  --dry-run        Prepare output without inference or writes
+  --json           Machine-readable output
+  --short          One-line summary
+  --full           Full retained evidence
+  -h, --help       display help for command
+```
+
+### metrics decisions findings questions
+
+```
+Usage: interlinked metrics decisions findings questions [options] <input>
+
+Freeze versioned alternative question instructions and criteria locally
+
+Options:
+  --cwd <path>     Project root
+  --output <file>  Write immutable JSON; required for assessment
+  --dry-run        Prepare output without inference or writes
+  --json           Machine-readable output
+  --short          One-line summary
+  --full           Full retained evidence
+  -h, --help       display help for command
+```
+
+### metrics decisions findings plan
+
+```
+Usage: interlinked metrics decisions findings plan [options] <input>
+
+Preview selected frozen requests, exact semantic context, provider identity and
+labeled cost estimates
+
+Options:
+  --cwd <path>               Project root
+  --output <file>            Write immutable JSON; required for assessment
+  --dry-run                  Prepare output without inference or writes
+  --json                     Machine-readable output
+  --short                    One-line summary
+  --full                     Full retained evidence
+  --provider <name>          typesafe (default), ollama, liquid, openrouter or
+                             perplexity
+  --config <file>            Existing decision adapter configuration
+  --model <id>               Pinned provider model identity (TypeSafe default
+                             jev-1.14.0)
+  --model-identity <id>      Explicit model identity; local model digest is
+                             otherwise read without inference
+  --url <url>                Provider API base URL
+  --command <path>           Existing ThinkThen adapter executable
+  --select <ids>             Explicit comma-separated case IDs; omitted cases
+                             remain unassessed
+  --question-profile <file>  Immutable alternate question profile; exact text
+                             and criteria are bound to request identity
+  --max-request-bytes <n>    Reject oversized requests visibly; never truncate
+                             context
+  --timeout-ms <n>           Per-request deadline, 1..60000 (default 10000)
+  -h, --help                 display help for command
+```
+
+### metrics decisions findings assess
+
+```
+Usage: interlinked metrics decisions findings assess [options] <input>
+
+Assess an explicitly approved or estimate-authorized frozen plan through an
+optional provider
+
+Options:
+  --cwd <path>                  Project root
+  --output <file>               Write immutable JSON; required for assessment
+  --dry-run                     Prepare output without inference or writes
+  --json                        Machine-readable output
+  --short                       One-line summary
+  --full                        Full retained evidence
+  --provider <name>             typesafe (default), ollama, liquid, openrouter
+                                or perplexity
+  --config <file>               Existing decision adapter configuration
+  --model <id>                  Pinned provider model identity (TypeSafe
+                                default jev-1.14.0)
+  --model-identity <id>         Explicit model identity; local model digest is
+                                otherwise read without inference
+  --url <url>                   Provider API base URL
+  --command <path>              Existing ThinkThen adapter executable
+  --select <ids>                Explicit comma-separated case IDs; omitted
+                                cases remain unassessed
+  --question-profile <file>     Immutable alternate question profile; exact
+                                text and criteria are bound to request identity
+  --max-request-bytes <n>       Reject oversized requests visibly; never
+                                truncate context
+  --timeout-ms <n>              Per-request deadline, 1..60000 (default 10000)
+  --max-calls <n>               Request admission budget, 0..200 (default 50);
+                                external adapter retries remain
+                                capability-dependent
+  --max-usd <n>                 Admission spend stop, 0..10 (default 0.25);
+                                estimates cannot guarantee a monetary ceiling
+  --approve-plan <id>           Authorize the exact frozen plan identity,
+                                including its disclosed unknown costs
+  --estimate-allowance-usd <n>  Explicitly accept estimated-cost admission,
+                                0..10; no provider quote or hard ceiling
+  --reuse <file>                Reuse validated matching observations from a
+                                saved v2 run without inference
+  -h, --help                    display help for command
+```
+
+### metrics decisions findings show
+
+```
+Usage: interlinked metrics decisions findings show [options] <input>
+
+View a saved bundle, plan or assessment locally without inference
+
+Options:
+  --cwd <path>     Project root
+  --output <file>  Write immutable JSON; required for assessment
+  --dry-run        Prepare output without inference or writes
+  --json           Machine-readable output
+  --short          One-line summary
+  --full           Full retained evidence
+  -h, --help       display help for command
+```
+
+### metrics decisions findings labels
+
+```
+Usage: interlinked metrics decisions findings labels [options] <input>
+
+Create a blind reviewer template from an evidence bundle
+
+Options:
+  --cwd <path>     Project root
+  --output <file>  Write immutable JSON; required for assessment
+  --dry-run        Prepare output without inference or writes
+  --json           Machine-readable output
+  --short          One-line summary
+  --full           Full retained evidence
+  -h, --help       display help for command
+```
+
+### metrics decisions findings review
+
+```
+Usage: interlinked metrics decisions findings review [options] <input>
+
+Compare a retained run against reviewer labels by direction
+
+Options:
+  --cwd <path>     Project root
+  --output <file>  Write immutable JSON; required for assessment
+  --dry-run        Prepare output without inference or writes
+  --json           Machine-readable output
+  --short          One-line summary
+  --full           Full retained evidence
+  --labels <file>  Complete source-backed reviewer labels
+  -h, --help       display help for command
 ```
 
 ### metrics decisions init
@@ -2385,45 +2707,67 @@ Usage: interlinked tests [options] [command]
 Explain and run affected tests with bounded scheduling and snapshot validation
 
 Options:
-  -h, --help                      display help for command
+  -h, --help                            display help for command
 
 Commands:
-  contracts                       Inspect provenance or explicitly execute
-                                  portable behavioral contracts
-  e2e                             Project-aware end-to-end scenarios: declared
-                                  policy, supervised runs, receipts and one
-                                  qualification verdict
-  trace [options]                 Explain one verification request (the newest
-                                  push by default) from the stage ledger:
-                                  owners, phase costs, the wall-clock wait, the
-                                  handoff fallback cause, and every check that
-                                  ran fresh or produced no verdict
-  opacity [options]               Rank the modules whose unhashed reads or
-                                  unresolved imports make test results
-                                  non-reusable, by the recorded execution time
-                                  of the tests that reach them, with one import
-                                  chain each
-  review [options] [paths...]     Review changed source, behavioral obligations
-                                  and bounded simplification candidates without
-                                  running tests
-  fail-before-fix [options]       Run the tests a session changed against that
-                                  session's pre-change code, rebuilt from the
-                                  harness edit log; advisory
-  faults                          Requirement faults: recorded violations of
-                                  stated requirements, run against the tests
-                                  that must notice them
-  readiness [options] <language>  Inspect test prerequisites without
-                                  installing; Python also reports approved
-                                  provisioning argv
-  suite [options] <language>      Run a bounded project suite: typescript,
-                                  javascript, python, rust or go
-  plan [options] [paths...]       Explain the union of affected tests without
-                                  running assertions
-  run [options] [paths...]        Run pending and affected tests; retain newer
-                                  edits for another run
-  status [options] [paths...]     Show pending requests and the last observed
-                                  test job
-  help [command]                  display help for command
+  contracts                             Inspect provenance or explicitly
+                                        execute portable behavioral contracts
+  e2e                                   Project-aware end-to-end scenarios:
+                                        declared policy, supervised runs,
+                                        receipts and one qualification verdict
+  trace [options]                       Explain one verification request (the
+                                        newest push by default) from the stage
+                                        ledger: owners, phase costs, the
+                                        wall-clock wait, the handoff fallback
+                                        cause, and every check that ran fresh
+                                        or produced no verdict
+  opacity [options]                     Rank the modules whose unhashed reads
+                                        or unresolved imports make test results
+                                        non-reusable, by the recorded execution
+                                        time of the tests that reach them, with
+                                        one import chain each
+  review [options] [paths...]           Review changed source, behavioral
+                                        obligations and bounded simplification
+                                        candidates without running tests
+  fail-before-fix [options]             Run the tests a session changed against
+                                        that session's pre-change code, rebuilt
+                                        from the harness edit log; advisory
+  faults                                Requirement faults: recorded violations
+                                        of stated requirements, run against the
+                                        tests that must notice them
+  prove-kill [options]                  Prove that the named tests pass now and
+                                        fail under ONE mutant: a manifest
+                                        survivor (--mutant) or an explicit
+                                        fault (--file/--find/--replace); or
+                                        under EVERY manifest survivor of --file
+                                        (--all-survivors, one shared baseline).
+                                        A killed proof writes a receipt bound
+                                        to the source, test and runtime bytes.
+  edit-protection [options] [tests...]  Re-prove every kill a kill-proof
+                                        receipt recorded for each edited test
+                                        file against its CURRENT bytes: kept,
+                                        lost, retired (the source no longer
+                                        holds the mutant) or undecided. A lost
+                                        kill in a source this change did not
+                                        touch, that no other test still kills,
+                                        is a finding (saturation testing's
+                                        requirement-change path).
+  kill-proofs [options]                 List recorded kill proofs. With
+                                        --verify, check each against the bytes
+                                        and runtime on disk.
+  readiness [options] <language>        Inspect test prerequisites without
+                                        installing; Python also reports
+                                        approved provisioning argv
+  suite [options] <language>            Run a bounded project suite:
+                                        typescript, javascript, python, rust or
+                                        go
+  plan [options] [paths...]             Explain the union of affected tests
+                                        without running assertions
+  run [options] [paths...]              Run pending and affected tests; retain
+                                        newer edits for another run
+  status [options] [paths...]           Show pending requests and the last
+                                        observed test job
+  help [command]                        display help for command
 ```
 
 ### tests plan
@@ -2731,6 +3075,8 @@ Options:
   --reason <text>    Why this state is approved
   --lockfile <name>  Snapshot a specific file only (e.g. package-lock.json)
   --cwd <path>       Project root
+  --dir <path>       Hash another directory's files into this project's
+                     allowlist, keyed by path
   -h, --help         display help for command
 ```
 

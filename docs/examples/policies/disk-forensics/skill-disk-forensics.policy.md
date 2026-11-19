@@ -9,7 +9,7 @@ when the active skill is `disk-forensics`. Each entry below carries a
 structured signal that the model evaluates against the current tool call +
 recent trajectory. The model returns `{decision, violated_policies[],
 violation_signature, reasoning}` per the Tier 2 contract — see
-`skills/enforce/SKILL.md` §15.
+`skills/enforce/references/companion-artifacts.md` §15.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: interlinked-supply-chain
-description: "Respond to blocked package installs and manage the Interlinked supply-chain allowlist. Load this when `npm/pnpm/yarn/bun/pip/pipx/poetry/uv/cargo/gem/bundle/go/composer/mvn/dotnet` install is BLOCKED with `[interlinked:supply-chain]`, when adding a dependency to package.json / requirements.txt / pyproject.toml / Cargo.toml / go.mod is refused, when a version is rejected as \"not an exact pin\", when `npm ci` fails a lockfile-snapshot check, or when you need to approve a package (`interlinked allowlist add`), snapshot a lockfile, or verify deps. Package installs are default-deny; a package needs both allowlist membership AND an exact version pin."
+description: "Respond to blocked package installs and manage the Interlinked supply-chain allowlist. Load when an `npm/pnpm/yarn/bun/pip/pipx/poetry/uv/cargo/gem/bundle/go/composer/mvn/dotnet` install is BLOCKED with `[interlinked:supply-chain]`, a dependency edit to package.json, requirements.txt, pyproject.toml, Cargo.toml, or go.mod is refused, a version is \"not an exact pin\", `npm ci` fails a lockfile snapshot, or to approve a package, snapshot a lockfile, or verify deps (`interlinked allowlist add|snapshot|verify`). Installs are default-deny: allowlist plus exact pin."
 ---
 
 # interlinked-supply-chain — package installs are default-deny
@@ -105,8 +105,18 @@ notes did *not* pass those screens.
 **Whole-lockfile approval** (unblocks `npm ci` / bare install / `pip install -r`):
 ```bash
 interlinked allowlist snapshot --by <name> [--lockfile <name>]   # sha256 every manifest+lockfile in cwd
+interlinked allowlist snapshot --by <name> --dir <path>          # approve ANOTHER directory for this project
 ```
 Re-snapshot whenever the manifest/lockfile changes — the gate matches on exact hash.
+
+**An install in another directory** (`cd <path> && cargo build --locked`, a source checkout in a
+temp folder, a nested package): the guard reads the allowlist of the project the command runs in,
+never one under `<path>`. Run the snapshot from the project root with `--dir <path>`; the block
+message prints the exact command. `--dir` stores each grant under the file's path relative to the
+project root (`packages/app/package-lock.json`, `../checkout/Cargo.lock`), so it does not replace
+the root's own grant for the same file name. Do not use `--cwd <path>` for this: `--cwd` selects
+which project's allowlist receives the grant, and the command prints a `note:` when it creates a
+new allowlist file there.
 
 ## Command surface
 | Command | Purpose |
@@ -114,7 +124,7 @@ Re-snapshot whenever the manifest/lockfile changes — the gate matches on exact
 | `interlinked allowlist add <eco> <pkg> --by <name> [--reason] [--version-range] [--force]` | Approve one package (3 screens). |
 | `interlinked allowlist remove <eco> <pkg>` | Delete an entry. |
 | `interlinked allowlist list [--ecosystem <e>] [--json]` | Show approved packages + snapshots. |
-| `interlinked allowlist snapshot --by <name> [--lockfile <n>]` | Hash + store manifest/lockfile state. |
+| `interlinked allowlist snapshot --by <name> [--lockfile <n>] [--dir <path>]` | Hash + store manifest/lockfile state; `--dir` hashes another directory into this project's allowlist, keyed by path. |
 | `interlinked allowlist verify` | Diff every committed manifest's deps vs the allowlist AND screen the root JS lockfile's resolved (transitive) packages; **exits 1** on any unapproved (CI-gateable). |
 
 ## Transitive packages (added 2026-10-04)

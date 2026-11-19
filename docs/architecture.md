@@ -407,3 +407,103 @@ remain deferred while the feature is experimental. See
 ## 10. Relationship to Entire CLI
 
 The local-first, hook-driven architecture draws inspiration from Entire CLI. Both projects share the philosophy that AI agent activity should be captured locally, durably, and transparently. The key divergence is scope: Entire captures session transcripts for single-agent, single-repo workflows; Interlinked MCP Server + Interlinked CLI capture activity events for multi-agent, multi-workspace orchestration.
+
+> Moved from CLAUDE.md on 2026-11-05
+
+Append to docs/architecture.md.
+
+## Dormant MCP-server surface
+
+**On the "Interlinked MCP Server":** a remote Worker/DO system was the original
+center of this project, and ~17 commands still import `src/lib/api-client.ts`.
+That surface is **dormant** — no non-test source path calls the MCP tool proxy,
+server sync is deliberately unimplemented, and the `active_server` entry in a
+working config today points at a LAN mutation-runner broker, not an MCP server.
+Do not treat the server as the system of record, and do not describe the CLI as
+its companion; the local harness is the product. Leave the dormant code alone
+unless the task is specifically about it.
+
+Source of truth for the CLI is `QuentinCody/interlinked-cli`; current installs run from a linked source checkout. It has a single **required** runtime dependency (`commander`) and zero external dependencies for formatting/output. Two **optionalDependencies** (installed by default; the CLI's core hooks/activity work without them): `typescript` — the JS compiler API the AST-accurate cyclomatic/CRAP gate parses with (the `tsgo` native-port binary has **no importable JS API**, so it can't substitute; TS 7's replacement is an out-of-process gRPC API, stable ~7.1) — and `@typescript/native-preview` (`tsgo`), which accelerates `npm run typecheck`. When `typescript` is absent (`--omit=optional`), the complexity gate degrades to the regex walker and says so loudly (`astComplexityAvailable()`; daemon-startup warning); the `self_import` pre_block check has NO regex fallback and is NOT MEASURED in that state — it reports no findings, and every JS/TS edit carries a `[interlinked:self_import] NOT MEASURED` warning (`checks/self-import-scan.ts`; a pre_block check never blocks on a guess).
+
+### Relationship to the MCP Server
+
+The server (`Interlinked MCP Server`) is the remote Worker/DO system. Communication is strictly one-directional: CLI → server via HTTP. Key server endpoints consumed:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/hooks/activity` | Single event (fire-and-forget from hook script) |
+| `POST /api/hooks/activity/batch` | Batch sync of buffered events |
+| `POST /api/ui/call` | MCP tool proxy (used by `status`, `activity`, `doctor`, `workspace`) |
+| `GET /api/workspaces` | List workspaces (registry endpoint) |
+| `POST /register`, `POST /token` | OAuth dynamic client registration and token exchange |
+
+
+### Activity Event Pipeline
+
+```
+AI Agent hook fires → stdin JSON → hook script (.interlinked/hooks/interlinked-activity.mjs)
+  ├── Connect to harness socket (if available, 500ms timeout)
+  │   ├── PreToolUse: harness returns {decision: block/allow} → stdout
+  │   └── PostToolUse: harness returns {warnings} → stderr
+  ├── Local write (always, sync, ~0.1ms) → activity.jsonl + sessions/{id}.json
+  ├── Fire-and-forget POST /api/hooks/activity (if sync_mode != "local", 3s timeout)
+  └── Batch sync on session end (if sync_mode == "realtime", cursor-based, 100-event chunks)
+```
+
+Three sync modes: `realtime` (default), `local` (offline-only), `manual` (POST per event, no batch at session end).
+
+
+### Auth Token Resolution
+
+`resolveAuthToken()` priority:
+1. CLI's own `access_token` from `config.local.json` (checks `token_expires_at`)
+2. Claude Code credentials fallback from `~/.claude/.credentials.json` → `mcpOAuth`, matched by `mcp_prefix` key prefix or `serverName` containing "interlinked"
+
+Dev mode bypass: when `server_url` is localhost/127.0.0.1, auth is skipped entirely.
+
+
+## Key source files and config (moved from CLAUDE.md on 2026-11-05)
+### Entry Point and Command Registration
+
+`src/index.ts` registers all commands via `commander`. When invoked with no arguments, `handleImplicitEntry()` from `src/commands/first-run.ts` runs an interactive wizard (TTY) or non-interactive bootstrap (non-TTY). If already configured, it falls through to `statusCommand`.
+
+### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/lib/config.ts` | Two-tier config system: `config.json` (shared/committed) + `config.local.json` (personal/gitignored). `resolveConfig()` merges both and resolves multi-server entries. |
+| `src/lib/auth.ts` | Token resolution (CLI token → Claude Code credentials fallback) + OAuth PKCE flow |
+| `src/lib/hooks.ts` | Orchestrator: hook script generation + per-client install/uninstall delegation through `CLIENT_INSTALL_REGISTRY`. Generates `.interlinked/hooks/interlinked-activity.mjs` (self-contained, zero imports). |
+| `src/lib/hook-installers.ts` | Per-client install/uninstall implementations (Claude Code, GitHub Copilot CLI, Gemini CLI, OpenAI Codex CLI). Each `installXxxHooks` writes a settings file and tags commands with `INTERLINKED_CLIENT="<id>"` so the .mjs runtime can disambiguate clients with overlapping payload shapes. Codex additionally writes `.codex/config.toml` to set `[features] hooks = true` (legacy `codex_hooks` is recognized and auto-migrated; the writer lives at `src/lib/codex-feature-flag.ts`). |
+| `src/lib/api-client.ts` | HTTP client wrapping `POST /api/ui/call` for MCP tool proxying |
+| `src/lib/local-activity.ts` | JSONL append-only log, session state, sync cursor (byte-offset), merge/dedup |
+| `src/lib/activity-utils.ts` | Shared `ActivityEvent` type, `parseDuration()`, `formatActivitySummary()` |
+| `src/lib/formatter.ts` | ANSI colors, tables, timestamps — hand-coded, no external deps. Respects `NO_COLOR`/`CI`. |
+| `src/lib/output.ts` | Output mode abstraction: `json`, `short`, `normal`, `full` |
+| `src/lib/settings.ts` | Client detection and settings file paths for claude/copilot/gemini/codex (registry consumed by `interlinked enable`/`disable`) |
+| `src/lib/viz/` | The loopback dashboard (`interlinked viz serve`). `feeds.ts` is the seam: each live lens is ONE `VizFeed` descriptor (route + seed + subscribe) and `server.ts` hosts them all through one generic SSE path — add a lens there, not by copying the plumbing. `agent-roster.ts` folds the activity stream into per-actor presence lanes (a subagent gets its OWN lane keyed `<agent>/<subagent_id>`, never merged into its parent's counters) and assigns each actor a stable hue — the ONE hashing rule for actor colour, reused by every surface that attributes work to an agent. Dashboard vocabulary is deliberately literal: dot = source file, line = import, lane = agent session, frame = one judged tool call. Feeds: activity, `check-results.jsonl`, `test-events.jsonl` (TESTS), `mutation-manifest.json` (MUTANTS). `reporter-vitest.ts` is the shipped producer for the test feed, published as the `interlinked-cli/viz-reporter` export and duck-typed against vitest so it never imports it. `status-file.ts` publishes `.interlinked/viz.status` so the statusline renders a `◈ viz` link only while a server is actually alive. Every feed renders an honest empty state when its file is absent — nothing is repo-specific. |
+
+### Activity Event Pipeline (dormant server path, moved from CLAUDE.md)
+
+```
+AI Agent hook fires → stdin JSON → hook script (.interlinked/hooks/interlinked-activity.mjs)
+  ├── Connect to harness socket (if available, 500ms timeout)
+  │   ├── PreToolUse: harness returns {decision: block/allow} → stdout
+  │   └── PostToolUse: harness returns {warnings} → stderr
+  ├── Local write (always, sync, ~0.1ms) → activity.jsonl + sessions/{id}.json
+  ├── Fire-and-forget POST /api/hooks/activity (if sync_mode != "local", 3s timeout)
+  └── Batch sync on session end (if sync_mode == "realtime", cursor-based, 100-event chunks)
+```
+
+Three sync modes: `realtime` (default), `local` (offline-only), `manual` (POST per event, no batch at session end).
+
+### Two-Tier Config System
+
+| File | Git | Contains |
+|------|-----|----------|
+| `.interlinked/config.json` | Committed | `server_url`, `default_project`, `version` |
+| `.interlinked/config.local.json` | Gitignored | `access_token`, `agent_name`, `workspace_id`, `sync_mode`, `servers` map |
+
+Multi-server isolation: `config.local.json` has an `active_server` key and `servers` map. Each server entry holds its own `server_url`, `workspace_id`, and `mcp_prefix`.
+
+Environment variable overrides: `INTERLINKED_SERVER_URL`, `INTERLINKED_ACCESS_TOKEN`, `INTERLINKED_AGENT_NAME`, `INTERLINKED_WORKSPACE_ID`, `INTERLINKED_SYNC_MODE`.
