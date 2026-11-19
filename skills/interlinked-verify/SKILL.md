@@ -338,7 +338,9 @@ any of them change, and its fix line is the receipt's own command (manifest id, 
 explicit `--file/--find/--replace`). A `[interlinked:kill-proof]` PostToolUse line on a
 `*.mutation-kill.*` / `*.survivors.*` file means the fresh killed receipts together do not
 cover every case added since HEAD (a case proven against fault A and another against
-fault B are both covered). When the companion source has known manifest survivors, only a
+fault B are both covered). If a static runtime import uses a literal alias from an inline
+root Vitest or Vite config object, `kill-proofs --verify` names the unresolved import.
+The receipt cannot certify that test. When the companion source has known manifest survivors, only a
 `--mutant` / `--all-survivors` kill covers the file; an explicit fault does not. `kill-proofs
 --prune [--dry-run]` removes receipts whose source or test file is gone. Coverage, a `test-contract`
 marker, a green run or an old receipt is not proof. Guide: `docs/mutation-grounded-test-proof.md`.
@@ -440,34 +442,7 @@ Convention: one date-prefixed subdir per effort (`scratch/2026-07-19-<slug>/`). 
 
 ## Common workflows
 
-### Verify writes observed outside tool gates
-
-`interlinked harness coverage status --json` shows all pending exact file identities,
-watcher readiness and bounded recent check/review receipts with explicit history counts. Run
-`interlinked harness coverage verify --json` to check the pending versions through
-the daemon's configured PostToolUse checks; `--no-wait` starts the job and returns.
-Polling status reports progress. A completed job can still contain findings or
-unmeasured versions. Missing files, excluded paths, deferred checks and concurrent
-changes do not gain a clean verdict. Receipts enumerate the checks actually run;
-they do not certify PreToolUse enforcement or approve a baseline rewrite.
-
-For an explicitly reviewed absence or other manual disposition, use
-`harness coverage acknowledge <id> <generation> <identity> <evidence>` with the
-current status values and a concrete review record. This records manual review,
-not a test pass. Stale identities/generations are refused. If a mutation's response
-is lost, inspect status before retrying. Never blanket-acknowledge pending entries
-to silence the warning. Policy acceptance is a separate explicit action.
-- **Verify-after-edit:** make edits → `interlinked verify` → fix `[proven]` findings first, then
-  triage `[heuristic]`. Read the output; don't rely on `$?`.
-- **Pre-flight a risky change:** build a changeset → `interlinked verify-changeset --file cs.json
-  --json` → fix until `ok:true` → submit as `write --batch` (or real edits, exporter-first).
-- **Cross-file rename:** author all files → one `write --batch` with `{writes:[exporter,
-  …importers]}` → single gate pass, no transient tsc error.
-- **One-off script:** `interlinked scratch init` (once) → write under `scratch/<date>-<slug>/`.
-- **Mutation-directed test review:** add a per-case `test-contract` receipt → run
-  `interlinked verify --all-checks --details` → resolve `test_legitimacy` together with the
-  existing assertion/mock/hermeticity findings → formally remeasure the source file. A killed
-  mutant is necessary evidence for that campaign, not proof that the test protects a real contract.
+For watcher receipts, cross-file edits, and mutation-directed test review, follow the [verification workflows](references/verify-workflows.md).
 
 ## Gotchas
 - Batch gate ≠ full edit gate — `write`/`multi-edit`/`verify-changeset` skip function tokens,

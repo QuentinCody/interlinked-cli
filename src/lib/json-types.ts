@@ -57,6 +57,15 @@ export function stringField(object: JsonObject, key: string): string | undefined
 	return typeof value === "string" ? value : undefined;
 }
 
+/** Parse a JSON object from text, returning null for malformed or unkeyed input. */
+export function parseJsonObjectText(text: string): JsonObject | null {
+	try {
+		return asJsonObject(JSON.parse(text));
+	} catch {
+		return null;
+	}
+}
+
 /**
  * A recursive JSON value. Prefer `JsonObject` for most parameters; use
  * `JsonValue` only when you really need the strict recursive shape

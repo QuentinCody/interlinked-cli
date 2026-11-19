@@ -99,6 +99,19 @@ describe("config effect arm — positive (must fire)", () => {
 		expect(Object.keys(captureConfigWaterLines(root, read)).sort()).toEqual(["base.json", "other.json", "tsconfig.json"]);
 	});
 
+	it("reads shared bases once and exhausts the snapshot budget in declaration order", () => {
+		const bases = Array.from({ length: 70 }, (_, n) => "./base-" + n + ".json");
+		writeFileSync(join(root, "tsconfig.json"), JSON.stringify({ extends: [bases[0], ...bases] }));
+		const reads: string[] = [];
+		const snapshot = captureConfigWaterLines(root, path => {
+			reads.push(path);
+			return read(path);
+		});
+		expect(Object.keys(snapshot)).toEqual(["tsconfig.json", ...bases.slice(0, 63).map(base => base.slice(2))]);
+		expect(reads).toHaveLength(64);
+		expect(new Set(reads).size).toBe(reads.length);
+	});
+
 	it("P4: a vitest coverage.exclude gaining a member is a loosening", () => {
 		writeFileSync(join(root, "vitest.config.ts"), VITEST_TIGHT);
 		const before = captureConfigWaterLines(root, read);

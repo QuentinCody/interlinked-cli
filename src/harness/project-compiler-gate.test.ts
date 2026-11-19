@@ -65,11 +65,7 @@ describe("project compiler admission", () => {
 	});
 
 	async function waitUntil(predicate: () => boolean, maxAttempts = 100): Promise<void> {
-		for (let attempt = 0; attempt < maxAttempts; attempt++) {
-			if (predicate()) return;
-			await new Promise<void>((resolveWait) => setTimeout(resolveWait, 2));
-		}
-		throw new Error("condition did not become true");
+		await vi.waitUntil(predicate, { timeout: maxAttempts * 2, interval: 2 });
 	}
 
 	it("serializes cold compiler work without reusing a stale in-flight result", async () => {
@@ -117,11 +113,15 @@ describe("project compiler admission", () => {
 		let active = false;
 		const holder = runWithProjectCompilerLease(root, async () => { active = true; await barrier; });
 		await waitUntil(() => active);
+		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
 		const pending = Array.from({ length: 9 }, (_, index) => runWithProjectCompilerLease(root, async () => index, { admissionTimeoutMs: null, maxQueued: null })
 			.then(value => ({ value }), error => ({ error })));
 		try {
-			await new Promise(resolve => setTimeout(resolve, 2100));
-		} finally { release(); }
+			await vi.advanceTimersByTimeAsync(2100);
+		} finally {
+			vi.useRealTimers();
+			release();
+		}
 		await holder;
 		expect(await Promise.all(pending)).toEqual(Array.from({ length: 9 }, (_, value) => ({ value })));
 	}, 7000);

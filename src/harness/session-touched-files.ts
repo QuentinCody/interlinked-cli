@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { readBoundedTextFile } from "../lib/bounded-file-core.js";
+import { parseJsonObjectText, type JsonObject } from "../lib/json-types.js";
 import { isDirectFileEditTool } from "../lib/write-tool-registry.js";
 import { detectBashCodeFileWrite, resolveBashWriteTarget } from "./pre-checks-bash-write-detect.js";
-import { extractAllEditedFilePaths } from "./server-tool-helpers.js";
+import { extractAllEditedFilePaths, extractApplyPatchRaw } from "./server-tool-helpers.js";
 import type { HarnessEvent } from "./types.js";
 
 export const TOUCHED_LEDGER_MAX_BYTES = 1024 * 1024;
@@ -14,30 +16,28 @@ export function touchedLedgerPath(root: string, session: string): string {
     return join(root, ".interlinked", "touched-files", `${createHash("sha256").update(session).digest("hex")}.jsonl`);
 }
 
-/** Declared targets only: a concurrent writer's workspace diff is not authorship. */
-export function touchedTargets(event: HarnessEvent, root: string): string[] {
-    if (event.dry_run || event.tool_outcome === "error" || !["PostToolUse", "AfterTool"].includes(event.hook_event)) return [];
-    let paths: string[] = [];
+function declaredTargetPaths(event: HarnessEvent, root: string): string[] {
     if (isDirectFileEditTool(event.tool_name)) {
         const declared = { ...event };
         delete declared.change_set;
-        paths = extractAllEditedFilePaths(declared);
-        if (event.tool_name === "apply_patch") {
-            const input = event.tool_input;
-            const patch = input?.patch ?? input?.command ?? input?.content ?? input?._raw_patch;
-            if (typeof patch === "string") {
-                // A rename touches the old name too; quality checks normally
-                // select only its destination, but the summary ledger records both.
-                for (const match of patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File:\s+(.+)$/gm)) paths.push(match[1]!.trim());
-            }
-        }
+        const paths = extractAllEditedFilePaths(declared);
+        if (event.tool_name !== "apply_patch") return paths;
+        // The edit checks select rename destinations; the ledger also records source paths.
+        const patch = extractApplyPatchRaw(event.tool_input);
+        for (const match of patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File:\s+(.+)$/gm)) paths.push(match[1]!.trim());
+        return paths;
     }
-    else if (["Bash", "Shell", "shell", "run_command", "exec_command"].includes(event.tool_name ?? "")) {
-        const cmd = typeof event.tool_input?.command === "string" ? event.tool_input.command : "";
-        const found = detectBashCodeFileWrite(cmd);
-        const target = found && resolveBashWriteTarget(cmd, found.target, root);
-        if (target) paths = [target];
-    }
+    if (!["Bash", "Shell", "shell", "run_command", "exec_command"].includes(event.tool_name ?? "")) return [];
+    const command = typeof event.tool_input?.command === "string" ? event.tool_input.command : "";
+    const found = detectBashCodeFileWrite(command);
+    const target = found && resolveBashWriteTarget(command, found.target, root);
+    return target ? [target] : [];
+}
+
+/** Declared targets only: a concurrent writer's workspace diff is not authorship. */
+export function touchedTargets(event: HarnessEvent, root: string): string[] {
+    if (event.dry_run || event.tool_outcome === "error" || !["PostToolUse", "AfterTool"].includes(event.hook_event)) return [];
+    const paths = declaredTargetPaths(event, root);
     return [...new Set(paths.map(path => relative(root, resolve(root, path)).replaceAll("\\", "/")))]
         .filter(path => path.length > 0 && path.length <= 4096 && path !== ".." && !path.startsWith("../") && !isAbsolute(path));
 }
@@ -73,33 +73,38 @@ export function captureTouchedFiles(event: HarnessEvent, fallbackRoot: string): 
     } catch (error) { void error; /* telemetry must not fail a completed tool call */ }
 }
 
+function isTouchedRecord(row: JsonObject | null, session: string): row is JsonObject & TouchedFileRecord {
+    return row !== null && row.session_id === session && typeof row.path === "string" && typeof row.tool_use_id === "string"
+        && typeof row.bytes === "number" && typeof row.ts === "string";
+}
+
+function parseTouchedLedger(text: string, session: string, until: number): TouchedLedger | null {
+    const [first, ...entries] = text.trimEnd().split("\n");
+    if (!first) return null;
+    const header = parseJsonObjectText(first);
+    if (!header || header.schema !== 1 || header.session_id !== session || typeof header.ts !== "string") return null;
+    const startedAt = Date.parse(header.ts);
+    if (!Number.isFinite(startedAt) || startedAt > until) return null;
+    const rows: TouchedFileRecord[] = [];
+    for (const line of entries) {
+        const row = parseJsonObjectText(line);
+        if (!isTouchedRecord(row, session)) return null;
+        const timestamp = Date.parse(row.ts);
+        if (!Number.isFinite(timestamp)) return null;
+        if (timestamp <= until) rows.push(row);
+    }
+    return { available: true, complete: header.started === true, rows };
+}
+
 export function readTouchedLedger(root: string, session: string, until = Number.POSITIVE_INFINITY): TouchedLedger {
-    const result: TouchedLedger = { available: false, complete: false, rows: [] };
-    let fd: number | undefined;
+    const unavailable: TouchedLedger = { available: false, complete: false, rows: [] };
+    if (!Number.isFinite(until) && until !== Number.POSITIVE_INFINITY) return unavailable;
+    const path = touchedLedgerPath(root, session);
     try {
-        if (!Number.isFinite(until) && until !== Number.POSITIVE_INFINITY) return result;
-        const path = touchedLedgerPath(root, session);
-        if (statSync(path).size > TOUCHED_LEDGER_MAX_BYTES || existsSync(`${path}.overflow`)) return result;
-        fd = openSync(path, "r");
-        const buffer = Buffer.alloc(TOUCHED_LEDGER_MAX_BYTES + 1);
-        let bytes = 0;
-        while (bytes < buffer.length) {
-            const count = readSync(fd, buffer, bytes, buffer.length - bytes, bytes);
-            if (!count) break;
-            bytes += count;
-        }
-        if (bytes > TOUCHED_LEDGER_MAX_BYTES) return result;
-        const lines = buffer.subarray(0, bytes).toString("utf8").trimEnd().split("\n").map(line => JSON.parse(line) as Record<string, unknown>);
-        const header = lines.shift();
-        if (header?.schema !== 1 || header.session_id !== session || typeof header.ts !== "string"
-            || !Number.isFinite(Date.parse(header.ts)) || Date.parse(header.ts) > until) return result;
-        for (const row of lines) {
-            if (row.session_id !== session || typeof row.path !== "string" || typeof row.tool_use_id !== "string"
-                || typeof row.bytes !== "number" || typeof row.ts !== "string" || !Number.isFinite(Date.parse(row.ts))) return { ...result, rows: [] };
-            if (Date.parse(row.ts) <= until) result.rows.push(row as unknown as TouchedFileRecord);
-        }
-        result.available = true; result.complete = header.started === true;
-    } catch (error) { void error; }
-    finally { if (fd !== undefined) closeSync(fd); }
-    return result;
+        if (existsSync(path + ".overflow")) return unavailable;
+        const text = readBoundedTextFile(path, TOUCHED_LEDGER_MAX_BYTES);
+        return text === null ? unavailable : parseTouchedLedger(text, session, until) ?? unavailable;
+    } catch {
+        return unavailable;
+    }
 }

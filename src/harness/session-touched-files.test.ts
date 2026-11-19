@@ -49,6 +49,12 @@ describe("completed-write ledger", () => {
         const cwd = root(); start(cwd); writeFileSync(touchedLedgerPath(cwd, "s"), "x".repeat(TOUCHED_LEDGER_MAX_BYTES + 1));
         expect(readTouchedLedger(cwd, "s").available).toBe(false);
     });
+    it("discards earlier records when a later ledger row is malformed", () => {
+        const cwd = root(); start(cwd); captureTouchedFiles(event(cwd), cwd);
+        const path = touchedLedgerPath(cwd, "s");
+        writeFileSync(path, readFileSync(path, "utf8") + "null\n");
+        expect(readTouchedLedger(cwd, "s")).toEqual({ available: false, complete: false, rows: [] });
+    });
 });
 
 describe("Stop summary against captured touches", () => {

@@ -3,6 +3,7 @@
 // caller: a plain bind, a stale-socket recovery, and a live incumbent that must
 // never be stomped.
 
+import { once } from "node:events";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -64,21 +65,17 @@ describe("bindSessionSocket", () => {
 			onConnection: (socket) => seen.push(socket),
 		});
 		expect(server.listening).toBe(true);
+		const connection = once(server, "connection");
 		const client = createConnection(socketPath);
 		opened.push(client);
-		// Poll for the accepted connection with a generous ceiling: the timeout
-		// bounds only the failure path, so a loaded box does not flake here.
-		const deadline = Date.now() + 5_000;
-		while (seen.length === 0 && Date.now() < deadline) {
-			await new Promise<void>((resolve) => {
-				setTimeout(resolve, 10);
-			});
+		const [accepted] = await connection;
+		try {
+			expect(seen).toEqual([accepted]);
+		} finally {
+			client.destroy();
+			accepted.destroy();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
 		}
-		expect(seen.length).toBe(1);
-		// `server.close()` waits for live connections, so drop both ends first.
-		client.destroy();
-		for (const accepted of seen) accepted.destroy();
-		await new Promise<void>((resolve) => server.close(() => resolve()));
 	});
 
 	it("removes a stale socket file that answers nothing and retries", async () => {

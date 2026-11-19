@@ -12,6 +12,7 @@ import { blankJsxText } from "./checks/nan-comparison-scan.js";
 import { stripComments } from "./strip-helpers.js";
 import { keepsRealModule, sameDirSiblingBase } from "./taste-checks-mock-real-module.js";
 import { checkMatchLimit } from "./checks/check-scan-policy.js";
+import { findCallSpan } from "./checks/test-hygiene-shared.js";
 import { parameterizedTestBodies, type TestBody } from "./test-parameterized-bodies.js";
 import {
 	findBlockEnd,
@@ -229,10 +230,17 @@ function testBodyAtLine(source: TestSource, start: number): TestBody | null {
 	if (test) return { ...test, body: stripCommentsAndStrings(test.body) };
 	// An unparsed parameterized callback cannot prove assertion absence.
 	if (/\.\s*each\s*\(/.test(nonNull(source.sLines[start]))) return null;
-	const end = findBlockEnd(source.sLines, start);
+	const blockEnd = findBlockEnd(source.sLines, start);
+	const block = source.sLines.slice(start, blockEnd + 1).join("\n");
+	const call = findCallSpan(block, block.indexOf("(") + 1);
+	const body = call ? block.slice(0, call.end + 1) : block;
+	// A named callback's assertions live in its definition. Stop at this call,
+	// even when the next registration on disk contains an inline callback.
+	if (call && !/(?:=>|\bfunction\b)/.test(body)) return null;
+	const end = call ? start + body.split("\n").length - 1 : blockEnd;
 	return {
 		end,
-		body: source.sLines.slice(start, end + 1).join("\n"),
+		body,
 		name: testCaseName(source.lines, start, end),
 	};
 }

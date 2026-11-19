@@ -37,10 +37,10 @@
 
 import { spawnSync } from "node:child_process";
 import { type Dirent, readdirSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { detectConfigLoosening } from "./config-loosening-gate.js";
-import { resolveEffectiveCompilerOptions } from "./config-loosening-extends.js";
+import { localExtendsCandidates, resolveEffectiveCompilerOptions } from "./config-loosening-extends.js";
 import { parseTsconfigObject, unparseablePostImage } from "./tsconfig-text-parse.js";
 import { decideVitestCoverageWaterLine, isVitestConfigFile } from "./vitest-coverage-water-line.js";
 
@@ -120,7 +120,7 @@ function walkConfigs(root: string): string[] {
 	const out: string[] = [];
 	const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
 	for (let visited = 0; visited < WALK_MAX_DIRS; visited += 1) {
-		const next = queue.shift();
+		const next = queue[visited];
 		if (!next) break;
 		for (const entry of safeReaddir(next.dir).sort((a, b) => a.name.localeCompare(b.name))) {
 			const abs = join(next.dir, entry.name);
@@ -155,17 +155,12 @@ function extendsTargets(root: string, rel: string, text: string | null): string[
 	const parsed = text === null ? null : parseTsconfigObject(text);
 	if (!isJsonObject(parsed)) return [];
 	const raw = parsed.extends;
-	const specs = typeof raw === "string" ? [raw] : Array.isArray(raw) ? raw.filter((s) => typeof s === "string") : [];
-	const out: string[] = [];
-	for (const spec of specs) {
-		if (!(spec.startsWith("./") || spec.startsWith("../") || isAbsolute(spec))) continue;
-		const abs = isAbsolute(spec) ? spec : resolve(dirname(join(root, rel)), spec);
-		for (const candidate of abs.endsWith(".json") ? [abs] : [abs, `${abs}.json`]) {
-			const r = relative(root, candidate);
-			if (!r.startsWith("..") && !isAbsolute(r)) out.push(r);
-		}
-	}
-	return out;
+	const specs = Array.isArray(raw) ? raw : [raw];
+	const fromFile = join(root, rel);
+	return specs.filter((spec): spec is string => typeof spec === "string")
+		.flatMap(spec => localExtendsCandidates(fromFile, spec))
+		.map(candidate => relative(root, candidate))
+		.filter(path => !path.startsWith("..") && !isAbsolute(path));
 }
 
 /** Forget cached discovery (tests; a root whose layout just changed). */
@@ -199,31 +194,29 @@ export function captureConfigWaterLinesSafely(root: string, read: SnapshotReader
 
 export function captureConfigWaterLines(root: string, read: SnapshotReader, now = Date.now()): ConfigSnapshot {
 	const rels = [...new Set([...rootConfigs(root), ...deepConfigs(root, now)])].slice(0, MAX_CONFIG_FILES);
-	const snap: Record<string, string | null> = {};
-	for (const rel of rels) snap[rel] = read(join(root, rel));
-	const pending = rels.filter((rel) => TSCONFIG_RE.test(rel));
-	const visited = new Set<string>();
+	const snapshot = new Map(rels.map(rel => [rel, read(join(root, rel))]));
+	const pending = rels.filter(rel => TSCONFIG_RE.test(rel));
+	const scheduled = new Set(pending);
 	for (let index = 0; index < pending.length; index++) {
-		const rel = pending[index];
-		if (rel === undefined) break;
-		if (visited.has(rel)) continue;
-		visited.add(rel);
-		for (const target of extendsTargets(root, rel, snap[rel] ?? null)) {
-			if (!(target in snap)) {
-				if (Object.keys(snap).length >= MAX_CONFIG_FILES) continue;
-				snap[target] = read(join(root, target));
+		const rel = pending[index]!;
+		for (const target of extendsTargets(root, rel, snapshot.get(rel) ?? null)) {
+			if (scheduled.has(target)) continue;
+			if (!snapshot.has(target)) {
+				if (snapshot.size >= MAX_CONFIG_FILES) continue;
+				snapshot.set(target, read(join(root, target)));
 			}
-			if (!visited.has(target)) pending.push(target);
+			scheduled.add(target);
+			pending.push(target);
 		}
 	}
-	return snap;
+	return Object.fromEntries(snapshot);
 }
 
 /** A reader serving one side's snapshotted bytes, the disk for anything else. */
 function sideReader(root: string, side: ConfigSnapshot, read: SnapshotReader): SnapshotReader {
 	return (absPath) => {
 		const rel = relative(root, absPath);
-		return rel in side ? (side[rel] ?? null) : read(absPath);
+		return Object.hasOwn(side, rel) ? (side[rel] ?? null) : read(absPath);
 	};
 }
 
@@ -274,10 +267,24 @@ function subjectVerdict(root: string, rel: string, before: ConfigSnapshot, after
  * it) that parsed before the call and no longer parses (round 4). A referencer's
  * after-side chain is then undecidable, so its own verdict cannot see this.
  */
-function extendsTargetParseLoosening(rel: string, before: ConfigSnapshot, after: ConfigSnapshot, changed: ReadonlySet<string>): string | null {
-	if (!changed.has(rel)) return null;
-	const message = unparseablePostImage(before[rel], after[rel]);
-	return message === null ? null : `[tsconfig-parse] ${message}`;
+function changedBaseReasons(before: ConfigSnapshot, after: ConfigSnapshot, changed: ReadonlySet<string>): Map<string, string[]> {
+	const reasons = new Map<string, string[]>();
+	for (const rel of changed) {
+		if (isConfigWaterLineName(rel)) continue;
+		const message = unparseablePostImage(before[rel], after[rel]);
+		if (message !== null) reasons.set(rel, [`[tsconfig-parse] ${message}`]);
+	}
+	return reasons;
+}
+
+function attributeConfigVerdict(reasons: Map<string, string[]>, rel: string, verdict: SubjectVerdict, changed: ReadonlySet<string>): void {
+	if (verdict.details.length === 0) return;
+	for (const owner of verdict.chain) {
+		if (!changed.has(owner)) continue;
+		const details = reasons.get(owner) ?? [];
+		for (const detail of verdict.details) details.push(owner === rel ? detail : `via ${rel}: ${detail}`);
+		reasons.set(owner, details);
+	}
 }
 
 /**
@@ -297,19 +304,11 @@ export function detectConfigWaterLineLoosening(root: string, before: ConfigSnaps
 		if (before[rel] !== null && after[rel] !== before[rel]) changed.add(rel);
 	}
 	if (changed.size === 0) return [];
-	const reasons = new Map<string, string[]>();
-	for (const rel of Object.keys(before).filter((r) => !isConfigWaterLineName(r))) {
-		const parse = extendsTargetParseLoosening(rel, before, after, changed);
-		if (parse !== null) reasons.set(rel, [parse]);
-	}
+	const reasons = changedBaseReasons(before, after, changed);
 	for (const rel of Object.keys(before)) {
 		if (!isConfigWaterLineName(rel)) continue;
 		const verdict = subjectVerdict(root, rel, before, after, read, warnings);
-		if (verdict.details.length === 0) continue;
-		for (const owner of verdict.chain.filter((c) => changed.has(c))) {
-			const lines = owner === rel ? verdict.details : verdict.details.map((d) => `via ${rel}: ${d}`);
-			reasons.set(owner, [...(reasons.get(owner) ?? []), ...lines]);
-		}
+		attributeConfigVerdict(reasons, rel, verdict, changed);
 	}
 	return [...reasons.entries()].map(([file, details]) => ({
 		file,

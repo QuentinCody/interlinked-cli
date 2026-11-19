@@ -1,4 +1,4 @@
-import { closeSync, openSync, readSync, writeSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, writeSync } from "node:fs";
 
 export const FILE_IO_CHUNK_BYTES = 4 * 1024 * 1024;
 export const MAX_MATERIALIZED_RANGE_BYTES = 16 * 1024 * 1024;
@@ -57,5 +57,27 @@ export function readFileRange(
 		return data;
 	} finally {
 		closeFileQuietly(fd);
+	}
+}
+
+/** Read one bounded regular file. A size change during the read makes this observation unavailable. */
+export function readBoundedTextFile(path: string, byteLimit: number): string | null {
+	let fd: number | undefined;
+	try {
+		fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+		const stat = fstatSync(fd);
+		if (!stat.isFile() || stat.size > byteLimit) return null;
+		const buffer = Buffer.allocUnsafe(stat.size + 1);
+		let total = 0;
+		while (total < buffer.length) {
+			const bytes = readSync(fd, buffer, total, buffer.length - total, total);
+			if (bytes === 0) break;
+			total += bytes;
+		}
+		return total === stat.size ? buffer.toString("utf8", 0, total) : null;
+	} catch {
+		return null;
+	} finally {
+		if (fd !== undefined) closeFileQuietly(fd);
 	}
 }

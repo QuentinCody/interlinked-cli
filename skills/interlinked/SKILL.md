@@ -36,6 +36,8 @@ covers missing recurrence proposals and validated trajectory JSON output.
 unavailable response for `structure scan --incremental`.
 That skill also covers per-metric cyclomatic, cognitive and function-token modes,
 targets and scopes, including inherited defaults and adopted-policy integrity.
+For deferred commit coverage and its retry instructions, see **interlinked-quality-gates**.
+
 Use **interlinked-quality-gates** for `metrics policies export|inspect|evaluate`.
 Versioned data-only profiles select installed metrics and detector contracts for
 explicit local reports, with raw evidence, unsupported scopes and structural
@@ -68,6 +70,7 @@ these three checks and their existing recognition predicates determine candidate
 `verify --only` uses catalog aliases in both text and JSON output. Both report
 when the selected tool lacks a foreground runner.
 The verify skill describes partial scanner findings and timeout reasons.
+For unresolved alias imports in mutation proof receipts, use **interlinked-verify**.
 For excluded checks and partial external-tool receipts in verify JSON, use **interlinked-verify**.
 Semgrep runs only with `verify --only semgrep`. Default and `--all-checks`
 skip its version probe and scan. Use `verify --skip gitleaks` to omit Gitleaks

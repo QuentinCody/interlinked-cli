@@ -29,7 +29,11 @@ function snapshotGraph(snapshot: RelationSnapshot, root: string): { graph: Impor
 }
 export function lexicalCandidates(query: string, units: Unit[], k: number): Unit[] {
     const words = nameTokens(query);
-    return units.map(unit => ({ unit, score: [...words].filter(word => nameTokens(`${unit.name} ${unit.text}`).has(word)).length }))
+    return units.map(unit => {
+        const tokens = nameTokens(`${unit.name} ${unit.text}`);
+        const score = [...words].filter(word => tokens.has(word)).length;
+        return { unit, score };
+    })
         .sort((a, b) => b.score - a.score || a.unit.id.localeCompare(b.unit.id)).slice(0, k).map(row => row.unit);
 }
 export function sealPlan(value: Omit<RelationPlan, "id">): RelationPlan { return { ...value, id: hash(value) }; }

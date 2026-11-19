@@ -45,7 +45,8 @@ describe("framed-PID file ownership (Plan 08 review fix)", () => {
 
 		const body = rest.slice(0, endRel);
 		// The legacy write must still happen.
-		expect(body).toContain("writeFileSync(PID_PATH, String(process.pid))");
+		expect(body).toContain("writeFileSync(pidPath, String(process.pid))");
+		expect(SOCKET_LIFECYCLE_TS).toContain("const pidOwner = createPidFileOwner(PID_PATH)");
 		// The framed write must be gone.
 		expect(body).not.toContain("FRAMED_PATHS.pid");
 		expect(body).not.toContain("writeFileSync(FRAMED_PATHS");

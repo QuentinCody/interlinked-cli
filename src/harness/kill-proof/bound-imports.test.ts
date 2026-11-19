@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fileMutationLockPath, withFileMutationLock } from "../../lib/file-mutation-lock.js";
 import type { VitestRun } from "../fail-before-fix/index.js";
-import { boundImportClosure, MAX_BOUND_IMPORTS } from "./bound-imports.js";
+import { boundImportClosure, MAX_BOUND_IMPORTS, unboundAliasReasons } from "./bound-imports.js";
 import { killProofsDir, parseKillProof, readKillProofIndex, writeKillProof } from "./receipt.js";
 import { freshKillsForTest, receiptCertifies, receiptFreshCheap, verifyKillProof } from "./receipt-freshness.js";
 import { proveKill } from "./run.js";
@@ -56,6 +56,33 @@ async function provenKill(): Promise<KillProofReceipt> {
 }
 
 describe("bound imports — positive (must fire)", () => {
+	it("distinguishes erased type-only declarations from inline types that can load an alias", () => {
+		write("src/deep.ts", [
+			'import type { Type } from "@app/erased-import";',
+			'export type { Other } from "@app/erased-export";',
+			'import { type Local } from "@app/inline-import";',
+			'export { type Alias } from "@app/inline-export";',
+			'const example = `export { value } from "@app/string-example";`;',
+			'// export { value } from "@app/comment";',
+			'export const limit = 3;',
+		].join("\n"));
+		expect(unboundAliasReasons(root, [{ path: "src/deep.ts", sha256: "" }], ["@app"])).toEqual([
+			"src/deep.ts may load @app/inline-import with verbatimModuleSyntax; the configured alias target is unresolved",
+			"src/deep.ts may load @app/inline-export with verbatimModuleSyntax; the configured alias target is unresolved",
+		]);
+	});
+	it("withholds only the test whose own helper statically re-exports through a root alias", async () => {
+		write("vitest.config.ts", 'export default { test: { alias: { "@app": computeTarget() } } };\n');
+		write("src/deep.ts", 'export { limit } from "@app/limits";\n');
+		write("src/only-b.ts", 'export { extra } from "@app-extra/values";\n');
+		git("add", ".");
+		const receipt = await provenKill();
+		const reason = "src/deep.ts imports @app/limits through a configured alias whose target the receipt did not resolve";
+		expect(receiptFreshCheap(root, receipt.id)?.reasons).toEqual([reason]);
+		expect(verifyKillProof(root, receipt)).toEqual({ fresh: false, reasons: [reason] });
+		expect(receiptCertifies(root, receipt.id, A)).toMatchObject({ certified: false, reasons: [reason] });
+		expect(receiptCertifies(root, receipt.id, B).certified).toBe(true);
+	});
 	it("P1: the receipt binds the transitive local closure with the tests that reach each file", async () => {
 		const receipt = await provenKill();
 		expect(receipt.boundImports.map(file => [file.path, file.importedBy])).toEqual([

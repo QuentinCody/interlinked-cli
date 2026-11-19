@@ -209,6 +209,27 @@ async function claimFirst(
 	return claim.kind;
 }
 
+/** Account for the runner's POST independently of a retained-result claim. */
+async function recordPost(url: string, attempt: EndpointAttempt, state: JobState): Promise<EndpointsRoundResult> {
+	switch (attempt.kind) {
+		case "unreachable":
+			return { kind: "continue", reachedSomeone: false };
+		case "busy":
+			return { kind: "continue", reachedSomeone: true };
+		case "timeout":
+			// Multiple observations of the same in-flight job count once.
+			if (!state.inFlight.has(url)) state.attempts++;
+			state.inFlight.add(url);
+			return { kind: "continue", reachedSomeone: true };
+		case "response": {
+			state.attempts++;
+			const res = attempt.res;
+			if (!res.ok) return { kind: "done", outcome: { ok: false, reason: await describeErrorResponse(res) } };
+			return { kind: "done", outcome: { ok: true, body: await res.json(), attempts: state.attempts } };
+		}
+	}
+}
+
 /**
  * Try each endpoint in turn for one round. Returns as soon as any endpoint
  * gives a definitive (non-busy, reachable) answer; otherwise reports whether
@@ -235,37 +256,15 @@ async function attemptAllEndpoints(
 			const claimed = await claimFirst(url, headers, args.claimFetch, args, state);
 			if (claimed === "unreachable") continue;
 			if (claimed !== "not_finished") return claimed;
+			reachedSomeone = true;
 			// not_finished: the run is still going (the POST below answers 503) or
 			// never reached the runner (the POST below starts it) — either way the
 			// POST is the right next move.
 		}
 		const endpointAttempt = await tryEndpoint(url, body, headers, args.fetchImpl, args.requestTimeoutMs);
-		if (endpointAttempt.kind === "busy") {
-			reachedSomeone = true;
-			continue;
-		}
-		if (endpointAttempt.kind === "unreachable") continue;
-		if (endpointAttempt.kind === "timeout") {
-			// The request was sent, so the runner may be executing it: remember to
-			// claim before posting again. Counts as an accepted attempt until a
-			// claim proves otherwise (a runner that never got it answers 404 and
-			// the next POST is then counted in its place).
-			reachedSomeone = true;
-			if (!state.inFlight.has(url)) state.attempts++;
-			state.inFlight.add(url);
-			continue;
-		}
-		const res = endpointAttempt.res;
-		// An accepted POST is one more execution — the second one when it follows
-		// a timed-out POST the runner held nothing for.
-		state.attempts++;
-		// Quote the runner rather than reducing it to a status code. This path
-		// is the SWEEP's, distinct from cloud-runner.ts's (the per-edit gate's)
-		// — the same defect existed in both, and a live 719-file sweep found
-		// this copy by reporting a bare `runner HTTP 500` for a file whose
-		// runner had explained itself perfectly well.
-		if (!res.ok) return { kind: "done", outcome: { ok: false, reason: await describeErrorResponse(res) } };
-		return { kind: "done", outcome: { ok: true, body: await res.json(), attempts: state.attempts } };
+		const posted = await recordPost(url, endpointAttempt, state);
+		if (posted.kind === "done") return posted;
+		reachedSomeone ||= posted.reachedSomeone;
 	}
 	return { kind: "continue", reachedSomeone };
 }

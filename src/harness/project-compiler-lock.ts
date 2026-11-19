@@ -37,6 +37,8 @@ export interface CrossProcessCompilerLease {
 }
 
 interface CrossProcessCompilerLeaseOptions {
+	/** Independent workloads must obtain their own host capacity even when a caller holds a lease. */
+	allowAncestor?: boolean;
 	/** Test seam for the observe-then-retire race. Production leaves absent. */
 	beforeRetireObserved?: () => void;
 	/** Test seam fired after `mkdirSync` succeeds but before the owner file is
@@ -328,7 +330,7 @@ function createOrRecoverLease(projectKey: string, path: string, options: CrossPr
 			return createLease(projectKey, path, options);
 		} catch (error) {
 			if (!hasErrorCode(error, "EEXIST")) throw error;
-			const nested = nestedLease(path);
+			const nested = options.allowAncestor === false ? null : nestedLease(path);
 			if (nested) return nested;
 			if (!reclaimStaleLock(path, options)) return null;
 			options.afterReclaim?.();

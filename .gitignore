@@ -195,6 +195,8 @@ scripts/internal/*
 !scripts/generate-managed-push-manifest.mjs
 !scripts/build-atomic.mjs
 !scripts/build-atomic-cli.mjs
+!scripts/cli-reference-help.ts
+!scripts/cli-reference-help.test.mts
 !scripts/build-atomic.test.mjs
 !scripts/build-input-fingerprint.mjs
 !scripts/e2e-*.mjs

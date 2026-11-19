@@ -98,6 +98,24 @@ describe("M7 / A4 / A6 — --vitest-config resolution", () => {
 });
 
 describe("M2 / M3 / M4 — config binding", () => {
+	it("keeps only exported root alias names in validation metadata and out of the receipt environment", () => {
+		const root = makeRepo({
+			"vitest.config.ts": [
+				'import "./helper";',
+				'const ignored = { resolve: { alias: { decoy: "ignored" } } };',
+				'export default defineConfig({ resolve: { alias: { "@app": neverEvaluate(), shorthand } },',
+				'  test: { alias: { "@app": differentValue() }, projects: ["packages/app"] } });',
+			].join("\n"),
+			"helper.ts": 'export default { resolve: { alias: { helperOnly: "ignored" } } };',
+			"packages/app/vitest.config.ts": 'export default { test: { alias: { projectOnly: "ignored" } } };',
+		});
+		const binding = bindVitestConfig(root, "vitest.config.ts");
+		expect(binding.rootAliasNames).toEqual(["@app", "shorthand"]);
+		expect(binding.configFiles).toEqual(["helper.ts", "packages/app/vitest.config.ts"]);
+		const environment = captureEnvironment(root, "vitest.config.ts");
+		expect(environment).not.toHaveProperty("rootAliasNames");
+		expect(environment).not.toHaveProperty("aliasNames");
+	});
 	const SETUP = "(globalThis as any).__KP_SETUP__ = 1;\n";
 	it("P1: test.projects globs bind each project's config, its setup files (resolved against the project directory) and a negation is honoured", () => {
 		const root = makeRepo({

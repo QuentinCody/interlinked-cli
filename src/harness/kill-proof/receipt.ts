@@ -101,6 +101,11 @@ const hashAll = (root: string, paths: readonly string[]): HashedFile[] => paths.
 
 /** Node, vitest (resolved from the project), platform, the hashed vitest/vite config, the other config files it loads and the inputs they declare. */
 export function captureEnvironment(root: string, configPath?: string): ProofEnvironment {
+	return captureEnvironmentDetails(root, configPath).environment;
+}
+
+/** Alias names describe the current config for validation. They change no historical receipt bytes. */
+export function captureEnvironmentDetails(root: string, configPath?: string): { environment: ProofEnvironment; aliasNames: string[] } {
 	let vitest: string | null = null;
 	try {
 		const require = createRequire(join(root, "package.json"));
@@ -111,7 +116,8 @@ export function captureEnvironment(root: string, configPath?: string): ProofEnvi
 	}
 	const config = resolveVitestConfig(root, configPath);
 	const binding = bindVitestConfig(root, config);
-	return { node: process.version, vitest, platform: `${process.platform}-${process.arch}`, config: config ? hashFile(root, config) : null, setupFiles: hashAll(root, binding.setupFiles), configFiles: hashAll(root, binding.configFiles), unresolvable: binding.unresolvable };
+	const environment = { node: process.version, vitest, platform: `${process.platform}-${process.arch}`, config: config ? hashFile(root, config) : null, setupFiles: hashAll(root, binding.setupFiles), configFiles: hashAll(root, binding.configFiles), unresolvable: binding.unresolvable };
+	return { environment, aliasNames: binding.rootAliasNames ?? [] };
 }
 
 /** A quoted snippet cut to `max` characters, with an ellipsis when cut so a clipped label never reads as the full text. */

@@ -27,6 +27,8 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import type * as TS from "typescript";
+import { parseTsSource, type TsModule } from "../checks/cyclomatic-ast.js";
 import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { parseImports } from "../project-graph/parser-imports.js";
 import { resolveImportPath } from "../project-graph/resolve.js";
@@ -65,6 +67,47 @@ export function staticLocalSpecifiers(content: string, fromAbs: string): string[
 		if (isStaticRuntimeSpecifier(content, specifier)) out.push(specifier);
 	}
 	return out;
+}
+
+function aliasImport(ts: TsModule, node: TS.Statement): { name: string; inlineTypesOnly: boolean } | null {
+	if (!(ts.isImportDeclaration(node) || ts.isExportDeclaration(node))) return null;
+	const specifier = node.moduleSpecifier;
+	if (!specifier || !ts.isStringLiteralLike(specifier)) return null;
+	if (ts.isExportDeclaration(node)) {
+		if (node.isTypeOnly) return null;
+		const bindings = node.exportClause;
+		const inlineTypesOnly = !!bindings && ts.isNamedExports(bindings) && bindings.elements.length > 0 && bindings.elements.every(entry => entry.isTypeOnly);
+		return { name: specifier.text, inlineTypesOnly };
+	}
+	const clause = node.importClause;
+	if (clause?.isTypeOnly) return null;
+	const bindings = clause?.namedBindings;
+	const inlineTypesOnly = !clause?.name && !!bindings && ts.isNamedImports(bindings) && bindings.elements.length > 0 && bindings.elements.every(entry => entry.isTypeOnly);
+	return { name: specifier.text, inlineTypesOnly };
+}
+
+/** Aliases apply to the complete name or a slash-delimited prefix. Unused configurations do not affect the proof. */
+export function unboundAliasReasons(root: string, files: readonly HashedFile[], aliases: readonly string[]): string[] {
+	if (!aliases.length) return [];
+	const matches = (specifier: string) => aliases.some(name => specifier === name || specifier.startsWith(name + "/"));
+	const reasons = new Set<string>();
+	for (const file of new Set(files.map(entry => entry.path))) {
+		const content = readCode(root, file);
+		if (content === null) continue;
+		const parsed = parseTsSource(content, join(root, file));
+		if (!parsed) {
+			reasons.add(`${file} could not be parsed to check imports against the configured aliases`);
+			continue;
+		}
+		for (const statement of parsed.sf.statements) {
+			const input = aliasImport(parsed.ts, statement);
+			if (!input || !matches(input.name)) continue;
+			reasons.add(input.inlineTypesOnly
+				? `${file} may load ${input.name} with verbatimModuleSyntax; the configured alias target is unresolved`
+				: `${file} imports ${input.name} through a configured alias whose target the receipt did not resolve`);
+		}
+	}
+	return [...reasons];
 }
 
 function insideProject(root: string, abs: string): string | null {

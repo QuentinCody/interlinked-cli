@@ -47,14 +47,9 @@ function extendsSpecifiers(cfg: JsonObject): string[] | string {
 	return `\`extends\` has a non-string shape (${JSON.stringify(ext)})`;
 }
 
-/** TypeScript follows `./`, `../` and absolute paths as files; every other
- *  specifier is a node-module lookup this gate does not perform. */
-function isLocalSpecifier(spec: string): boolean {
-	return spec.startsWith("./") || spec.startsWith("../") || isAbsolute(spec);
-}
-
-/** Candidate files for a local specifier: as written, then with `.json`. */
-function extendsCandidates(fromFile: string, spec: string): string[] {
+/** Local targets in TypeScript's lookup order. Package specifiers have no local candidates. */
+export function localExtendsCandidates(fromFile: string, spec: string): string[] {
+	if (!spec.startsWith("./") && !spec.startsWith("../") && !isAbsolute(spec)) return [];
 	const target = isAbsolute(spec) ? spec : resolve(dirname(fromFile), spec);
 	return target.endsWith(".json") ? [target] : [target, `${target}.json`];
 }
@@ -77,10 +72,11 @@ function resolveSpecifier(
 	spec: string,
 	stack: string[],
 ): EffectiveOutcome {
-	if (!isLocalSpecifier(spec)) {
+	const candidates = localExtendsCandidates(fromFile, spec);
+	if (candidates.length === 0) {
 		return undecidable(ctx, `${ctx.label(fromFile)} extends "${spec}", a package specifier this gate does not resolve`);
 	}
-	for (const candidate of extendsCandidates(fromFile, spec)) {
+	for (const candidate of candidates) {
 		if (ctx.read(candidate) !== null) return resolveFile(ctx, candidate, stack);
 	}
 	return undecidable(ctx, `${ctx.label(fromFile)} extends "${spec}", which does not exist on this side`);

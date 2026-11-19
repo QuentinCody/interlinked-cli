@@ -30,6 +30,21 @@ it("does not infer assertion absence from a parameterized callback supplied by r
 	]);
 });
 
+it("attributes an empty inline callback to its own registration after named callbacks", () => {
+	const content = [
+		'import { verifyCase } from "./cases.js";',
+		'it("uses the imported case", verifyCase);',
+		'it("uses explicit options", { timeout: 300 }, verifyCase);',
+		'it(',
+		'  "formatted named callback",',
+		'  verifyCase,',
+		');',
+		'it("performs work without an assertion", () => { compute(); });',
+		'it("checks the value", () => { expect(compute()).toBe(4); });',
+	].join("\n");
+	expect(checkAssertionFreeTest(content, TEST).map(hit => hit.line)).toEqual([8]);
+});
+
 describe("checkAssertionFreeTest — smoke-test name exemption", () => {
 	// ---- exempt: cases EXPLICITLY named for a not-throwing / smoke check ----
 	it("exempts a case named 'renders without crashing'", () => {

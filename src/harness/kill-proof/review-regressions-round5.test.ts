@@ -124,18 +124,29 @@ describe("kill proof round 5 — receipts stay FRESH after an edit that changes 
 		expect(after).toEqual({ verify: false, certifies: false });
 	});
 
-	// POLICY (round-5 resolution R5-6): aliases need the vite/vitest config evaluated — not a static rule; documented in the guide's
-	// Limits as a false-FRESH class. Kept as a todo, body intact, so turning it green is a deliberate product change.
-	it.todo("N5: a helper reached only through a vitest `resolve.alias` is not bound; editing it keeps the receipt fresh (documented limit, still a false FRESH) — POLICY: aliases are a documented Limit (resolve.alias needs the config evaluated; binding follows static relative specifiers only)", async () => {
-		// review R5-6 — the guide's Limits say aliased specifiers are not followed; the receipt still reads FRESH while the test's helper changed
+	it("N5: a runtime import matching an explicit config alias cannot certify an unbound helper", async () => {
 		const config = 'import { defineConfig } from "vitest/config";\nimport { fileURLToPath } from "node:url";\nexport default defineConfig({ resolve: { alias: { "@helpers": fileURLToPath(new URL("./test/helpers", import.meta.url)) } }, test: { include: ["test/**/*.test.ts"] } });\n';
 		const root = makeRepo({
 			[TEST]: 'import { expect, it } from "vitest";\nimport { add } from "../src/math";\nimport { aliased } from "@helpers/aliased";\nit("adds", () => { expect(aliased(add(1, 2))).toBe(true); });\n',
 			"test/helpers/aliased.ts": "export function aliased(v: number): boolean { return v === 3; }\n",
 		}, config);
 		const receipt = await killedReceipt(root);
+		expect(verifyKillProof(root, receipt)).toEqual({
+			fresh: false,
+			reasons: [expect.stringContaining("@helpers/aliased")],
+		});
 		const after = freshAfterEdit(root, receipt, "test/helpers/aliased.ts", "export function aliased(_v: number): boolean { return true; }\n");
 		expect(after).toEqual({ verify: false, certifies: false });
+	});
+
+	it("keeps a receipt fresh when a root alias is unused and its replacement cannot be evaluated", async () => {
+		const config = 'export default { resolve: { alias: { "@helpers": unknownReplacement() } } };\n';
+		const root = makeRepo({
+			[TEST]: 'import { expect, it } from "vitest";\nimport type { Options } from "@helpers/types";\nimport { add } from "../src/math";\nit("adds", () => { expect(add(1, 2)).toBe(3); });\n',
+		}, config);
+		const receipt = await killedReceipt(root);
+		expect(verifyKillProof(root, receipt)).toEqual({ fresh: true });
+		expect(receiptCertifies(root, receipt.id, TEST).certified).toBe(true);
 	});
 });
 

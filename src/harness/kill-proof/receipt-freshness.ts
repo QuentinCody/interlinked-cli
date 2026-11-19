@@ -12,9 +12,9 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { MAX_BOUND_IMPORTS } from "./bound-imports.js";
+import { MAX_BOUND_IMPORTS, unboundAliasReasons } from "./bound-imports.js";
 import { type KnownSurvivors, knownSurvivorsFor } from "./prove-command.js";
-import { captureEnvironment, hashFile, type KillProofIndexRow, readKillProof, readKillProofIndex, receiptDigest, receiptId } from "./receipt.js";
+import { captureEnvironmentDetails, hashFile, type KillProofIndexRow, readKillProof, readKillProofIndex, receiptDigest, receiptId } from "./receipt.js";
 import { lineTextAt, relocate } from "./resolve.js";
 import { type CaseRequirement, requirementCovered, requirementLabel } from "./source-cases.js";
 import type { CaseOutcome, Freshness, HashedFile, KillProofReceipt, ProofEnvironment } from "./types.js";
@@ -34,20 +34,21 @@ export function bytesFresh(root: string, row: Pick<KillProofIndexRow, "source" |
 }
 
 /** Per-call memo of `captureEnvironment` by config path (review M10: one createRequire + config hash per call, not per receipt). */
-export type EnvironmentCache = Map<string, ProofEnvironment>;
+export type EnvironmentCache = Map<string, ReturnType<typeof captureEnvironmentDetails>>;
 
-function currentEnvironment(root: string, configPath: string | undefined, cache: EnvironmentCache | undefined): ProofEnvironment {
-	if (cache === undefined) return captureEnvironment(root, configPath);
+function currentEnvironment(root: string, configPath: string | undefined, cache: EnvironmentCache | undefined): ReturnType<typeof captureEnvironmentDetails> {
+	if (cache === undefined) return captureEnvironmentDetails(root, configPath);
 	const key = configPath ?? "";
 	const known = cache.get(key);
 	if (known !== undefined) return known;
-	const env = captureEnvironment(root, configPath);
+	const env = captureEnvironmentDetails(root, configPath);
 	cache.set(key, env);
 	return env;
 }
 
-function environmentReasons(root: string, recorded: ProofEnvironment, cache?: EnvironmentCache): string[] {
-	const env = currentEnvironment(root, recorded.config?.path, cache), reasons: string[] = [];
+function environmentReasons(root: string, recorded: ProofEnvironment, inputs: readonly HashedFile[], cache?: EnvironmentCache): string[] {
+	const { environment: env, aliasNames } = currentEnvironment(root, recorded.config?.path, cache);
+	const reasons = unboundAliasReasons(root, [...inputs, ...recorded.setupFiles], aliasNames);
 	reasons.push(...hashMismatches(root, recorded.setupFiles, "setup file"));
 	for (const file of env.setupFiles) if (!recorded.setupFiles.some(known => known.path === file.path)) reasons.push(`setup file ${file.path} was added to the config since the proof`);
 	reasons.push(...hashMismatches(root, recorded.configFiles, "config file"));
@@ -86,12 +87,12 @@ export function integrityReasons(root: string, receipt: KillProofReceipt): strin
 export function receiptFreshCheap(root: string, id: string): { receipt: KillProofReceipt; reasons: string[] } | null {
 	const receipt = readKillProof(root, id);
 	if (receipt === null) return null;
-	return { receipt, reasons: [...integrityReasons(root, receipt), ...bytesFresh(root, receipt), ...environmentReasons(root, receipt.environment)] };
+	return { receipt, reasons: [...integrityReasons(root, receipt), ...bytesFresh(root, receipt), ...environmentReasons(root, receipt.environment, [receipt.source, ...receipt.tests, ...receipt.boundImports])] };
 }
 
 /** Full freshness: the cheap check plus the mutant still resolving at the recorded offset on the recorded line. */
 export function verifyKillProof(root: string, receipt: KillProofReceipt): Freshness {
-	const reasons = [...integrityReasons(root, receipt), ...bytesFresh(root, receipt), ...environmentReasons(root, receipt.environment)];
+	const reasons = [...integrityReasons(root, receipt), ...bytesFresh(root, receipt), ...environmentReasons(root, receipt.environment, [receipt.source, ...receipt.tests, ...receipt.boundImports])];
 	if (reasons.length === 0) {
 		const located = relocate(root, receipt.mutant);
 		if (!located.ok) reasons.push(`mutant no longer resolves: ${located.reason}`);
@@ -164,7 +165,7 @@ export function receiptCertifies(root: string, id: string, testPath: string, req
 	const own = receipt.tests.filter(test => test.path === testPath);
 	if (own.length === 0) reasons.push(`receipt does not name ${testPath}`);
 	const helpers = receipt.boundImports.filter(file => file.importedBy.includes(testPath));
-	reasons.push(...hashMismatches(root, [receipt.source], "source"), ...hashMismatches(root, own, "test"), ...hashMismatches(root, helpers, "helper"), ...environmentReasons(root, receipt.environment, envCache));
+	reasons.push(...hashMismatches(root, [receipt.source], "source"), ...hashMismatches(root, own, "test"), ...hashMismatches(root, helpers, "helper"), ...environmentReasons(root, receipt.environment, [receipt.source, ...own, ...helpers], envCache));
 	let uncovered: string[] = [];
 	if (requireCases !== undefined && requireCases.length > 0) {
 		const rows = caseRowsForTest(receipt, testPath);

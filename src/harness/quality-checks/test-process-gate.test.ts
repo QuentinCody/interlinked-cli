@@ -222,10 +222,11 @@ describe("runBoundedTestProcess", () => {
             args: ["-e", `require('fs').writeFileSync(${JSON.stringify(marker)}, '1'); setInterval(() => {}, 1000);`],
             cwd: projectRoot, timeoutMs: 5_000, signal: controller.signal,
         });
-        const deadline = Date.now() + 4_000;
-        while (!existsSync(marker) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
-        expect(existsSync(marker)).toBe(true);
-        controller.abort();
+        try {
+            await vi.waitFor(() => expect(existsSync(marker)).toBe(true), { timeout: 4_000, interval: 25 });
+        } finally {
+            controller.abort();
+        }
         await expect(pending).resolves.toEqual({ kind: "deferred", reason: "interrupted" });
     });
 

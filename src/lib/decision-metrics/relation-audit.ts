@@ -1,6 +1,6 @@
 import { hash, record, strings, text, unique } from "../../harness/semantic-graph/relation-core.js";
 import { parseRelationRun } from "../../harness/semantic-graph/relation-codec.js";
-import type { RelationKind, RelationPlan, RelationRun } from "../../harness/semantic-graph/relation-types.js";
+import type { RelationKind, RelationMeasurement, RelationPlan, RelationRun } from "../../harness/semantic-graph/relation-types.js";
 import { RELATION_CONTRACTS } from "./relation-contracts.js";
 
 export interface RelationLabel { packetId: string; caseId: string; split: "development" | "holdout"; source: "fixture_execution" | "astra_model_review"; reviewer: string; choice: string | null; rationale: string; evidence: string[]; }
@@ -43,7 +43,9 @@ export function auditRelations(runInput: RelationRun, labelInput: unknown): unkn
     for (const measurement of run.measurements) {
         const label = labelMap.get(measurement.packetId);
         const key = `${measurement.armId}/${measurement.populationId}/${label?.source ?? "unlabeled"}/${label?.split ?? "unassigned"}`;
-        groups.set(key, [...(groups.get(key) ?? []), measurement]);
+        const population = groups.get(key);
+        if (population) population.push(measurement);
+        else groups.set(key, [measurement]);
     }
     const results = [...groups].map(([population, measurements]) => {
         return auditRelationPopulation(population, measurements, labels, labelMap);
@@ -51,21 +53,40 @@ export function auditRelations(runInput: RelationRun, labelInput: unknown): unkn
     return { schema: "interlinked.relation-audit/1", runId: run.id, labelsDigest: hash(labels), candidateCoverage: run.plan.coverage.map(c => ({ invariantId: c.invariantId, mode: c.mode, method: c.method, k: c.limit, recovered: c.recovered.length, reference: c.reference.length, recall: c.reference.length ? c.recovered.length / c.reference.length : null, missed: c.reference.filter(id => !c.recovered.includes(id)), missingSelectors: c.missingSelectors, historyAvailable: c.historyAvailable, referenceSource: "authored registry; not inferred truth" })), results, referencePolicy: "Astra model reviews replace human review by user instruction. Keep model-reference agreement separate from executable fixture evidence. No automatic advisory promotion.", blinded: labels.blinded, incomplete: !run.complete || labels.labels.length < new Set(run.plan.jobs.flatMap(j => j.packets.map(p => p.id))).size };
 }
 
+function binaryOutcome(m: RelationMeasurement, choice: string, predicted: string) {
+    if (choice === "insufficient_evidence") return "undecidableReferences";
+    const positives = POSITIVE[m.recordKind];
+    const alert = m.status === "answered" && positives.includes(predicted);
+    if (positives.includes(choice)) return alert ? "tp" : "fn";
+    return alert ? "fp" : "tn";
+}
+
+function brierScore(m: RelationMeasurement, choice: string): number | null {
+    if (m.status === "failed" || m.status === "unassessed" || !m.raw || m.raw.kind === "yes_no") return null;
+    return Object.entries(m.raw.probabilities).reduce((sum, [option, probability]) => sum + (probability - Number(option === choice)) ** 2, 0);
+}
+
 function relationConfusion(measurements: RelationRun["measurements"], labelMap: Map<string, RelationLabel>) {
-    let tp = 0, fp = 0, tn = 0, fn = 0, compared = 0, correct = 0, brier = 0, scored = 0, undecidableReferences = 0;
+    const counts = { tp: 0, fp: 0, tn: 0, fn: 0, undecidableReferences: 0 };
+    let correct = 0, brier = 0, scored = 0;
     const confusion: Record<string, Record<string, number>> = {}, caseIds: string[] = [];
     for (const m of measurements) {
-        const label = labelMap.get(m.packetId); if (!label?.choice) continue;
-        compared++; caseIds.push(label.caseId);
+        const label = labelMap.get(m.packetId);
+        if (!label?.choice) continue;
+        caseIds.push(label.caseId);
         const predicted = m.status === "answered" || m.status === "insufficient_evidence" ? m.choice ?? "unresolved" : "unresolved";
-        const row = confusion[label.choice] ?? {}; row[predicted] = (row[predicted] ?? 0) + 1; confusion[label.choice] = row;
+        const row = confusion[label.choice] ?? {};
+        row[predicted] = (row[predicted] ?? 0) + 1;
+        confusion[label.choice] = row;
         if (predicted === label.choice) correct++;
-        const positive = POSITIVE[m.recordKind], truth = positive.includes(label.choice), alert = m.status === "answered" && positive.includes(predicted);
-        if (label.choice === "insufficient_evidence") undecidableReferences++;
-        else if (truth && alert) tp++; else if (truth) fn++; else if (alert) fp++; else tn++;
-        if (!["failed", "unassessed"].includes(m.status) && m.raw && m.raw.kind !== "yes_no") { brier += Object.entries(m.raw.probabilities).reduce((sum, [option, p]) => sum + (p - Number(option === label.choice)) ** 2, 0); scored++; }
+        counts[binaryOutcome(m, label.choice, predicted)]++;
+        const score = brierScore(m, label.choice);
+        if (score !== null) {
+            brier += score;
+            scored++;
+        }
     }
-    return { tp, fp, tn, fn, compared, correct, brier, scored, undecidableReferences, confusion, caseIds };
+    return { ...counts, compared: caseIds.length, correct, brier, scored, confusion, caseIds };
 }
 
 function relationExecutionStats(measurements: RelationRun["measurements"]) {

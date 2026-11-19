@@ -490,11 +490,18 @@ sees the PostToolUse line; the human sees the Stop line.
   through the mutated source, and from the config's `setupFiles` /
   `globalSetup`), and stops after 200 files —
   a receipt whose walk was cut says so and certifies nothing; re-prove with a
-  shallower helper tree. Dynamic `import()` and `require()` are not followed,
-  nor are aliased (bare) specifiers — `resolve.alias` and tsconfig `paths`
-  would need the vite/vitest config evaluated, which no static rule does — so
-  an edit to a module reached ONLY that way keeps a receipt FRESH that no
-  longer describes the test (a false FRESH; round 5, R5-6). A `vi.mock` with a
+  shallower helper tree. When a static runtime import or re-export uses a
+  literal key from an inline root `resolve.alias` or `test.alias` object,
+  verification reports the unresolved input and the receipt cannot certify
+  the affected test. The config may export the object directly or through
+  `defineConfig`. An unused alias or a whole-clause `import type` or
+  `export type` leaves the receipt eligible. An inline-only declaration such
+  as `import { type T } from "@helpers/types"` can still load the module
+  with `verbatimModuleSyntax`, so verification reports that uncertainty.
+  Dynamic imports, `require()`, computed or array alias maps, project-specific
+  aliases and tsconfig `paths` remain outside this check. A helper changed
+  solely through those routes can leave an inapplicable receipt marked FRESH.
+  A `vi.mock` with a
   factory is bound through the file that holds the factory; a factory-less one
   binds its `__mocks__` twin; a mock that vitest resolves another way (a
   package's `__mocks__` outside the root, an alias) is not followed. Data files

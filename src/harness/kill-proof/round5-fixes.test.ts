@@ -4,12 +4,12 @@
 // (no vitest, fast); the two CLI cases run the real command through tsx in a throwaway git repo whose
 // node_modules links to this checkout's.
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { INTERRUPTED_NOTICE, PROVE_KILL_EXIT } from "../../commands/tests-prove-kill.js";
 import type { VitestRun } from "../fail-before-fix/index.js";
 import { allocatedBytes, createProjectCopy } from "../fail-before-fix/snapshot.js";
@@ -80,20 +80,70 @@ describe("R5-1 — a timed-out vitest run settles the proof instead of draining 
 	}, REAL_RUN_MS);
 });
 
-// ---- R5-7: the supervisor's --timeout SIGTERM lets the proof clean up, then exits 75 --------------------------------
-describe("R5-7 — SIGTERM from the supervisor's --timeout is handled: copies removed, exit 75, no verdict", () => {
-	it("P1: `--timeout` below the baseline: the child reports the interruption, the test's marker never appears, nothing leaks, exit 75", () => {
-		const dir = proofTempDir();
-		const marker = join(dir, "escaped-marker");
-		const root = makeRepo({ "test/slow.test.ts": `import { writeFileSync } from "node:fs";\nimport { expect, it } from "vitest";\nimport { add } from "../src/math";\nit("slow", async () => { await new Promise(r => setTimeout(r, 6000)); writeFileSync(${JSON.stringify(marker)}, "escaped"); expect(add(1, 2)).toBe(3); }, 30000);\n` });
-		const run = proveKillCli(root, ["--test", "test/slow.test.ts", "--file", MINUS_FAULT.file, "--find", MINUS_FAULT.find, "--replace", MINUS_FAULT.replace, "--timeout", "3000", "--json"], dir);
+function waitingBaseline() {
+	const dir = proofTempDir();
+	const ready = join(dir, "baseline-ready"), release = join(dir, "release"), escaped = join(dir, "escaped-marker");
+	const root = makeRepo({ "test/active.test.ts": `import { existsSync, writeFileSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
+import { expect, it } from "vitest";
+import { add } from "../src/math";
+it("waits for release", async () => {
+	writeFileSync(${JSON.stringify(ready)}, String(process.pid));
+	while (!existsSync(${JSON.stringify(release)})) await delay(50);
+	writeFileSync(${JSON.stringify(escaped)}, "escaped");
+	expect(add(1, 2)).toBe(3);
+}, 90000);
+` });
+	const args = ["--test", "test/active.test.ts", "--file", MINUS_FAULT.file, "--find", MINUS_FAULT.find, "--replace", MINUS_FAULT.replace, "--json"];
+	return { root, dir, args, ready, release, escaped };
+}
+
+// R5-7 has two contracts: the whole-command deadline, and cleanup after an in-flight baseline receives SIGTERM.
+describe("R5-7 — a supervisor deadline below the baseline and cancellation of an active proof", () => {
+	it("the actual --timeout interrupts the command with exit 75 and no verdict", () => {
+		const { root, dir, args, escaped } = waitingBaseline();
+		const run = proveKillCli(root, [...args, "--timeout", "3000"], dir);
 		expect(run.status).toBe(PROVE_KILL_EXIT.interrupted);
-		expect(run.stderr).toContain(INTERRUPTED_NOTICE);
+		expect(run.stderr).toContain("[resources] CLI interrupted; no verification verdict.");
 		expect(run.stderr).not.toContain("unsettled top-level await");
 		expect(run.stdout).not.toMatch(/"verdict"/);
-		expect(existsSync(marker)).toBe(false);
+		expect(existsSync(escaped)).toBe(false);
 		expect(leakedProofDirs(dir)).toEqual([]);
 		expect(existsSync(join(root, ".interlinked", "test-runs", "kill-proofs"))).toBe(false);
+	}, REAL_RUN_MS);
+
+	it("forwards SIGTERM after the baseline starts, reaps the test and removes its proof copies", async () => {
+		const { root, dir, args, ready, release, escaped } = waitingBaseline();
+		// Start Node directly so this PID owns the supervisor; the tsx CLI shim has its own signal handling.
+		const cli = spawn(process.execPath, ["--import", join(NODE_MODULES, "tsx/dist/loader.mjs"), join(CHECKOUT, "src/index.ts"),
+			"tests", "prove-kill", "--cwd", root, ...args], {
+			env: { ...process.env, TMPDIR: dir, TEMP: dir, TMP: dir }, stdio: ["ignore", "pipe", "pipe"], timeout: 85_000,
+		});
+		let stdout = "", stderr = "";
+		cli.stdout.on("data", data => { stdout += String(data); });
+		cli.stderr.on("data", data => { stderr += String(data); });
+		const finished = new Promise<number | null>((resolve, reject) => { cli.once("close", resolve); cli.once("error", reject); });
+		try {
+			const runner = await vi.waitFor(() => {
+				const pid = Number(readFileSync(ready, "utf8"));
+				expect(Number.isSafeInteger(pid) && pid > 0, stderr).toBe(true);
+				return pid;
+			}, { timeout: 60_000 });
+			expect(leakedProofDirs(dir).length).toBeGreaterThan(0);
+			expect(cli.kill("SIGTERM")).toBe(true);
+			expect(await finished, stderr).toBe(PROVE_KILL_EXIT.interrupted);
+			expect(stderr).toContain(INTERRUPTED_NOTICE);
+			expect(stderr).not.toContain("unsettled top-level await");
+			expect(stdout).not.toMatch(/"verdict"/);
+			writeFileSync(release, "released");
+			await vi.waitFor(() => expect(() => process.kill(runner, 0)).toThrowError(expect.objectContaining({ code: "ESRCH" })), { timeout: 5_000 });
+			expect(existsSync(escaped)).toBe(false);
+			expect(leakedProofDirs(dir)).toEqual([]);
+			expect(existsSync(join(root, ".interlinked", "test-runs", "kill-proofs"))).toBe(false);
+		} finally {
+			if (cli.exitCode === null && cli.signalCode === null) cli.kill("SIGTERM");
+			await finished;
+		}
 	}, REAL_RUN_MS);
 });
 

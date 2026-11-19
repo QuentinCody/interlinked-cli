@@ -31,6 +31,8 @@ export const CONFIG_NAMES = ["vitest.config.ts", "vitest.config.mts", "vitest.co
 
 /** Files bound through a config walk; every path is repo-relative POSIX and exists. */
 export interface ConfigBinding {
+	/** Literal alias names in the inline root config. Replacement expressions are never executed. */
+	rootAliasNames?: string[];
 	/** The configs of `test.projects` entries and the static local import closure of every config (root first). */
 	configFiles: string[];
 	/** `setupFiles` / `globalSetup` entries, resolved as vitest resolves them. */
@@ -78,12 +80,31 @@ function staticStrings(ts: TsModule, node: TS.Node): { values: string[]; compute
 	return { values, computed };
 }
 
-interface Declarations { setup: string[]; projects: string[]; root: string | null; unresolvable: string[]; }
+interface Declarations { setup: string[]; projects: string[]; root: string | null; unresolvable: string[]; aliases: string[]; }
+
+function exportedAliasNames(ts: TsModule, property: TS.PropertyAssignment): string[] {
+	const owner = property.parent.parent;
+	if (!ts.isPropertyAssignment(owner) || !["resolve", "test"].includes(propertyName(ts, owner) ?? "")) return [];
+	const object = owner.parent;
+	const parent = object.parent;
+	const exported = ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && parent.expression.text === "defineConfig"
+		&& parent.arguments[0] === object ? parent.parent : parent;
+	if (!ts.isExportAssignment(exported) || !ts.isObjectLiteralExpression(property.initializer)) return [];
+	const names: string[] = [];
+	for (const entry of property.initializer.properties) {
+		if (ts.isShorthandPropertyAssignment(entry)) names.push(entry.name.text);
+		else if (ts.isPropertyAssignment(entry)) {
+			const name = propertyName(ts, entry);
+			if (name) names.push(name);
+		}
+	}
+	return names;
+}
 
 /** Every `setupFiles` / `globalSetup` / `projects` / `test.root` property assignment in the file, wherever it sits. */
 function declarationsIn(ts: TsModule, file: string, text: string): Declarations {
 	const sf = ts.createSourceFile(file, text, ts.ScriptTarget.ES2022, true, getExtension(file) === ".tsx" ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-	const out: Declarations = { setup: [], projects: [], root: null, unresolvable: [] };
+	const out: Declarations = { setup: [], projects: [], root: null, unresolvable: [], aliases: [] };
 	const visit = (node: TS.Node): void => {
 		if (ts.isPropertyAssignment(node)) {
 			const key = propertyName(ts, node);
@@ -91,6 +112,8 @@ function declarationsIn(ts: TsModule, file: string, text: string): Declarations 
 				const { values, computed } = staticStrings(ts, node.initializer);
 				(key === "projects" ? out.projects : out.setup).push(...values);
 				out.unresolvable.push(...computed.map(what => `${file}: ${key}${what.startsWith("[") ? what : ` ${what}`}`));
+			} else if (key === "alias") {
+				out.aliases.push(...exportedAliasNames(ts, node));
 			} else if (key === "root" && isTestObject(ts, node)) {
 				const value = staticString(ts, node.initializer);
 				if (value === null) out.unresolvable.push(`${file}: test.root is computed (${ts.SyntaxKind[node.initializer.kind]})`);
@@ -209,10 +232,12 @@ function baseFor(root: string, declaredRoot: string | null, defaultBase: string)
  * the root config, the config's directory for a project config). Bare specifiers (`dotenv/config`) are packages, not
  * project files, and are not bound; a relative or absolute path that does not exist is a limit.
  */
-function walkConfig(ts: TsModule, root: string, config: string, defaultBase: string, seen: Set<string>, binding: ConfigBinding): string[] {
+function walkConfig(ts: TsModule, root: string, config: string, defaultBase: string, seen: Set<string>, binding: ConfigBinding, rootConfig = false): string[] {
 	const closure = configImportClosure(root, config, seen);
 	const files = [config, ...closure];
 	const declared = files.map(file => declarationsIn(ts, file, readFileSync(join(root, file), "utf8")));
+	const aliases = declared[0]?.aliases;
+	if (rootConfig && aliases?.length) binding.rootAliasNames = [...new Set(aliases)];
 	const base = baseFor(root, declared[0]?.root ?? null, defaultBase);
 	binding.configFiles.push(...closure);
 	declared.forEach((decl, index) => {
@@ -251,7 +276,7 @@ export function bindVitestConfig(root: string, configPath: string | null): Confi
 		return binding;
 	}
 	const seen = new Set<string>([configPath]);
-	const projects = walkConfig(ts, root, configPath, root, seen, binding);
+	const projects = walkConfig(ts, root, configPath, root, seen, binding, true);
 	const found = projectConfigs(root, projects);
 	binding.unresolvable.push(...found.unresolvable.map(what => `${configPath}: ${what}`));
 	for (const project of found.configs) {

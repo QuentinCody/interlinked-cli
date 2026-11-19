@@ -66,6 +66,16 @@ describe("retained mutation results", () => {
         expect(post).toHaveBeenCalledTimes(2);
     });
 
+    it("keeps polling a runner that answers the claim while replacement POSTs fail", async () => {
+        const post = vi.fn<FetchLike>().mockRejectedValueOnce(timeout()).mockRejectedValue(new Error("connection reset"));
+        const claim = vi.fn<ClaimFetchLike>()
+            .mockResolvedValueOnce(response(404, {})).mockResolvedValueOnce(response(404, {}))
+            .mockResolvedValueOnce(response(404, {})).mockResolvedValue(response(200, { retained: true }));
+        expect(await requestWholeFileReport({ ...requestOptions(), fetchImpl: post, claimFetch: claim }))
+            .toEqual({ ok: true, body: { retained: true }, attempts: 1, resumed: true });
+        expect(post).toHaveBeenCalledTimes(4);
+    });
+
     it("terminates cyclic error causes as unreachable instead of hanging or claiming a job", async () => {
         const error: { cause?: unknown } = {};
         error.cause = error;

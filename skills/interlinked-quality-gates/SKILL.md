@@ -164,7 +164,7 @@ then decides: red-bar (default on) → uncovered-added-line → per-file coverag
 `coverage-edit-baseline.json` → `min_coverage` floor → CRAP (default on). With default
 `debt_mode:true`, the first uncovered or red result opens a pair-scoped debt and the edit lands;
 keep working in that source/test pair until it is covered and green. The commit gate remains the
-ground-truth backstop.
+ground-truth backstop. Commit coverage takes the real checkout’s heavy-process lease and the shared host test slot. Vitest runs one instrumented worker. A busy host or interrupted run leaves coverage obligations open. Retry the full coverage suite against the same staged contents or resulting commit.
 
 **CRAP** = `cyclomatic² · (1 − coverage/100)³ + cyclomatic`, where coverage is a percentage.
 Full coverage reduces the score to cyclomatic, but low coverage can exceed the default threshold
