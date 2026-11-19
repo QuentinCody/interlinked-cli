@@ -62,13 +62,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Runner images ship no ripgrep; without it the grep-accelerator's real-rg
-      # paths diverge from every dev machine (finding 2026-06: that shipped a red
-      # run). A unit test could still reach an rg path, so install it here too.
-      - name: Install ripgrep (CI/dev environment parity)
+      # The completion tests load the generated scripts in a real shell.
+      - name: Install ripgrep and zsh for unit tests
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q ripgrep
+          sudo apt-get update -q && sudo apt-get install -y -q ripgrep zsh
           rg --version
+          zsh --version
 
       - name: Typecheck
         run: npm run typecheck:stable

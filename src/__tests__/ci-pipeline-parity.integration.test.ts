@@ -89,6 +89,11 @@ const CI_STEPS: readonly CiStep[] = [
 		reason: "npm ci — pre-push runs against the existing dev install",
 	},
 	{
+		name: "Install ripgrep and zsh for unit tests",
+		mirror: "skip",
+		reason: "The hosted unit runner needs ripgrep and a real zsh interpreter for generated shell completions.",
+	},
+	{
 		name: "Install ripgrep (CI/dev environment parity)",
 		mirror: "skip",
 		reason:
