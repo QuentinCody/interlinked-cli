@@ -12,7 +12,7 @@
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isJsonObject, type JsonObject } from "../json-types.js";
+import { asJsonObject, stringField, type JsonObject } from "../json-types.js";
 import { readRecentLines } from "../local-activity-collection.js";
 import { nonNull } from "../non-null.js";
 import { createJsonlTailer } from "./event-stream.js";
@@ -72,16 +72,6 @@ export function appendTestEvent(path: string, ev: TestEvent): boolean {
 	}
 }
 
-/** Narrow an arbitrary JSON value to an indexable object, or null. */
-function asRecord(v: unknown): JsonObject | null {
-	return isJsonObject(v) ? v : null;
-}
-
-function str(o: JsonObject, key: string): string | undefined {
-	const v = o[key];
-	return typeof v === "string" ? v : undefined;
-}
-
 function num(o: JsonObject, key: string): number | undefined {
 	const v = o[key];
 	return typeof v === "number" && Number.isFinite(v) ? v : undefined;
@@ -99,7 +89,7 @@ function asStatus(v: string | undefined): TestStatus | undefined {
 /** Copy the optional string fields a producer may set onto the event. */
 function copyStrings(ev: TestEvent, r: JsonObject): void {
 	for (const key of ["label", "file", "name", "error"] as const) {
-		const v = str(r, key);
+		const v = stringField(r, key);
 		if (v !== undefined) ev[key] = v;
 	}
 }
@@ -121,11 +111,11 @@ export function mapTestLine(line: string): TestEvent | null {
 		void err; /* a partial/corrupt line is skipped, not fatal */
 		return null;
 	}
-	const r = asRecord(parsed);
+	const r = asJsonObject(parsed);
 	if (!r) return null;
-	const ts = str(r, "ts");
-	const kind = str(r, "kind");
-	const runId = str(r, "run_id");
+	const ts = stringField(r, "ts");
+	const kind = stringField(r, "kind");
+	const runId = stringField(r, "run_id");
 	if (!ts || !kind || !runId || !KINDS.has(kind)) return null;
 
 	// SAFETY: guarded by the KINDS membership check above.
@@ -133,7 +123,7 @@ export function mapTestLine(line: string): TestEvent | null {
 	copyStrings(ev, r);
 	if (r.lane === "unit" || r.lane === "integration" || r.lane === "e2e" || r.lane === "base" || r.lane === "unknown") ev.lane = r.lane;
 	copyNumbers(ev, r);
-	const status = asStatus(str(r, "status"));
+	const status = asStatus(stringField(r, "status"));
 	if (status) ev.status = status;
 	return ev;
 }

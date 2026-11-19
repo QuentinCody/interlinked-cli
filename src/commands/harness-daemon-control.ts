@@ -17,6 +17,7 @@
 // Every dependency is injectable so both rules are unit-testable without real
 // processes.
 
+import { isProcessAlive } from "../harness/daemon-pid-ownership.js";
 import { recordDaemonEvent } from "../harness/daemon-ledger.js";
 import type { DaemonLedgerEvent } from "../harness/daemon-ledger.js";
 import {
@@ -74,16 +75,6 @@ export interface DaemonControlDeps {
 	 *  unit test assert that the protected set actually REACHED the sweep, which
 	 *  is the whole invariant `reapOrphanHarnessesVerified` exists to hold. */
 	reap?: (cwd: string, opts: ReapOptions) => ReapResult;
-}
-
-function realIsAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (err) {
-		// SAFETY: Node process.kill failures carry the documented errno `code`.
-		return (err as NodeJS.ErrnoException).code === "EPERM";
-	}
 }
 
 function realKill(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
@@ -172,7 +163,7 @@ async function terminateTargets(
 	deps: DaemonControlDeps,
 ): Promise<StopAllResult> {
 	const kill = deps.kill ?? realKill;
-	const isAlive = deps.isAlive ?? realIsAlive;
+	const isAlive = deps.isAlive ?? isProcessAlive;
 	const identify = deps.identify ?? readHarnessProcessIdentity;
 	const wait = deps.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 	const signalDeps = { identify, isAlive, kill, wait };

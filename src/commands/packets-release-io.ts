@@ -10,6 +10,7 @@
 //     every temp it made (R2, P3); a killed run's temps are swept by the next run, never a directory (R2, P3).
 // The caller (packets-release.ts) decides the ORDER of the pair; this module only makes each step atomic.
 
+import { isProcessAlive } from "../harness/daemon-pid-ownership.js";
 import { safeReadFile as readOrNull } from "../harness/evaluator/safe-read-file.js";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, linkSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -19,15 +20,6 @@ export type Write = { path: string; text: string };
 
 /** `<path>.<pid>.tmp` (writeAtomic) or `<lock>.<pid>.<hex>.locktmp` (a linkLock killed before its unlink). */
 const TEMP_SUFFIX = /^\.(\d+)(?:\.tmp|\.[0-9a-f]+\.locktmp)$/;
-
-function processAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (err) {
-		return (err as NodeJS.ErrnoException).code === "EPERM";
-	}
-}
 
 /** Remove `<path>.<pid>.tmp` FILES left by a run that was killed before its renames. A temp of a LIVE process is
  *  another run in flight and is left alone; a directory with such a name is not ours. A temp that vanished
@@ -46,7 +38,7 @@ function sweepBeside(path: string): string[] {
 	for (const name of readdirSync(dir)) {
 		if (!name.startsWith(base)) continue;
 		const m = TEMP_SUFFIX.exec(name.slice(base.length));
-		if (!m || processAlive(Number(m[1]))) continue;
+		if (!m || isProcessAlive(Number(m[1]))) continue;
 		const full = join(dir, name);
 		const kind = lstatSync(full, { throwIfNoEntry: false });
 		if (!kind || !(kind.isFile() || kind.isSymbolicLink())) continue;
@@ -62,7 +54,7 @@ export type PacketLock = { ok: true; release: () => void } | { ok: false; holder
 
 function livePid(text: string | null): number | null {
 	const pid = Number(text?.trim());
-	return Number.isInteger(pid) && pid > 0 && processAlive(pid) ? pid : null;
+	return Number.isInteger(pid) && pid > 0 && isProcessAlive(pid) ? pid : null;
 }
 
 /** An empty guard is one a taker has created (O_EXCL) and not yet written its pid into; only an old one is stuck. */

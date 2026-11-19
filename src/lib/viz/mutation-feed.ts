@@ -13,7 +13,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { JsonObject } from "../json-types.js";
+import { asJsonObject, type JsonObject } from "../json-types.js";
 
 /** A mutant flattened for display: where it lives, what it changed, how it ended. */
 export interface MutantView {
@@ -58,13 +58,6 @@ export function emptySnapshot(): MutantSnapshot {
 	return { generation: 0, engine: "", files: 0, mutants: [], byStatus: {}, total: 0 };
 }
 
-/** Narrow an unknown value to a JSON object, once, at the boundary. */
-function asRecord(v: unknown): JsonObject | null {
-	if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
-	// SAFETY: a non-null, non-array typeof-"object" value is an indexable record.
-	return v as JsonObject;
-}
-
 function str(o: JsonObject, key: string, fallback = ""): string {
 	const v = o[key];
 	return typeof v === "string" ? v : fallback;
@@ -72,7 +65,7 @@ function str(o: JsonObject, key: string, fallback = ""): string {
 
 /** Project one raw mutant record into a view, or null if it lacks an identity. */
 function mapMutant(raw: unknown, file: string, symbol: string): MutantView | null {
-	const m = asRecord(raw);
+	const m = asJsonObject(raw);
 	if (!m) return null;
 	const id = str(m, "mutantId");
 	if (!id) return null;
@@ -89,9 +82,9 @@ function mapMutant(raw: unknown, file: string, symbol: string): MutantView | nul
 
 /** Collect every mutant of one symbol record into `out`. */
 function collectSymbol(raw: unknown, file: string, out: MutantView[], byStatus: Record<string, number>): void {
-	const symbol = asRecord(raw);
+	const symbol = asJsonObject(raw);
 	if (!symbol) return;
-	const mutants = asRecord(symbol.mutants);
+	const mutants = asJsonObject(symbol.mutants);
 	if (!mutants) return;
 	const name = str(symbol, "qualifiedName", "anonymous");
 	for (const entry of Object.values(mutants)) {
@@ -111,14 +104,14 @@ export function parseManifest(text: string): MutantSnapshot {
 		void err; /* mid-write or corrupt manifest — report nothing, not a crash */
 		return emptySnapshot();
 	}
-	const root = asRecord(parsed);
-	const files = root && asRecord(root.files);
+	const root = asJsonObject(parsed);
+	const files = root && asJsonObject(root.files);
 	if (!root || !files) return emptySnapshot();
 
 	const mutants: MutantView[] = [];
 	const byStatus: Record<string, number> = {};
 	for (const [file, symbols] of Object.entries(files)) {
-		const bySymbol = asRecord(symbols);
+		const bySymbol = asJsonObject(symbols);
 		if (!bySymbol) continue;
 		for (const symbol of Object.values(bySymbol)) collectSymbol(symbol, file, mutants, byStatus);
 	}

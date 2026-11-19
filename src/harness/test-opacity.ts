@@ -1,3 +1,4 @@
+import { formatElapsedSeconds } from "../lib/formatter.js";
 import { dirname, join } from "node:path";
 import { resolveSourceTarget } from "../lib/metrics/graph-entries.js";
 import type { RepositoryInventory } from "../lib/metrics/measurement-types.js";
@@ -124,14 +125,10 @@ export function rankOpacity(inventory: RepositoryInventory, extra: readonly Grap
         incomplete: graph.incomplete, causes: ranked.slice(0, limit), omitted: Math.max(0, ranked.length - limit) };
 }
 
-function seconds(ms: number): string {
-    return `${(ms / 1000).toFixed(ms >= 10_000 ? 0 : 1)} s`;
-}
-
 export function renderOpacityReport(report: OpacityReport): string {
-    const lines = [`${report.opaque_tests} of ${report.tests} tests opaque (${seconds(report.opaque_duration_ms)} of ${seconds(report.measured_duration_ms)} recorded duration not reusable)${report.incomplete ? "; inventory incomplete" : ""}`];
+    const lines = [`${report.opaque_tests} of ${report.tests} tests opaque (${formatElapsedSeconds(report.opaque_duration_ms)} of ${formatElapsedSeconds(report.measured_duration_ms)} recorded duration not reusable)${report.incomplete ? "; inventory incomplete" : ""}`];
     for (const cause of report.causes) {
-        lines.push(`  ${cause.path}: ${cause.tests} test(s), ${seconds(cause.duration_ms)}${cause.unmeasured_tests ? ` + ${cause.unmeasured_tests} unmeasured` : ""} — ${cause.reasons.join("; ")}`);
+        lines.push(`  ${cause.path}: ${cause.tests} test(s), ${formatElapsedSeconds(cause.duration_ms)}${cause.unmeasured_tests ? ` + ${cause.unmeasured_tests} unmeasured` : ""} — ${cause.reasons.join("; ")}`);
         if (cause.chain.length > 1) lines.push(`    via ${cause.chain.join(" → ")}`);
     }
     if (report.omitted) lines.push(`  … ${report.omitted} more cause(s); raise --limit to see them`);

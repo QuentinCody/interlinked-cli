@@ -206,6 +206,10 @@ export function header(title: string): string {
 	return `\n${c.bold(title)}\n${c.dim("─".repeat(stripAnsi(title).length))}`;
 }
 
+export function formatElapsedSeconds(ms: number): string {
+	return `${(ms / 1000).toFixed(ms >= 10_000 ? 0 : 1)} s`;
+}
+
 /**
  * Print a key-value pair for status display.
  */

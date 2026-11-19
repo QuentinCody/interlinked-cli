@@ -7,7 +7,7 @@
 // offset — it never loads the multi-hundred-MB log.
 
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
-import { isJsonObject, type JsonObject } from "../json-types.js";
+import { asJsonObject, stringField, type JsonObject } from "../json-types.js";
 import { readRecentLines } from "../local-activity-collection.js";
 import { nonNull } from "../non-null.js";
 
@@ -36,22 +36,10 @@ interface ActivityTailer {
 	stop: () => void;
 }
 
-/** Narrow an arbitrary JSON value to a plain object, or null. The one place
- * this file asserts a shape — every other reader takes the resulting
- * `JsonObject`, never a bare `Record<string, unknown>`. */
-function asRecord(v: unknown): JsonObject | null {
-	return isJsonObject(v) ? v : null;
-}
-
-function str(o: JsonObject, key: string): string | undefined {
-	const v = o[key];
-	return typeof v === "string" ? v : undefined;
-}
-
 function extractFile(r: JsonObject): string | undefined {
-	const ti = asRecord(r.tool_input);
+	const ti = asJsonObject(r.tool_input);
 	if (ti) {
-		const f = str(ti, "file_path") ?? str(ti, "path") ?? str(ti, "notebook_path");
+		const f = stringField(ti, "file_path") ?? stringField(ti, "path") ?? stringField(ti, "notebook_path");
 		if (f) return f;
 	}
 	const fm = r.files_modified;
@@ -68,24 +56,24 @@ export function mapActivityLine(line: string): VizEvent | null {
 		void err; /* a partial/corrupt line is skipped, not fatal */
 		return null;
 	}
-	const r = asRecord(parsed);
+	const r = asJsonObject(parsed);
 	if (!r) return null;
-	const ts = str(r, "ts");
-	const type = str(r, "type");
+	const ts = stringField(r, "ts");
+	const type = stringField(r, "type");
 	if (!ts || !type) return null;
 
 	const ev: VizEvent = { ts, type };
-	const tool = str(r, "tool");
+	const tool = stringField(r, "tool");
 	if (tool) ev.tool = tool;
 	const file = extractFile(r);
 	if (file) ev.file = file;
-	const decision = str(r, "guard_decision");
+	const decision = stringField(r, "guard_decision");
 	if (decision) ev.decision = decision;
-	const ruleId = str(r, "guard_rule_id");
+	const ruleId = stringField(r, "guard_rule_id");
 	if (ruleId) ev.rule_id = ruleId;
-	const severity = str(r, "guard_severity");
+	const severity = stringField(r, "guard_severity");
 	if (severity) ev.severity = severity;
-	const summary = str(r, "summary");
+	const summary = stringField(r, "summary");
 	if (summary) ev.summary = summary;
 	copyActorFields(ev, r);
 	return ev;
@@ -99,15 +87,15 @@ export function mapActivityLine(line: string): VizEvent | null {
  * older rows simply carry no actor and render as `unattributed`.
  */
 function copyActorFields(ev: VizEvent, r: JsonObject): void {
-	const agent = str(r, "agent");
+	const agent = stringField(r, "agent");
 	if (agent) ev.agent = agent;
-	const session = str(r, "session") ?? str(r, "session_id");
+	const session = stringField(r, "session") ?? stringField(r, "session_id");
 	if (session) ev.session = session;
-	const subagent = str(r, "subagent_id");
+	const subagent = stringField(r, "subagent_id");
 	if (subagent) ev.subagent_id = subagent;
-	const parent = str(r, "parent_agent");
+	const parent = stringField(r, "parent_agent");
 	if (parent) ev.parent_agent = parent;
-	const model = str(r, "model");
+	const model = stringField(r, "model");
 	if (model) ev.model = model;
 }
 
@@ -251,14 +239,14 @@ function asDeterminism(v: string | undefined): "proven" | "heuristic" | null {
 
 /** Project one raw check entry into a typed summary, or null if it's unusable. */
 function mapCheck(raw: unknown): CheckSummary | null {
-	const o = asRecord(raw);
+	const o = asJsonObject(raw);
 	if (!o) return null;
-	const id = str(o, "id");
-	const severity = str(o, "severity");
-	const determinism = asDeterminism(str(o, "determinism"));
+	const id = stringField(o, "id");
+	const severity = stringField(o, "severity");
+	const determinism = asDeterminism(stringField(o, "determinism"));
 	if (!id || !severity || !determinism) return null;
 	const summary: CheckSummary = { id, severity, determinism };
-	const phase = str(o, "phase");
+	const phase = stringField(o, "phase");
 	if (phase) summary.phase = phase;
 	return summary;
 }
@@ -283,17 +271,17 @@ export function mapCheckLine(line: string): CheckEvent | null {
 		void err; /* a partial/corrupt line is skipped, not fatal */
 		return null;
 	}
-	const r = asRecord(parsed);
+	const r = asJsonObject(parsed);
 	if (!r) return null;
-	const ts = str(r, "ts");
-	const toolUseId = str(r, "tool_use_id");
-	const decision = asDecision(str(r, "decision"));
+	const ts = stringField(r, "ts");
+	const toolUseId = stringField(r, "tool_use_id");
+	const decision = asDecision(stringField(r, "decision"));
 	if (!ts || !toolUseId || !decision) return null;
 
 	const ev: CheckEvent = { ts, tool_use_id: toolUseId, decision, checks: mapChecks(r.checks) };
-	const tool = str(r, "tool");
+	const tool = stringField(r, "tool");
 	if (tool) ev.tool = tool;
-	const file = str(r, "file");
+	const file = stringField(r, "file");
 	if (file) ev.file = file;
 	const ran = num(r, "ran");
 	if (ran !== undefined) ev.ran = ran;

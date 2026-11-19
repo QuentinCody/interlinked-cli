@@ -52,6 +52,11 @@ export function asJsonObject(value: unknown): JsonObject | null {
 	return isJsonObject(value) ? value : null;
 }
 
+export function stringField(object: JsonObject, key: string): string | undefined {
+	const value = object[key];
+	return typeof value === "string" ? value : undefined;
+}
+
 /**
  * A recursive JSON value. Prefer `JsonObject` for most parameters; use
  * `JsonValue` only when you really need the strict recursive shape
