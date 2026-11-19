@@ -305,6 +305,9 @@ it on ordinary edits: route parsed JSON through a local `parseX(v: unknown): X |
 (or an `isX` guard / `Array.isArray` gate) before field access. **"Advisory" ≠ silent** — an advisory check that fires at PostToolUse
 still warns; demoting a check doesn't stop it warning on edits. Fix the detector, not the list.
 
+`write_without_mkdir` inspects the destination argument, including multiline calls.
+Paths in data being written are independent of the destination directory.
+
 Every finding is tagged `[proven]` (a real tool ran it — fix it) or
 `[heuristic]` (regex/AST shape — evaluate it). See **interlinked-harness** for
 the suppression grammar (`// interlinked-ignore: <check> — reason` /

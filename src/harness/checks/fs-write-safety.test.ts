@@ -5,6 +5,37 @@ const TS = "src/lib/foo.ts";
 const JS = "src/lib/foo.js";
 const PY = "src/lib/foo.py"; // non-JS/TS — should never fire
 
+describe("write destination boundaries", () => {
+	it("ignores paths in write data, options, and subsequent expressions", () => {
+		const source = [
+			'writeFileSync("index", "docs/output");',
+			'appendFileSync(file, join(base, "other"));',
+			'writeFileSync(file, data); report("output/location");',
+		].join("\n");
+		expect(detectWriteWithoutMkdir(source, TS)).toEqual([]);
+	});
+
+	it("checks a multiline destination and the second write on the same line", () => {
+		const source = [
+			'writeFileSync(',
+			'  "first,folder/file",',
+			'  data);',
+			'writeFileSync(file, data); writeFileSync("out/file", data);',
+		].join("\n");
+		expect(detectWriteWithoutMkdir(source, TS).map(match => match.line)).toEqual([1, 4]);
+	});
+
+	it("checks a nested destination even when the payload is written relative to a known directory", () => {
+		const source = 'const dir = mkdtempSync(prefix);\nwriteFileSync("logs/data", join(dir, "file"));';
+		expect(detectWriteWithoutMkdir(source, TS).map(match => match.line)).toEqual([2]);
+	});
+
+	it("requires the subdirectory inside a single literal join operand", () => {
+		const source = 'const dir = mkdtempSync(prefix);\nwriteFileSync(join(dir, "logs/data"), payload);';
+		expect(detectWriteWithoutMkdir(source, TS).map(match => match.line)).toEqual([2]);
+	});
+});
+
 // ─── Positive cases (MUST fire) ──────────────────────────────────────────────
 
 describe("detectWriteWithoutMkdir — positive cases", () => {
