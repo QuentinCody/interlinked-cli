@@ -8,6 +8,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { compareCodeUnits } from "../lib/compare-code-units.js";
+import { componentKind } from "../lib/import-resolution/component-scripts.js";
 import { isJsonObject } from "../lib/json-types.js";
 import { resolveIgnoredDirs } from "./structure/extractors/skip-dirs.js";
 
@@ -71,6 +72,8 @@ const ROOT_SCAN_SKIP_DIRS: ReadonlySet<string> = new Set(["scratch"]);
 export interface ScannedFile {
 	file: string;
 	boundary: string;
+	/** A single-file component (`.svelte`, `.vue`, `.astro`): an importer, not a code module. */
+	component?: boolean;
 }
 
 interface WalkState {
@@ -127,6 +130,8 @@ function walkDir(state: WalkState): void {
 			}
 			if (entry.isFile() && TS_JS_EXTENSIONS.has(extname(entry.name))) {
 				result.push({ file: fullPath, boundary });
+			} else if (entry.isFile() && componentKind(entry.name) !== null) {
+				result.push({ file: fullPath, boundary, component: true });
 			}
 		}
 	} catch (err) {

@@ -139,6 +139,15 @@ vi.mock("../harness/project-graph.js", () => ({
 		getExports(file: string): ExportedSymbol[] {
 			return graphState.exports[file] ?? [];
 		}
+		getDirectExports(file: string): ExportedSymbol[] {
+			return graphState.exports[file] ?? [];
+		}
+		getStarReExportTargets(_file: string): string[] {
+			return [];
+		}
+		hasCompleteExportSurface(file: string): boolean {
+			return file in graphState.exports;
+		}
 		getDependents(file: string): string[] {
 			return graphState.dependents[file] ?? [];
 		}
@@ -284,7 +293,7 @@ describe("checkCommand", () => {
 	});
 
 	// ---- newly-added engine tools are --only-able (drift fix, finding 2026-06) ----
-	it.each(["rustfmt", "lizard"])(
+	it.each(["rustfmt", "lizard", "docs-check"])(
 		"accepts engine tool %s for --only instead of rejecting it as 'Unknown check'",
 		async (tool) => {
 			await checkCommand({ only: tool, cwd: "/abs" });
@@ -295,7 +304,7 @@ describe("checkCommand", () => {
 	);
 
 	// ---- discovery-only engine tools rejected, not falsely-cleaned ----
-	it.each(["dep-audit", "docs-check"])(
+	it.each(["dep-audit"])(
 		"rejects discovery-only engine tool %s with exit 1 (no 0-finding false clean)",
 		async (tool) => {
 			await checkCommand({ only: tool, cwd: "/abs" });
@@ -367,7 +376,7 @@ describe("checkCommand", () => {
 		graphState.files = ["/abs/src/a.ts"];
 		graphState.fileCount = 1;
 		graphState.deps["/abs/src/a.ts"] = [
-			edge({ toFile: "", specifier: "./missing-resolve" }), // no toFile -> continue
+			edge({ toFile: "", specifier: "missing-resolve-pkg" }), // bare, no toFile -> continue
 			edge({ specifier: "./data.json", toFile: "/abs/src/data.json" }), // .json -> continue
 			edge({ toFile: "/abs/node_modules/lib/index.js" }), // node_modules -> continue
 			edge({ toFile: "/abs/src/gone.ts" }), // not existing -> flag + break
@@ -834,7 +843,9 @@ describe("checkCommand — mutation-targeted branch isolation", () => {
 	it("does not flag a file whose only edge has an empty toFile (no-toFile guard)", async () => {
 		graphState.files = ["/abs/src/only-empty.ts"];
 		graphState.fileCount = 1;
-		graphState.deps["/abs/src/only-empty.ts"] = [edge({ toFile: "", specifier: "./x" })];
+		// A BARE specifier (package import) has no toFile and no verdict. A relative
+		// specifier with no toFile is now a missing-file finding (check-import-edges.test.ts).
+		graphState.deps["/abs/src/only-empty.ts"] = [edge({ toFile: "", specifier: "some-pkg" })];
 		await checkCommand({ only: "broken-imports", cwd: "/abs" });
 		const { stdout, stderr } = io.mocks();
 		expect(stdout).toBe("");
