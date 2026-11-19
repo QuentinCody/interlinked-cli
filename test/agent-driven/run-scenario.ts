@@ -13,7 +13,9 @@
 // manual agent coordination and cannot be fully automated here.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wireAbsentOptional, wireBoolean, wireNumber, wireObject, wireRecord, wireString, type WireValidator } from "../../src/lib/value-validation.js";
 
@@ -76,10 +78,7 @@ function parseJson<T>(text: string, validate: WireValidator<T>): T | null {
 }
 
 function createTempRepo(): string {
-    const dir = join(
-        process.env.TMPDIR || "/tmp",
-        `interlinked-agent-test-${Date.now()}`,
-    );
+    const dir = mkdtempSync(join(tmpdir(), "interlinked-agent-test-"));
     mkdirSync(join(dir, "test-repo"), { recursive: true });
     const repo = join(dir, "test-repo");
     run("git init --initial-branch=main", repo);
@@ -349,7 +348,7 @@ switch (scenario) {
 
 // Save report
 mkdirSync(REPORTS_DIR, { recursive: true });
-const reportFile = join(REPORTS_DIR, `${report.scenario}-${Date.now()}.json`);
+const reportFile = join(REPORTS_DIR, `${report.scenario}-${Date.now()}-${randomUUID()}.json`);
 writeFileSync(reportFile, JSON.stringify(report, null, 2));
 
 // Output
