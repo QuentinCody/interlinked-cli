@@ -10,7 +10,7 @@ import {
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { readFileMutationProcessIdentity } from "../lib/file-mutation-lock-identity.js";
 import { nonNull } from "../lib/non-null.js";
 import { decodeFrame, encodeFrame, type RpcEnvelope, type RpcWireRequest, splitFrames } from "./daemon-protocol.js";
@@ -62,6 +62,19 @@ function makePaths(id: string): DaemonPaths {
 		pid: join(tmp, `harness-${id}.pid`),
 		log: join(tmp, "logs", `daemon-${id}.log`),
 	};
+}
+
+/** Advance the daemon's inactivity clock while socket I/O and its deadline remain real. */
+function useIdleClock(): void {
+	vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+	onTestFinished(() => { vi.useRealTimers(); });
+}
+
+async function waitForDaemonCleanup(paths: DaemonPaths): Promise<void> {
+	await vi.waitFor(() => {
+		expect(existsSync(paths.pid)).toBe(false);
+		expect(existsSync(paths.socket)).toBe(false);
+	});
 }
 
 function makeTsgo(): TsgoRunner {
@@ -852,9 +865,7 @@ describe("startSessionDaemon", () => {
 			});
 		});
 		expect(closed).toBe(true);
-		await new Promise((resolve) => setTimeout(resolve, 100));
-		expect(existsSync(paths.pid)).toBe(false);
-		expect(existsSync(paths.socket)).toBe(false);
+		await waitForDaemonCleanup(paths);
 	});
 
 	it("a decoded response-shaped (non-request) frame is dropped silently (line 169)", async () => {
@@ -945,11 +956,7 @@ describe("startSessionDaemon", () => {
 			idle_shutdown_ms: 50,
 			state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
 		});
-		// No activity at all after start — wait past the idle window plus the
-		// poller's own tick interval (Math.min(idleMs, 60_000) = 50ms).
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		expect(existsSync(paths.pid)).toBe(false);
-		expect(existsSync(paths.socket)).toBe(false);
+		await waitForDaemonCleanup(paths);
 		daemon = null;
 	});
 
@@ -1018,7 +1025,8 @@ describe("startSessionDaemon", () => {
 		}
 	});
 
-	it("the idle-shutdown poller does not fire while requests are still in flight (line 202 true side)", async () => {
+	it("keeps serving between a completed health request and its next idle deadline", async () => {
+		useIdleClock();
 		const paths = makePaths("t10");
 		daemon = await startSessionDaemon({
 			paths,
@@ -1026,19 +1034,18 @@ describe("startSessionDaemon", () => {
 			idle_shutdown_ms: 50,
 			state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
 		});
-		// A live connection kept open plus recent traffic resets lastActivity
-		// on every frame, so a single idle-window wait alone would already
-		// prove the timer branch — assert the daemon is still alive right up
-		// against the idle window as the direct evidence.
+		await vi.advanceTimersByTimeAsync(40);
 		await roundTrip(paths, {
 			schema_version: "1",
 			id: "keepalive-1",
 			method: "daemon.health",
 			params: {},
 		});
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		await vi.advanceTimersByTimeAsync(10);
 		expect(existsSync(paths.pid)).toBe(true);
 		expect(existsSync(paths.socket)).toBe(true);
+		await vi.advanceTimersByTimeAsync(50);
+		await waitForDaemonCleanup(paths);
 	});
 
 	it("claimSessionPid: a path that is a directory fails the read as null, then throws on the write attempt (line 241)", () => {
@@ -1114,6 +1121,7 @@ describe("startSessionDaemon", () => {
 	});
 
 	it("idle_shutdown_ms: 0 disables the poller entirely — stop() then skips clearInterval (branches 199, 219 false sides)", async () => {
+		useIdleClock();
 		const paths = makePaths("no-idle");
 		daemon = await startSessionDaemon({
 			paths,
@@ -1121,9 +1129,7 @@ describe("startSessionDaemon", () => {
 			idle_shutdown_ms: 0,
 			state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
 		});
-		// No idle timer was armed; give it well past any short idle window to
-		// prove it never self-stops.
-		await new Promise((resolve) => setTimeout(resolve, 150));
+		await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
 		expect(existsSync(paths.pid)).toBe(true);
 		await daemon.stop();
 		daemon = null;
@@ -1166,12 +1172,16 @@ describe("startSessionDaemon", () => {
 	});
 
 	it("the idle poller's inflight guard defers shutdown while a slow RPC is still in flight (branch 202 true side)", async () => {
+		useIdleClock();
 		const paths = makePaths("slow-inflight");
+		let markEntered!: () => void;
+		const entered = new Promise<void>((resolve) => { markEntered = resolve; });
 		let resolveHook: (() => void) | undefined;
 		const slowEvaluateHook = vi.fn(
 			() =>
 				new Promise<HarnessDecision>((resolve) => {
 					resolveHook = () => resolve({ decision: "allow" });
+					markEntered();
 				}),
 		);
 		daemon = await startSessionDaemon({
@@ -1202,16 +1212,21 @@ describe("startSessionDaemon", () => {
 				raw: {},
 			},
 		});
-		// Let at least two idle-poller ticks (50ms each) pass while inflight>0.
-		await new Promise((resolve) => setTimeout(resolve, 130));
-		expect(existsSync(paths.pid)).toBe(true);
-		expect(daemon.rpcInflight()).toBe(1);
-		resolveHook?.();
-		await pending;
+		try {
+			await Promise.race([entered, pending]);
+			expect(slowEvaluateHook).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(100);
+			expect(existsSync(paths.pid)).toBe(true);
+			expect(daemon.rpcInflight()).toBe(1);
+		} finally {
+			resolveHook?.();
+			await pending;
+		}
 		expect(daemon.rpcInflight()).toBe(0);
 	});
 
 	it("the idle poller's window check survives a tick when recent activity keeps the daemon under the threshold (branch 203 true side)", async () => {
+		useIdleClock();
 		const paths = makePaths("under-window");
 		daemon = await startSessionDaemon({
 			paths,
@@ -1219,21 +1234,14 @@ describe("startSessionDaemon", () => {
 			idle_shutdown_ms: 200,
 			state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
 		});
-		// Wait most of the way through the first 200ms tick period, THEN send
-		// activity — so when the first tick fires (~200ms from start),
-		// `Date.now() - lastActivity` is small (a comfortable margin under the
-		// threshold, not a borderline value right at it) and the poller must
-		// take the "survive" branch rather than stopping.
-		await new Promise((resolve) => setTimeout(resolve, 150));
+		await vi.advanceTimersByTimeAsync(150);
 		await roundTrip(paths, {
 			schema_version: "1",
 			id: "keepalive-2",
 			method: "daemon.health",
 			params: {},
 		});
-		// Land the check comfortably after the first tick (~200ms) but well
-		// before the second (~400ms).
-		await new Promise((resolve) => setTimeout(resolve, 150));
+		await vi.advanceTimersByTimeAsync(50);
 		expect(existsSync(paths.pid)).toBe(true);
 	});
 });
