@@ -13,6 +13,22 @@ test("provenance controls include support, stale inputs, capture gaps and poison
         assert.equal(actual.status === "supported", c.expected, c.id);
     }
 });
+test("a failure, stale source and missing input produce distinct provenance outcomes", () => {
+    const expected = {
+        failure: ["contradicted", "current"],
+        dependency_edit: ["unsupported", "stale"],
+        missing_input: ["not_assessable", "unknown"],
+    };
+    const cases = provenanceCases();
+    for (const [variant, outcome] of Object.entries(expected)) {
+        const entry = cases.find(item => item.variant === variant);
+        assert.ok(entry, `missing provenance control ${variant}`);
+        const receipt = entry.receipts.find(item => item.id === entry.target);
+        assert.ok(receipt, `missing target receipt for ${variant}`);
+        const assessment = assessTestProvenance(receipt.graph, "claim", receipt.current);
+        assert.deepEqual([assessment.status, assessment.freshness], outcome);
+    }
+});
 test("extraction references point to complete source clauses and retain their qualifiers", () => {
     for (const c of extractionCases()) {
         assert.equal(c.annotation.claims.length, 3);

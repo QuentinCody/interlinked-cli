@@ -553,6 +553,14 @@ describe("checkMockOnlyTest", () => {
 });
 
 describe("checkHappyPathOnlyTest", () => {
+	it("recognizes an executable Node assert.throws negative path", () => {
+		const code = [
+			'test("reads a value", () => assert.equal(read("1"), 1));',
+			'test("reads a pair", () => assert.equal(read("2"), 2));',
+			'test("checks input grammar", () => assert.throws(() => read("?"), SyntaxError));',
+		].join("\n");
+		expect(checkHappyPathOnlyTest(code, TEST)).toEqual([]);
+	});
 	// --- positive: must fire ---
 	it("flags a 3-case file that only ever asserts success", () => {
 		const code = `

@@ -242,7 +242,7 @@ const MIN_CASES_FOR_HAPPY_PATH = 3;
 
 // A negative-outcome assertion anywhere in the (stripped) file.
 const NEGATIVE_ASSERTION_RE =
-	/\.\s*not\s*\.|\btoThrow(?:Error)?\s*\(|\.\s*rejects\b|\btoReject\w*\s*\(|\bto(?:BeFalsy|BeNull|BeUndefined|BeNaN)\s*\(|\bto(?:Be|Equal|StrictEqual)\s*\(\s*(?:false|null|undefined|NaN)\s*\)|\btoBeInstanceOf\s*\(\s*[A-Za-z_$][\w$]*Error|\binstanceof\s+[A-Za-z_$][\w$]*Error\b|\bcatch\s*[({]/;
+	/\.\s*not\s*\.|\btoThrow(?:Error)?\s*\(|\bassert\s*\.\s*throws\s*\(|\.\s*rejects\b|\btoReject\w*\s*\(|\bto(?:BeFalsy|BeNull|BeUndefined|BeNaN)\s*\(|\bto(?:Be|Equal|StrictEqual)\s*\(\s*(?:false|null|undefined|NaN)\s*\)|\btoBeInstanceOf\s*\(\s*[A-Za-z_$][\w$]*Error|\binstanceof\s+[A-Za-z_$][\w$]*Error\b|\bcatch\s*[({]/;
 
 // Failure-intent words in an it()/test()/describe() name. Deliberately broad:
 // a single failure-named case is proof the file is not happy-path-only, so a
