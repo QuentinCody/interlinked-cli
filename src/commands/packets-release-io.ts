@@ -10,8 +10,9 @@
 //     every temp it made (R2, P3); a killed run's temps are swept by the next run, never a directory (R2, P3).
 // The caller (packets-release.ts) decides the ORDER of the pair; this module only makes each step atomic.
 
+import { safeReadFile as readOrNull } from "../harness/evaluator/safe-read-file.js";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, linkSync, lstatSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 export type Write = { path: string; text: string };
@@ -25,14 +26,6 @@ function processAlive(pid: number): boolean {
 		return true;
 	} catch (err) {
 		return (err as NodeJS.ErrnoException).code === "EPERM";
-	}
-}
-
-function readOrNull(path: string): string | null {
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		return null;
 	}
 }
 

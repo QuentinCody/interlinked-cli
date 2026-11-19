@@ -6,6 +6,7 @@
 // bounded suffix copy + rename. A writer never falls through and writes around
 // contention; timeout is an explicit failure the caller must handle.
 
+import { hasErrorCode } from "../harness/check-engine/tool-errors.js";
 import {
 	appendFileSync,
 	mkdirSync,
@@ -116,11 +117,6 @@ function parseOwner(value: unknown): LockOwner | null {
 	};
 }
 
-function errorCode(error: unknown): string | undefined {
-	if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
-	return typeof error.code === "string" ? error.code : undefined;
-}
-
 function readOwner(ownerPath: string): LockOwner | null {
 	try {
 		return parseOwner(JSON.parse(readFileSync(ownerPath, "utf8")));
@@ -134,8 +130,8 @@ export function observeLock(path: string, lockPath: string): LockObservation | n
 	try {
 		entries = readdirSync(lockPath).sort();
 	} catch (error) {
-		if (errorCode(error) === "ENOENT") return null;
-		if (errorCode(error) === "ENOTDIR") {
+		if (hasErrorCode(error, "ENOENT")) return null;
+		if (hasErrorCode(error, "ENOTDIR")) {
 			return { entries: [], legacy: true, owner: readOwner(lockPath), ownerPath: lockPath };
 		}
 		return { entries: [], legacy: false, owner: null, ownerPath: null };
@@ -165,7 +161,7 @@ function processIsAlive(pid: number): boolean {
 		process.kill(pid, 0);
 		return true;
 	} catch (error) {
-		return errorCode(error) === "EPERM";
+		return hasErrorCode(error, "EPERM");
 	}
 }
 
@@ -267,7 +263,7 @@ function removeEmptyLockDirectory(lockPath: string): boolean {
 		rmdirSync(lockPath);
 		return true;
 	} catch (error) {
-		if (errorCode(error) === "ENOENT") return true;
+		if (hasErrorCode(error, "ENOENT")) return true;
 		// ENOTEMPTY means a new token appeared. Do not touch it.
 		return false;
 	}
@@ -315,7 +311,7 @@ function releaseOwnedLock(lease: FileMutationLease): void {
 	try {
 		unlinkSync(lease.ownerPath);
 	} catch (error) {
-		if (errorCode(error) === "ENOENT") return;
+		if (hasErrorCode(error, "ENOENT")) return;
 		throw error;
 	}
 	removeEmptyLockDirectory(lease.lockPath);
@@ -329,7 +325,7 @@ function tryCreateLease(
 	try {
 		mkdirSync(lockPath);
 	} catch (error) {
-		if (errorCode(error) === "EEXIST") return null;
+		if (hasErrorCode(error, "EEXIST")) return null;
 		throw error;
 	}
 	const ownerPath = fileMutationLockOwnerPath(path, owner.token);
@@ -340,7 +336,7 @@ function tryCreateLease(
 		removeEmptyLockDirectory(lockPath);
 		// A stale recoverer can retire the empty directory between mkdir and the
 		// owner write. The caller retries; it never enters without a durable owner.
-		if (errorCode(error) === "ENOENT") return null;
+		if (hasErrorCode(error, "ENOENT")) return null;
 		throw error;
 	}
 }

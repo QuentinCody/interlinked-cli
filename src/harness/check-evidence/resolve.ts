@@ -15,7 +15,8 @@
 // `generic-checks-extended.test.ts`). Missing real evidence would push authors
 // to duplicate cases, so every test file REFERENCING the detector name counts.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { safeReadFile as readOrNull } from "../evaluator/safe-read-file.js";
+import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /** Directories never scanned for sources or tests. */
@@ -96,14 +97,6 @@ export function identifiersIn(source: string): Set<string> {
 }
 
 /** File read that yields null rather than throwing on an unreadable file. */
-function readOrNull(path: string): string | null {
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		return null;
-	}
-}
-
 /** Where the detector index is built from, and what its paths are relative to. */
 export interface IndexRoots {
 	/** Tree to scan for sources and tests. */

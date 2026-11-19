@@ -9,6 +9,7 @@
 // `restore <file>` is the exact inverse and works on a stale packet set too (a
 // demoted or stale packet must always be restorable). Nothing here calls Jev.
 
+import { safeReadFile as readOrNull } from "../harness/evaluator/safe-read-file.js";
 import { isUtf8 } from "node:buffer";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -44,14 +45,6 @@ export interface PacketsRestoreOpts {
 
 function packetPath(cwd: string): string {
 	return join(cwd, ".interlinked", PACKET_FILE_BASENAME);
-}
-
-function readOrNull(path: string): string | null {
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		return null;
-	}
 }
 
 function readBytesOrNull(path: string): Buffer | null {

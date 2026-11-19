@@ -1,14 +1,11 @@
 // Bounded, read-only discovery for spy_without_restore. Never import/execute config.
-import { existsSync, readFileSync } from "node:fs";
+import { safeReadFile as readText } from "../evaluator/safe-read-file.js";
+import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parseTsSource } from "./cyclomatic-ast.js";
 import { testCallKind, walkTestNodes } from "./test-quality-ast.js";
 
 const CONFIG_NAMES = ["vitest", "jest"].flatMap((runner) => ["ts", "mts", "cts", "js", "mjs", "cjs", "json"].map((ext) => `${runner}.config.${ext}`));
-
-function readText(path: string): string | null {
-    try { return readFileSync(path, "utf8"); } catch { return null; }
-}
 
 function projectDirectory(filePath: string): string | null {
     if (!isAbsolute(filePath)) return null;

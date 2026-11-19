@@ -1,21 +1,15 @@
-import { readFileSync } from "node:fs";
+import { safeReadFile as readOrNull } from "../harness/evaluator/safe-read-file.js";
 import { join } from "node:path";
 import { PACKET_LEDGER, type PacketJudgmentRow } from "../harness/packets/evaluator.js";
 import { parsePacketFile } from "../harness/packets/schema.js";
 import { PACKET_FILE_BASENAME, type PacketFile } from "../harness/packets/types.js";
 
+export { readOrNull };
+
 export const DEFAULT_TAIL_MB = 256;
 
 export function packetPath(cwd: string): string {
 	return join(cwd, ".interlinked", PACKET_FILE_BASENAME);
-}
-
-export function readOrNull(path: string): string | null {
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		return null;
-	}
 }
 
 export function readLedger(cwd: string): PacketJudgmentRow[] | null {

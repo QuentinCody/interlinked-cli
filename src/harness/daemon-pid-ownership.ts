@@ -5,6 +5,7 @@
 // prevents a predecessor's delayed shutdown from erasing its successor's
 // ownership metadata after a handover.
 
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 import { readFileSync, unlinkSync } from "node:fs";
 
 export function pidFileNames(path: string, pid: number): boolean {
@@ -13,6 +14,15 @@ export function pidFileNames(path: string, pid: number): boolean {
 		return /^\d+$/.test(raw) && Number.parseInt(raw, 10) === pid;
 	} catch {
 		return false;
+	}
+}
+
+export function isProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (err) {
+		return hasErrorCode(err, "EPERM");
 	}
 }
 

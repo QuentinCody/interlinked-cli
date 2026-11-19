@@ -1,3 +1,4 @@
+import { isProcessAlive } from "./daemon-pid-ownership.js";
 import { hasErrorCode } from "./check-engine/tool-errors.js";
 // ===========================================
 // Session daemon — claim-lock record
@@ -13,6 +14,8 @@ import {
 	type FileMutationProcessIdentity,
 	readFileMutationProcessIdentity,
 } from "../lib/file-mutation-lock-identity.js";
+
+export { isProcessAlive };
 
 export interface SessionClaimLock {
 	path: string;
@@ -160,13 +163,4 @@ export function recoverStaleClaimLock(
 	if (movedRaw !== observedRaw) return restoreRacedClaimLock(lock, quarantinePath);
 	rmSync(quarantinePath, { force: true });
 	return { lock };
-}
-
-export function isProcessAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (err) {
-		return hasErrorCode(err, "EPERM");
-	}
 }

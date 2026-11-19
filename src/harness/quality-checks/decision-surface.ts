@@ -22,7 +22,8 @@
 // `docs/design/decision-surface-metric.md` for the deferred design
 // question on whether to add them and how.
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { safeReadFile as defaultReadFile } from "../evaluator/safe-read-file.js";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import {
@@ -220,14 +221,6 @@ export function detectLockfileMultiplicity(
 
 function makeEmptyBuckets(): Record<DecisionSurfaceCategory, Set<string>> {
 	return decisionCategoryRecord(() => new Set<string>());
-}
-
-function defaultReadFile(path: string): string | null {
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		return null;
-	}
 }
 
 function defaultExists(path: string): boolean {

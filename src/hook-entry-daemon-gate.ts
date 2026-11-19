@@ -31,9 +31,9 @@
 // healthy framed/session daemon looks GONE on a connect timeout and gets blocked
 // + needlessly self-healed (the regression this fixes).
 
+import { isProcessAlive as isPidAlive } from "./harness/daemon-pid-ownership.js";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { hasErrorCode } from "./harness/check-engine/tool-errors.js";
 import {
 	describeLastExit,
 	describeLastLedgerEvent,
@@ -135,15 +135,6 @@ function harnessConfigured(interlinkedDir: string): boolean {
  *  pid (stale pidfile from a crash) → false; an alive pid whose socket RPC just
  *  timed out → true (the daemon is up but slow, not gone). EPERM = the process
  *  exists but is owned by another user → treat as alive. */
-function isPidAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (err) {
-		return hasErrorCode(err, "EPERM");
-	}
-}
-
 /** True when a daemon Unix socket file is present in `.interlinked/` — evidence
  *  it is (or was) listening here. Combined with a live pid this is the "alive but
  *  slow" signal; its ABSENCE next to a live pid is the stomp signal (socket

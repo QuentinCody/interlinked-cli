@@ -25,7 +25,8 @@
 // registry arrow, a test-local function) is `unavailable`: what cannot be
 // located cannot be bound, so its corpus evidence never qualifies.
 
-import { existsSync, readFileSync } from "node:fs";
+import { safeReadFile as readOrNull } from "../evaluator/safe-read-file.js";
+import { existsSync } from "node:fs";
 import { join, posix } from "node:path";
 import { evidenceDigest } from "../finding-outcomes.js";
 import { staticLocalSpecifiers } from "../kill-proof/bound-imports.js";
@@ -67,14 +68,6 @@ interface ClosureWalk {
 
 function toPosix(path: string): string {
 	return path.replace(/\\/g, "/");
-}
-
-function readOrNull(path: string): string | null {
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		return null;
-	}
 }
 
 function lockDigest(root: string): string {
