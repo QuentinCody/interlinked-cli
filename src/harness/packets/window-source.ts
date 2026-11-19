@@ -7,6 +7,7 @@
 // serves replay and the daemon's Stop/SessionEnd path, so a live window and a
 // replayed window are the same bytes. Both logs are read as bounded tails.
 
+import { asJsonObject as asRecord } from "../../lib/json-types.js";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { buildDigest, type CallOutcome, classifyCall, verifierScope, type WindowCall, type WindowDigest } from "./window.js";
@@ -16,10 +17,6 @@ export interface TimelineRow {
 	session: string;
 	category: string;
 	text: string;
-}
-
-function asRecord(v: unknown): Record<string, unknown> | null {
-	return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
 /** The exit code, when the runner recorded one, outranks the completion flag: a test command that
@@ -104,15 +101,19 @@ export async function readCollectionCalls(file: string, tailBytes: number, sessi
 	return callsFromCollectionRows(rows, sessionId);
 }
 
+function parseTimelineRow(row: unknown): TimelineRow | null {
+	const r = asRecord(row);
+	if (!r || typeof r.session !== "string" || typeof r.ts !== "string" || typeof r.text !== "string") return null;
+	if (r.category !== "user_prompt" && r.category !== "agent_message") return null;
+	return { ts: r.ts, session: r.session, category: r.category, text: r.text };
+}
+
 /** The session's prompt and message rows from the newest `tailBytes` of a timeline log, in file order. */
 export async function readTimelineRows(file: string, tailBytes: number, sessionId: string): Promise<TimelineRow[]> {
 	const out: TimelineRow[] = [];
 	for await (const row of tailLines(file, tailBytes)) {
-		const r = asRecord(row);
-		if (!r || r.session !== sessionId) continue;
-		if (r.category !== "user_prompt" && r.category !== "agent_message") continue;
-		if (typeof r.ts !== "string" || typeof r.text !== "string") continue;
-		out.push({ ts: r.ts, session: sessionId, category: r.category, text: r.text });
+		const timeline = parseTimelineRow(row);
+		if (timeline?.session === sessionId) out.push(timeline);
 	}
 	return out;
 }
@@ -148,21 +149,25 @@ export interface WindowSource {
 	provider: string | null;
 }
 
+function appendSessionRow<T>(buckets: Map<string, T[]>, session: string, row: T): void {
+	const bucket = buckets.get(session);
+	if (bucket) bucket.push(row);
+	else buckets.set(session, [row]);
+}
+
 export async function readWindowSources(collectionFile: string, timelineFile: string, tailBytes: number, sessions: ReadonlySet<string>): Promise<Map<string, WindowSource>> {
 	const rowsBySession = new Map<string, unknown[]>();
 	const providerBySession = new Map<string, string>();
 	for await (const row of tailLines(collectionFile, tailBytes)) {
 		const r = asRecord(row);
 		if (!r || typeof r.session_id !== "string" || !sessions.has(r.session_id)) continue;
-		rowsBySession.set(r.session_id, [...(rowsBySession.get(r.session_id) ?? []), r]);
+		appendSessionRow(rowsBySession, r.session_id, r);
 		if (typeof r.provider === "string" && !providerBySession.has(r.session_id)) providerBySession.set(r.session_id, r.provider);
 	}
 	const timelineBySession = new Map<string, TimelineRow[]>();
 	for await (const row of tailLines(timelineFile, tailBytes)) {
-		const r = asRecord(row);
-		if (!r || typeof r.session !== "string" || !sessions.has(r.session)) continue;
-		if ((r.category !== "user_prompt" && r.category !== "agent_message") || typeof r.ts !== "string" || typeof r.text !== "string") continue;
-		timelineBySession.set(r.session, [...(timelineBySession.get(r.session) ?? []), { ts: r.ts, session: r.session, category: r.category, text: r.text }]);
+		const timeline = parseTimelineRow(row);
+		if (timeline && sessions.has(timeline.session)) appendSessionRow(timelineBySession, timeline.session, timeline);
 	}
 	const out = new Map<string, WindowSource>();
 	for (const id of sessions) out.set(id, { calls: callsFromCollectionRows(rowsBySession.get(id) ?? [], id), timeline: timelineBySession.get(id) ?? [], provider: providerBySession.get(id) ?? null });

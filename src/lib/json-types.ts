@@ -47,6 +47,11 @@ export function isJsonObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Return the original keyed object when present, otherwise indicate an unparseable field. */
+export function asJsonObject(value: unknown): JsonObject | null {
+	return isJsonObject(value) ? value : null;
+}
+
 /**
  * A recursive JSON value. Prefer `JsonObject` for most parameters; use
  * `JsonValue` only when you really need the strict recursive shape

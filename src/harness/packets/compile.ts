@@ -11,6 +11,7 @@
 // no enforcement (R2); `packets restore` must put the text back first.
 // Pure: file reads are injected.
 
+import { asJsonObject as asRecord } from "../../lib/json-types.js";
 import { createHash } from "node:crypto";
 import { packetHash, parsePacketFile } from "./schema.js";
 import { applyPacketTransition } from "./transition.js";
@@ -25,10 +26,6 @@ export interface CompileDeps {
 export type CompileResult = { ok: true; file: PacketFile; notes: string[] } | { ok: false; error: string };
 
 const SHADOW: PacketCalibration = { status: "shadow", bound_to: null, tau: null, holdout: { n: 0, pos: 0, auroc: null, precision_at_tau: null, recall_at_tau: null }, adjudication: null, measured_at: null };
-
-function asRecord(v: unknown): Record<string, unknown> | null {
-	return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-}
 
 /** Fill the fields a draft may omit; everything else is validated by the strict parser afterwards. */
 function normalizeDraftPacket(raw: unknown): Record<string, unknown> {

@@ -37,6 +37,12 @@ export type RenderResult = { ok: true; evidence: JevEntry } | { ok: false; gate:
 export const EVIDENCE_RENDERER = "evidence-v1";
 export const EVIDENCE_REDACTION = "e20-v3";
 
+export function bindingMatches(packet: Packet, runner: string, model: string): boolean {
+	const b = packet.calibration.bound_to;
+	return b !== null && b.packet_hash === packet.packet_hash && b.renderer === EVIDENCE_RENDERER && b.redaction === EVIDENCE_REDACTION && b.model === model && b.runner === runner;
+}
+
+
 const PATH_KINDS: ReadonlySet<EvidenceKind> = new Set(["hunks", "file"]);
 
 function repoRelative(path: string, cwd: string): string | null {

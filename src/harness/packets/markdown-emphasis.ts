@@ -210,6 +210,26 @@ function findOpener(stack: readonly Run[], closer: Run): number {
 	return partial;
 }
 
+function matchClosingRun(run: Run, stack: Run[], text: string, pairs: EmphasisPair[]): void {
+	// A closer consumes min(opener, closer) characters: the opener's INNER end and the closer's start. What is
+	// left of the closer looks for another opener (`***a** b*`), and what is left of an opener stays open.
+	let k = run.canClose ? findOpener(stack, run) : -1;
+	while (k >= 0) {
+		const opener = stack[k] as Run;
+		const n = Math.min(opener.len, run.len);
+		const open = opener.at + opener.len - n;
+		stack.length = k + 1;
+		opener.len -= n;
+		if (opener.len === 0) stack.pop();
+		// `__init__ ` IS bold in CommonMark, but a one-word underscore pair is far likelier an identifier
+		// (`__init__`, `__dirname__`) than emphasis: it stays content, so a quote without it fails closed.
+		if (run.ch !== "_" || /\s/.test(text.slice(open + n, run.at))) pairs.push({ open, close: run.at, length: n });
+		run.at += n;
+		run.len -= n;
+		k = run.len > 0 ? findOpener(stack, run) : -1;
+	}
+}
+
 /** Matched emphasis pairs, ordered by opener. */
 export function emphasisPairs(text: string): EmphasisPair[] {
 	const runs = runsOf(text, codeMask(text));
@@ -223,23 +243,7 @@ export function emphasisPairs(text: string): EmphasisPair[] {
 			stack = []; // emphasis never crosses a paragraph break
 			nextBreak++;
 		}
-		// A closer consumes min(opener, closer) characters: the opener's INNER end and the closer's start. What is
-		// left of the closer looks for another opener (`***a** b*`), and what is left of an opener stays open.
-		let k = run.canClose ? findOpener(stack, run) : -1;
-		while (k >= 0) {
-			const opener = stack[k] as Run;
-			const n = Math.min(opener.len, run.len);
-			const open = opener.at + opener.len - n;
-			stack = stack.slice(0, k + 1);
-			opener.len -= n;
-			if (opener.len === 0) stack.pop();
-			// `__init__ ` IS bold in CommonMark, but a one-word underscore pair is far likelier an identifier
-			// (`__init__`, `__dirname__`) than emphasis: it stays content, so a quote without it fails closed.
-			if (run.ch !== "_" || /\s/.test(text.slice(open + n, run.at))) pairs.push({ open, close: run.at, length: n });
-			run.at += n;
-			run.len -= n;
-			k = run.len > 0 ? findOpener(stack, run) : -1;
-		}
+		matchClosingRun(run, stack, text, pairs);
 		if (run.len > 0 && run.canOpen) stack.push(run);
 	}
 	return pairs.sort((a, b) => a.open - b.open);

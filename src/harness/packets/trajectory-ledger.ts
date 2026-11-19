@@ -13,12 +13,12 @@
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GuardRulesConfig } from "../types.js";
-import { loadPacketFile } from "./evaluator.js";
+import { enabledPacketsConfig, loadPacketFile } from "./evaluator.js";
 import { fallbackLine } from "./fallback.js";
 import { deliveredIds } from "./fallback-ledger.js";
 import { statusRank } from "./schema.js";
 import { evaluateWindow, type TrajectoryDeps, WINDOW_LEDGER, type WindowJudgmentRow } from "./trajectory.js";
-import { PACKET_FILE_BASENAME, type PacketFile, type PacketsConfig } from "./types.js";
+import { PACKET_FILE_BASENAME, type PacketFile } from "./types.js";
 import type { WindowDigest } from "./window.js";
 import { readCollectionCalls, readTimelineRows, sessionWindow, turnWindows } from "./window-source.js";
 
@@ -150,11 +150,6 @@ export interface RunWindowOptions {
 	window?: WindowDigest;
 }
 
-function enabledConfig(rules: GuardRulesConfig): PacketsConfig | null {
-	const packets = rules.packets;
-	return packets?.enabled === true && rules.jev?.enabled === true ? packets : null;
-}
-
 async function windowFromLogs(cwd: string, sessionId: string, kind: WindowDigest["kind"], tailMb: number): Promise<WindowDigest | null> {
 	const bytes = tailMb * 1024 * 1024;
 	const calls = await readCollectionCalls(join(cwd, ".interlinked", "collection.jsonl"), bytes, sessionId);
@@ -167,7 +162,7 @@ async function windowFromLogs(cwd: string, sessionId: string, kind: WindowDigest
 /** Build, judge, record and (live) queue one window. Never rejects. */
 export async function runWindowEvaluation(opts: RunWindowOptions): Promise<WindowJudgmentRow[]> {
 	try {
-		const config = enabledConfig(opts.rules);
+		const config = enabledPacketsConfig(opts.rules);
 		if (!config) return [];
 		const path = join(opts.cwd, ".interlinked", PACKET_FILE_BASENAME);
 		if (!existsSync(path)) return [];
@@ -187,7 +182,7 @@ export async function runWindowEvaluation(opts: RunWindowOptions): Promise<Windo
 
 /** Hook-path entry for Stop / SessionEnd: fire and forget. */
 export function scheduleWindowEvaluation(opts: RunWindowOptions): void {
-	if (!enabledConfig(opts.rules)) return;
+	if (!enabledPacketsConfig(opts.rules)) return;
 	setImmediate(() => {
 		void runWindowEvaluation(opts);
 	});

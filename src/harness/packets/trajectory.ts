@@ -22,7 +22,7 @@ import { performance } from "node:perf_hooks";
 import { JEV_API_KEY_ENV, JEV_USD_PER_INPUT_TOKEN, JevClient, type JevFetch } from "../jev/client.js";
 import { resolveApiKey } from "../policy-classifier.js";
 import type { JevAnswer, JevChoiceQuestion, JevEntry, JevQuestion } from "../jev/types.js";
-import { EVIDENCE_REDACTION, EVIDENCE_RENDERER } from "./evidence.js";
+import { bindingMatches, EVIDENCE_REDACTION, EVIDENCE_RENDERER } from "./evidence.js";
 import { maskCredentialAssignments, redactE20, residualSecretMatches } from "../jev/decision-shadow-redact.js";
 import { isAbsolute, relative, resolve } from "node:path";
 import { matchesAnyGlob } from "../../lib/path-glob.js";
@@ -192,15 +192,6 @@ export function renderWindowState(d: WindowDigest, config: PacketsConfig, cwd: s
 	return { entry: { ...entry, prompts, final_message, withheld_paths: withheld }, kept: rendered.kept, promptsSent, withheld };
 }
 
-function hashOf(entry: JevEntry): string {
-	return createHash("sha256").update(JSON.stringify(entry)).digest("hex");
-}
-
-function bindingMatches(packet: Packet, runner: string, model: string): boolean {
-	const b = packet.calibration.bound_to;
-	return b !== null && b.packet_hash === packet.packet_hash && b.renderer === EVIDENCE_RENDERER && b.redaction === EVIDENCE_REDACTION && b.model === model && b.runner === runner;
-}
-
 /** A `where` Choice over the calls the state actually shows (the kept ones, same sanitized excerpts),
  *  option ids c1..ck in order plus `none`. Folded calls are not options: the model never saw them. */
 function whereQuestion(kept: readonly WindowCall[], packet: Packet): { question: JevChoiceQuestion; bySeq: Map<string, number> } | null {
@@ -227,6 +218,22 @@ interface Pending {
 	row: WindowJudgmentRow;
 }
 
+/** Validate the exact serialized evidence whose hash will identify this judgment. */
+function windowEvidenceGate(
+	window: WindowDigest, state: WindowState, packet: Packet, runner: string, consent: readonly ConsentKind[],
+	evidence: string, scan: (text: string) => number,
+): { gate: WindowGate; error?: string } | null {
+	if (window.kind === "turn" && !state.promptsSent) {
+		const error = window.prompts.length === 0 ? "turn window carries no prompt" : "prompt text not consented (evidence_consent.kinds lacks prompts)";
+		return { gate: "insufficient", error };
+	}
+	const support = packetSupport(packet, runner);
+	if (!support.supported) return { gate: "unsupported", error: support.reason };
+	if (!consent.includes(consentKindFor(packet.evidence))) return { gate: "no_consent" };
+	if (scan(evidence) > 0) return { gate: "secret" };
+	return null;
+}
+
 /** Trigger, prompt sufficiency, support, consent, secret and decider gates; returns decided rows and pending packets. */
 function admit(d: WindowDigest, packets: readonly Packet[], config: PacketsConfig, runner: string, state: WindowState, source: "live" | "replay", scan: (text: string) => number): { rows: WindowJudgmentRow[]; direct: Pending[]; screen: Pending[] } {
 	const consentKinds: readonly ConsentKind[] = config.evidence_consent?.kinds ?? [];
@@ -239,26 +246,10 @@ function admit(d: WindowDigest, packets: readonly Packet[], config: PacketsConfi
 		const trigger = packet.applies.command_regex;
 		if (trigger !== null && !new RegExp(trigger).test(subject)) continue;
 		const where = whereQuestion(state.kept, packet);
-		const row = baseRow(d, packet, runner, hashOf({ state: state.entry, where: where?.question.criteria ?? null }), source);
-		// A turn is defined by its prompt. Without prompt text IN THE EVIDENCE (no prompt captured, or
-		// `prompts` not consented) no rule bound to what the user asked can be decided: insufficient, never judged.
-		if (d.kind === "turn" && !state.promptsSent) {
-			rows.push({ ...row, gate: "insufficient", error: d.prompts.length === 0 ? "turn window carries no prompt" : "prompt text not consented (evidence_consent.kinds lacks prompts)" });
-			continue;
-		}
-		const support = packetSupport(packet, runner);
-		if (!support.supported) {
-			rows.push({ ...row, gate: "unsupported", error: support.reason });
-			continue;
-		}
-		if (!consentKinds.includes(consentKindFor(packet.evidence))) {
-			rows.push({ ...row, gate: "no_consent" });
-			continue;
-		}
-		if (scan(JSON.stringify({ state: state.entry, where: where?.question.criteria ?? null })) > 0) {
-			rows.push({ ...row, gate: "secret" });
-			continue;
-		}
+		const evidence = JSON.stringify({ state: state.entry, where: where?.question.criteria ?? null });
+		const row = baseRow(d, packet, runner, createHash("sha256").update(evidence).digest("hex"), source);
+		const gate = windowEvidenceGate(d, state, packet, runner, consentKinds, evidence, scan);
+		if (gate) { rows.push({ ...row, ...gate }); continue; }
 		const settled = settleView(packet.settle, { tool: "", phase: "post", path: null, command: subject, hunks: [] });
 		if (settled !== null) {
 			rows.push(withDelivery({ ...row, settled }, packet, d));

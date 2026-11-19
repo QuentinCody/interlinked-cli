@@ -58,13 +58,9 @@ function repositoryPath(path: string, root: string): string | null {
     if (!rel || rel === ".." || rel.startsWith("../") || isAbsolute(rel)) return null;
     return rel;
 }
-/** File mentions are an advisory coverage proxy, not a claim that every mention says "changed". */
-export function checkSummaryFileCoverage(input: SummaryEvidence): CatalogueFinding[] {
-    if (!input.complete || !input.session || !input.message.trim()) return [];
-    const changed = new Set(input.diffPaths.map(path => repositoryPath(path, input.root)).filter((path): path is string => path !== null));
-    const mentioned = new Map<string, number>();
+function* summaryProse(message: string) {
     let fence: string | undefined;
-    for (const [index, line] of input.message.split(/\r?\n/).entries()) {
+    for (const [index, line] of message.split(/\r?\n/).entries()) {
         const delimiter = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
         if (delimiter) {
             if (!fence) fence = delimiter;
@@ -72,13 +68,28 @@ export function checkSummaryFileCoverage(input: SummaryEvidence): CatalogueFindi
             continue;
         }
         if (fence) continue;
+        yield { index, line };
+    }
+}
+
+function summaryMentions(message: string, root: string): Map<string, number> {
+    const mentioned = new Map<string, number>();
+    for (const { index, line } of summaryProse(message)) {
         // URLs are references, not repository paths. Preserve offsets for evidence.
         const localText = line.replace(/https?:\/\/[^\s)<>]+/g, value => " ".repeat(value.length));
         for (const match of localText.matchAll(/(?<![\w@])(?:[A-Za-z]:)?(?:\.{0,2}\/|\/)?(?:[\w.@-]+\/)*[\w.-]+\.[A-Za-z][A-Za-z0-9]*(?::\d+(?::\d+)?)?/g)) {
-            const path = repositoryPath(match[0], input.root);
+            const path = repositoryPath(match[0], root);
             if (path !== null) mentioned.set(path, index + 1);
         }
     }
+    return mentioned;
+}
+
+/** File mentions are an advisory coverage proxy, not a claim that every mention says "changed". */
+export function checkSummaryFileCoverage(input: SummaryEvidence): CatalogueFinding[] {
+    if (!input.complete || !input.session || !input.message.trim()) return [];
+    const changed = new Set(input.diffPaths.map(path => repositoryPath(path, input.root)).filter((path): path is string => path !== null));
+    const mentioned = summaryMentions(input.message, input.root);
     const findings: CatalogueFinding[] = [];
     const population = input.basis === "touched-files" ? "touched-file ledger" : "recorded diff";
     for (const [path, line] of mentioned) if (input.mentionsComplete !== false && !changed.has(path)) findings.push({ check: "summary_file_coverage", file: path, line: 1,
@@ -94,31 +105,58 @@ export function touchedSummaryEvidence(root: string, session: string, message: s
         mentionsComplete: ledger.complete, basis: "touched-files" };
 }
 
+type TouchRow = Record<string, unknown>;
+type Change = { before: string | null; after: string | null };
+
+function fileChange(row: TouchRow, root: string): { path: string; change: Change } | null {
+    if (row.observation_complete !== true || typeof row.path !== "string") return null;
+    const before = row.before_sha256, after = row.after_sha256;
+    if (!(before === null || typeof before === "string") || !(after === null || typeof after === "string")) return null;
+    const path = repositoryPath(row.path, root);
+    return path ? { path, change: { before, after } } : null;
+}
+
+function netChanges(rows: TouchRow[], root: string) {
+    const chains = new Map<string, Change>();
+    let continuous = true;
+    for (const row of rows) {
+        const entry = fileChange(row, root);
+        if (!entry) { continuous = false; continue; }
+        const { path, change } = entry;
+        const prior = chains.get(path);
+        if (prior && prior.after !== change.before) continuous = false;
+        chains.set(path, { before: prior ? prior.before : change.before, after: change.after });
+    }
+    const diffPaths = [...chains].filter(([, change]) => change.before !== change.after).map(([path]) => path);
+    return { continuous, diffPaths };
+}
+
 /** A net diff needs complete observations and a continuous before/after chain. */
 export function summaryEvidenceFromLogs(root: string, activity: BoundedLog, touches: BoundedLog): SummaryEvidence[] {
+    const starts = new Map<string, number>();
+    for (const row of activity.rows) {
+        if (row.type !== "session_start" || typeof row.session !== "string") continue;
+        const time = Date.parse(String(row.ts));
+        if (Number.isFinite(time)) starts.set(row.session, Math.min(time, starts.get(row.session) ?? Infinity));
+    }
+    const observations = new Map<string, TouchRow[]>();
+    for (const row of touches.rows) {
+        if (typeof row.session_id !== "string") continue;
+        const prior = observations.get(row.session_id);
+        if (prior) prior.push(row);
+        else observations.set(row.session_id, [row]);
+    }
+    const logComplete = activity.available && touches.available && !activity.malformed && !touches.malformed && !touches.truncated;
     const stops = activity.rows.filter(row => row.type === "agent_stop" && row.dry_run !== true && typeof row.session === "string");
     return stops.map(stop => {
-        const session = String(stop.session);
-        const stopTime = Date.parse(String(stop.ts));
-        const starts = activity.rows.filter(row => row.type === "session_start" && row.session === session && Date.parse(String(row.ts)) <= stopTime);
-        const startTime = starts.length ? Math.min(...starts.map(row => Date.parse(String(row.ts)))) : NaN;
-        const rows = touches.rows.filter(row => row.session_id === session && Date.parse(String(row.ts)) >= startTime && Date.parse(String(row.ts)) <= stopTime);
-        let complete = activity.available && touches.available && !activity.malformed && !touches.malformed
-            && Number.isFinite(startTime) && rows.length > 0;
-        const chains = new Map<string, { before: string | null; after: string | null }>();
-        for (const row of rows) {
-            if (row.observation_complete !== true || typeof row.path !== "string"
-                || !(typeof row.before_sha256 === "string" || row.before_sha256 === null)
-                || !(typeof row.after_sha256 === "string" || row.after_sha256 === null)) { complete = false; continue; }
-            const path = repositoryPath(row.path, root);
-            if (!path) { complete = false; continue; }
-            const prior = chains.get(path);
-            if (prior && prior.after !== row.before_sha256) complete = false;
-            chains.set(path, { before: prior ? prior.before : row.before_sha256, after: row.after_sha256 });
-        }
-        // Truncated touch tails cannot establish that every session write was observed.
-        if (touches.truncated) complete = false;
+        const session = String(stop.session), stopTime = Date.parse(String(stop.ts));
+        const startTime = starts.get(session) ?? NaN;
+        const rows = (observations.get(session) ?? []).filter(row => {
+            const at = Date.parse(String(row.ts));
+            return Number.isFinite(at) && at >= startTime && at <= stopTime;
+        });
+        const { diffPaths, continuous } = netChanges(rows, root);
         return { session, at: stopTime, message: typeof stop.last_assistant_message === "string" ? stop.last_assistant_message : "",
-            diffPaths: [...chains].filter(([, value]) => value.before !== value.after).map(([path]) => path), complete, root: resolve(root) };
+            diffPaths, complete: logComplete && rows.length > 0 && continuous, root: resolve(root) };
     });
 }

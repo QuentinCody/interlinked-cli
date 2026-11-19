@@ -10,6 +10,7 @@
 // `support.ts`, so a packet can be "hits 40 rows, never executes live" (R7).
 // The log is read as a bounded tail stream, never loaded whole.
 
+import { asJsonObject as asRecord } from "../../lib/json-types.js";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { packetSupport, type PacketSupport } from "./support.js";
@@ -47,10 +48,6 @@ export interface DryRunRow {
 
 /** A trigger wider than this share of its tool's calls is sent back to the compiler (§5). */
 const DEFAULT_WIDTH_BOUND = 0.2;
-
-function asRecord(v: unknown): Record<string, unknown> | null {
-	return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-}
 
 function hunksOf(action: Record<string, unknown>): TriggerHunk[] {
 	const diff = asRecord(action.diff);

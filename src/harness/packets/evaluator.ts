@@ -25,7 +25,7 @@ import { JEV_API_KEY_ENV, JEV_USD_PER_INPUT_TOKEN, JevClient, type JevFetch } fr
 import type { JevEntry, JevQuestion } from "../jev/types.js";
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent } from "../types.js";
 import { cosignPairingAt, decidePacketAsk, pickAsk } from "./cosign-pairing.js";
-import { consentDecision, EVIDENCE_REDACTION, EVIDENCE_RENDERER, type EvidenceConsent, renderEvidence, renderState } from "./evidence.js";
+import { bindingMatches, consentDecision, EVIDENCE_REDACTION, EVIDENCE_RENDERER, type EvidenceConsent, renderEvidence, renderState } from "./evidence.js";
 import { nonLiveReason, outageFallbackLines, SLOW_JEV_REASON } from "./outage-fallback.js";
 import { judgmentId } from "./session-token.js";
 import { resolveSourcePath } from "./source-path.js";
@@ -116,7 +116,7 @@ export function resetPacketEvaluatorState(): void {
  *  or Jev failed at its last call. The SessionStart fallback reads it too (audit B, finding 5), so a known
  *  outage hands the words back at the start instead of one call late. */
 export function runtimeNonLiveReason(rules: GuardRulesConfig): string | null {
-	const config = enabledConfig(rules);
+	const config = enabledPacketsConfig(rules);
 	if (!config) return null; // disabled packets are a static gap (`liveGap`), not a runtime one
 	if (state.usd >= (config.max_spend_usd ?? DEFAULT_MAX_SPEND_USD)) return "spend cap reached this daemon run";
 	if (state.lastAskFailed) return "Jev unreachable at the last call";
@@ -202,7 +202,7 @@ export function loadPacketFile(cwd: string, path: string): Loaded {
 	return { ok: true, file: parsed.value };
 }
 
-function enabledConfig(rules: GuardRulesConfig): PacketsConfig | null {
+export function enabledPacketsConfig(rules: GuardRulesConfig): PacketsConfig | null {
 	const packets = rules.packets;
 	return packets?.enabled === true && rules.jev?.enabled === true ? packets : null;
 }
@@ -210,11 +210,6 @@ function enabledConfig(rules: GuardRulesConfig): PacketsConfig | null {
 function consentOf(config: PacketsConfig): EvidenceConsent | undefined {
 	const c = config.evidence_consent;
 	return c ? { kinds: c.kinds ?? [], paths: c.paths ?? [] } : undefined;
-}
-
-function bindingMatches(packet: Packet, runner: string, model: string): boolean {
-	const b = packet.calibration.bound_to;
-	return b !== null && b.packet_hash === packet.packet_hash && b.renderer === EVIDENCE_RENDERER && b.redaction === EVIDENCE_REDACTION && b.model === model && b.runner === runner;
 }
 
 export { judgmentId, legacyJudgmentId } from "./session-token.js";
@@ -368,11 +363,20 @@ function packetRoot(event: HarnessEvent): string {
 	return findRepoRoot(cwd) ?? cwd;
 }
 
+async function judgePacketFile(event: HarnessEvent, file: PacketFile, config: PacketsConfig, cwd: string, apiKey: string, deps: PacketEvaluatorDeps): Promise<PacketJudgmentRow[]> {
+	if (!claim(event, deps.onlyStatus === "cosign" ? "cosign-pre" : "post")) return [];
+	const views = viewsFromToolInput(event.tool_name ?? "", event.hook_event === "PreToolUse" ? "pre" : "post", event.tool_input ?? {});
+	const admitted = admit(event, candidatesOf(file, views, deps.onlyPackets, deps.phaseAgnostic, deps.onlyStatus), consentOf(config), cwd, deps.source ?? "live");
+	const rows = [...admitted.rows, ...(await ask(event, admitted.asks, config, apiKey, deps))];
+	if (!deps.deferAppend) appendRows(cwd, rows);
+	return rows;
+}
+
 /** Judge one PostToolUse event; resolves to the rows written. Never rejects. */
 export async function runPacketEvaluation(event: HarnessEvent, rules: GuardRulesConfig, deps: PacketEvaluatorDeps = {}): Promise<PacketJudgmentRow[]> {
 	try {
 		if (event.dry_run === true || (event.hook_event !== "PostToolUse" && !(deps.phaseAgnostic && event.hook_event === "PreToolUse"))) return [];
-		const config = enabledConfig(rules);
+		const config = enabledPacketsConfig(rules);
 		if (!config) return [];
 		const cwd = packetRoot(event);
 		const path = join(cwd, ".interlinked", PACKET_FILE_BASENAME);
@@ -389,12 +393,7 @@ export async function runPacketEvaluation(event: HarnessEvent, rules: GuardRules
 			appendRows(cwd, rows);
 			return rows;
 		}
-		if (!claim(event, deps.onlyStatus === "cosign" ? "cosign-pre" : "post")) return [];
-		const views = viewsFromToolInput(event.tool_name ?? "", event.hook_event === "PreToolUse" ? "pre" : "post", event.tool_input ?? {});
-		const admitted = admit(event, candidatesOf(loaded.file, views, deps.onlyPackets, deps.phaseAgnostic, deps.onlyStatus), consentOf(config), cwd, deps.source ?? "live");
-		const rows = [...admitted.rows, ...(await ask(event, admitted.asks, config, apiKey, deps))];
-		if (!deps.deferAppend) appendRows(cwd, rows);
-		return rows;
+		return await judgePacketFile(event, loaded.file, config, cwd, apiKey, deps);
 	} catch {
 		return [];
 	}
@@ -410,7 +409,7 @@ export function hasLivePackets(cwd: string): boolean {
 
 /** Hook-path entry: fire and forget after the PostToolUse response (no warning, no await). */
 function schedulePacketEvaluation(event: HarnessEvent, rules: GuardRulesConfig): void {
-	if (event.dry_run === true || !enabledConfig(rules)) return;
+	if (event.dry_run === true || !enabledPacketsConfig(rules)) return;
 	setImmediate(() => {
 		void runPacketEvaluation(event, rules);
 	});
@@ -422,7 +421,7 @@ const DEFAULT_DELIVERY_TIMEOUT_MS = 2_500;
  *  response; otherwise shadow. `shown` is written TRUE only when the rows come back inside the budget —
  *  a late evaluation still lands in the ledger, eligible but not shown, because the agent never saw it. */
 export async function collectPacketWarnings(event: HarnessEvent, rules: GuardRulesConfig, deps: PacketEvaluatorDeps = {}, timeoutMs = DEFAULT_DELIVERY_TIMEOUT_MS): Promise<string[]> {
-	if (event.dry_run === true || event.hook_event !== "PostToolUse" || !enabledConfig(rules)) return [];
+	if (event.dry_run === true || event.hook_event !== "PostToolUse" || !enabledPacketsConfig(rules)) return [];
 	const cwd = packetRoot(event);
 	if (!hasLivePackets(cwd)) {
 		schedulePacketEvaluation(event, rules);
@@ -451,7 +450,7 @@ export async function collectPacketWarnings(event: HarnessEvent, rules: GuardRul
  *  allow to ask on an eligible judgment. Bounded by `timeoutMs`; a late or failed evaluation changes nothing
  *  (its rows still land, eligible but not shown). Returns the possibly-tightened decision. */
 export async function collectPacketAsk(event: HarnessEvent, rules: GuardRulesConfig, local: HarnessDecision, deps: PacketEvaluatorDeps = {}, timeoutMs = DEFAULT_DELIVERY_TIMEOUT_MS): Promise<HarnessDecision> {
-	if (event.dry_run === true || event.hook_event !== "PreToolUse" || local.decision !== "allow" || !enabledConfig(rules)) return local;
+	if (event.dry_run === true || event.hook_event !== "PreToolUse" || local.decision !== "allow" || !enabledPacketsConfig(rules)) return local;
 	// A runner whose PreToolUse can only DENY would turn this ask into a hard block; a packet never blocks (§3).
 	if (!runnerSupportsAsk(event.agent_source)) return local;
 	const cwd = packetRoot(event);

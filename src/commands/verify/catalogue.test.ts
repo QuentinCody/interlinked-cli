@@ -120,6 +120,21 @@ describe("summary_file_coverage", () => {
         touches.truncated = true;
         expect(summaryEvidenceFromLogs("/repo", activity, touches)[0]?.complete).toBe(false);
     });
+    it("uses each session's earliest start and each Stop's inclusive timestamp", () => {
+        const time = (minute: number) => new Date(Date.UTC(2026, 0, 1, 0, minute)).toISOString();
+        const log = (rows: Record<string, unknown>[]): BoundedLog => ({ rows, available: true, truncated: false, malformed: 0, bytes: 1 });
+        const event = (session: string, type: string, minute: number) => ({ session, type, ts: time(minute) });
+        const touch = (session_id: string, minute: number, path: string, before_sha256: string, after_sha256: string) =>
+            ({ session_id, ts: time(minute), path, before_sha256, after_sha256, observation_complete: true });
+        const activity = log([event("a", "session_start", 3), event("a", "session_start", 1),
+            event("b", "session_start", 1), event("a", "agent_stop", 2), event("b", "agent_stop", 3), event("a", "agent_stop", 4)]);
+        const touches = log([touch("a", 0, "outside.ts", "x", "y"), touch("b", 1, "b.ts", "x", "y"),
+            touch("a", 2, "a.ts", "x", "y"), touch("a", 4, "a.ts", "y", "x")]);
+        expect(summaryEvidenceFromLogs("/repo", activity, touches)).toMatchObject([
+            { session: "a", diffPaths: ["a.ts"], complete: true }, { session: "b", diffPaths: ["b.ts"], complete: true },
+            { session: "a", diffPaths: [], complete: true },
+        ]);
+    });
 });
 it("all catalogue checks are default-skipped, verify-only advisories", () => {
     for (const entry of VERIFY_ADVISORY_CATALOGUE) expect(DEFAULT_ADVISORY_SKIPS.has(entry.id)).toBe(true);
