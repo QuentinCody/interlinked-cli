@@ -18,6 +18,7 @@
 import { ensureLocalRuntimePolicy } from "./runtime-policy.js";
 ensureLocalRuntimePolicy();
 import { registerAllBuiltinVerifyPasses } from "./check-pipeline/builtin-verify-passes.js";
+import { enableDaemonTsgoCpuLimit } from "./check-engine/tool-runners/tsc.js";
 import { astComplexityAvailable } from "./checks/cyclomatic-ast.js";
 import { recordDaemonEvent, recordDaemonExit } from "./daemon-ledger.js";
 import { type FilePriority } from "./file-priority.js";
@@ -51,6 +52,7 @@ import type { GuardRulesConfig, HarnessDecision, HarnessEvent } from "./types.js
 // ===========================================
 
 const cliConfig = readServerCliConfig();
+enableDaemonTsgoCpuLimit();
 const {
 	cwd: CWD,
 	interlinkedDir: INTERLINKED_DIR,

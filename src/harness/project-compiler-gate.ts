@@ -14,6 +14,7 @@ import {
 
 const DEFAULT_MAX_QUEUED = 8;
 const DEFAULT_ADMISSION_TIMEOUT_MS = 2_000;
+export const BACKGROUND_COMPILER_GOMAXPROCS = "2";
 
 export type ProjectCompilerUnavailableReason = "aborted" | "busy" | "queue_full";
 
