@@ -30,6 +30,10 @@ import { TEST_QUALITY_ADVISORY_IDS } from "./advisory-test-quality.js";
  * pins the current set — update it together with this list.
  */
 export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
+	// Resolved same-file Commander evidence remains advisory pending cross-repository precision review.
+	"commander_option_attribute",
+	// Visible omitted arguments justify a contract review; intended flexibility may be deliberate.
+	"omitted_private_parameter",
     // Project documentation/configuration and recorded Stop coverage are audit-only.
     "readme_command_drift",
     "unread_config_key",
@@ -171,6 +175,10 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// occasionally intentional under checked-elsewhere invariants — low- not
 	// zero-FP. Advisory until cross-repo calibration measures the FP rate.
 	"contradictory_nullness_chain",
+	// Catch bindings may be non-Error values or expose intentional serialization.
+	"json_stringify_error",
+	// Rewrapping can intentionally normalize a public boundary's error contract.
+	"catch_rewrap_loses_cause",
 	// resource_handle_leak: handle-ownership heuristics; long-lived
 	// process-lifetime handles are legitimate. Per effect-ts-harness-additions
 	// §2.5: start advisory, ratchet to default after cross-repo FP calibration.
@@ -184,6 +192,10 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// consumers (published libraries); app code pays the cost at refactor time
 	// only. Per effect-ts-harness-additions §10: advisory.
 	"public_api_leaks_internal_type",
+	// JSDoc agreement advises on documentation and preserves ambiguous-parameter exceptions.
+	"jsdoc_param_drift",
+	// Replacing parsed zero may be intentional caller policy, so inspect this numeric fallback.
+	"numeric_zero_default",
 	// unvalidated_json_boundary PROMOTED to the default gate 2026-08-10
 	// (boundary-parser campaign R2): the old rationale called the
 	// `JSON.parse(x) as T` form idiomatic — re-examined, that cast IS the
@@ -456,9 +468,11 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// process_env_outside_config: path/name-based boundary heuristic; FPs on
 	// wrapper modules that delegate env parsing to a submodule.
 	"process_env_outside_config",
-	// top_level_side_effect: column-0 proxy for top-level + name regex; FPs on
-	// single-line function definitions whose body names a side-effect call.
+	// top_level_side_effect: AST separates initialization from deferred code,
+	// but call names and entrypoint exemptions do not establish effect policy.
 	"top_level_side_effect",
+	// top_level_burden: the limit (500 tokens of import-time work) is a taste threshold; the check counts work only, not data or declarations.
+	"top_level_burden",
 	// === Type-discipline wave (2026-08-14) — ported from dmmulroy/anti-slop,
 	// detection algorithm only (docs/external-pulse/anti-slop.md) ===
 	// conditional_empty_object_spread: exact ternary-with-empty-object-branch

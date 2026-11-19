@@ -77,9 +77,34 @@ describe("discoverSingleTool", () => {
 		const r = discoverSingleTool("not-a-tool", tmp);
 		expect(r).toBeUndefined();
 	});
+
+	it.each(["ETIMEDOUT", "EACCES", "ENOBUFS"])("keeps %s probe failures distinct from missing installation", async code => {
+		const native = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+		const failure = native.spawnSync(join(tmp, "absent-probe"), [], { encoding: "utf8" });
+		failure.error = Object.assign(new Error(`Probe ${code}`), { code });
+		vi.mocked(spawnSync).mockReturnValueOnce(failure);
+		expect(discoverSingleTool("gitleaks", tmp, 1)).toMatchObject({ available: false, probeError: `Probe ${code}` });
+	});
+
+	it("retains a failed primary probe if the fallback is missing", async () => {
+		writeFileSync(join(tmp, "tsconfig.json"), "{}");
+		const native = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+		const missing = native.spawnSync(join(tmp, "absent-probe"), [], { encoding: "utf8" });
+		vi.mocked(spawnSync).mockReturnValueOnce({ ...missing, error: Object.assign(new Error("Primary timed out"), { code: "ETIMEDOUT" }) }).mockReturnValueOnce(missing);
+		expect(discoverSingleTool("tsc", tmp, 1)).toMatchObject({ available: false, probeError: "Primary timed out" });
+	});
 });
 
 describe("tryBinary — spawnSync throws synchronously", () => {
+	it.each([0, 12_345])("honors an explicit version-probe deadline of %i milliseconds", async timeoutMs => {
+		const native = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+		const result = native.spawnSync(process.execPath, ["--version"], { encoding: "utf8" });
+		const spawn = vi.mocked(spawnSync);
+		spawn.mockClear(); spawn.mockReturnValueOnce(result);
+		expect(tryBinary({ versionCmd: [process.execPath, "--version"], versionRegex: /v(\S+)/ }, timeoutMs).available).toBe(true);
+		expect(spawn).toHaveBeenCalledWith(process.execPath, ["--version"], expect.objectContaining({ timeout: timeoutMs }));
+	});
+
 	it("returns unavailable when spawnSync throws instead of reporting result.error", () => {
 		// An empty command is a string, but Node rejects it synchronously
 		// instead of returning the ENOENT result of an absent executable.
@@ -87,7 +112,7 @@ describe("tryBinary — spawnSync throws synchronously", () => {
 			versionCmd: [""],
 			versionRegex: /x/,
 		};
-		expect(tryBinary(malformed)).toEqual({ available: false });
+		expect(tryBinary(malformed)).toMatchObject({ available: false, probeError: expect.any(String) });
 	});
 });
 

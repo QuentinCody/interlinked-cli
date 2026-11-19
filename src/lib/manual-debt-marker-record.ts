@@ -5,6 +5,7 @@
 // and derives opened/changed/closed transitions from the prior valid snapshot;
 // it never reads or mutates the automatic obligation ledger.
 
+import { tornTailPrefix } from "./bounded-file-io.js";
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -163,17 +164,6 @@ export function loadManualDebtMarkerSnapshotReceipts(
         }
     }
     return rows;
-}
-
-function tornTailPrefix(path: string): string {
-    if (!existsSync(path)) return "";
-    try {
-        const bytes = readFileSync(path);
-        return bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a ? "\n" : "";
-    } catch (readError) {
-        void readError;
-        return "";
-    }
 }
 
 function recordedAt(options: RecordManualDebtMarkerOptions): string {

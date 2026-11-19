@@ -1,3 +1,4 @@
+import { formatElapsedSeconds } from "../lib/formatter.js";
 import { dirname, join } from "node:path";
 import { resolveSourceTarget } from "../lib/metrics/graph-entries.js";
 import type { RepositoryInventory } from "../lib/metrics/measurement-types.js";
@@ -71,8 +72,8 @@ function reach(graph: TestDependencyGraph, test: string, supportFiles: readonly 
 
 function chainTo(parents: ReadonlyMap<string, string | null>, module: string): string[] {
     const chain: string[] = [];
-    for (let current: string | null | undefined = module; current; current = parents.get(current)) chain.unshift(current);
-    return chain;
+    for (let current: string | null | undefined = module; current; current = parents.get(current)) chain.push(current);
+    return chain.reverse();
 }
 
 function attribute(graph: TestDependencyGraph, tests: readonly string[], historical: HistoricalDurations, supportFiles: readonly string[]): { causes: Map<string, Attribution>; opaqueTests: number; opaqueDuration: number } {
@@ -96,20 +97,25 @@ function attribute(graph: TestDependencyGraph, tests: readonly string[], histori
     return { causes, opaqueTests, opaqueDuration };
 }
 
+function rankedCauses(causes: ReadonlyMap<string, Attribution>, files: ReadonlyMap<string, GraphFile>): OpacityCause[] {
+    const known = new Set(files.keys());
+    return [...causes].map(([path, entry]) => {
+        const file = files.get(path);
+        return { path, reasons: file ? opacityReasons(file, known) : ["not in inventory"],
+            tests: entry.tests.size, duration_ms: entry.duration, unmeasured_tests: entry.unmeasured, chain: entry.best?.chain ?? [path] };
+    }).sort((a, b) => b.duration_ms - a.duration_ms || b.tests - a.tests || a.path.localeCompare(b.path));
+}
+
 /** Rank opacity causes for the inventory's tests (or `options.tests`) by the recorded duration they affect. */
 export function rankOpacity(inventory: RepositoryInventory, extra: readonly GraphFile[], historical: HistoricalDurations, options: RankOptions = {}): OpacityReport {
     const graph = buildTestDependencyGraph(inventory, extra);
-    const known = new Set([...inventory.files.map(file => file.path), ...extra.map(file => file.path)]);
     const files = new Map<string, GraphFile>([...inventory.files, ...extra].map(file => [file.path, file]));
     const tests = [...new Set(options.tests ?? inventory.files.filter(file => isTestPath(file.path)).map(file => file.path))].sort();
     const support = [...new Set(options.supportFiles ?? [])].sort();
     for (const path of [...tests, ...support]) if (!graph.dependencies.has(path)) graph.opaqueFiles.add(path);
     const measured = tests.reduce((sum, test) => sum + (historical[test]?.durationMs ?? 0), 0);
     const { causes, opaqueTests, opaqueDuration } = attribute(graph, tests, historical, support);
-    const ranked: OpacityCause[] = [...causes.entries()].map(([path, entry]) => ({
-        path, reasons: files.has(path) ? opacityReasons(files.get(path)!, known) : ["not in inventory"],
-        tests: entry.tests.size, duration_ms: entry.duration, unmeasured_tests: entry.unmeasured, chain: entry.best?.chain ?? [path],
-    })).sort((a, b) => b.duration_ms - a.duration_ms || b.tests - a.tests || a.path.localeCompare(b.path));
+    const ranked = rankedCauses(causes, files);
     if (graph.incomplete) {
         const reasons = [...inventory.gaps.map(gap => `inventory incomplete: ${gap.path} (${gap.reason})`), ...inventory.issues.map(issue => `inventory issue: ${issue}`)];
         ranked.unshift({ path: "<inventory>", reasons, tests: tests.length, duration_ms: measured, unmeasured_tests: tests.filter(test => historical[test]?.durationMs == null).length, chain: ["<inventory>"] });
@@ -119,14 +125,10 @@ export function rankOpacity(inventory: RepositoryInventory, extra: readonly Grap
         incomplete: graph.incomplete, causes: ranked.slice(0, limit), omitted: Math.max(0, ranked.length - limit) };
 }
 
-function seconds(ms: number): string {
-    return `${(ms / 1000).toFixed(ms >= 10_000 ? 0 : 1)} s`;
-}
-
 export function renderOpacityReport(report: OpacityReport): string {
-    const lines = [`${report.opaque_tests} of ${report.tests} tests opaque (${seconds(report.opaque_duration_ms)} of ${seconds(report.measured_duration_ms)} recorded duration not reusable)${report.incomplete ? "; inventory incomplete" : ""}`];
+    const lines = [`${report.opaque_tests} of ${report.tests} tests opaque (${formatElapsedSeconds(report.opaque_duration_ms)} of ${formatElapsedSeconds(report.measured_duration_ms)} recorded duration not reusable)${report.incomplete ? "; inventory incomplete" : ""}`];
     for (const cause of report.causes) {
-        lines.push(`  ${cause.path}: ${cause.tests} test(s), ${seconds(cause.duration_ms)}${cause.unmeasured_tests ? ` + ${cause.unmeasured_tests} unmeasured` : ""} — ${cause.reasons.join("; ")}`);
+        lines.push(`  ${cause.path}: ${cause.tests} test(s), ${formatElapsedSeconds(cause.duration_ms)}${cause.unmeasured_tests ? ` + ${cause.unmeasured_tests} unmeasured` : ""} — ${cause.reasons.join("; ")}`);
         if (cause.chain.length > 1) lines.push(`    via ${cause.chain.join(" → ")}`);
     }
     if (report.omitted) lines.push(`  … ${report.omitted} more cause(s); raise --limit to see them`);

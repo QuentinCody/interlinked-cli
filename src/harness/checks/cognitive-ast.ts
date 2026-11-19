@@ -44,16 +44,6 @@ export interface CognitiveComplexityEntry {
 /** File population: same extensions the AST cyclomatic pass parses. */
 const JS_TS_RE = /\.[cm]?[jt]sx?$/i;
 
-function isLoop(ts: TsModule, node: TS.Node): boolean {
-	return (
-		ts.isForStatement(node) ||
-		ts.isForInStatement(node) ||
-		ts.isForOfStatement(node) ||
-		ts.isWhileStatement(node) ||
-		ts.isDoStatement(node)
-	);
-}
-
 export function logicalOpKind(ts: TsModule, node: TS.Node): TS.SyntaxKind | null {
 	if (!ts.isBinaryExpression(node)) return null;
 	const op = node.operatorToken.kind;
@@ -76,7 +66,7 @@ export function unwrapParens(ts: TsModule, node: TS.Node): TS.Node {
 /** Loop/switch/ternary/catch: the four constructs that add a nesting-paying increment. */
 export function isNestingConstruct(ts: TsModule, node: TS.Node): boolean {
 	return (
-		isLoop(ts, node) ||
+		ts.isIterationStatement(node, false) ||
 		ts.isSwitchStatement(node) ||
 		ts.isConditionalExpression(node) ||
 		ts.isCatchClause(node)
@@ -204,11 +194,18 @@ export function computeCognitiveAst(
  */
 export function cognitiveEntriesFrom(ts: TsModule, sf: TS.SourceFile): CognitiveComplexityEntry[] {
 	const entries: CognitiveComplexityEntry[] = [];
+	visitCognitiveFunctions(ts, sf, (_node, entry) => entries.push(entry));
+	entries.sort((a, b) => a.line - b.line);
+	return entries;
+}
+
+/** Visit each implementation with its original syntax node and the score for its enclosing depth. */
+export function visitCognitiveFunctions(ts: TsModule, sf: TS.SourceFile, visit: (node: TS.Node, entry: CognitiveComplexityEntry) => void): void {
 	const walk = (node: TS.Node, fnDepth: number): void => {
 		if (isImplementationFunction(ts, node)) {
 			const name = functionName(ts, node, sf);
 			const { cognitive, maxNesting } = scoreUnit(ts, node, name, fnDepth);
-			entries.push({
+			visit(node, {
 				name,
 				line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
 				endLine: sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
@@ -221,8 +218,6 @@ export function cognitiveEntriesFrom(ts: TsModule, sf: TS.SourceFile): Cognitive
 		ts.forEachChild(node, (child) => walk(child, nextDepth));
 	};
 	walk(sf, 0);
-	entries.sort((a, b) => a.line - b.line);
-	return entries;
 }
 
 /**

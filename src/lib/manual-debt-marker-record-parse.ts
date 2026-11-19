@@ -6,6 +6,11 @@
 // results and markers. No I/O, no fingerprinting — those stay in the parent.
 
 import { isJsonObject } from "./json-types.js";
+import {
+	isRepositoryPath as repositoryPath, nonNegativeInteger as count, nullableString,
+	requiredString as nonEmptyString, stringList, uniqueCanonicalStrings as uniqueCanonical,
+} from "./report-value-parsers.js";
+export { nonEmptyString, nullableString, uniqueCanonical };
 import { DEBT_MARKER_ADVISORY_CODES, type DebtMarkerAdvisoryCode } from "./manual-debt-marker-parser.js";
 import type {
     DebtMarkerAdvisory,
@@ -15,38 +20,9 @@ import type {
     ManualDebtMarker,
 } from "./manual-debt-markers.js";
 
-export function nonEmptyString(value: unknown): string | null {
-    return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-export function nullableString(value: unknown): string | null | undefined {
-    if (value === null) return null;
-    return nonEmptyString(value) ?? undefined;
-}
-
 function optionalString(value: unknown): string | undefined | null {
     if (value === undefined) return undefined;
     return nonEmptyString(value);
-}
-
-function stringList(value: unknown): string[] | null {
-    if (!Array.isArray(value)) return null;
-    return value.every((item): item is string => typeof item === "string") ? [...value] : null;
-}
-
-function count(value: unknown): number | null {
-    return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
-}
-
-function repositoryPath(value: string): boolean {
-    if (value.length === 0 || value.startsWith("/") || value.includes("\\")) return false;
-    if (/^[A-Za-z]:/.test(value)) return false;
-    return value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
-}
-
-export function uniqueCanonical(values: readonly string[]): boolean {
-    return new Set(values).size === values.length
-        && values.every((entry, index) => index === 0 || entry >= (values[index - 1] ?? ""));
 }
 
 function parseRepository(value: unknown): DebtMarkerRepositoryIdentity | null {

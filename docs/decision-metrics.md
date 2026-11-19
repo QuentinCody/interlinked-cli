@@ -13,8 +13,9 @@ equivalence, passing tests, or calibrated defect risk.
 
 Install ThinkThen and Ollama separately; this feature downloads nothing. The local
 defaults are `clef-flash:9b` and the full `embeddinggemma-2:740m-bf16`. Qwen3 Embedding
-4B remains an explicit comparison model. ThinkThen 0.1.2 was exercised
-during implementation. Use an explicit executable path if it is not on PATH.
+4B remains an explicit comparison model. The adapter targets the ThinkThen 0.2
+command line (`thinkthen annotate <questions> --json`); the 0.1 command line is
+not supported. Use an explicit executable path if it is not on PATH.
 
 ```bash
 interlinked metrics decisions init
@@ -28,7 +29,8 @@ interlinked metrics decisions labels run.json --output labels.json
 
 The output files are immutable: use a new filename for a different observation.
 Manual commands are explicit inference requests even when automatic hooks are off.
-`--plan` asks the installed ThinkThen CLI to print its requests without inference.
+`--plan` runs the installed ThinkThen CLI with its offline stub backend: it validates
+the question file and each record, and sends no request.
 `--fresh` performs new inference without replacing the first cached observation.
 
 A small illustrative input is in
@@ -143,9 +145,17 @@ Runs, per-record inputs/question sets, exact request/response bodies, and native
 results live under `.interlinked/decision-metrics/runs/<id>/`. Files are private.
 Answer and embedding caches are separate. HTTP credentials are excluded from
 exchange records. `requestHashes` identify exact wire bodies; `questionKey` is
-ThinkThen's separate question-cache key. Batch composition is retained.
-ThinkThen retries and its own cache are disabled so this layer owns the deadline,
-cache interpretation and research observations.
+ThinkThen's identity of the question set. Batch composition is retained.
+ThinkThen 0.2 has no cache and no retry option: it repeats a 429 or 5xx reply up to
+three times, and every attempt is kept as its own exchange. This layer owns the
+deadline, cache interpretation and research observations. `servedModel` is the model
+the backend names in its reply, not the model that was requested.
+
+The ThinkThen child always addresses the local recorder as a System One backend and
+holds only a placeholder key; the recorder holds the upstream credential and forwards
+to the configured backend. A 0.2 question reads one record field, so a contract that
+reads several evidence fields reads one derived field, `interlinked.evidence:<id>`,
+that holds those fields as one object.
 
 `replay` is offline and changes only interpretation. A cache hit is reproducible
 replay, not evidence of fresh-run stability. `diff` reports changed probabilities
@@ -296,7 +306,10 @@ for executable behavior. This feature adds semantic review evidence.
 ## Implementation validation and remaining qualification
 
 Local implementation checks on October 6 used ThinkThen 0.1.2, Clef Flash 9B
-digest `9f411549…`, and Qwen3 Embedding 4B digest `df5bd2e3…`.
+digest `9f411549…`, and Qwen3 Embedding 4B digest `df5bd2e3…`. The adapter now
+targets ThinkThen 0.2, which quotes the evidence in each question as a JSON string
+where 0.1 embedded a JSON object. Observations recorded with 0.1 and with 0.2
+therefore come from different request text; do not pool them.
 
 - Clef passed ThinkThen's four-request `check`: zero critical findings, three
   documented Ollama description-object warnings. Rubrics use plain strings.

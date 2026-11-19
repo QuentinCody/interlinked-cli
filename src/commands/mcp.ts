@@ -45,8 +45,8 @@ function parseInlineLimit(value: string | undefined): number {
     if (value === undefined) {
         return DEFAULT_MCP_INLINE_LIMIT_BYTES;
     }
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    const parsed = Number(value);
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(parsed)) {
         throw new Error(`invalid --inline-limit "${value}"; expected a non-negative integer`);
     }
     return parsed;

@@ -4,16 +4,23 @@ export interface ScoreComparison {
     comparable: boolean; reasons: string[]; compositeDelta: number | null; sourceChanged: boolean;
     metrics: { id: string; before: number | null; after: number | null; scoreDelta: number | null; state: string }[];
 }
+/** Scores made with different, or unknown, role classifications measure different file populations. */
+function rolesVersionReason(before: ScoreSnapshot, after: ScoreSnapshot): string | null {
+    if (before.rolesVersion !== null && before.rolesVersion === after.rolesVersion) return null;
+    return `Not comparable: roles version differs (${before.rolesVersion ?? "missing"} → ${after.rolesVersion ?? "missing"})`;
+}
 export function compareScoreSnapshots(before: ScoreSnapshot, after: ScoreSnapshot): ScoreComparison {
     const reasons: string[] = [];
     if (before.profile.hash !== after.profile.hash) reasons.push("Scoring profiles differ");
+    const rolesReason = rolesVersionReason(before, after);
+    if (rolesReason !== null) reasons.push(rolesReason);
     if (before.registryHash !== after.registryHash) reasons.push("Reviewed check registries differ");
     if (before.languages.join() !== after.languages.join()) reasons.push("Language cohorts differ");
     if (before.evidencePolicies.join() !== after.evidencePolicies.join()) reasons.push("Behavioral measurement policies differ");
     if (!before.rankingEligible || !after.rankingEligible) reasons.push("At least one snapshot lacks complete ranking evidence");
     const metrics = [...new Set([...before.metrics, ...after.metrics].map(row => row.id))].sort().map(id => {
         const a = before.metrics.find(row => row.id === id), b = after.metrics.find(row => row.id === id);
-        const known = a?.state === "measured" && b?.state === "measured" && before.profile.hash === after.profile.hash;
+        const known = a?.state === "measured" && b?.state === "measured" && before.profile.hash === after.profile.hash && rolesReason === null;
         const scoreDelta = known && a.score !== null && b.score !== null ? Math.round((b.score - a.score) * 100) / 100 : null;
         return { id, before: a?.value ?? null, after: b?.value ?? null, scoreDelta, state: `${a?.state ?? "missing"} → ${b?.state ?? "missing"}` };
     });

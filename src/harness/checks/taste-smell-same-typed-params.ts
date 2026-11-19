@@ -3,6 +3,7 @@
 // Extracted from taste-smell.ts to keep that module under the line cap.
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import { getExtension, type InlineMatch, isTestFile, stripCommentsAndStrings } from "./shared.js";
 
 // Conventional name-pairs that are not orderable-by-mistake in practice.
@@ -177,6 +178,7 @@ export function checkSameTypedPrimitiveParams(
 	const lines = stripped.split("\n");
 	const originalLines = content.split("\n");
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 
 	// Track exported-class scope so we can flag public methods. Methods on
 	// non-exported classes don't have a public surface outside the module.
@@ -187,7 +189,7 @@ export function checkSameTypedPrimitiveParams(
 	};
 
 	for (let i = 0; i < lines.length; i++) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		const lineText = nonNull(lines[i]);
 		const trimmed = lineText.trim();
 		scope = trackExportedClassScope(lineText, scope);

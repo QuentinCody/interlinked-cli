@@ -23,6 +23,8 @@ import { loadLargeFileBaseline } from "../harness/large-file-policy.js";
 import { resolveMetricCaps } from "../harness/metric-caps.js";
 import { percentileRanks } from "../harness/percentile-rank.js";
 import { getOutputMode, output } from "../lib/output.js";
+import { type PopulationSummary, partitionSources } from "../lib/metrics/role-population.js";
+import { collectMixedCensus, listPythonSources } from "./metrics-complexity-python.js";
 import {
 	CENSUS_METRICS,
 	type CensusAnalyzers,
@@ -30,7 +32,6 @@ import {
 	type CensusRows,
 	type CensusSource,
 	type ChurnWindow,
-	collectCensusRows,
 	countOver,
 	type DirectorySpread,
 	type Distribution,
@@ -91,6 +92,10 @@ export interface ComplexityReport {
 	/** Tornhill hotspots: ΣCC × lines changed in the last `churn_days`. Empty when no file has churn. */
 	hotspots: FileHotspot[];
 	churn_days: number;
+	/** Source files the census could not measure, with the reason; absent when none. */
+	not_measured?: { file: string; reason: string }[];
+	/** Source roles v5: files per role, and the generated or vendored files set aside before measuring, with the reason. */
+	population?: PopulationSummary;
 }
 
 export interface ReportOptions {
@@ -156,6 +161,8 @@ export function buildComplexityReport(
 		directories: perDirectorySpread(rows.lines, DIRECTORY_MIN_FILES).slice(0, top),
 		hotspots: fileHotspots(mass, options.churn ?? new Map()).slice(0, top),
 		churn_days: options.churnDays ?? DEFAULT_CHURN_DAYS,
+		...(rows.notMeasured?.length ? { not_measured: rows.notMeasured } : {}),
+		...(rows.population ? { population: rows.population } : {}),
 	};
 }
 
@@ -243,9 +250,16 @@ function renderSpreadRow(d: DirectorySpread): string {
 	return `  ${String(d.files).padStart(3)} / ${String(d.lines).padStart(6)} / ${d.gini.toFixed(3)}  ${d.dir}`;
 }
 
+/** One line naming what the source roles set aside before measuring. */
+function renderSetAside(population: PopulationSummary): string {
+	const roles = Object.entries(population.setAside.byRole).map(([role, count]) => `${role} ${count}`).join(", ");
+	return `Set aside by ${population.rolesVersion}: ${population.setAside.files} of ${population.files} files (${roles})`;
+}
+
 /** The census-style text report (normal / full modes). */
 export function renderComplexityReport(report: ComplexityReport): string {
 	const lines: string[] = [`Complexity census — ${report.files} files, ${report.functions} functions`];
+	if (report.population && report.population.setAside.files > 0) lines.push(renderSetAside(report.population));
 	for (const m of report.metrics) lines.push(...renderMetricSection(m, report.top));
 	if (report.metrics.length > 0) {
 		lines.push("", `== Top ${report.top} files by cyclomatic mass (ΣCC / Σcognitive / fns / density); pct = ΣCC rank within this repo`);
@@ -265,6 +279,10 @@ export function renderComplexityReport(report: ComplexityReport): string {
 		);
 		lines.push(...report.directories.map(renderSpreadRow));
 	}
+	if (report.not_measured?.length) {
+		lines.push("", `== ${report.not_measured.length} files not measured`);
+		lines.push(...report.not_measured.slice(0, report.top).map((gap) => `  ${gap.file}: ${gap.reason}`));
+	}
 	return lines.join("\n");
 }
 
@@ -273,7 +291,9 @@ export function renderShortSummary(report: ComplexityReport): string {
 	const parts = report.metrics.map(
 		(m) => `${m.metric} ${m.over_cap}/${m.distribution.n} (>${m.cap.value})`,
 	);
-	return `${report.files} files, ${report.functions} functions; over cap: ${parts.join(", ")}`;
+	const gaps = report.not_measured?.length ? `; ${report.not_measured.length} not measured` : "";
+	const aside = report.population && report.population.setAside.files > 0 ? `; ${report.population.setAside.files} set aside` : "";
+	return `${report.files} files, ${report.functions} functions; over cap: ${parts.join(", ")}${gaps}${aside}`;
 }
 
 /** `caps propose` text: p90 / p95 per metric beside the current cap. */
@@ -341,12 +361,14 @@ const ANALYZER_UNAVAILABLE =
 
 /** Enumerate + measure; null (with stderr + exit 1) when the analyzer is missing. */
 function runCensus(cwd: string, deps: CensusDeps): CensusRows | null {
-	const sources = loadSources(cwd, deps.listFiles ?? getGitSourceFiles);
-	const rows = collectCensusRows(sources, cwd, deps.analyzers);
+	const { kept, population } = partitionSources(loadSources(cwd, deps.listFiles ?? ((root) => [...getGitSourceFiles(root), ...listPythonSources(root)])), cwd);
+	const rows = collectMixedCensus(kept, cwd, deps.analyzers);
 	if (rows === null) {
 		process.stderr.write(ANALYZER_UNAVAILABLE);
 		process.exitCode = 1;
+		return null;
 	}
+	rows.population = population;
 	return rows;
 }
 

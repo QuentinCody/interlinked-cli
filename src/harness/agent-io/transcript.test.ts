@@ -22,10 +22,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
-	return { ...actual, statSync: vi.fn(actual.statSync) };
+	return { ...actual, statSync: vi.fn(actual.statSync), readSync: vi.fn(actual.readSync), closeSync: vi.fn(actual.closeSync) };
 });
 
-import { statSync } from "node:fs";
+import { closeSync, readSync, statSync } from "node:fs";
 import {
 	firstUserMessage,
 	lastStructuredReturn,
@@ -43,6 +43,14 @@ afterEach(() => {
 });
 
 describe("readTranscriptTail — unreadable file", () => {
+	it.each([readTranscriptTail, readTranscriptHead])("closes the descriptor when the bounded read fails", (read) => {
+		const p = join(dir, "present.jsonl");
+		writeFileSync(p, "content");
+		vi.mocked(closeSync).mockClear();
+		vi.mocked(readSync).mockClear().mockImplementationOnce(() => { throw new Error("EIO"); });
+		expect(read(p, 100)).toBeNull();
+		expect(closeSync).toHaveBeenCalledWith(vi.mocked(readSync).mock.calls[0]?.[0]);
+	});
 	// Ranges 41-42: the catch body. existsSync must pass (the file is really
 	// there) so the failure has to come from inside the try, proving the
 	// null came from the catch and not the early existsSync-false return.

@@ -205,9 +205,12 @@ describe("login — config bootstrap", () => {
 // =========================================================================
 
 describe("login — manual token (--token)", () => {
-	it("rejects an empty/whitespace token and exits 1 without saving", async () => {
-		await expect(loginCommand({ token: "   " })).rejects.toBeInstanceOf(ProcessExit);
+	it.each(["", "   "])("rejects explicit empty token %j before configuration or authentication", async (token) => {
+		mockIsConfigured.mockReturnValue(false);
+		await expect(loginCommand({ token })).rejects.toBeInstanceOf(ProcessExit);
 		expect(errored()).toContain("Invalid token.");
+		expect(mockInitConfig).not.toHaveBeenCalled();
+		expect(mockPerformLogin).not.toHaveBeenCalled();
 		expect(exitSpy).toHaveBeenCalledWith(1);
 		expect(mockUpdateLocalConfig).not.toHaveBeenCalled();
 		// Never reached the health-check client.

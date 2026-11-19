@@ -240,11 +240,13 @@ function formatStaleFileGroupLines(
 	items: StaleItem[],
 	isDryRun: boolean,
 	title: string,
+	removed: ReadonlySet<string>,
 ): string[] {
 	if (items.length === 0) return [];
 	const lines: string[] = [`\n  ${c.bold(title)} (older than 24h):`];
 	for (const item of items) {
-		const action = isDryRun ? c.yellow("would remove") : c.green("removed");
+		const action = isDryRun ? c.yellow("would remove")
+			: removed.has(item.path) ? c.green("removed") : c.yellow("could not remove");
 		lines.push(`    ${action} ${item.path}`);
 		lines.push(`             ${c.dim(item.detail)}`);
 	}
@@ -289,6 +291,45 @@ function formatCleanSummaryLines(
 	return lines;
 }
 
+function formatCleanReport(staleItems: StaleItem[], removedItems: string[], isDryRun: boolean): string {
+	const lines: string[] = [];
+	lines.push(header(isDryRun ? "Clean (dry-run)" : "Clean"));
+
+	if (staleItems.length === 0) {
+		lines.push(c.green("  No stale data found. Everything looks clean."));
+		return lines.join("\n");
+	}
+
+	// Group by type
+	const removed = new Set(removedItems);
+	const sessionFiles = staleItems.filter((i) => i.type === "session_file");
+	const orphanedHooks = staleItems.filter((i) => i.type === "orphaned_hook");
+	const largeLog = staleItems.filter((i) => i.type === "large_activity_log");
+	const staleSessions = staleItems.filter((i) => i.type === "stale_session");
+
+	lines.push(...formatLargeLogLines(largeLog, isDryRun));
+	lines.push(
+		...formatStaleFileGroupLines(sessionFiles, isDryRun, "Stale hook session files", removed),
+	);
+	lines.push(
+		...formatStaleFileGroupLines(staleSessions, isDryRun, "Stale local sessions", removed),
+	);
+	lines.push(...formatOrphanedHookLines(orphanedHooks));
+
+	lines.push("");
+	lines.push(divider());
+	lines.push(
+		...formatCleanSummaryLines(
+			isDryRun,
+			staleItems.length,
+			removedItems.length,
+			orphanedHooks.length,
+		),
+	);
+
+	return lines.join("\n");
+}
+
 interface CleanOptions {
 	dryRun?: boolean;
 	force?: boolean;
@@ -300,7 +341,7 @@ interface CleanOptions {
 export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	const mode = getOutputMode(opts);
 	const cwd = process.cwd();
-	const isDryRun = !opts.force; // Default is dry-run unless --force
+	const isDryRun = opts.dryRun === true || !opts.force;
 	const staleItems: StaleItem[] = [];
 	const removedItems: string[] = [];
 
@@ -359,42 +400,6 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 			total_found: staleItems.length,
 			total_removed: removedItems.length,
 		}),
-		normal: () => {
-			const lines: string[] = [];
-			lines.push(header(isDryRun ? "Clean (dry-run)" : "Clean"));
-
-			if (staleItems.length === 0) {
-				lines.push(c.green("  No stale data found. Everything looks clean."));
-				return lines.join("\n");
-			}
-
-			// Group by type
-			const sessionFiles = staleItems.filter((i) => i.type === "session_file");
-			const orphanedHooks = staleItems.filter((i) => i.type === "orphaned_hook");
-			const largeLog = staleItems.filter((i) => i.type === "large_activity_log");
-			const staleSessions = staleItems.filter((i) => i.type === "stale_session");
-
-			lines.push(...formatLargeLogLines(largeLog, isDryRun));
-			lines.push(
-				...formatStaleFileGroupLines(sessionFiles, isDryRun, "Stale hook session files"),
-			);
-			lines.push(
-				...formatStaleFileGroupLines(staleSessions, isDryRun, "Stale local sessions"),
-			);
-			lines.push(...formatOrphanedHookLines(orphanedHooks));
-
-			lines.push("");
-			lines.push(divider());
-			lines.push(
-				...formatCleanSummaryLines(
-					isDryRun,
-					staleItems.length,
-					removedItems.length,
-					orphanedHooks.length,
-				),
-			);
-
-			return lines.join("\n");
-		},
+		normal: () => formatCleanReport(staleItems, removedItems, isDryRun),
 	});
 }

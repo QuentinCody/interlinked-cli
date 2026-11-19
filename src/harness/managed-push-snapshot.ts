@@ -14,7 +14,7 @@ const MAX_BYTES = 64 * 1024 * 1024;
 
 export function digest(bytes: Uint8Array): string { return createHash("sha256").update(bytes).digest("hex"); }
 
-export function requireOwnedDirectory(path: string): void {
+function requireOwnedDirectory(path: string): void {
     const stat = lstatSync(path);
     if (!stat.isDirectory() || (stat.mode & 0o022) !== 0 || (process.getuid && stat.uid !== process.getuid())) throw new Error("Managed push directory is unowned or writable by others");
 }

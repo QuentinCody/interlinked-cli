@@ -195,8 +195,18 @@ const TRIAGE_RULES: TriageRule[] = [
 		category: "out-of-memory",
 	},
 	// User-side intent.
+	// The command reached its own deadline and said so. This is text the command
+	// printed, not an action by the user.
 	{
-		match: /interrupt|user cancell?ed|aborted/i,
+		match: /cancelled by SIGTERM|(?:CLI|Verification) interrupted; no verification verdict/i,
+		classify: "transient",
+		category: "own-timeout",
+	},
+	// Only text that names the user. A real interrupt arrives as
+	// `tool_outcome: "interrupted"` and never reaches this table, so a bare
+	// "interrupt" or "aborted" here is always text from a program.
+	{
+		match: /\buser[- ](?:interrupt(?:ed)?|cancell?ed|aborted)\b|interrupted by (?:the )?user/i,
 		classify: "transient",
 		category: "user-interrupt",
 	},

@@ -46,7 +46,7 @@ function resolveSinceMs(
 	json: boolean | undefined,
 	since: string | undefined,
 ): { sinceMs?: number; failed: boolean } {
-	if (!since) return { failed: false };
+	if (since === undefined) return { failed: false };
 	try {
 		return { sinceMs: Date.now() - parseDuration(since), failed: false };
 	} catch (e) {

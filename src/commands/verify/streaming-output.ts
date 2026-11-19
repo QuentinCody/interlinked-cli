@@ -9,9 +9,10 @@
 // The declarative table of sections walked by `streamAllCqSections` lives
 // in `./section-table.ts`.
 
-import { spawn } from "node:child_process";
+import { runProcessAsync } from "../../harness/check-engine/spawn-async.js";
 
 import { SECTIONS } from "./section-table.js";
+import { incompleteProcessReason } from "../../harness/check-engine/tool-runners/file-process-verdict.js";
 import type { CodeQualityIssue, CodeQualityResults } from "./tool-results-types.js";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -135,16 +136,23 @@ export function streamAllCqSections(
 	}
 }
 
-interface ToolRun<T> {
+export interface ToolRun<T> {
 	items: T[];
 	elapsedMs: string;
+	unavailable?: string;
 }
 
 interface RunToolArgs<T> {
+	/** Composed workflows own their native subprocesses and report partial results. */
+	run?: () => Promise<T[]>;
 	cmd: string[];
 	cwd: string;
 	timeoutMs: number;
 	parseOutput: (output: string, exitCode: number | null) => T[];
+	reportStream?: "stdout" | "combined";
+	recoverPartial?: (error: unknown) => T[] | undefined;
+	/** Only strict machine-report parsers may recover positives from interrupted output. */
+	recoverInterruptedReport?: boolean;
 }
 
 interface RunToolWithSpinnerArgs<T> extends RunToolArgs<T> {
@@ -156,112 +164,54 @@ interface RunToolWithSpinnerArgs<T> extends RunToolArgs<T> {
  *
  * Spawn a tool asynchronously with a live animated spinner on stderr.
  */
-export function runToolWithSpinner<T>(args: RunToolWithSpinnerArgs<T>): Promise<ToolRun<T>> {
-	const { label, cmd, cwd, timeoutMs, parseOutput } = args;
-	return new Promise((resolvePromise) => {
-		const start = Date.now();
-		let frame = 0;
-
-		const spinner = setInterval(() => {
-			const secs = ((Date.now() - start) / 1000).toFixed(0);
-			const f = SPINNER_FRAMES[frame % SPINNER_FRAMES.length];
-			process.stderr.write(
-				`\r\x1b[K  \x1b[36m${f}\x1b[0m \x1b[1m${label}\x1b[0m \x1b[2m${secs}s\x1b[0m`,
-			);
-			frame++;
-		}, 80);
-
-		const bin = cmd[0];
-		if (bin === undefined) {
-			clearInterval(spinner);
-			resolvePromise({ items: [], elapsedMs: `${((Date.now() - start) / 1000).toFixed(1)}s` });
-			return;
-		}
-		const proc = spawn(bin, cmd.slice(1), {
-			cwd,
-			stdio: ["pipe", "pipe", "pipe"],
-		});
-
-		let stdout = "";
-		let stderr = "";
-		proc.stdout.on("data", (d: Buffer) => {
-			stdout += d.toString();
-		});
-		proc.stderr.on("data", (d: Buffer) => {
-			stderr += d.toString();
-		});
-
-		const timer = setTimeout(() => {
-			proc.kill("SIGTERM");
-		}, timeoutMs);
-
-		proc.on("error", () => {
-			clearTimeout(timer);
-			clearInterval(spinner);
-			process.stderr.write("\r\x1b[K");
-			resolvePromise({
-				items: [],
-				elapsedMs: `${((Date.now() - start) / 1000).toFixed(1)}s`,
-			});
-		});
-
-		proc.on("close", (code) => {
-			clearTimeout(timer);
-			clearInterval(spinner);
-			process.stderr.write("\r\x1b[K");
-			const output = stdout + stderr;
-			const items = parseOutput(output, code);
-			resolvePromise({ items, elapsedMs: `${((Date.now() - start) / 1000).toFixed(1)}s` });
-		});
-	});
+export async function runToolWithSpinner<T>(args: RunToolWithSpinnerArgs<T>): Promise<ToolRun<T>> {
+	const start = Date.now();
+	let frame = 0;
+	const frameMs = 80;
+	const spinner = setInterval(() => {
+		const secs = ((Date.now() - start) / 1000).toFixed(0);
+		const f = SPINNER_FRAMES[frame % SPINNER_FRAMES.length];
+		process.stderr.write(`\r\x1b[K  \x1b[36m${f}\x1b[0m \x1b[1m${args.label}\x1b[0m \x1b[2m${secs}s\x1b[0m`);
+		frame++;
+	}, frameMs);
+	try { return await runToolSilent(args); }
+	finally { clearInterval(spinner); process.stderr.write("\r\x1b[K"); }
 }
 
 /**
  * Public API — consumed by `verify.ts`.
  *
- * Spawn a tool without UI — used for parallel execution where the caller owns
- * the progress indicator.
+ * Spawn a tool without UI. Shared process ownership reaps timed-out descendants;
+ * interruption or incomplete capture never becomes an empty successful report.
  */
-export function runToolSilent<T>(args: RunToolArgs<T>): Promise<ToolRun<T>> {
+export async function runToolSilent<T>(args: RunToolArgs<T>): Promise<ToolRun<T>> {
 	const { cmd, cwd, timeoutMs, parseOutput } = args;
-	return new Promise((resolvePromise) => {
-		const start = Date.now();
-		const bin = cmd[0];
-		if (bin === undefined) {
-			resolvePromise({ items: [], elapsedMs: `${((Date.now() - start) / 1000).toFixed(1)}s` });
-			return;
+	const start = Date.now();
+	if (args.run) {
+		try { return { items: await args.run(), elapsedMs: `${((Date.now() - start) / 1000).toFixed(1)}s` }; }
+		catch (error) { return { items: args.recoverPartial?.(error) ?? [], elapsedMs: `${((Date.now() - start) / 1000).toFixed(1)}s`,
+			unavailable: error instanceof Error ? error.message : "Tool workflow incomplete; no complete verdict" }; }
+	}
+	const bin = cmd[0];
+	if (bin === undefined) return { items: [], elapsedMs: "0.0s", unavailable: "Tool command is empty; no complete verdict" };
+	const result = await runProcessAsync(bin, cmd.slice(1), { cwd, timeout: timeoutMs, maxBufferBytes: null });
+	const elapsedMs = `${((Date.now() - start) / 1000).toFixed(1)}s`;
+	const incomplete = incompleteProcessReason(result);
+	if (incomplete) {
+		let items: T[] = [];
+		if (args.recoverInterruptedReport) {
+			try { items = parseOutput(result.stdout, result.code); }
+			catch (error) { items = args.recoverPartial?.(error) ?? []; }
 		}
-		const proc = spawn(bin, cmd.slice(1), {
-			cwd,
-			stdio: ["pipe", "pipe", "pipe"],
-		});
-
-		let stdout = "";
-		let stderr = "";
-		proc.stdout.on("data", (d: Buffer) => {
-			stdout += d.toString();
-		});
-		proc.stderr.on("data", (d: Buffer) => {
-			stderr += d.toString();
-		});
-
-		const timer = setTimeout(() => {
-			proc.kill("SIGTERM");
-		}, timeoutMs);
-
-		proc.on("error", () => {
-			clearTimeout(timer);
-			resolvePromise({
-				items: [],
-				elapsedMs: `${((Date.now() - start) / 1000).toFixed(1)}s`,
-			});
-		});
-
-		proc.on("close", (code) => {
-			clearTimeout(timer);
-			const output = stdout + stderr;
-			const items = parseOutput(output, code);
-			resolvePromise({ items, elapsedMs: `${((Date.now() - start) / 1000).toFixed(1)}s` });
-		});
-	});
+		return { items, elapsedMs, unavailable: `Tool ${incomplete}; no complete verdict` };
+	}
+	try {
+		const items = parseOutput(args.reportStream === "stdout" ? result.stdout : result.stdout + result.stderr, result.code);
+		if (result.code !== 0 && items.length === 0) {
+			return { items, elapsedMs, unavailable: `Tool returned exit ${result.code} without a usable report; no complete verdict` };
+		}
+		return { items, elapsedMs };
+	} catch (error) {
+		return { items: args.recoverPartial?.(error) ?? [], elapsedMs, unavailable: `Tool report is incomplete: ${error instanceof Error ? error.message : String(error)}` };
+	}
 }

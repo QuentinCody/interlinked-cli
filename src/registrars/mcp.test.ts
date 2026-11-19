@@ -39,6 +39,18 @@ describe("registerMcpCommands", () => {
 		).rejects.toThrow();
 	});
 
+	it("reports command input errors through Commander", async () => {
+		const program = new Command().exitOverride();
+		const writeErr = vi.fn();
+		program.configureOutput({ writeErr });
+		registerMcpCommands(program);
+		const message = 'invalid --inline-limit "1.5"; expected a non-negative integer';
+		vi.mocked(mcpStdioCommand).mockRejectedValueOnce(new Error(message));
+		await expect(program.parseAsync(["mcp", "stdio", "--server", "demo", "--inline-limit", "1.5", "--", "node"], { from: "user" }))
+			.rejects.toMatchObject({ exitCode: 1, message });
+		expect(writeErr).toHaveBeenCalledWith(`${message}\n`);
+	});
+
 	it("forwards required + optional string options to mcpStdioCommand", async () => {
 		vi.mocked(mcpStdioCommand).mockClear();
 		const program = new Command();

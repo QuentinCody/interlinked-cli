@@ -32,6 +32,11 @@ export interface SessionTrajectory {
 	error_count: number;
 	files_read: Set<string>;
 	files_written: Set<string>;
+	/** Subset of `files_written` that entered only through the Stop residue
+	 *  backstop: a workspace change that no tool call of this session declared
+	 *  (often another session's write in the same checkout). Kept in the rescan;
+	 *  never a claim that this session wrote the file. See `observed-files.ts`. */
+	files_observed_only?: Set<string>;
 	commands_run: string[];
 	/** Durable, non-expiring subset of `commands_run`: only commands
 	 *  `isTestRunnerCommand` recognizes as a test-runner invocation, kept at

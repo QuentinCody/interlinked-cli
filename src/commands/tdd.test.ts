@@ -62,6 +62,14 @@ describe("sessionSnapshotPaths", () => {
 	});
 });
 
+it.each(["", "   "])("rejects an explicit blank direct clearCycles selector %j", (selector) => {
+	snapshot("s1", 50, [redCycle]);
+	const path = join(root, ".interlinked", "sessions", "s1.json");
+	const before = readFileSync(path, "utf8");
+	expect(() => clearCycles(root, selector)).toThrow("selector must be nonempty");
+	expect(readFileSync(path, "utf8")).toBe(before);
+});
+
 describe("collectCycles", () => {
 	it("reports state, the run that set the red, and its age", () => {
 		snapshot("s1", 146, [redCycle]);

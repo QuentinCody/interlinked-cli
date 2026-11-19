@@ -20,6 +20,7 @@ import { CHECK_REGISTRY } from "./check-registry/registry.js";
 import type { CheckPhase, CheckRegistration } from "./check-registry/types.js";
 import type { CoverageMetricName } from "./coverage-metric-names.js";
 import { getPreset, isKnownMode, type ModeName } from "./modes.js";
+import { mergeMetricPolicies, parseMetricPolicies, type MetricPolicies } from "./metric-policy.js";
 
 // ===========================================
 // Types
@@ -96,6 +97,9 @@ export interface CheckPolicy {
 	checks: Record<string, CheckPolicyEntry>;
 	coverage_ratchet: CoverageRatchetConfig;
 	mutation_gate: MutationGateConfig;
+	metrics?: MetricPolicies;
+	metric_policy_layers?: { team?: MetricPolicies; local?: MetricPolicies };
+	metric_policy_issues?: string[];
 }
 
 /** Minimal shape of the on-disk JSON — everything optional, validated on load. */
@@ -107,6 +111,8 @@ export interface CheckPolicyFile {
 	overrides?: Record<string, CheckPolicyEntry>; // .local.json uses "overrides"
 	coverage_ratchet?: Partial<CoverageRatchetConfig>;
 	mutation_gate?: Partial<MutationGateConfig>;
+	/** Validated entry-by-entry so malformed metrics cannot discard ordinary check policy. */
+	metrics?: unknown;
 }
 
 // ===========================================
@@ -161,6 +167,14 @@ export function actionToPhase(action: CheckAction): CheckPhase | null {
 
 /** Two-tier load: team + local overrides, mirroring rules-loader. */
 export function loadCheckPolicy(cwd: string = process.cwd()): CheckPolicy {
+	return checkPolicyFromDocuments(
+		readPolicyFile(join(cwd, ".interlinked", "check-policy.json")),
+		readPolicyFile(join(cwd, ".interlinked", "check-policy.local.json")),
+	);
+}
+
+/** The runtime and integrity comparison share exactly one team/local policy merger. */
+export function checkPolicyFromDocuments(team: unknown, local: unknown): CheckPolicy {
 	const policy: CheckPolicy = {
 		...DEFAULT_POLICY,
 		defaults: { ...DEFAULT_POLICY.defaults },
@@ -169,11 +183,8 @@ export function loadCheckPolicy(cwd: string = process.cwd()): CheckPolicy {
 		mutation_gate: { ...DEFAULT_POLICY.mutation_gate },
 	};
 
-	const teamPath = join(cwd, ".interlinked", "check-policy.json");
-	const localPath = join(cwd, ".interlinked", "check-policy.local.json");
-
-	applyPolicyFile(policy, readPolicyFile(teamPath));
-	applyPolicyFile(policy, readPolicyFile(localPath));
+	applyPolicyFile(policy, isCheckPolicyFile(team) ? team : null, "team");
+	applyPolicyFile(policy, isCheckPolicyFile(local) ? local : null, "local");
 
 	return policy;
 }
@@ -208,7 +219,7 @@ function readPolicyFile(path: string): CheckPolicyFile | null {
 	}
 }
 
-function applyPolicyFile(policy: CheckPolicy, file: CheckPolicyFile | null): void {
+function applyPolicyFile(policy: CheckPolicy, file: CheckPolicyFile | null, layer: "team" | "local"): void {
 	if (!file) return;
 	// 1. Mode preset first so explicit per-check entries in the same file
 	//    win over the preset defaults.
@@ -229,6 +240,12 @@ function applyPolicyFile(policy: CheckPolicy, file: CheckPolicyFile | null): voi
 	}
 	if (file.mutation_gate) {
 		policy.mutation_gate = { ...policy.mutation_gate, ...file.mutation_gate };
+	}
+	if (file.metrics !== undefined) {
+		const parsed = parseMetricPolicies(file.metrics);
+		policy.metrics = mergeMetricPolicies(policy.metrics ?? {}, parsed.policies);
+		policy.metric_policy_layers = { ...policy.metric_policy_layers, [layer]: parsed.policies };
+		policy.metric_policy_issues = [...policy.metric_policy_issues ?? [], ...parsed.issues.map(issue => `${layer}: ${issue}`)];
 	}
 }
 

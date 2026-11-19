@@ -15,12 +15,13 @@
 // when any specific file's coverage slips.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import type { CoverageRatchetConfig } from "./check-policy.js";
 import type { CoverageMetricName } from "./coverage-metric-names.js";
 import { compareFileEntry, type FileComparison, gatedCoverageMetrics } from "./coverage-ratchet-compare.js";
-import { isFileCoverageEntry } from "./coverage-report-values.js";
+import { isFileCoverageEntry, normalizePath } from "./coverage-report-values.js";
+export { normalizePath };
 
 // The per-metric comparison moved to `coverage-ratchet-compare.ts` (2026-09-16,
 // line cap); re-exported so existing importers keep one entry point.
@@ -134,7 +135,6 @@ export function emptyBaseline(): CoverageBaseline {
 		files: {},
 	};
 }
-
 // ===========================================
 // I/O
 // ===========================================
@@ -238,7 +238,6 @@ function partialReportResult(
 		partialReport,
 	};
 }
-
 /** Per-entry context threaded through {@link processCoverageEntry} — grouped
  * so the helper takes one context object rather than five loose params. */
 interface CoverageEntryContext {
@@ -326,18 +325,4 @@ export function compareCoverage(
 		},
 		partialReport,
 	};
-}
-
-/**
- * Normalize a coverage-summary key to a repo-relative POSIX path.
- * Skips synthetic buckets (the `total` aggregate, empty strings). Exported
- * so `coverage-partial-report.ts` shares this exact normalization rather
- * than re-deriving it.
- */
-export function normalizePath(rawPath: string, repoRoot: string): string | null {
-	if (!rawPath || rawPath === "total") return null;
-	const absolute = resolve(repoRoot, rawPath);
-	const rel = relative(repoRoot, absolute).replace(/\\/g, "/");
-	if (rel.startsWith("..") || rel === "") return null;
-	return rel;
 }

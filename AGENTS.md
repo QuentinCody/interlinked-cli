@@ -1,67 +1,183 @@
-# Repository Guidelines
+# Interlinked CLI: agent guide
 
-## Project Structure & Module Organization
-This package is the TypeScript source for **Interlinked CLI**.
-- **Interlinked MCP Server** refers to the remote Cloudflare Worker system that the CLI optionally talks to.
-- **Interlinked CLI** refers to this package.
-- `src/index.ts`: CLI entry point and command registration.
-- `src/commands/*.ts`: command handlers (`enable`, `status`, `doctor`, `workspace`, etc.).
-- `src/lib/*.ts`: shared logic (auth, config, hooks, API client, formatting).
-- `src/templates/`: generated/template assets used by setup flows.
-- `src/**/*.test.ts` and `src/commands/__tests__/`: Vitest unit/regression tests.
-- `docs/architecture.md`: architecture notes.
-- `dist/`: build output (generated).
+Loaded every turn by every coding agent (Claude Code through `CLAUDE.md`, Codex
+directly). Keep it under 200 lines: rules only, no dates, status labels, counts,
+or history. Subtree rules live in `.claude/rules/*.md` (Claude loads them when a
+matching file is touched; other runners: read the matching rule file before you
+edit a subtree). Procedures live in `skills/*/SKILL.md`, history in `docs/`.
 
-## Build, Test, and Development Commands
-- `npm run dev`: run the CLI directly with `tsx` for local development.
-- `npm run build`: bundle `src/index.ts` to `dist/` with type declarations (`tsup`).
-- `npm run typecheck`: run TypeScript checks with `tsgo` (`tsgo --noEmit`).
-- `npm run typecheck:stable`: run the stable TypeScript compiler (`tsc --noEmit`).
-- `npm run test`: run tests once (`vitest run`).
-- `npm run test:watch`: run tests in watch mode.
-- `npm run docs`: regenerate generated CLI/harness reference docs.
+## What this is for
 
-Example:
+Interlinked is a portable, per-tool-call quality and security standard for
+agent-written code. A local daemon (`src/harness/`) judges each tool call over a
+Unix socket: PreToolUse returns block/allow, PostToolUse returns warnings, Stop
+returns reflection nudges; every event is appended to JSONL under
+`.interlinked/`. Offline-first, one required dependency (`commander`). Goals, in
+priority order: judge code at the moment it is written in ANY codebase (this repo
+is an unrepresentative fixture); ratchet the quality of whatever codebase it runs
+in, diff-scoped by default; catch each problem at the earliest phase its evidence
+exists; double as a step-level training signal for other agents.
+
+Consequences that bind every change to a check, gate, or threshold:
+
+- **Fire rate measures the AGENT, not the check.** A check that never fires here
+  is the part of the standard this agent already clears. Never retire or demote a
+  check for being quiet.
+- **Never calibrate a threshold against this repo alone, nor against fixtures.**
+  Calibrate against real trees.
+- **Blocking and scoring have different precision bars.** `pre_block` is reserved
+  for fully deterministic, zero-false-positive errors; everything else warns or
+  scores, tagged `[proven]` or `[heuristic]`.
+- **More checks are a cost**, and gates will be Goodharted once they are a
+  training signal; the gated agent can write the water-lines it is judged by.
+- **Checks are deterministic.** No model sits in the check pipeline or in
+  `interlinked verify`. Jev / Haiku signals are opt-in, warn-only, fail-open, and
+  only rank or propose.
+- **Registry-wide rework waits** until the harness has run against a genuinely
+  different codebase; the vision is validated at N=1.
+
+The remote "Interlinked MCP Server" surface (`src/lib/api-client.ts`, server-backed
+commands, event sync) is dormant and not the system of record; the local harness is
+the product. Leave it alone unless the task is about it.
+
+## Layout and commands
+
+`src/commands/` (CLI, `commander`, shared logic in `src/lib/`), `src/harness/`
+(daemon: `server.ts`, `evaluator/`, `checks/<family>.ts` + `check-registry/` +
+`check-metadata.ts`, `quality-checks/`, `project-e2e/`, `kill-proof/`),
+`skills/*/SKILL.md` (procedures; `interlinked/` is the router), `docs/harness.md`
+and `docs/generated/` (reference), `.interlinked/` (runtime data and baselines;
+`INDEX.md` is the catalog).
+
 ```bash
-npm run dev -- status --short
+npm run build | typecheck | test     # tsup → dist/ · tsgo --noEmit · vitest (background the full suite)
+npx vitest run <file>                # one file
+npx tsx src/index.ts <cmd>           # CLI from source
+interlinked harness status|restart   # daemon pid + rules; restart rebuilds a stale dist/
+interlinked verify [--all-checks]    # default set must run clean; --all-checks adds advisory
+interlinked query <source> --since 7d --where k=v   # bounded reads of .interlinked/
+npm run docs && npm run docs:build   # regenerate reference docs + gen-markered counts (CI: docs:check)
 ```
 
-## Agent Notes
-- `QuentinCody/interlinked-cli` is the source of truth for the CLI.
-- Keep the exact product terms distinct: **Interlinked CLI** is this package; **Interlinked MCP Server** is the remote Worker/Durable Objects system used by server-backed commands.
-- Harness phase split: PreToolUse handles deterministic pre-execution blocks and warnings (destructive commands, file reservations, secrets-in-content, grep acceleration). PostToolUse handles checks that need files on disk or project context (type/lint/security/structure), and should report only new findings through diff-aware filtering.
-- Zero-FP contract: `pre_block` error checks must be fully deterministic. Heuristic smell/taste/coverage checks belong as warnings or in `verify --all-checks`. When changing advisory policy, update `DEFAULT_ADVISORY_SKIPS` and its regression tests together.
-- Adding an agent-quality check usually touches `src/harness/generic-checks.ts`, the check registry entries, `src/harness/check-metadata.ts`, `src/harness/check-registry/` entry files, `src/commands/verify*`, and parity/advisory tests. Land those coupled changes together.
-- Hook scripts generated by the CLI must stay self-contained. PostToolUse is intentionally scoped to mutating tools, and `PostToolUseFailure` is intentionally not registered to avoid duplicate hook-count/output issues; see `docs/investigation-posttooluse-hook-count.md` before changing hook matchers.
-- Rule/check metadata changes require `npm run docs`; do not hand-edit stale generated counts.
-- Major changes in this repository MUST include a skill-impact review. This includes user-visible CLI commands/options/output, harness behavior or policy, configuration schemas/defaults, supported-client behavior, baseline semantics, and architecture or operator workflows. Update every affected `skills/*/SKILL.md` in the same change; code or design-doc updates alone are not complete when agent guidance changed. If no skill is affected, state why in the final handoff.
-- Keep the skill router and focused skills aligned: update `skills/interlinked/SKILL.md` when a capability's routing changes, and update the relevant focused skill with the current command/config contract and operational gotchas. Treat `.agents/skills/` as an installed/generated copy, not the source of truth. Validate every touched skill folder with the skill validator before handoff.
-- Supported coding clients (`interlinked enable --clients <list>`): `claude`, `copilot`, `gemini`, `codex`, `cursor`, `opencode`, `pi`. Native hook contracts live in `src/harness/adapters/`; legacy/per-client migration helpers live in `src/lib/hook-installers*.ts`; `src/lib/hooks.ts` is the orchestrator that wires them through `CLIENT_INSTALL_REGISTRY`. The generated `.mjs` script disambiguates Codex (Claude-shaped payloads) from Claude via the `INTERLINKED_CLIENT` env var set by the installed hook command. OpenCode and Pi use managed bridge files rather than the generated `.mjs` runtime.
-- Codex CLI hook gating: `installCodexHooks` writes `.codex/hooks.json` AND ensures `[features] hooks = true` in `.codex/config.toml`. Without that flag Codex silently ignores the hooks.json file. Uninstall leaves config.toml untouched to avoid clobbering user-managed Codex configuration.
+## Working rules
 
-## Coding Style & Naming Conventions
-- Language: TypeScript (ESM, strict mode).
-- Style in this repo: 4-space indentation, double quotes, semicolons.
-- File names: use descriptive kebab-case where practical (for example, `activity-utils.ts`).
-- Exports: use `camelCase` for functions and `PascalCase` for types/interfaces.
-- Command handlers should stay in `src/commands/`; reusable logic belongs in `src/lib/`.
+**Edits.** Change code files only with Edit/Write (bash redirects into code files
+are blocked); prefer Edit over Write; land a same-file change as one coherent
+patch; several tool calls in one message are not a transaction. Write the
+companion test before a new source file. Keep unfiltered `cat`/`head`/`tail`
+reads bounded; the gate caps them. Verify after substantive edits (about one
+typecheck/test/build run per code edit; the Stop nudge fires far below that).
+Fix pre-existing issues in files you touch. Extract helpers for responsibility,
+never to dodge a per-call metric.
 
-## Testing Guidelines
-- Framework: Vitest (`environment: node`, configured in `vitest.config.ts`).
-- Test file pattern: `src/**/*.test.ts`.
-- Prefer colocated regression tests for command behavior under `src/commands/__tests__/`.
-- Add tests for bug fixes, especially around config merging, auth flows, and CLI output modes.
+**Git.** Never commit or push unless the user asks in the current turn. Commit
+subjects are conventional (`feat:`, `fix:`, `refactor:`), short, imperative.
+Background `git push`; its pre-push gates run for minutes.
 
-## Commit & Pull Request Guidelines
-- Follow conventional commit style seen in history: `feat: ...`, `fix: ...`, `refactor: ...` (optional scope is fine).
-- Keep commit subjects short and imperative.
-- PRs should include:
-  - What changed and why.
-  - Commands run (`npm run typecheck`, `npm run test`).
-  - Linked issue/task, if applicable.
-  - Terminal output snippets when user-facing CLI behavior changes.
+**Scratch.** Temporary agent-authored code goes in `<repo>/scratch/`
+(`interlinked scratch init`), never the host scratchpad; the guard blocks and
+redirects. Secrets never go to any temp path. A hand-rolled patch applier is
+blocked everywhere. Before long work, keep a numbered plan with a status column
+in `scratch/CAMPAIGN-<topic>.md`.
 
-## Security & Configuration Tips
-- Never commit secrets from `.interlinked/config.local.json` (tokens are local-only).
-- Prefer environment variables for automation (for example, `INTERLINKED_ACCESS_TOKEN`).
-- Treat `clean`/`reset` operations as destructive; validate target workspace/project context first.
+**Data.** Query `.interlinked/` before raw transcripts. Never full-read
+`collection.jsonl`, `activity.jsonl`, or `timeline.jsonl` (hundreds of MB);
+use `interlinked query` or `tail -n`.
+
+**A blocked edit is a stale-daemon suspect first.** The daemon serves the build
+it started with; editing `src/` changes nothing until a rebuild. Check with
+`interlinked harness status`; fix with `interlinked harness restart` (rebuilds a
+stale `dist/`). Daemons also hand over to a newer settled build on their own
+within about a minute. `npm run build:e2e` overwrites `dist/` with the e2e build:
+run `npm run build` after the e2e lane. After editing an e2e boundary file, run
+`npm run build:e2e && npm run test:e2e`; the Stop reminder for it reaches no model.
+After a completed change to agent-facing daemon behavior passes its relevant tests,
+rebuild/reload with `interlinked harness restart` and confirm a responding, current
+build with `interlinked harness status`. Do this at each such milestone, not only
+at the end of a campaign; untested intermediate edits are not reload milestones.
+
+**Keep cwd at the repo root.** The hook resolves its project by walking up to
+the nearest `.interlinked/` that holds a project marker; a stray `.interlinked/`
+under `scratch/` or `src/` cold-allows every call made from below it. Delete
+strays; `interlinked harness calls` lists unjudged calls.
+
+**A dry run must not move the gate.** `interlinked harness test --write/--edit`
+sets `dry_run: true`; every evaluator that persists must honor `event.dry_run`.
+
+**Human-only actions.** Package approval (`interlinked allowlist add`, `--force`,
+`INTERLINKED_DISABLE_PACKAGE_GUARD`), water-line resets
+(`INTERLINKED_DISABLE_BASELINE_GUARD`), and `harness taint clear` are the
+operator's calls; ask, do not run them.
+
+**Skill impact.** A change to a CLI command, option, output, harness policy,
+config schema or default, or baseline semantics updates every affected
+`skills/*/SKILL.md` (and the router) in the same change, or states why none is
+affected. `.claude/skills/` and `.agents/skills/` are installed copies.
+
+**Privacy.** `docs/design`, `docs/plans`, `docs/external-pulse`,
+`docs/codex-reviews`, marketing and upstream-bug notes are real files here but
+gitignored from the public repo (operator overlay git-dir); `.ignore` negations
+keep them searchable. Competitive, strategy, and unfixed-gap analyses never go in
+tracked files. Before "what can we do with X?" about an external tool or paper,
+fill `docs/external-pulse/INTAKE.md`.
+
+**Style.** TypeScript ESM strict; tabs (the biome formatter is off); double
+quotes, semicolons; kebab-case files, `camelCase` functions, `PascalCase` types.
+Commands support `--json | --short | --full` via `getOutputMode` + `output(...)`,
+degrade to local on server failure (`Promise.allSettled`), and take
+`--dry-run` / `--force` when they mutate. The generated hook program stays
+self-contained (no imports from the CLI package).
+
+## Gates you will meet
+
+Values live in `.interlinked/metric-caps.json`, the baselines beside it, and
+`interlinked caps status`; never in prose. The block message names the fix.
+
+- **Water-lines only tighten.** `evaluator/baseline-integrity-gate.ts` BLOCKS an
+  edit that loosens any baseline JSON under `.interlinked/` (coverage, mutation,
+  line cap, untested files, metric caps, complexity ledger, lint, skipped tests),
+  a tsconfig strictness flag, or a vitest `coverage.include/exclude` array. Meet
+  the bar instead. The ratchets' own raises use internal `fs` writes.
+- **Cyclomatic, cognitive, coverage, CRAP.** A new over-cap function, over-cap
+  growth, an uncovered added line, or a per-file coverage drop blocks; holding or
+  shrinking existing debt never does (the ledger, written only by
+  `interlinked caps ratchet`, records what may hold). The block carries a
+  `↳ plan:` line. Unknown coverage is not 0%.
+- **Line cap is advisory.** Growing a hand-written module past
+  <!-- gen:line_cap -->500<!-- /gen:line_cap --> lines warns; it never blocks.
+  `DEFAULT_MAX_LINES` and the baseline's `max_lines` are pinned equal, so ratchet
+  both. Codegen data is exempt via a `@codegen-data` header; the grandfather list
+  is empty. When a parent is over cap, helpers go to a NEW sibling module
+  (companion test, module, then the parent import).
+- **Checks.** `pre_block` findings are introduced-only (`pre-block-gate.ts`);
+  pre-existing ones warn. Suppress with `// interlinked-ignore: <check> — reason`
+  or `.interlinked/verify-suppressions.json`; a suppression comment without a
+  reason is its own loud warning. Built-in guard rules cannot be modified, only
+  disabled via `disabled_rules` in `.interlinked/guard-rules.local.json`.
+- **Supply chain.** Package installs are default-deny across shell, manifest
+  edits, and the cold path; grants live in `.interlinked/package-allowlist.json`.
+  URL/tarball/`file:` specs and custom registries are blocked unconditionally.
+
+## Adding or changing a check
+
+Detector in `src/harness/checks/<family>.ts` (never the `generic-checks.ts`
+barrel), registry entry in `check-registry/entries-*.ts`, metadata in
+`check-metadata.ts`, labeled MUST-FIRE / MUST-NOT-FIRE cases per the Check
+Evidence Contract (`src/harness/check-evidence/`; no grandfathering for new
+checks). Low-FP and catches real bugs: default gate. Heuristic: add to
+`DEFAULT_ADVISORY_SKIPS` in `src/commands/verify/advisory.ts` with a rationale
+and update its regression test. Noisy in production: refine the detector before
+demoting it; measure precision with an independent census, never the builder's
+sample. Fix a review bug once, then ship the check that catches the class.
+Procedure: `.claude/rules/checks.md`.
+
+## Where the detail lives
+
+| Topic | Read |
+|---|---|
+| guard blocks, verify, ratchets, setup, supply chain, data | `skills/interlinked-*/SKILL.md` (router: `skills/interlinked/SKILL.md`) |
+| harness internals, file reference, guard flow | `docs/harness.md` |
+| project e2e; mutation-grounded test proof | `docs/project-e2e.md`; `docs/mutation-grounded-test-proof.md` |
+| review logs, campaigns, measured results | `docs/reviews/`, `docs/campaigns/`, `docs/design/` |
+| instruction packets (`interlinked packets compile\|status\|calibrate\|budget\|release\|restore`; default OFF; release only at warn/cosign) | `docs/design/instruction-jev-evaluator.md`; `.claude/rules/packets.md` |
+| subtree invariants (load on demand) | `.claude/rules/{checks,quality-checks,evaluator,project-e2e,kill-proof,shadow-protocol,viz,packets}.md` |

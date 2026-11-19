@@ -37,7 +37,7 @@ export interface TitleBodyFinding {
 
 const TEST_INTRO_RE = /\b(?:it|test)(?:\.(?:only|skip|todo|concurrent))*\s*\(\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1\s*,/g;
 
-export const TITLE_BODY_QUESTIONS: Record<string, JevQuestion> = {
+const TITLE_BODY_QUESTIONS: Record<string, JevQuestion> = {
 	matches: {
 		type: "noul",
 		instructions: {

@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { dirname, posix } from "node:path";
-import { inspectLintInput } from "./discovery.js";
+import { inspectLintInput, LINT_INPUT_MAX_BYTES } from "./discovery.js";
 import { lintPath } from "./input-path.js";
 import { lintJson, lintObject } from "./json.js";
 import { lintInheritance } from "./inheritance.js";
@@ -59,6 +59,15 @@ function contextInputs(root: string, entry: LintImportEntry): string[] {
     }
 }
 
+/** An oversized context file (a lockfile) that is not one of the entry's configuration sources is recorded as skipped, never read. */
+function skipOversizedContext(inventory: LintInventory, entry: LintImportEntry, file: string): boolean {
+    if (entry.sources.includes(file) || lstatSync(lintPath(inventory.root, file)).size <= LINT_INPUT_MAX_BYTES) return false;
+    const skipped = inventory.skipped ?? [];
+    if (!skipped.some((row) => row.file === file)) skipped.push({ file, reason: `Context file over ${LINT_INPUT_MAX_BYTES} bytes; not read, so changes to it are not tracked` });
+    inventory.skipped = skipped;
+    return true;
+}
+
 function includeInput(inventory: LintInventory, entry: LintImportEntry, file: string): string {
     lintPath(inventory.root, file);
     const previous = inventory.sources.find((source) => source.file === file && source.tool === entry.tool);
@@ -73,7 +82,7 @@ export function includeLintInputGraph(inventory: LintInventory, entry: LintImpor
     let bytes = 0;
     while (pending.length > 0) {
         const file = pending.pop();
-        if (!file || seen.has(file)) continue;
+        if (!file || seen.has(file) || skipOversizedContext(inventory, entry, file)) continue;
         seen.add(file);
         if (seen.size > 1000) throw new Error("Lint configuration dependency graph exceeds 1000 files");
         const content = includeInput(inventory, entry, file);

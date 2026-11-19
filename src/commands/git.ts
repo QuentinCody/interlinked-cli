@@ -20,6 +20,7 @@ import {
 	resolveCheckpointId,
 	resolveServerContext,
 	serverPushResultPatch,
+	validateApplyTarget,
 } from "./git-support.js";
 import { parseGitContext, parsePushResult } from "./git-response.js";
 
@@ -89,12 +90,16 @@ export async function gitLinkCheckpointCommand(opts: {
 			throw new Error("Not a git repository. Run this command from within a git repo.");
 		}
 
-		const commitSha = opts.commit || getHeadSha(cwd, false);
+		if (opts.commit !== undefined && opts.commit.trim() === "") {
+			throw new Error("--commit must be nonempty. Omit it to select HEAD.");
+		}
+		const commitSha = opts.commit ?? getHeadSha(cwd, false);
 		const branch = getCurrentBranch(cwd);
 
 		if (!commitSha) {
 			throw new Error("Could not determine commit SHA. Is there at least one commit?");
 		}
+		if (opts.apply) validateApplyTarget(cwd, commitSha);
 
 		const { getClient } = await import("../lib/api-client.js");
 		const client = getClient();
@@ -122,6 +127,7 @@ export async function gitLinkCheckpointCommand(opts: {
 		if (opts.apply && serverResult) {
 			applyCheckpointToHead(serverResult, cwd, commitSha, result);
 		}
+		if (opts.apply && !result.applied) process.exitCode = 1;
 
 		output(mode, result, {
 			json: () => result,

@@ -198,6 +198,39 @@ describe("handleLifecycleEvent", () => {
 		expect(out).toBeNull();
 	});
 
+	it("audit B, finding 4: a SessionStart that also strips malformed permission rules still hands the released text back", async () => {
+		const text = "Never full-read `collection.jsonl`, `activity.jsonl`, or `timeline.jsonl`.";
+		const { createHash } = await import("node:crypto");
+		const { sampleFile, warnPacket } = await import("../packets/fixtures.js");
+		writeFileSync(join(tmp, "CLAUDE.md"), "# rules\n");
+		const released = warnPacket({ release: { text, released_at: "2026-11-05T20:00:00.000Z", span_hash: createHash("sha256").update(text).digest("hex") } });
+		mkdirSync(join(tmp, ".interlinked"), { recursive: true });
+		writeFileSync(join(tmp, ".interlinked", "instruction-packets.json"), JSON.stringify(sampleFile([released], { sources: { "CLAUDE.md": createHash("sha256").update("# rules\n").digest("hex") } })));
+		vi.mocked(autoStripAllScopes).mockReturnValueOnce({ totalStripped: 1, entries: [{ timestamp: "t", file: join(tmp, ".claude/settings.json"), bucket: "allow", index: 0, rule: "Bash(ls", reason: "paren_imbalance" }] });
+		const ctx = makeCtx();
+		const session = ctx.sessions.recordEvent(ev({ hook_event: "SessionStart" }));
+		const out = await handleLifecycleEvent(ctx, ev({ hook_event: "SessionStart" }), session);
+		expect(out?.warnings?.some((w) => w.includes("Bash(ls"))).toBe(true); // the strip notice survives
+		expect(out?.warnings?.some((w) => w.includes(text))).toBe(true); // and the released words are not dropped
+	});
+	it("hands released instruction text back at SessionStart when the packet is not live (packets off here)", async () => {
+		const text = "Never full-read `collection.jsonl`, `activity.jsonl`, or `timeline.jsonl`.";
+		const { createHash } = await import("node:crypto");
+		const { sampleFile, warnPacket } = await import("../packets/fixtures.js");
+		writeFileSync(join(tmp, "CLAUDE.md"), "# rules\n");
+		const released = warnPacket({ release: { text, released_at: "2026-11-05T20:00:00.000Z", span_hash: createHash("sha256").update(text).digest("hex") } });
+		mkdirSync(join(tmp, ".interlinked"), { recursive: true });
+		writeFileSync(join(tmp, ".interlinked", "instruction-packets.json"), JSON.stringify(sampleFile([released], { sources: { "CLAUDE.md": createHash("sha256").update("# rules\n").digest("hex") } })));
+		const ctx = makeCtx();
+		const session = ctx.sessions.recordEvent(ev({ hook_event: "SessionStart" }));
+		const out = await handleLifecycleEvent(ctx, ev({ hook_event: "SessionStart" }), session);
+		const line = out?.warnings?.find((w) => w.startsWith("[interlinked:packet bounded-log-read] not live here (packets disabled)"));
+		expect(line).toContain(text);
+		// A dry run prints nothing.
+		const dry = await handleLifecycleEvent(ctx, ev({ hook_event: "SessionStart", dry_run: true }), session);
+		expect(dry?.warnings?.some((w) => w.includes(text)) ?? false).toBe(false);
+	});
+
 	it("surfaces SessionEnd fuzz-smoke failures at SessionStart", async () => {
 		const dir = join(tmp, ".interlinked", "fuzz-reports");
 		mkdirSync(dir, { recursive: true });

@@ -31,6 +31,7 @@ import { isSkippedOrTodoCall, maskCommentsAndStrings } from "./test-hygiene-mask
 import { collectFilterKeyLiterals, evaluateItBlock } from "./test-mock-return-echo-assert.js";
 import { buildImportMap, collectMockLiteralsInSpan, sutBaseFromPath } from "./test-mock-return-echo-mocks.js";
 import type { Block } from "./test-mock-return-echo-types.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 const MAX_MATCHES = 12;
 
@@ -124,8 +125,9 @@ export function checkMockReturnEcho(content: string, filePath: string): InlineMa
 	const { describes, its, beforeEaches } = findBlocks(masked);
 
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(MAX_MATCHES);
 	for (const itBlock of its) {
-		if (matches.length >= MAX_MATCHES) break;
+		if (matches.length >= maxMatches) break;
 		const match = evaluateBlock(content, masked, itBlock, describes, beforeEaches, importMap, sutBase);
 		if (match !== null) matches.push(match);
 	}

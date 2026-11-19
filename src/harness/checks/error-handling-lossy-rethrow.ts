@@ -2,6 +2,7 @@
 // Extracted from error-handling.ts (line-cap burn-down).
 
 import { getExtension, type InlineMatch, isTestFile, JS_TS_ALL_EXTS, stripComments } from "./shared.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 /**
  * Blank the CONTENT of every '…' / "…" / `…` literal with spaces, preserving
@@ -100,7 +101,7 @@ export function checkLossyErrorRethrow(content: string, filePath: string): Inlin
 		/\bthrow\s+new\s+(?:[A-Z][A-Za-z0-9_$]*Error|Error|TypeError|RangeError|SyntaxError|EvalError|URIError|AggregateError)\s*\(/g;
 
 	let openMatch: RegExpExecArray | null = catchOpenRe.exec(code);
-	while (openMatch !== null && matches.length < 10) {
+	while (openMatch !== null && matches.length < checkMatchLimit(10)) {
 		const catchVar = openMatch[1];
 		const openIdx = openMatch.index + openMatch[0].length - 1;
 		const closeIdx = findBraceClose(code, openIdx);
@@ -163,8 +164,8 @@ function findParenClose(code: string, argsStart: number, limit: number): number 
 /**
  * Scan one catch block's body (`[bodyStart, closeIdx)` of `code`) for
  * `throw new *Error(...)` sites that drop the caught exception, pushing a
- * match for each one that lacks a `{ cause }` option. Stops early once
- * `matches` reaches the shared 10-match cap.
+ * match for each one that lacks a `{ cause }` option, using the caller's
+ * result-collection policy.
  */
 function collectLossyRethrowsInCatch(
 	code: string,
@@ -177,7 +178,7 @@ function collectLossyRethrowsInCatch(
 ): void {
 	errorCtorRe.lastIndex = bodyStart;
 	let throwMatch: RegExpExecArray | null = errorCtorRe.exec(code);
-	while (throwMatch !== null && throwMatch.index < closeIdx && matches.length < 10) {
+	while (throwMatch !== null && throwMatch.index < closeIdx && matches.length < checkMatchLimit(10)) {
 		const argsStart = throwMatch.index + throwMatch[0].length;
 		const argsEnd = findParenClose(code, argsStart, closeIdx);
 		if (argsEnd < 0) break;

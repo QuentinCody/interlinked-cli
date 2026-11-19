@@ -1,23 +1,99 @@
 ---
 name: interlinked
-description: "Overview and router for the Interlinked CLI — a local guard, quality-enforcement, simplification-review, semantic-code-search, and observability layer for AI coding agents. Load this when working in a repo that has a `.interlinked/` directory, when you see any `[interlinked:*]` output or a `BLOCKED: … Suggestion: …` reason and are not sure which area it belongs to, or when you need to know what the `interlinked` command can do. This skill explains the mental model, the `.interlinked/` layout, the `[proven]`/`[heuristic]` tags, and routes you to the focused `interlinked-*` skill for setup, guard blocks, verify/checks, quality ratchets, simplification, local semantic indexing, supply-chain, spec-audit, observability, or coordination."
+description: "Overview and router for the Interlinked CLI, a local guard, quality-gate, and observability layer. Load when a repo has `.interlinked/`, when `[interlinked:*]` output or a `BLOCKED: … Suggestion: …` reason has an unclear area, or to learn what `interlinked` can do. Explains the `.interlinked/` layout and `[proven]`/`[heuristic]` tags, then routes to the `interlinked-*` skill for setup, harness, verify, quality-gates, simplification, semantic-index, supply-chain, spec-audit, observability, or coordination."
 ---
 
 # interlinked — overview & skill router
 
+For complete local action projections, use **interlinked-quality-gates** for
+`metrics --full|--json`, **interlinked-verify** for `verify --json`, and
+**interlinked-observability** for `query checks --actions`. These surfaces reuse
+measurements and retained evidence without model calls. Historical findings and
+unsupported measurements remain explicit; a candidate is not a confirmed defect.
+Action evidence preserves supplied source spans, suppression metadata and original
+producer references. Distinct same-line positions remain distinct; grouped evidence
+from different source versions has unknown freshness. Snapshot-bound refers only
+to captured primary text, not current disk contents or complete dependency evidence.
+`metrics score --full|--json` also projects retained profile findings, measured
+burden, deletion-review blockers and missing evidence without another analysis pass.
+
+For input strictness on JS/TS edits, including optional parameters omitted by
+every observed direct caller, use **interlinked-verify**.
+
+For JS/TS test mapping and Vitest discovery limits in `check --only missing-tests`,
+and documented, workflow, Worker or oxlint entry points in `deadcode`, use **interlinked-verify**.
+That skill also covers per-declaration configuration gaps and historical document
+scope in the verification catalogue.
+
+For local MCP stdio recording and the accepted `--inline-limit` byte counts,
+use **interlinked-coordination**. For local `search` engine filters, zero context and execution errors, use
+**interlinked-verify**. For inherited `caps --json` and nested `metrics --cwd`
+options, use **interlinked-quality-gates**. The root `metrics --top` accepts 1 through 200 hotspots.
+That quality skill covers mutation report discovery, explicit comparison
+baselines and root-relative diagnostic snapshots. **Interlinked-observability**
+covers missing recurrence proposals and validated trajectory JSON output.
+**Interlinked-verify** covers full structure extraction and the explicit
+unavailable response for `structure scan --incremental`.
+That skill also covers per-metric cyclomatic, cognitive and function-token modes,
+targets and scopes, including inherited defaults and adopted-policy integrity.
+For deferred commit coverage and its retry instructions, see **interlinked-quality-gates**.
+
+Use **interlinked-quality-gates** for `metrics policies export|inspect|evaluate`.
+Versioned data-only profiles select installed metrics and detector contracts for
+explicit local reports, with raw evidence, unsupported scopes and structural
+policy proposals retained separately from adoption.
+That skill also covers advisory `file.lines` targets/scopes and phase coverage.
+Generated standalone cold hooks explicitly retain an unmeasured physical-line state.
+
 For duplicated push checks, early E2E preflight, resource waits and retained test
 obligations, use **interlinked-verify**. Managed push command handoff belongs to
 **interlinked-harness**; timing/RSS evidence belongs to **interlinked-observability**.
+Use **interlinked-verify** to interpret relative import findings across package boundaries.
+It also covers literal runtime conditions, quoted test titles, and suppression directives.
 These optimizations do not enable general past-result reuse or relax coverage floors.
-Use **interlinked-verify** for `tests trace` and `tests opacity`; use
-**interlinked-observability** to interpret missing test counts and trace coverage.
-Missing reports are not zero executed tests.
+Explicit `verify` runs without an Interlinked memory budget, default time deadline,
+cumulative detector budget or source discovery/admission cutoff, and waits for the canonical
+project lane and shared host lane. Waiting notices appear after one second.
+**Interlinked-verify** explains optional `--timeout`/`--tool-timeout`,
+cancellation, complete foreground capture and separate test/background policies.
+That skill explains Gitleaks working-input scope, ignored `.env` coverage,
+tracked exceptions, generated/history exclusions and native analyzer limits.
+It also covers full result populations for 40 participating detectors: 28 mapped
+to the standards profile and 12 additional scored checks. Verify exposes 37;
+the API-type, JSDoc-parameter and unvalidated-input entries retain their existing
+registry-backed surfaces. All 16 currently scored checks participate in foreground
+collection. Other detector caps, recognition windows, explicit
+analyzer policy and unavailable evidence retain their documented coverage limits.
+`verify --all-checks` includes advisory `json_stringify_error`,
+`catch_rewrap_loses_cause` and `resource_handle_leak`; default verification skips
+these three checks and their existing recognition predicates determine candidates.
+`verify --only` uses catalog aliases in both text and JSON output. Both report
+when the selected tool lacks a foreground runner.
+The verify skill describes partial scanner findings and timeout reasons.
+For unresolved alias imports or a missing fixture in a mutation proof, use **interlinked-verify**.
+For excluded checks and partial external-tool receipts in verify JSON, use **interlinked-verify**.
+Semgrep runs only with `verify --only semgrep`. Default and `--all-checks`
+skip its version probe and scan. Use `verify --skip gitleaks` to omit Gitleaks
+as well. The verify skill explains separate security
+passes, complete external diagnostics, setup-probe coverage and the managed
+foreground repeated-implementation parser. Saved security-result reuse and scan
+cadence are not enabled by these commands.
+`verify --gitleaks-scope git-visible` is an explicit smaller secrets inventory;
+it excludes Git-ignored inputs, including ignored `.env`. Default working-tree
+mode retains ignored working files. The verify skill describes both scopes.
+Use **interlinked-verify** for JSON selection metadata and partial-verification status.
+That skill also explains selected-input applicability, unsupported async language
+runners, root-local documentation checks and managed OSV/npm dependency audits.
+Use **interlinked-verify** for `tests trace`, `tests opacity`, and renewing older
+kill-proof receipts; use **interlinked-observability** to interpret missing test
+counts and trace coverage. Missing reports are not zero executed tests.
 
 For the internal, default-off `claims --receipt-shadow` observer and its explicit receipt
 links, use **interlinked-observability** and `docs/internal/jev.md`. It logs comparisons only;
 it does not enable claim evaluation in public Stop hooks or alter a model decision.
 
-For experimental `metrics decisions` measurements, ThinkThen/Clef/Jev adapters,
+For changed-function evidence with declaration-level complexity, experimental
+`metrics decisions` measurements, ThinkThen/Clef/Jev adapters,
 calibration audits, relational ledgers and `[interlinked:decision-metrics]` advice,
 load **interlinked-quality-gates**. For Qwen embedding retrieval/resource policy,
 also load **interlinked-semantic-index**. These unvalidated judgments are advisory;
@@ -30,9 +106,43 @@ reports live in version-controlled `semantic-relations/`; raw study bundles rema
 local and ignored. Its Astra reference reviews are explicitly model judgments; no human-review
 stage or automatic semantic blocking is part of the workflow.
 
+For `metrics decisions findings discover|prepare|questions|plan|assess|show|labels|review`, use
+**interlinked-quality-gates**. It freezes selected source, retains Jev distributions,
+and compares them with source-backed Astra labels by direction. Provider selection,
+versioned alternative question maps, frozen request/cost previews, explicit allowances and inference-free saved reuse live
+in that workflow. Only explicit `assess` sends selected evidence. Missing policy stays
+unassessed. It never filters deterministic findings
+or joins the check pipeline. Boundary/ownership detector behavior belongs to
+**interlinked-verify**. The complete workflow is in `docs/finding-review.md`.
+
+For `metrics standards --profile dmmulroy-typescript`, use **interlinked-quality-gates**.
+The local report retains all 35 source-attributed groups, source hashes and units,
+exact syntax observations, detector matches, review candidates and unknown context.
+That skill also covers complete foreground metric/standards inventories, explicit scope
+exclusions and unavailable inputs. Foreground surveys remove implicit source-size, path-count
+and Git-listing limits; runtime inventory consumers retain separate resource policies.
+
 For repeated implementation advice (`repeated_implementation`), load
 **interlinked-verify**. This is an advisory AST comparison for Python and JS/TS,
 reported after a changeset and in the Stop/verification review. It is not a hard gate.
+
+For advisory Commander option-attribute mismatches (`commander_option_attribute`),
+load **interlinked-verify**. The detector resolves same-file bindings and supported
+local imported handlers. Handler-only hooks reuse the existing partial importer
+index; foreground verification uses invocation-local project evidence. Normalization,
+mutations and unsupported forwarding stay explicit, and the check remains advisory.
+That skill also explains own-barrel value-edge evidence, complete scoped foreground
+traversal and bounded runtime unknowns. A graph cutoff does not establish a cycle.
+Foreground fallback-only test analysis reads every matching filename-based sibling
+and preserves unavailable evidence; runtime retains its separate lookup bounds.
+For `numeric_zero_default`, also use **interlinked-verify** and its
+[numeric-default reference](../interlinked-verify/references/numeric-defaults.md).
+Supported numeric-parser and helper flows yield advisory review candidates; an
+intentional zero sentinel is an exception, and no quality score or blocker is added.
+**Interlinked-observability** explains its retained advisory coverage gaps separately
+from operational check deferrals and defect findings.
+Use **interlinked-verify** for positional-boolean advice scope, including root
+`test`/`spec` entry files and test directories.
 
 Use **interlinked-harness** for opt-in decision/edit shadows, **interlinked-verify** for
 the optional TypeScript scheduler and heuristic false-positive filter, and
@@ -46,7 +156,7 @@ examples, expected-value provenance and retained previous expectations. Use
 **interlinked-spec-audit** for preparing explicit documentation examples. Contract
 review is advisory; configured acceptance is separate from agent-authored proposals.
 
-For provider edit normalization and Stop delivery, use **interlinked-harness**; for
+For provider edit normalization, shell guard matching, and Stop delivery, use **interlinked-harness**; for
 native qualification, use **interlinked-setup**; for re-entry/translation evidence,
 use **interlinked-observability**. Early test-readiness guidance is covered by
 **interlinked-verify**. Provider-specific capabilities remain available.
@@ -159,6 +269,21 @@ For OS-denied connections, DNS/HTTPS failures, `interlinked network check`, or r
 `network codex-profile` setup, use **interlinked-setup**. Probe from the affected runtime;
 an allowed Interlinked decision cannot grant access denied by the host sandbox.
 
+Use **interlinked-setup** for init preview/sync validation, strict uninstall runner
+filters, cleanup previews and removal outcomes, and reload restart outcomes. Local checkpoint
+restore failures and archive retention belong to **interlinked-coordination**.
+Environment display masking and shell completion setup belong to **interlinked-setup**.
+Structure-doctor failure exits and TDD cycle inspection/clearing belong to
+**interlinked-verify**.
+Scanner policy preservation and review-key selection belong to **interlinked-harness**.
+CI collection errors and Git apply preflight/partial failures belong to
+**interlinked-coordination**. Sponsor JSON setup belongs to **interlinked-setup**.
+Collection duration and telemetry JSONL/truncation behavior belong to
+**interlinked-observability**, and trigram numeric inputs belong to **interlinked-setup**.
+Socket-ownership refusal during `harness clean` belongs to **interlinked-setup**.
+JSON status refreshes belong to **interlinked-observability**, and missing doctest
+target errors belong to **interlinked-spec-audit**.
+
 Route `coverage check --lane e2e`, e2e evidence refusals and
 `coverage-e2e-baseline.json` to **interlinked-quality-gates**. Route
 `e2e scaffold` and `[interlinked:e2e-obligation]` (both confined to the
@@ -199,7 +324,7 @@ observed invocation and native enforcement are separate evidence.
 | `metrics score`, catalog/explain/compare/corpus, behavioral receipts, gate reach, incremental coverage, or syntax-token counter migrations | **interlinked-quality-gates** |
 | Dense expressions, callback depth, `metrics expressions`, `.interlinked/readability.json` | **interlinked-quality-gates**; formatter adoption and `lint import --gate errors --target …`: **interlinked-verify** |
 | Guard ownership changes, `guard-prediction-protocol`, predicted intent or reconciliation receipts | **interlinked-harness**; shared mode configuration: **interlinked-setup** |
-| `metrics jit`, commit-time `[interlinked:jit]` warnings, within-repo percentile ranks, complexity churn hotspots or directory spread | **interlinked-quality-gates** |
+| `metrics jit` calibration size, `metrics rework` scan caps, `metrics arch` depth, hotspot limits, commit-time `[interlinked:jit]` warnings or within-repo ranks | **interlinked-quality-gates** |
 | Installing a local embedding model; building, inspecting, searching, or repairing the optional function-vector index | **interlinked-semantic-index** |
 | An `npm/pip/cargo/…` install or manifest edit was blocked; the package **allowlist** | **interlinked-supply-chain** |
 | Spec/doc facts, drift, invariants, review **findings**, `doctest`; `[interlinked:spec-*]` | **interlinked-spec-audit** |

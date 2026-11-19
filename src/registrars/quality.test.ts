@@ -193,7 +193,9 @@ describe("registerQualityCommands — structure", () => {
 			// and drops its disposition (plan 18 §1.3). Records dead_code/unresolved
 			// without touching status; supports --list / --show; monotonic under
 			// baseline_integrity_gate so a hand-added record is blocked (§1.4).
-			["accept", "baseline", "check", "cloud", "disposition", "measure", "survivors", "sweep"].sort(),
+			// `saturation` (2026-11-06) is the per-file saturation READ verb over the same
+			// manifest, with an only-grows ratchet (.interlinked/saturation-baseline.json).
+			["accept", "baseline", "check", "cloud", "disposition", "measure", "saturation", "survivors", "sweep"].sort(),
 		);
 		expect(sub(sub(program, "mutation"), "cloud").commands.map((c) => c.name()).sort()).toEqual(
 			["dead-letters", "onboard", "process", "redrive", "submit", "submit-edit"],
@@ -221,6 +223,7 @@ describe("registerQualityCommands — structure", () => {
 				"--dead-code",
 				"--details",
 				"--fp-filter",
+				"--gitleaks-scope",
 				"--json",
 				"--only",
 				"--show-suppressions",
@@ -230,6 +233,8 @@ describe("registerQualityCommands — structure", () => {
 				"--subdir",
 				"--suggestions",
 				"--suppress",
+				"--timeout",
+				"--tool-timeout",
 			].sort(),
 		);
 		expect(optsOf("write")).toEqual(
@@ -297,7 +302,7 @@ describe("registerQualityCommands — structure", () => {
 		// SUPPRESSES the multi-report LCOV + istanbul merge in resolveReportPaths,
 		// so defaulting it would silently narrow every run to one file.
 		expect(defOf(covCheck, "--report")).toBeUndefined();
-		expect(defOf(mutCheck, "--report")).toBe("reports/mutation/mutation.json");
+		expect(defOf(mutCheck, "--report")).toBeUndefined();
 	});
 });
 
@@ -416,6 +421,33 @@ describe("multi-edit — action wiring", () => {
 // verify — action wiring (target folded into the opts object; both branches)
 // ===========================================================================
 describe("verify — action wiring + target merge", () => {
+	it.each(["working-tree", "git-visible"])("forwards explicit Gitleaks scope %s", async scope => {
+		const program = build().exitOverride().configureOutput({ writeErr: () => undefined });
+		await program.parseAsync(["verify", "--gitleaks-scope", scope], { from: "user" });
+		expect(verifyCommand).toHaveBeenCalledWith(expect.objectContaining({ gitleaksScope: scope }));
+	});
+
+	it("rejects an unknown Gitleaks scope before invoking verification", async () => {
+		const program = build();
+		program.exitOverride().configureOutput({ writeErr: () => undefined });
+		await expect(program.parseAsync(["verify", "--gitleaks-scope", "all-ish"], { from: "user" })).rejects.toThrow();
+		expect(verifyCommand).not.toHaveBeenCalled();
+	});
+
+	it.each([0, 5000, 2147483647])("forwards explicit command and tool deadlines of %s milliseconds", async value => {
+		const program = build();
+		await program.parseAsync(["verify", "--timeout", String(value), "--tool-timeout", String(value)], { from: "user" });
+		expect(verifyCommand).toHaveBeenCalledWith({ timeout: value, toolTimeout: value });
+	});
+
+	it.each(["-1", "1.5", "3ms", "Infinity", "2147483648", ""])("rejects invalid verification deadlines: %s", async value => {
+		for (const flag of ["--timeout", "--tool-timeout"]) {
+			const program = build().exitOverride().configureOutput({ writeErr() {} });
+			await expect(program.parseAsync(["verify", flag, value], { from: "user" })).rejects.toThrow();
+		}
+		expect(verifyCommand).not.toHaveBeenCalled();
+	});
+
 	it("merges an explicit target into the opts object", async () => {
 		const program = build();
 		await program.parseAsync(["verify", "/repo", "--only", "tsc", "--json"], { from: "user" });
@@ -875,12 +907,10 @@ describe("metrics stale-readme — action wiring", () => {
 // mutation subcommands — action wiring (check is awaited; baseline is sync)
 // ===========================================================================
 describe("mutation subcommands — action wiring", () => {
-	it("check forwards options including the default --report", async () => {
+	it("check preserves omitted report selection for handler discovery", async () => {
 		const program = build();
 		await program.parseAsync(["mutation", "check"], { from: "user" });
-		expect(mutationCheckCommand).toHaveBeenCalledWith({
-			report: "reports/mutation/mutation.json",
-		});
+		expect(mutationCheckCommand).toHaveBeenCalledWith({});
 	});
 
 	it("check forwards explicit options", async () => {
@@ -909,9 +939,7 @@ describe("mutation subcommands — action wiring", () => {
 	it("runs check as the default subcommand of `mutation`", async () => {
 		const program = build();
 		await program.parseAsync(["mutation"], { from: "user" });
-		expect(mutationCheckCommand).toHaveBeenCalledWith({
-			report: "reports/mutation/mutation.json",
-		});
+		expect(mutationCheckCommand).toHaveBeenCalledWith({});
 	});
 
 	it("baseline forwards --json (sync call)", async () => {

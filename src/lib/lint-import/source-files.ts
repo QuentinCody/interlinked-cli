@@ -17,14 +17,14 @@ export function literalLintTargets(root: string, targets: readonly string[]): st
 }
 
 /** Bounded default file expansion for the file-only ShellCheck/Hadolint adapters. */
-export function lintSourceFiles(root: string): string[] {
+export function lintSourceFiles(root: string, resourcePolicy?: "foreground-verify"): string[] {
     const files: string[] = [];
     const pending = [""];
     let visited = 0;
     while (pending.length > 0) {
         const directory = pending.pop() ?? "";
         for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
-            if (++visited > MAX_SOURCE_ENTRIES) throw new Error("Lint source census budget exceeded");
+            if (++visited > MAX_SOURCE_ENTRIES && resourcePolicy !== "foreground-verify") throw new Error("Lint source census budget exceeded");
             const file = join(directory, entry.name).split(sep).join("/");
             if (entry.isDirectory() && !OMIT.has(entry.name)) pending.push(file);
             if (entry.isFile()) files.push(file);

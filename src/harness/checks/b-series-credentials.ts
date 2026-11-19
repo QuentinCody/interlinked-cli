@@ -2,6 +2,7 @@
 // credentials, and unguarded self-recursion.
 // Split out of b-series.ts (which re-exports these for back-compat).
 
+import { rawBraceDelta } from "./shared-text-utils-brace-scan.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	getExtension,
@@ -142,20 +143,6 @@ export function checkHardcodedCredentials(content: string, filePath: string): In
 }
 
 /**
- * Net brace delta for one line: how much `{`/`}` on this line shifts an
- * outer running brace-depth counter. Used to track whether a scan position
- * is still inside a function body.
- */
-function lineBraceDelta(line: string): number {
-	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		if (ch === "}") delta--;
-	}
-	return delta;
-}
-
-/**
  * Does this line look like a base-case guard (explicit control flow, a
  * ternary, a logical operator, a length/size check, or a comparison)?
  * Heuristic only — used to suppress a self-call match when a guard was
@@ -195,7 +182,7 @@ function findUnguardedSelfCall(
 	for (let j = defLineIdx + 1; j < Math.min(defLineIdx + 15, strippedLines.length); j++) {
 		const line = nonNull(strippedLines[j]).trim();
 		// Track brace depth — stop when we leave the function body
-		fnBraceDepth += lineBraceDelta(nonNull(strippedLines[j]));
+		fnBraceDepth += rawBraceDelta(nonNull(strippedLines[j]));
 		if (fnBraceDepth <= 0) break; // Exited the function body
 
 		if (lineLooksLikeGuard(line)) {
@@ -241,7 +228,7 @@ export function checkInfiniteRecursion(content: string, filePath: string): Inlin
 
 		// Track brace depth to ensure self-call is inside the function body.
 		// If braces already balanced on the definition line, it's a one-liner — skip.
-		const initialBraceDepth = lineBraceDelta(nonNull(strippedLines[i]));
+		const initialBraceDepth = rawBraceDelta(nonNull(strippedLines[i]));
 		if (initialBraceDepth <= 0) continue;
 
 		const found = findUnguardedSelfCall(strippedLines, originalLines, i, funcName, initialBraceDepth);

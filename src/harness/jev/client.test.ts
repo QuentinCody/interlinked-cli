@@ -36,6 +36,10 @@ describe("parseJevResponse — positive (must fire)", () => {
 });
 
 describe("parseJevResponse — negative (must not fire)", () => {
+	it.each([-1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1])("rejects invalid billing counts %s", input_tokens => {
+		expect(parseJevResponse({ ...OK_BODY, usage: { input_tokens, output_tokens: 1 } })).toBeNull();
+		expect(parseJevResponse({ ...OK_BODY, usage: { input_tokens: 1, output_tokens: input_tokens } })).toBeNull();
+	});
 	it("N1: rejects a body with a malformed answer", () => {
 		expect(parseJevResponse({ ...OK_BODY, answers: { yes: { type: "noul" } } })).toBeNull();
 	});

@@ -65,6 +65,7 @@ vi.mock("./post-tool-pipeline-tracking.js", () => ({
         decision.warnings = [...(decision.warnings ?? []), ...warnings];
     }),
     trackTestRun: vi.fn(() => null),
+    trackRunEvidence: vi.fn(() => []),
     trackVerificationOutcome: vi.fn(),
     updateTrigramDirtyLayer: vi.fn(),
 }));

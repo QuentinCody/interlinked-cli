@@ -263,17 +263,15 @@ describe("scanner toggle — short-mode renderer", () => {
 // =============================================================================
 
 describe("scanner toggle — unparseable guard-rules.local.json", () => {
-	it("warns and overwrites when the existing rules file is not valid JSON", async () => {
+	it("preserves invalid JSON and fails before changing scanner policy", async () => {
 		writeFileSync(rulesPath(), "this is { not json");
 		const stderrSpy = vi
 			.spyOn(process.stderr, "write")
 			.mockImplementation(() => true);
 		await scannerOnCommand({ json: true });
-		const warnings = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
-		expect(warnings).toMatch(/was unparseable; overwriting/);
-		// File is now valid JSON with the scanner block written.
-		const parsed = parseWire(JSON.parse(readFileSync(rulesPath(), "utf-8")), wireObject({ "content_scanner": wireAbsentOptional(wireOptional(wireObject({ "enabled": wireAbsentOptional(wireOptional(wireBoolean)) }))) }), "test JSON value");
-		expect(parsed.content_scanner?.enabled).toBe(true);
+		expect(readFileSync(rulesPath(), "utf-8")).toBe("this is { not json");
+		expect(process.exitCode).toBe(1);
+		expect(stderrSpy).not.toHaveBeenCalled();
 	});
 
 	it("readCurrentEnabled falls back to false when the rules file is malformed", async () => {
@@ -294,12 +292,11 @@ describe("scanner toggle — unparseable guard-rules.local.json", () => {
 		expect(parsed.content_scanner.enabled).toBe(true);
 	});
 
-	it("treats a top-level non-object rules file as empty before writing", async () => {
-		// JSON parses but is an array, not a plain object -> parsed stays {}.
+	it("preserves a non-object rules file and reports failure", async () => {
 		writeFileSync(rulesPath(), JSON.stringify(["a", "b"]));
 		await scannerOnCommand({ json: true });
-		const parsed = parseWire(JSON.parse(readFileSync(rulesPath(), "utf-8")), wireObject({ "content_scanner": wireObject({ "enabled": wireBoolean }) }), "test JSON value");
-		expect(parsed.content_scanner.enabled).toBe(true);
+		expect(JSON.parse(readFileSync(rulesPath(), "utf-8"))).toEqual(["a", "b"]);
+		expect(process.exitCode).toBe(1);
 	});
 });
 

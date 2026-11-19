@@ -1,8 +1,11 @@
 import { wireAbsentOptional, parseWire, wireObject, wireOptional, wireRecord, wireString } from "../lib/value-validation.js";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Command } from "commander";
+import { registerQualityCommands } from "../registrars/quality.js";
+import { withAsyncFileMutationLock } from "../lib/file-mutation-lock.js";
 import * as checkPolicy from "../harness/check-policy.js";
 import * as measureModule from "../harness/mutation/measure.js";
 import * as measureSupport from "./mutation-measure-support.js";
@@ -63,6 +66,14 @@ function writeStrykerReport(
 describe("mutationCheckCommand", () => {
 	let tmp: string;
 	let io: ReturnType<typeof captureIO>;
+	async function registeredCheck(args: string[]): Promise<void> {
+		const cwd = vi.spyOn(process, "cwd").mockReturnValue(tmp);
+		try {
+			const program = new Command();
+			registerQualityCommands(program);
+			await program.parseAsync(["mutation", "check", ...args], { from: "user" });
+		} finally { cwd.mockRestore(); }
+	}
 
 	beforeEach(() => {
 		tmp = mkdtempSync(join(tmpdir(), "mut-cli-"));
@@ -78,6 +89,110 @@ describe("mutationCheckCommand", () => {
 		await mutationCheckCommand({ cwd: tmp });
 		expect(io.mocks().exitCode).toBe(1);
 		expect(io.mocks().stderr).toContain("No mutation report found");
+	});
+
+	it("discovers the documented fallback report through the actual parser", async () => {
+		writeStrykerReport(tmp, { "src/foo.ts": { killed: 9, survived: 1 } });
+		renameSync(join(tmp, "reports/mutation/mutation.json"), join(tmp, "reports/mutation/mutation-report.json"));
+		await registeredCheck(["--json"]);
+		expect(JSON.parse(io.mocks().stdout)).toMatchObject({ report: join(tmp, "reports/mutation/mutation-report.json"), stats: { files_checked: 1 } });
+		expect(io.mocks().exitCode).toBeFalsy();
+	});
+
+	it("compares the explicitly selected baseline through the actual parser", async () => {
+		writeStrykerReport(tmp, { "src/foo.ts": { killed: 8, survived: 2 } });
+		writeFileSync(join(tmp, "selected-baseline.json"), JSON.stringify({ version: 1, updated_at: "2026-01-01", files: { "src/foo.ts": { score: 0.9, killed: 9 } } }));
+		await registeredCheck(["--baseline", "selected-baseline.json", "--json"]);
+		const result = JSON.parse(io.mocks().stdout);
+		expect(result.findings).toEqual(expect.arrayContaining([expect.objectContaining({ name: "mutation_score_decrease", baseline_score: 0.9 })]));
+		expect(result.baseline).toMatchObject({ path: join(tmp, "selected-baseline.json"), source: "explicit", updated: false });
+		expect(io.mocks().exitCode).toBe(1);
+	});
+
+	it("updates the selected baseline while preserving the canonical baseline", async () => {
+		writeStrykerReport(tmp, { "src/foo.ts": { killed: 10, survived: 0 } });
+		const baseline = JSON.stringify({ version: 1, updated_at: "2026-01-01", files: { "src/foo.ts": { score: 0.9, killed: 9 } } });
+		const adopted = JSON.stringify({ version: 1, updated_at: "2026-01-01", files: { "src/foo.ts": { score: 1, killed: 20 } } });
+		mkdirSync(join(tmp, ".interlinked"), { recursive: true });
+		writeFileSync(join(tmp, ".interlinked/mutation-baseline.json"), adopted);
+		writeFileSync(join(tmp, "selected-baseline.json"), baseline);
+		await registeredCheck(["--baseline", "selected-baseline.json", "--update-baseline", "--json"]);
+		expect(JSON.parse(readFileSync(join(tmp, "selected-baseline.json"), "utf8")).files["src/foo.ts"]).toEqual({ score: 1, killed: 10 });
+		expect(readFileSync(join(tmp, ".interlinked/mutation-baseline.json"), "utf8")).toBe(adopted);
+	});
+
+	it("stops a contended selected-baseline update before publishing a verdict or changing bytes", async () => {
+		writeStrykerReport(tmp, { "src/foo.ts": { killed: 10, survived: 0 } });
+		const path = join(tmp, "selected-baseline.json"), baseline = JSON.stringify({ version: 1, updated_at: "2026-01-01", files: {} });
+		writeFileSync(path, baseline);
+		await withAsyncFileMutationLock(path, () => registeredCheck(["--baseline", path, "--update-baseline", "--json"]));
+		expect(readFileSync(path, "utf8")).toBe(baseline);
+		expect(io.mocks().stdout).toBe("");
+		expect(JSON.parse(io.mocks().stderr).error).toContain("lock");
+		expect(io.mocks().exitCode).toBe(1);
+	});
+
+	it("rejects a malformed explicitly selected baseline with its path", async () => {
+		writeStrykerReport(tmp, { "src/foo.ts": { killed: 9, survived: 1 } });
+		writeFileSync(join(tmp, "selected-baseline.json"), "{ malformed");
+		await registeredCheck(["--baseline", "selected-baseline.json", "--json"]);
+		expect(io.mocks().stdout).toBe("");
+		expect(JSON.parse(io.mocks().stderr).error).toContain("selected-baseline.json");
+		expect(process.exitCode).toBe(1);
+	});
+
+	it.each(["coverage-baseline.json", "check-policy.json"])("refuses to use protected %s as alternate mutation data", async name => {
+		writeStrykerReport(tmp, { "src/foo.ts": { killed: 10, survived: 0 } });
+		mkdirSync(join(tmp, ".interlinked"), { recursive: true });
+		const path = join(tmp, ".interlinked", name), original = JSON.stringify({ version: 1, updated_at: "2026-01-01", files: {} });
+		writeFileSync(path, original);
+		await registeredCheck(["--baseline", path, "--update-baseline", "--json"]);
+		expect(readFileSync(path, "utf8")).toBe(original);
+		expect(io.mocks().stdout).toBe("");
+		expect(JSON.parse(io.mocks().stderr).error).toContain("protected control");
+		expect(process.exitCode).toBe(1);
+	});
+
+	it.each(["file", "directory"])("resolves a %s alias before admitting alternate mutation data", async kind => {
+		writeStrykerReport(tmp, { "src/foo.ts": { killed: 10, survived: 0 } });
+		mkdirSync(join(tmp, ".interlinked"), { recursive: true });
+		const target = join(tmp, ".interlinked/package-allowlist.json"), original = JSON.stringify({ version: 1, updated_at: "2026-01-01", files: {} });
+		writeFileSync(target, original);
+		const alias = kind === "file" ? join(tmp, "comparison.json") : join(tmp, "comparison", "package-allowlist.json");
+		if (kind === "file") symlinkSync(target, alias);
+		else symlinkSync(join(tmp, ".interlinked"), join(tmp, "comparison"), "dir");
+		await registeredCheck(["--baseline", alias, "--update-baseline", "--json"]);
+		expect(readFileSync(target, "utf8")).toBe(original);
+		expect(io.mocks().stdout).toBe("");
+		expect(JSON.parse(io.mocks().stderr).error).toContain("protected control");
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("updates an ordinary custom baseline through its resolved alias and reports both paths", async () => {
+		writeStrykerReport(tmp, { "src/foo.ts": { killed: 10, survived: 0 } });
+		const target = join(tmp, "selected-baseline.json"), alias = join(tmp, "comparison.json");
+		writeFileSync(target, JSON.stringify({ version: 1, updated_at: "2026-01-01", files: {} }));
+		symlinkSync(target, alias);
+		await registeredCheck(["--baseline", alias, "--update-baseline", "--json"]);
+		expect(JSON.parse(readFileSync(target, "utf8")).files["src/foo.ts"]).toEqual({ score: 1, killed: 10 });
+		expect(readlinkSync(alias)).toBe(target);
+		expect(JSON.parse(io.mocks().stdout).baseline).toEqual({ path: alias, resolvedPath: realpathSync(target), source: "explicit", updated: true });
+	});
+
+	it("reports an explicitly missing baseline as unavailable", async () => {
+		writeStrykerReport(tmp, { "src/foo.ts": { killed: 9, survived: 1 } });
+		await registeredCheck(["--baseline", "missing-baseline.json", "--json"]);
+		expect(io.mocks().stdout).toBe("");
+		expect(JSON.parse(io.mocks().stderr).error).toContain("missing-baseline.json");
+		expect(io.mocks().exitCode).toBe(1);
+	});
+
+	it.each(["--report", "--baseline"])("rejects an explicit empty %s path", async flag => {
+		writeStrykerReport(tmp, { "src/foo.ts": { killed: 9, survived: 1 } });
+		await registeredCheck([flag, "", "--json"]);
+		expect(io.mocks().stdout).toBe("");
+		expect(JSON.parse(io.mocks().stderr).error).toMatch(/nonempty/);
+		expect(io.mocks().exitCode).toBe(1);
 	});
 
 	it("writes the baseline when --update-baseline is set", async () => {

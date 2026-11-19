@@ -10,6 +10,10 @@ import { parseBiomeOutput } from "../output-parsers.js";
 import { runProcessAsync } from "../spawn-async.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
 import { inspectBiomeOverlayConfig } from "./biome-overlay-config.js";
+import { parseCompleteBiomeReport } from "./biome-process-verdict.js";
+import { biomeForegroundSizeArgs } from "./biome-size-policy.js";
+import { requireGenericProcessVerdict } from "./generic-process-verdict.js";
+import { PartialToolReportError } from "../tool-errors.js";
 
 /** Walk up to 5 levels to find biome.json or biome.jsonc. */
 function findBiomeConfig(startDir: string): boolean {
@@ -83,14 +87,19 @@ export async function runBiomeAsync(input: ToolRunnerInput): Promise<CheckResult
 	const { scope, timeoutMs } = input;
 	if (!findBiomeConfig(scope.projectRoot)) return [];
 	const target = scope.mode === "file" && scope.targetFile ? scope.targetFile : ".";
+	const foreground = input.resourcePolicy === "foreground-verify";
 	const result = await runProcessAsync(
 		"npx",
-		["biome", "check", "--no-errors-on-unmatched", target],
+		["biome", "check", "--no-errors-on-unmatched", ...(foreground ? ["--reporter=json", "--max-diagnostics=none", ...biomeForegroundSizeArgs(scope.projectRoot)] : []), target],
 		{ cwd: scope.projectRoot, timeout: timeoutMs },
 	);
-	if (result.code === 0) return [];
-	const findings = parseBiomeOutput(`${result.stdout}${result.stderr}`);
-	return findings.length > 0 ? findings : [biomeFailureResult(result.code)];
+	const combined = `${result.stdout}${result.stderr}`;
+	const findings = foreground ? parseCompleteBiomeReport(result.stdout, scope.projectRoot) : parseBiomeOutput(combined);
+	requireGenericProcessVerdict("biome", result, findings);
+	if (!foreground && (/The number of diagnostics exceeds|diagnostics not shown/i.test(combined) || /^.+\scheck\s[━─]/m.test(combined))) {
+		throw new PartialToolReportError("Biome omitted diagnostics or an input scope; no complete verdict", findings);
+	}
+	return findings;
 }
 
 /**

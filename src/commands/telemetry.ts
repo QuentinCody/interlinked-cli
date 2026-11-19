@@ -69,7 +69,7 @@ async function followSpool(spoolPath: string, options: TelemetryOptions): Promis
 		const limit = parseLimit(options.limit);
 		const events = spool.readAll();
 		const slice = limit === null ? events : events.slice(-limit);
-		for (const e of slice) printEventLine(e);
+		for (const e of slice) handleLine(JSON.stringify(e), options);
 	}
 	lastSize = stat.size;
 
@@ -79,11 +79,12 @@ async function followSpool(spoolPath: string, options: TelemetryOptions): Promis
 		// `options.waitForever`, when a test supplies it, resolves it so the
 		// call can return right after the watcher below is installed.
 		watchFile(spoolPath, { interval: 250 }, (curr) => {
+			if (curr.size < lastSize) lastSize = 0;
 			if (curr.size > lastSize) {
 				// Partial read starting from last known offset.
 				const start = lastSize;
 				lastSize = curr.size;
-				const stream = createReadStream(spoolPath, { start, encoding: "utf-8" });
+				const stream = createReadStream(spoolPath, { start, end: curr.size - 1, encoding: "utf-8" });
 				const rl = createInterface({ input: stream });
 				rl.on("line", (line) => handleLine(line, options));
 				rl.on("close", () => {

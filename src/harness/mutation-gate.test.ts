@@ -67,6 +67,33 @@ describe("loadMutationBaseline / saveMutationBaseline round trip", () => {
 		expect(loadMutationBaseline(tmp)).toEqual(b);
 	});
 
+	it("loads and saves an explicitly selected baseline without replacing the canonical one", () => {
+		const baseline: MutationBaseline = { version: 1, updated_at: "2026-01-01", files: {} };
+		saveMutationBaseline(tmp, baseline);
+		const canonical = readFileSync(mutationBaselinePath(tmp), "utf8"), selected = join(tmp, "selected.json");
+		saveMutationBaseline(tmp, { ...baseline, files: { "source.ts": { score: 1, killed: 4 } } }, selected);
+		expect(loadMutationBaseline(tmp, selected).files["source.ts"]).toEqual({ score: 1, killed: 4 });
+		expect(readFileSync(mutationBaselinePath(tmp), "utf8")).toBe(canonical);
+	});
+
+	it("rejects an explicitly missing or malformed baseline while preserving legacy default recovery", () => {
+		expect(() => loadMutationBaseline(tmp, join(tmp, "missing.json"))).toThrow("Mutation baseline not found");
+		const selected = join(tmp, "selected.json");
+		writeFileSync(selected, '{ "version": 2, "files": {} }');
+		expect(() => loadMutationBaseline(tmp, selected)).toThrow("Invalid mutation baseline");
+		writeFileSync(selected, "{ malformed");
+		expect(() => loadMutationBaseline(tmp, selected)).toThrow("Cannot read mutation baseline");
+		expect(loadMutationBaseline(tmp).files).toEqual({});
+	});
+
+	it("requires complete mutation rows in an explicitly selected comparison file", () => {
+		const selected = join(tmp, "selected.json");
+		for (const stats of [{ lines: 100 }, { score: 2, killed: 3 }, { score: 0.9, killed: -1 }]) {
+			writeFileSync(selected, JSON.stringify({ version: 1, files: { "source.ts": stats } }));
+			expect(() => loadMutationBaseline(tmp, selected)).toThrow("Invalid mutation baseline");
+		}
+	});
+
 	it("recovers from malformed baseline", () => {
 		writeFileSync(mutationBaselinePath(tmp), "{ not json", "utf-8");
 		expect(loadMutationBaseline(tmp).files).toEqual({});

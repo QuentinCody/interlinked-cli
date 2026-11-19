@@ -3,6 +3,7 @@ import { sha256Hex } from "./canonical.js";
 import {
 	computeOverlayBytesHash,
 	computePostImageSetHash,
+	computeTaggedSetHash,
 	DELETE_DIGEST_BYTES,
 	DELETE_MODE,
 	type TaggedEntryInput,
@@ -11,6 +12,15 @@ import {
 
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const ZERO_DIGEST_HEX = "0".repeat(64);
+
+it("identifies the binding whose tagged input was rejected", () => {
+	const duplicates = [del("source.ts"), del("source.ts")];
+	for (const algorithm of ["shadow-overlay-v1", "shadow-postimages-v1"] as const) {
+		expect(computeTaggedSetHash(algorithm, duplicates)).toMatchObject({
+			ok: false, reason: "invalid_tree", detail: `duplicate path in ${algorithm}: "source.ts"`,
+		});
+	}
+});
 
 function digestOf(content: string): string {
 	return sha256Hex(Buffer.from(content, "utf8"));

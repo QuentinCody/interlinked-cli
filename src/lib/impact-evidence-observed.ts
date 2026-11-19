@@ -41,7 +41,7 @@ function emptyFoldEvidence(availability: ImpactAvailability, reason?: string): B
 	};
 }
 
-function foldNumber(value: unknown): number {
+function nonnegativeCount(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
@@ -65,8 +65,8 @@ export function readBaselineFoldEvidence(cwd: string): BaselineFoldEvidence {
 			}
 			const row = result.by_kind[parsed.kind] ?? { events: 0, changed: 0, refused: 0 };
 			row.events++;
-			row.changed += foldNumber(parsed.changed);
-			row.refused += foldNumber(parsed.refused);
+			row.changed += nonnegativeCount(parsed.changed);
+			row.refused += nonnegativeCount(parsed.refused);
 			result.by_kind[parsed.kind] = row;
 			result.events++;
 		} catch {
@@ -74,10 +74,6 @@ export function readBaselineFoldEvidence(cwd: string): BaselineFoldEvidence {
 		}
 	}
 	return result;
-}
-
-function safeCount(value: number | undefined): number {
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 export function readActivityEvidence(cwd: string): ActivityEvidence {
@@ -97,18 +93,18 @@ export function readActivityEvidence(cwd: string): ActivityEvidence {
 	};
 	for (const session of sessions) {
 		if (session.phase === "ENDED") totals.ended_sessions++;
-		totals.tool_calls += safeCount(session.tool_count);
-		totals.errors += safeCount(session.error_count);
+		totals.tool_calls += nonnegativeCount(session.tool_count);
+		totals.errors += nonnegativeCount(session.error_count);
 		const edits = session.edits ?? [];
 		totals.edit_events += edits.length;
 		for (const edit of edits) {
-			totals.lines_added += safeCount(edit.lines_added);
-			totals.lines_removed += safeCount(edit.lines_removed);
+			totals.lines_added += nonnegativeCount(edit.lines_added);
+			totals.lines_removed += nonnegativeCount(edit.lines_removed);
 		}
-		totals.tokens.input += safeCount(session.tokens_total?.input);
-		totals.tokens.output += safeCount(session.tokens_total?.output);
-		totals.tokens.cache_read += safeCount(session.tokens_total?.cache_read);
-		totals.tokens.cache_creation += safeCount(session.tokens_total?.cache_creation);
+		totals.tokens.input += nonnegativeCount(session.tokens_total?.input);
+		totals.tokens.output += nonnegativeCount(session.tokens_total?.output);
+		totals.tokens.cache_read += nonnegativeCount(session.tokens_total?.cache_read);
+		totals.tokens.cache_creation += nonnegativeCount(session.tokens_total?.cache_creation);
 	}
 	return totals;
 }

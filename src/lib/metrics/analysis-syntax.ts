@@ -4,13 +4,14 @@ import type { ParsedTsSource } from "../../harness/checks/cyclomatic-ast.js";
 export interface SyntaxSpan { line: number; endLine: number; start: number; end: number; }
 /** `loader` is how the runtime resolves the specifier: ESM rules for `import`/`export … from`/`import()`, CommonJS rules for `require()`. */
 export interface ImportReference { specifier: string | null; line: number; names: string[]; typeOnly: boolean; loader: "import" | "require"; }
-export interface Declaration { name: string; line: number; exported: boolean; }
+/** `decorated` is set only for Python: a decorator may register the declaration, so it is not scored as unreferenced. */
+export interface Declaration { name: string; line: number; exported: boolean; decorated?: boolean; }
 export interface SyntaxFacts {
     statements: SyntaxSpan[]; tests: SyntaxSpan[]; imports: ImportReference[];
     declarations: Declaration[]; identifiers: Map<string, number>; topLevelTokens: number;
 }
 
-export function syntaxSpan(node: TS.Node, parsed: ParsedTsSource): SyntaxSpan {
+function syntaxSpan(node: TS.Node, parsed: ParsedTsSource): SyntaxSpan {
     const start = node.getStart(parsed.sf), end = node.getEnd();
     return { start, end, line: parsed.sf.getLineAndCharacterOfPosition(start).line + 1,
         endLine: parsed.sf.getLineAndCharacterOfPosition(end).line + 1 };
@@ -75,11 +76,24 @@ function executableStatement(node: TS.Node, { ts }: ParsedTsSource): boolean {
         && !ts.isImportDeclaration(node) && !ts.isExportDeclaration(node);
 }
 
-function writtenTokens(node: TS.Node, parsed: ParsedTsSource): number {
+/** Written tokens of a node, outside function bodies, types and doc comments (shared with the `top_level_burden` check). */
+export function writtenTokens(node: TS.Node, parsed: ParsedTsSource): number {
     if (parsed.ts.isFunctionLike(node) || parsed.ts.isTypeNode(node) || node.kind === parsed.ts.SyntaxKind.JSDocComment) return 0;
     const children = node.getChildren(parsed.sf);
     if (children.length === 0) return Number(node.kind <= parsed.ts.SyntaxKind.LastToken && node.getWidth(parsed.sf) > 0);
     return children.reduce((sum, child) => sum + writtenTokens(child, parsed), 0);
+}
+
+/** Only the import, re-export and require references of a parsed source (single-file components need nothing more). */
+export function importReferences(parsed: ParsedTsSource): ImportReference[] {
+    const found: ImportReference[] = [];
+    function visit(node: TS.Node): void {
+        const reference = importReference(node, parsed);
+        if (reference) found.push(reference);
+        parsed.ts.forEachChild(node, visit);
+    }
+    visit(parsed.sf);
+    return found;
 }
 
 export function analyzeSyntax(parsed: ParsedTsSource): SyntaxFacts {

@@ -59,7 +59,7 @@ async function queryDaemon(
 	return isTaintControlReport(parsed) ? parsed : null;
 }
 
-export function taintClientDeps(cwd: string = process.cwd()): TaintClientDeps {
+export function taintClientDeps(cwd: string): TaintClientDeps {
 	return {
 		cwd,
 		query: (request) => queryDaemon(cwd, request),

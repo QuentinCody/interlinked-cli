@@ -1,6 +1,7 @@
 import { nonNull } from "../../lib/non-null.js";
 import { recordHookObservations } from "../hook-observations.js";
 import { buildAgentSafetyChecks, buildCheckInstructions } from "../check-registry/index.js";
+import { withCheckRoot } from "../checks/check-root.js";
 import {
 	_isJsTsExt as isBiomeOverlayTarget,
 	evaluateBiomeDiffOverlay,
@@ -180,9 +181,27 @@ export function runPreWarnRegistry(state: WriteContentGuardState): void {
 	const { content, filePath, preEditContent, warnings } = state;
 	const instructions = buildCheckInstructions();
 	for (const check of buildAgentSafetyChecks(content, filePath, "pre_warn", preEditContent)) {
-		const matches = check.fn();
+		const ownBarrel = check.name === "import_from_own_barrel";
+		const run = ownBarrel
+			? withCheckRoot(state.event.cwd || process.cwd(), check.fn)
+			: { result: check.fn(), notMeasured: [] };
+		const notices = run.notMeasured.filter(message => message.startsWith("[interlinked:import_from_own_barrel] NOT MEASURED:"));
+		if (notices.length > 0) {
+			for (const notice of notices) warnings.push(notice);
+			recordHookObservations(state.event, notices.map(message => ({
+				kind: "advisory", check: "import_from_own_barrel", file: filePath, message,
+				measurementState: "unavailable", findingCount: 0,
+			})));
+		}
+		const matches = run.result;
 		if (matches.length === 0) continue;
 		const lineList = matches.map((match) => `L${match.line}`).join(", ");
+		if (ownBarrel) {
+			warnings.push(
+				`[interlinked:${check.name}] ${filePath} has ${matches.length} advisory graph/policy observation(s) at ${lineList} — ${matches.map(match => match.text).join(" | ")} — ${instructions[check.name] || ""}`,
+			);
+			continue;
+		}
 		warnings.push(
 			`[interlinked:${check.name}] ${filePath} has ${matches.length} violation(s) at ${lineList} — ${instructions[check.name] || ""}`,
 		);

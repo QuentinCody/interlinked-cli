@@ -59,3 +59,20 @@ it("does not acquire capacity after cancellation", async () => {
     const controller = new AbortController(); controller.abort();
     await expect(acquireTestCapacity("background", Date.now() + 1000, controller.signal)).resolves.toBeNull();
 });
+
+it("cancels an unbounded foreground wait without releasing another owner's host lane", async () => {
+    const controller = new AbortController();
+    const holder = await acquireTestCapacity("background", Date.now() + 2000, new AbortController().signal);
+    expect(holder).not.toBeNull();
+    try {
+        const waiting = acquireTestCapacity("foreground", Number.POSITIVE_INFINITY, controller.signal);
+        await vi.waitFor(() => expect(foregroundWantsCapacity()).toBe(true));
+        controller.abort();
+        await expect(waiting).rejects.toThrow("compiler admission aborted");
+        expect(foregroundWantsCapacity()).toBe(false);
+        expect(tryAcquireForegroundCapacity()).toBeNull();
+    } finally { holder?.release(); }
+    const next = tryAcquireForegroundCapacity();
+    expect(next).not.toBeNull();
+    next?.release();
+});

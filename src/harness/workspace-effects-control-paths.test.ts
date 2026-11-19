@@ -49,6 +49,8 @@ describe("formatWorkspaceResidueWarning", () => {
 		);
 		expect(warning).toContain("effect-residue");
 		expect(warning).toContain("modified:a.ts");
+		// An observed change is rescanned, but it is not this session's write.
+		expect(warning).toContain("the writer is unknown and they are not attributed to this session");
 	});
 
 	it("P2: notes excluded effects attributed to another session", () => {

@@ -8,6 +8,8 @@ export interface HookObservation {
     file?: string;
     delivered?: boolean;
     related_tool_use_ids?: string[];
+    measurementState?: "unavailable";
+    findingCount?: number;
 }
 
 /** Retain non-actionable evidence without presenting it as a check verdict. */

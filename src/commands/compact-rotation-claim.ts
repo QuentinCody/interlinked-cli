@@ -5,6 +5,7 @@
 // dies between the hard link and the manifest write, retry uses the recorded
 // source identity, cut, and gzip digest instead of allocating a new sequence.
 
+import { hasErrorCode } from "../harness/check-engine/tool-errors.js";
 import { randomUUID } from "node:crypto";
 import {
 	existsSync,
@@ -56,11 +57,6 @@ interface VerifiedSegmentFingerprint {
 	size: string;
 	mtimeNs: string;
 	ctimeNs: string;
-}
-
-function errorCode(error: unknown): string | undefined {
-	if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
-	return typeof error.code === "string" ? error.code : undefined;
 }
 
 function parseIdentity(value: unknown): FileIdentity | null {
@@ -213,7 +209,7 @@ function writeClaimAtomic(path: string, claim: RotationClaim): void {
 		try {
 			unlinkSync(temporary);
 		} catch (error) {
-			if (errorCode(error) !== "ENOENT") throw error;
+			if (!hasErrorCode(error, "ENOENT")) throw error;
 		}
 	}
 }
@@ -238,7 +234,7 @@ export function removeRotationClaim(archiveDir: string, log: RotationClaim["log"
 	try {
 		unlinkSync(rotationClaimPath(archiveDir, log));
 	} catch (error) {
-		if (errorCode(error) !== "ENOENT") throw error;
+		if (!hasErrorCode(error, "ENOENT")) throw error;
 	}
 }
 
@@ -340,7 +336,7 @@ function linkClaimedSegment(
 		linkSync(temporary, finalPath);
 		return "linked";
 	} catch (error) {
-		if (errorCode(error) === "EEXIST") return "existing";
+		if (hasErrorCode(error, "EEXIST")) return "existing";
 		throw error;
 	}
 }
@@ -408,7 +404,7 @@ export function assertSegmentMatchesLivePrefix(options: {
 		try {
 			unlinkSync(temporary);
 		} catch (error) {
-			if (errorCode(error) !== "ENOENT") throw error;
+			if (!hasErrorCode(error, "ENOENT")) throw error;
 		}
 	}
 }

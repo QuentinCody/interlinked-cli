@@ -67,6 +67,17 @@ describe("detectTestRunFile", () => {
 		expect(detectTestRunFile("ls -la", "/r")).toBeNull();
 	});
 
+	it("recognizes the Node test runner: a target file, a piped command, and a bare run", () => {
+		expect(detectTestRunFile("node --test scratch/x/measure.test.mjs", "/r")).toBe("/r/scratch/x/measure.test.mjs");
+		expect(detectTestRunFile("node --test scratch/x/measure.test.mjs 2>&1 | rg '^# pass'", "/r")).toBe("/r/scratch/x/measure.test.mjs");
+		expect(detectTestRunFile("node --test", "/r")).toBe(ALL_TESTS_SENTINEL);
+	});
+
+	it("does not take a plain node script, or a file argument named like a flag, for a test run", () => {
+		expect(detectTestRunFile("node scratch/x/measure.mjs", "/r")).toBeNull();
+		expect(detectTestRunFile("node --max-old-space-size=20480 scratch/x/measure.mjs", "/r")).toBeNull();
+	});
+
 	it("returns the specific test file when vitest run targets one", () => {
 		const out = detectTestRunFile("npx vitest run src/foo.test.ts", "/r");
 		expect(out).toBe("/r/src/foo.test.ts");

@@ -9,7 +9,7 @@
 // definition credit, bounded gap enumeration, comma-grouped counts.
 
 import { nonNull } from "../../lib/non-null.js";
-import { isDefinitionSite } from "./definition-site.js";
+import { definitionShape, isDefinitionSite } from "./definition-site.js";
 import { hasUnicodeWordGlue, stripEmphasis } from "./emphasis-strip.js";
 import type {
 	IdNamespace,
@@ -173,6 +173,7 @@ function recordHit(
 		entry.defSites[entry.defSites.length - 1] !== h.line
 	) {
 		entry.defSites.push(h.line);
+		(entry.defShapes ??= []).push(definitionShape(nonNull(views.raw[h.line - 1]), nonNull(views.stripped[h.line - 1])));
 	}
 }
 

@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "./canonical.js";
-import { computeDependencyTreeHash, computePostTreeHash, computePreTreeHash, type TreeEntryInput } from "./tree-hash.js";
+import { computeDependencyTreeHash, computePostTreeHash, computePreTreeHash, computeTreeHash, type TreeEntryInput } from "./tree-hash.js";
 
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+it("enforces the same canonical bytes for the general tree and all three binding roles", () => {
+	const entries = [entry("é", "one"), entry("a", "two")];
+	const expected = { ok: true, hash: expectedHash([record("100644", "a", digestOf("two")), record("100644", "é", digestOf("one"))]) };
+	for (const hash of [computeTreeHash, computePreTreeHash, computePostTreeHash, computeDependencyTreeHash]) {
+		expect(hash(entries)).toEqual(expected);
+	}
+});
 
 function digestOf(content: string): string {
 	return sha256Hex(Buffer.from(content, "utf8"));

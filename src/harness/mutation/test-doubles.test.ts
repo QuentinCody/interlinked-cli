@@ -4,10 +4,16 @@ import {
 	importedModules,
 	mockedSymbols,
 	moduleKey,
+	testDoublesAvailable,
 	type TestDouble,
 } from "./test-doubles.js";
 
 const FILE = "src/harness/__tests__/a.test.ts";
+
+it("distinguishes a parsed test without doubles from an unavailable parser", () => {
+	expect(testDoublesAvailable()).toBe(true);
+	expect(extractTestDoubles(FILE, 'it("works", () => expect(1).toBe(1));')).toEqual([]);
+});
 
 function only(src: string): TestDouble {
 	const found = extractTestDoubles(FILE, src);

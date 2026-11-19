@@ -71,3 +71,43 @@ it("says the same test-evidence limitation once and always retains security mess
     expect(repeated.reason).toBe("security block");
     expect(deliverNovelAdvisories(ctx, event, { ...decision, warnings: ["[interlinked:test-evidence] transport gap"] }).warnings).toHaveLength(1);
 });
+
+const DEFERRED = (file: string, reason = "biome: nonzero exit with no diagnostics parsed") =>
+    `[interlinked:checks-deferred] [proven] NOT CHECKED: external checks for ${file} (${reason}). Retry each deferred check after its prerequisites change; no clean verdict exists for check.`;
+
+it("delivers a per-file NOT CHECKED line once per session, file and reason", () => {
+    const ctx = makeServerRuntime();
+    const event = { hook_event: "PostToolUse", session_id: "deferral", tool_input: { file_path: "src/a.ts" } };
+    const checks = [{ source: "quality" as const, name: "biome_lint", severity: "warning" as const, message: "deferred", determinism: "fully_deterministic" as const }];
+    const raw = { decision: "allow" as const, warnings: [DEFERRED("src/a.ts")], check_results: checks };
+    expect(deliverNovelAdvisories(ctx, event, raw).warnings).toEqual([DEFERRED("src/a.ts")]);
+    const repeated = deliverNovelAdvisories(ctx, event, raw);
+    expect(repeated.warnings).toEqual([]);
+    expect(repeated.check_results).toEqual(checks);
+    expect(raw.warnings).toEqual([DEFERRED("src/a.ts")]);
+    const other = { ...raw, warnings: [DEFERRED("src/b.ts")] };
+    expect(deliverNovelAdvisories(ctx, { ...event, tool_input: { file_path: "src/b.ts" } }, other).warnings).toEqual([DEFERRED("src/b.ts")]);
+    const reason = { ...raw, warnings: [DEFERRED("src/a.ts", "biome: timed out")] };
+    expect(deliverNovelAdvisories(ctx, event, reason).warnings).toEqual(reason.warnings);
+    expect(deliverNovelAdvisories(ctx, { ...event, session_id: "second" }, raw).warnings).toEqual([DEFERRED("src/a.ts")]);
+});
+
+it("repeats a deferral after an edit of that file whose checks ran", () => {
+    const ctx = makeServerRuntime();
+    const event = { hook_event: "PostToolUse", session_id: "state-change", tool_input: { file_path: "src/a.ts" } };
+    const ran = [{ source: "quality" as const, name: "biome_lint", severity: "info" as const, message: "ok", determinism: "fully_deterministic" as const }];
+    const deferred = { decision: "allow" as const, warnings: [DEFERRED("src/a.ts")], check_results: ran };
+    expect(deliverNovelAdvisories(ctx, event, deferred).warnings).toHaveLength(1);
+    expect(deliverNovelAdvisories(ctx, event, deferred).warnings).toEqual([]);
+    deliverNovelAdvisories(ctx, event, { decision: "allow", warnings: [], check_results: ran });
+    expect(deliverNovelAdvisories(ctx, event, deferred).warnings).toHaveLength(1);
+});
+
+it("delivers a self_import NOT MEASURED line once per file", () => {
+    const ctx = makeServerRuntime();
+    const event = { hook_event: "PostToolUse", session_id: "self-import", tool_input: { file_path: "scripts/x.mjs" } };
+    const line = "[interlinked:self_import] NOT MEASURED for scripts/x.mjs: outside every tsconfig";
+    const raw = { decision: "allow" as const, warnings: [line] };
+    expect(deliverNovelAdvisories(ctx, event, raw).warnings).toEqual([line]);
+    expect(deliverNovelAdvisories(ctx, event, raw).warnings).toEqual([]);
+});

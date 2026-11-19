@@ -210,7 +210,7 @@ describe("parser-imports (mutation coverage)", () => {
 			const content = 'noop(); import("./real.js"); import { a } from "./fake.js";';
 			const out = parseImports(content, "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./real.js", symbols: [], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./real.js", symbols: [], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 	});
@@ -219,7 +219,7 @@ describe("parser-imports (mutation coverage)", () => {
 		it("matches a type-only default import through extra whitespace", () => {
 			const out = parseImports('import  type  Foo  from  "./foo.js"', "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./foo.js", symbols: ["Foo"], isTypeOnly: true },
+				{ fromFile: "/tmp/x.ts", specifier: "./foo.js", symbols: ["default"], isTypeOnly: true },
 			]);
 		});
 	});
@@ -275,14 +275,14 @@ describe("parser-imports (mutation coverage)", () => {
 		it("matches a non-awaited destructured dynamic import", () => {
 			const out = parseImports('const { x } = import("./mod.js")', "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./mod.js", symbols: ["x"], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./mod.js", symbols: ["x"], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 
 		it("matches with a space between the opening paren and the quote", () => {
 			const out = parseImports('const { x } = await import( "./mod.js")', "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./mod.js", symbols: ["x"], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./mod.js", symbols: ["x"], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 
@@ -290,7 +290,7 @@ describe("parser-imports (mutation coverage)", () => {
 			const content = 'doStuff(); const { x } = await import("./fake.js");';
 			const out = parseImports(content, "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./fake.js", symbols: [], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./fake.js", symbols: [], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 	});
@@ -300,7 +300,7 @@ describe("parser-imports (mutation coverage)", () => {
 			const content = 'void import("./first.js"); const y = await import("./second.js");';
 			const out = parseImports(content, "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./first.js", symbols: [], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./first.js", symbols: [], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 	});
@@ -424,7 +424,7 @@ describe("parser-imports (mutation coverage)", () => {
 			const content = 'noop(); import("./real.js"); import Foo from "./fake.js";';
 			const out = parseImports(content, "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./real.js", symbols: [], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./real.js", symbols: [], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 
@@ -432,7 +432,7 @@ describe("parser-imports (mutation coverage)", () => {
 			const content = 'noop(); import("./real2.js"); import * as mod from "./fake2.js";';
 			const out = parseImports(content, "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./real2.js", symbols: [], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./real2.js", symbols: [], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 
@@ -440,7 +440,7 @@ describe("parser-imports (mutation coverage)", () => {
 			const content = 'noop(); import("./real3.js"); import "./fake3.js";';
 			const out = parseImports(content, "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./real3.js", symbols: [], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./real3.js", symbols: [], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 	});
@@ -450,7 +450,7 @@ describe("parser-imports (mutation coverage)", () => {
 			const content = 'const  { xx }  =  await  import(  "./dd.js"  )';
 			const out = parseImports(content, "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./dd.js", symbols: ["xx"], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./dd.js", symbols: ["xx"], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 	});
@@ -475,14 +475,14 @@ describe("parser-imports (mutation coverage)", () => {
 		it("matches through extra whitespace at every quantified position (no await)", () => {
 			const out = parseImports("const  modSpacey  =  import(  'modSpacey'  );", "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "modSpacey", symbols: [], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "modSpacey", symbols: [], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 
 		it("matches through extra whitespace at every quantified position (with await)", () => {
 			const out = parseImports("const mod2 = await  import(  'module2'  );", "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "module2", symbols: [], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "module2", symbols: [], isTypeOnly: false, isDynamic: true },
 			]);
 		});
 	});
@@ -496,7 +496,7 @@ describe("parser-imports (mutation coverage)", () => {
 			// to make optional.
 			const out = parseImports("import Foo from './foo';", "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./foo", symbols: ["Foo"], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./foo", symbols: ["default"], isTypeOnly: false },
 			]);
 		});
 	});
@@ -649,7 +649,7 @@ describe("parser-imports (mutation coverage)", () => {
 			const out = parseImports(content, "/tmp/x.ts");
 			expect(out).toEqual([
 				{ fromFile: "/tmp/x.ts", specifier: "./m.js", symbols: ["a"], isTypeOnly: false },
-				{ fromFile: "/tmp/x.ts", specifier: "./def.js", symbols: ["Def"], isTypeOnly: false },
+				{ fromFile: "/tmp/x.ts", specifier: "./def.js", symbols: ["default"], isTypeOnly: false },
 			]);
 		});
 	});
@@ -665,8 +665,93 @@ describe("parser-imports (mutation coverage)", () => {
 		it("parses a dynamic import() call reached with zero quote characters anywhere earlier on the line", () => {
 			const out = parseImports('if (cond) { x = import("./real2.js"); }', "/tmp/x.ts");
 			expect(out).toEqual([
-				{ fromFile: "/tmp/x.ts", specifier: "./real2.js", symbols: [], isTypeOnly: false },
+				{
+					fromFile: "/tmp/x.ts",
+					specifier: "./real2.js",
+					symbols: [],
+					isTypeOnly: false,
+					isDynamic: true,
+				},
 			]);
+		});
+	});
+});
+
+describe("parseImports — default imports, inline type specifiers, comments, dynamic edges", () => {
+	describe("A1 positive: default imports record the export name", () => {
+		it("P1: a default import is recorded as the export name 'default', not the local binding", () => {
+			const out = parseImports(`import App from "./App"`, "/tmp/x.ts");
+			expect(out).toHaveLength(1);
+			expect(out[0]?.symbols).toEqual(["default"]);
+		});
+
+		it("P2: `import X, { a, b as c } from` records default plus the named export names", () => {
+			const out = parseImports(`import X, { a, b as c } from "./m"`, "/tmp/x.ts");
+			expect(out).toHaveLength(1);
+			expect(out[0]).toMatchObject({ specifier: "./m", symbols: ["default", "a", "b"] });
+		});
+
+		it("P3: `import X, * as ns from` records only the default", () => {
+			const out = parseImports(`import X, * as ns from "./m"`, "/tmp/x.ts");
+			expect(out[0]).toMatchObject({ specifier: "./m", symbols: ["default"] });
+		});
+	});
+
+	describe("A4 positive: runtime edges must stay runtime", () => {
+		it("P4: a mixed inline clause `{ type A, b }` stays a runtime edge", () => {
+			const out = parseImports(`import { type A, b } from "./m"`, "/tmp/x.ts");
+			expect(out[0]).toMatchObject({ symbols: ["A", "b"], isTypeOnly: false });
+		});
+
+		it("P5: a default plus an inline type specifier stays a runtime edge", () => {
+			const out = parseImports(`import X, { type A } from "./m"`, "/tmp/x.ts");
+			expect(out[0]?.isTypeOnly).toBe(false);
+		});
+
+		it("P6: an awaited import() is flagged isDynamic but stays an edge", () => {
+			const out = parseImports(`const m = await import("./user.js");`, "/tmp/x.ts");
+			expect(out).toHaveLength(1);
+			expect(out[0]).toMatchObject({ specifier: "./user.js", isDynamic: true });
+		});
+
+		it("P7: a destructured and a bare import() are flagged isDynamic", () => {
+			const out = parseImports(
+				['const { a } = await import("./a.js");', 'load(() => import("./b.js"));'].join("\n"),
+				"/tmp/x.ts",
+			);
+			expect(out.map((e) => e.isDynamic)).toEqual([true, true]);
+		});
+
+		it("P8: a static import and require() carry no isDynamic flag", () => {
+			const out = parseImports(`import { a } from "./a.js"\nconst b = require("./b.js")`, "/tmp/x.ts");
+			expect(out.map((e) => e.isDynamic)).toEqual([undefined, undefined]);
+		});
+
+		it("P9: a real import after a closed block comment is still parsed", () => {
+			const out = parseImports(`/** doc */\nimport { a } from "./a.js"`, "/tmp/x.ts");
+			expect(out.map((e) => e.specifier)).toEqual(["./a.js"]);
+		});
+	});
+
+	describe("A4 negative: no import edge", () => {
+		it("N1: JSDoc @param {import('...')} in a block comment is not an edge", () => {
+			const code = ["/**", " * @param {import('../plot.js').Plot} plot", " */", "export function f(plot) {}"].join("\n");
+			expect(parseImports(code, "/tmp/x.js")).toEqual([]);
+		});
+
+		it("N2: an inline JSDoc cast on a code line is not an edge", () => {
+			const code = `const x = /** @type {import('./t.js').T} */ (y);`;
+			expect(parseImports(code, "/tmp/x.js")).toEqual([]);
+		});
+
+		it("N3: every inline specifier `type` makes the edge type-only", () => {
+			const out = parseImports(`import { type Selection, type Other } from "./Selection.js"`, "/tmp/x.ts");
+			expect(out[0]).toMatchObject({ symbols: ["Selection", "Other"], isTypeOnly: true });
+		});
+
+		it("N4: a '/*' inside a string does not hide a later real import", () => {
+			const code = ['const g = "src/**/*.ts";', 'import { a } from "./a.js"'].join("\n");
+			expect(parseImports(code, "/tmp/x.ts").map((e) => e.specifier)).toEqual(["./a.js"]);
 		});
 	});
 });

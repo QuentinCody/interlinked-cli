@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve, relative } from "node:path";
+import { dirname, isAbsolute, resolve, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
@@ -31,9 +31,12 @@ export function enumeratePool(source: string): PoolMutant[] {
     walk(file); return [...new Map(mutants.map(m => [m.id, m])).values()];
 }
 
-export function copyClosure(path: string, root: string, seen = new Set<string>()): void {
-    const absolute = resolve(path); if (seen.has(absolute)) return; seen.add(absolute);
-    const rel = relative(process.cwd(), absolute); if (rel.startsWith("..")) throw new Error("Dependency escaped repository");
+export function copyClosure(path: string, root: string, seen = new Set<string>(), sourceRoot = process.cwd()): void {
+    const absolute = resolve(sourceRoot, path);
+    if (seen.has(absolute)) return;
+    const rel = relative(sourceRoot, absolute);
+    if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error("Dependency escaped repository");
+    seen.add(absolute);
     const text = readFileSync(absolute, "utf8"); const destination = resolve(root, rel);
     mkdirSync(dirname(destination), { recursive: true }); writeFileSync(destination, text);
     const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
@@ -43,7 +46,8 @@ export function copyClosure(path: string, root: string, seen = new Set<string>()
         if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
         const spec = statement.moduleSpecifier.text; if (!spec.startsWith(".")) continue;
         const base = resolve(dirname(absolute), spec); const target = [base.replace(/\.js$/, ".ts"), base, base + ".ts"].find(existsSync);
-        if (!target) throw new Error(`Missing dependency ${spec}`); copyClosure(target, root, seen);
+        if (!target) throw new Error(`Missing dependency ${spec}`);
+        copyClosure(target, root, seen, sourceRoot);
     }
 }
 

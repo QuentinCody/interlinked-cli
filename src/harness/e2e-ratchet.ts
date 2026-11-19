@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { isJsonObject } from "../lib/json-types.js";
 import { normalizeReportPct } from "./coverage-ratchet-compare.js";
 
-export const E2E_METRICS = ["lines_pct", "branches_pct", "statements_pct", "functions_pct"] as const;
+const E2E_METRICS = ["lines_pct", "branches_pct", "statements_pct", "functions_pct"] as const;
 export interface E2eEntry {
     lines_pct: number;
     branches_pct: number;
@@ -20,7 +20,7 @@ export interface E2eComparison {
     mappings: readonly string[];
 }
 
-export function parseE2eEntry(value: unknown, path: string): E2eEntry {
+function parseE2eEntry(value: unknown, path: string): E2eEntry {
     assert(isJsonObject(value), `Malformed e2e entry: ${path}`);
     for (const metric of E2E_METRICS) assert(typeof value[metric] === "number" && Number.isFinite(value[metric]) && value[metric] >= 0 && value[metric] <= 100, `Invalid ${metric}: ${path}`);
     const covered = value.lines_covered;
@@ -83,7 +83,7 @@ function mappedPrior(input: E2eComparison): E2eFiles {
     return mapped;
 }
 
-export function assertFloors(path: string, measured: E2eEntry, floors: (E2eEntry | undefined)[]): void {
+function assertFloors(path: string, measured: E2eEntry, floors: (E2eEntry | undefined)[]): void {
     for (const metric of E2E_METRICS) {
         const floor = Math.max(0, ...floors.map((entry) => normalizeReportPct(entry?.[metric] ?? 0)));
         assert(normalizeReportPct(measured[metric]) >= floor, `${path}: ${metric} fell from ${floor} to ${measured[metric]}`);
@@ -97,7 +97,7 @@ function aggregate(files: E2eFiles): { touched: bigint; files: bigint; covered: 
         total: entries.reduce((sum, entry) => sum + BigInt(entry.lines_total), 0n) };
 }
 
-export function assertAggregates(prior: E2eFiles, measured: E2eFiles): void {
+function assertAggregates(prior: E2eFiles, measured: E2eFiles): void {
     const a = aggregate(prior);
     const b = aggregate(measured);
     if (a.files === 0n) return;

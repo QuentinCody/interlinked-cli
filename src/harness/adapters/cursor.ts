@@ -192,12 +192,12 @@ function encodeCursorBlock(
 			ctx.stderr,
 		);
 	}
-	if (ctx.postContextCapable && decision.reason) {
-		// Cursor's postToolUse can't roll back an executed tool, but
-		// `additional_context` is the model-visible feedback channel —
-		// same idea as Claude's PostToolUse `additionalContext`.
-		return jsonOut({ additional_context: decision.reason }, ctx.stderr);
-	}
+	// Cursor's postToolUse can't roll back an executed tool, but
+	// `additional_context` is the model-visible feedback channel —
+	// same idea as Claude's PostToolUse `additionalContext`. Warnings ride it
+	// too: exit-0 stderr never reaches the model (packet-line-matrix.test.ts).
+	const context = [decision.reason, ...(decision.warnings ?? [])].filter(Boolean).join("\n");
+	if (ctx.postContextCapable && context) return jsonOut({ additional_context: context }, ctx.stderr);
 	return stderrOut(decision.reason || ctx.stderr || undefined);
 }
 
@@ -251,8 +251,11 @@ function encodeCursorAllow(
 	decision: import("../types.js").HarnessDecision,
 	ctx: EncodeContext,
 ): AdapterOutput {
-	if (ctx.postContextCapable && decision.additional_context) {
-		return jsonOut({ additional_context: decision.additional_context }, ctx.stderr);
+	// Warnings ride the model-visible `additional_context` on postToolUse too: exit-0 stderr never
+	// reaches the model, and an instruction-packet line is task context (packet-line-matrix.test.ts).
+	const context = [decision.additional_context, ctx.stderr].filter(Boolean).join("\n");
+	if (ctx.postContextCapable && context) {
+		return jsonOut({ additional_context: context }, ctx.stderr);
 	}
 	if (!ctx.isGated) {
 		return stderrOut(ctx.stderr || undefined);

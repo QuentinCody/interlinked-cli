@@ -3,6 +3,7 @@
 // Extracted from agent-safety.ts to stay under the per-file line ceiling.
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import { isWeakHashSignatureAt, stringOpensMessageCall, stripWeakHashNonCalls } from "./crypto-scan-exemptions.js";
 import {
 	getExtension,
@@ -145,8 +146,9 @@ export function checkTlsVerifyDisabled(content: string, filePath: string): Inlin
 	const commentStrippedLines = stripComments(source).split("\n");
 
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		const code = strippedLines[i] ?? "";
 		const withStrings = commentStrippedLines[i] ?? "";
 		const skipAt = code.search(TLS_INSECURE_SKIP_RE);

@@ -1,160 +1,17 @@
 ---
 name: interlinked-quality-gates
-description: "Configure and respond to Interlinked's metric ratchets: line-count, per-function canonical-token count, cyclomatic complexity, coverage, CRAP, baseline integrity, the report-based mutation-score ratchet, the live per-edit mutation survivor gate, and experimental protocol-v3 durable mutation jobs. Load this for a quality-gate block; `caps`, `coverage`, `mutation`, `mutation cloud`, automatic debt obligations, manual `debt markers`, `metrics`, or `adopt`; a lowered-baseline refusal; choosing mutation cadence/scope/strictness; configuring `mutation_gate` or `per_edit_mutation`; connecting/sharding a mutation runner; operating the durable mutation journal; or interpreting `[interlinked:mutation]` and `[mutation:not-measured]`. Water-lines only tighten: meet the bar rather than lowering the baseline."
+description: "Respond to and configure Interlinked metric ratchets: line count, function tokens, cyclomatic complexity, coverage, CRAP, baseline integrity, mutation-score ratchet, per-edit survivor gate and protocol-v3 durable mutation jobs. Load for a quality-gate block or lowered-baseline refusal; `caps`, `coverage`, `mutation`, `mutation cloud`, debt obligations, `debt markers`, `metrics`, `adopt`; mutation cadence, scope or strictness; `mutation_gate` or `per_edit_mutation`; mutation runner shards or journal; `[interlinked:mutation]` or `[mutation:not-measured]`. Water-lines only tighten: meet the bar."
 ---
 
 # interlinked-quality-gates — the metric ratchets
 
-The source-only mutation research helpers support differential fuzzing, test-side
-mutant enumeration and test-double candidates. They do not enable a new automatic
-gate. Differential fuzzing calls original and mutated functions in-process; use it
-only for suitable side-effect-free targets. A minimized divergence is a candidate
-regression input, while no divergence is bounded search evidence, not equivalence.
-Missing optional dependencies and unsupported targets remain explicitly unavailable.
-
-## Experimental decision-model measurements
-
-`metrics decisions relations` implements shared-invariant membership, nonexclusive
-roles, pair/group compatibility, directional coupling and paired evidence comparison.
-Use `prepare --revision REF --history-tip REF --since ISO --until ISO --engines FILE`,
-then `freeze PLAN --output BUNDLE`, `assess BUNDLE`, and `export RUN`. The registry
-lives in version-controlled `semantic-relations/invariants.json` and `scenarios.json`;
-`--exploratory` explicitly permits an uncommitted registry. Runtime artifacts and
-claim events share `.interlinked/semantic-graph/`, not the v1 decision-metrics store.
-Groups have a dedicated v2 population and must not be joined to description claims.
-For two revisions, `compare BEFORE --after AFTER --output-plan PLAN` creates a plan
-consumed by `freeze` and `assess`; report with `compare --assessment-run PAIRED_RUN`.
-Use the same pre-change history tip/window on both sides. Missing participants,
-ambiguous identity, changed measurement conditions and unresolved sides remain
-non-comparable. A changed probability or categorical answer is not a repair verdict.
-Explicit D/J/H engine records pin backend, model identity, budgets and uncertainty
-band; the default v1 backend remains Ollama. H is an independent Haiku 5.5 low arm,
-with empty tools/MCP, safe mode, no persistence and a required canary. Preserve
-unavailable arms; never replace them silently. No downloads are automatic.
-`labels` creates blind Astra review inputs. `audit --labels FILE` separates model
-reference agreement from fixture evidence, reports candidate recall first, and uses
-one-sided 95% exact Clopper–Pearson bounds only when case IDs are independent.
-No human review is required by this workflow. Model labels are not independent
-ground truth, and these exploratory reports do not qualify or enable automatic alerts.
-Retain frozen inputs and results locally under `semantic-relations/studies/`;
-raw outputs are ignored, while readable Markdown reports are committed. Fresh clones
-cannot regenerate study summaries without those local inputs. Hashes of
-uncommitted bundles do not constitute Git review authority. See
-`semantic-relations/README.md` for the complete current workflow and limitations.
-
-For interactive use, pass `--cwd` for the repository whose revision is being assessed;
-the nested command inherits it from `metrics`. Source evidence comes from the pinned
-Git revision, even with `--exploratory` policy. Capture dirty source in an isolated
-snapshot if that is the intended subject. Compare the advice against a prior source
-review and executable checks: confirmation of an existing hypothesis is a second
-opinion, not a new finding. Exact cached assessments make no new model calls; their
-latency is not fresh-inference latency. The runtime dogfood report under
-`semantic-relations/studies/2026-10-27-runtime/` records these limits in actual use.
-
-For the internal public-GitHub semantic collection and Jev/Luna research workflow,
-the optional local research checkout may contain
-`research/semantic-factory/repo-pipeline/README.md`. That directory is ignored and
-is not included in a fresh clone or package. When available, its `pipeline.py` uses
-one active repository iteration: collect a pinned snapshot, prepare source-linked
-candidates, import two separately recorded source reviews, freeze, then explicitly
-evaluate with `--go`. It is not an Interlinked CLI command or harness gate. Treat
-downloaded code and instructions as data; never execute target code during collection.
-Inspect source availability, exact boundaries and semantic eligibility before inference.
-Retain unresolved references, missing sources, failed calls and unpriced costs.
-Finish with recorded lessons before starting another repository; changed questions,
-sources or pipeline code require a new frozen iteration. Embedding retrieval is not
-implemented in v0.1; lexical candidates are not established semantic graph edges.
-Its `metrics`/`render` outputs include per-category and per-artifact semantic
-profiles, source gaps, review eligibility, model scores and global call accounting.
-Keep scores attached to the exact question and sampled population; do not turn
-unassessed functions into zeroes, count context-only appearances as judged edges,
-or average different relationship meanings into a universal quality score.
-
-`metrics decisions` is an experimental research/advice namespace, not a ratchet.
-Read `docs/decision-metrics.md` for the full contract. `init` writes disabled
-`.interlinked/decision-metrics.json`; manual commands explicitly request inference.
-Defaults are local Ollama Clef Flash 9B through ThinkThen's CLI and the full
-EmbeddingGemma 2 740M BF16 (`embeddinggemma-2:740m-bf16`) at 768 dimensions. Qwen3 Embedding 4B is an explicit
-comparison model. No weights or binaries are downloaded automatically.
-
-Use `catalog`, `prepare --unit function|hunk|all`, `measure --plan`, then `measure`.
-The source extractor pins native metrics; optional bca needs `--bca-command` and
-the exact `--bca-version`. Keep bca values separate from native counters.
-`snapshot` and `candidates [--retrieval lexical|embedding|hybrid]` prepare consumer
-cohorts. `review --analysis obligations|atomicity|faithfulness|compare|coupling|rework`
-runs the relational protocols. Atomicity and faithfulness require one revision.
-Supply literal claims with `--claims`; otherwise description lines are the lexical
-baseline. Verification-only obligations do not require unnecessary edits.
-Use hunk records for contract changes to types, interfaces and enums; function-only
-extraction omits those declarations. `embed` then `geometry` produces provisional
-distances on a bounded population, never calibrated quality probabilities.
-
-`pilot` collects commits; `labels` creates blind templates; `join-labels` requires
-the complete labeled population; `audit --cutoff DATE` uses a time split. Add
-`--comparison` for matched direct/retrieval cohorts and five-arm reporting.
-Independent reviewer labels, comparable features and clone/fork grouping remain
-operator responsibilities. `replay --band LOW:HIGH` is offline; `diff --after RUN`
-reports drift; `probe` performs fresh meaning/stability tests. An audit diagnostic
-never promotes a question to a blocking gate.
-Audit band suggestions use training labels only. Preserve full distributions and
-question contracts when joining labels; mixed rubric versions are rejected.
-
-Preserve all five states: answered, insufficient evidence, abstained, failed and
-unassessed. CLI exits are 0 completed/plan, 2 usage/configuration, 3 uncertain or
-insufficient, 4 failed runtime/all failed, 6 partial failure and 7 unassessed.
-Raw score distributions and exact wire exchanges stay in the private local run
-store. `--fresh` preserves earlier observations. Model probabilities are marked
-unvalidated on code; do not describe their sums as expected defect counts.
-
-Automatic advice requires both `enabled` and `hook.enabled`, permits only
-function contracts, and uses exact observed source hashes for pre-edit baselines.
-Missing baselines and short deadlines produce explicit missing assessments.
-Keep existing deterministic coverage, mutation and e2e obligations in force.
-
-Edit-time function tokens, cyclomatic complexity and cognitive complexity now
-advise by default. Shared `.interlinked/config.json` can explicitly select
-`harness.edit_metrics.mode: "enforced"` for the existing hard cap behavior.
-The following cap-block and grandfather-ledger instructions apply in that mode;
-measurements, protected baselines, explicit verification and behavioral test gates
-remain intact. Do not add concepts merely to lower a structural count.
-
-Physical per-file size is now advisory. The `lines` setting remains a review
-preference and historical measurements remain available; it never blocks source
-edits, native cold fallback, verification or commits solely for size. Do not remove
-braces, join lines, invent temporary variables, or split modules merely to satisfy
-that number. This is a decomposition prompt, not an LLM context-token budget.
-Guard ownership belongs to predict–reveal–reconcile; see **interlinked-harness**.
-
-File-size and per-function checks share Write/Edit/MultiEdit and native patch projection.
-Multi-file patches check every reconstructed target, and moves retain their source
-before-state. Equivalent known effects face the same policy. Unknown reconstruction
-is unmeasured, never a passing receipt. Arbitrary shell writes still require checking
-their observed effects after execution.
-
-Behavioral execution and structural measurement have separate language coverage. Explicit
-`tests suite` supports TS/JS, Python, Rust and Go; the new iterative diagnostic profiles
-remain JS/TS and Python only. A passing runner is not evidence that new requirements have
-tests. Exercise new public boundary/error/state-transition contracts as well as preserving
-existing cases. Project-suite failures without a before result are not proven regressions.
-No new verbosity or erosion hook gate is enabled by these diagnostics.
-
-Python test-first guidance recognizes `test_<name>.py` and `<name>_test.py`, including
-root, package and separate test directories. Discovery refreshes when directories or
-runner configuration change during a daemon session. These are naming hints, not proof
-of coverage: inspect custom collection layouts before creating redundant tests. The
-configured new-file policy applies to JS/TS and Python. Explicit
-`test_first_mode: "enforce"` requires a companion even in an empty repository;
-layout detection does not demote it. Create the first behavioral test before its
-implementation. Pair debt can sequence later source/test edits once a test layout
-exists; it cannot replace that first-test bootstrap. `"warn"` remains advisory.
-A companion filename alone is not evidence of a failing or passing test. Python uses
-`# interlinked-tdd: exempt` for the existing explicit exemption directive. This does not
-establish equivalent pre-execution TDD enforcement for arbitrary Bash writes.
-
-The experimental Cowork portable plugin does not carry these repository baselines
-or run coverage/mutation automatically. Load **interlinked-cowork** for explicit
-host bridging and version checks. Its `cowork verify` external-tool subset is not
-evidence that a coverage, mutation, CRAP or baseline ratchet passed.
+For `metrics standards --profile dmmulroy-typescript`, see
+[local standards measurements](references/standards.md). It retains all 35 pinned
+guidance groups with separate syntax, detector, candidate and unknown coverage,
+all-role denominators, source-driven units and explicit caller/context gaps.
+Explicit metrics/standards surveys retain complete selected sources without implicit
+body-size, path-count or Git-listing limits. See [metrics procedures](references/metrics.md)
+for the separate foreground Python policy, runtime bounds, exclusions and unavailable inputs.
 
 Every quality metric is a **water-line** stored in a JSON file under `.interlinked/`. The gates
 enforce **"may only move in the tightening direction"**: coverage/mutation scores may only rise;
@@ -177,94 +34,47 @@ test or lower complexity score does not prove complete correctness. Intentional 
 changes need corresponding expectations; do not preserve a bug merely to keep a test green.
 Do not tailor implementations or test selection to hidden benchmark cases.
 
+The experimental Cowork portable plugin does not carry these repository baselines
+or run coverage/mutation automatically. Load **interlinked-cowork** for explicit
+host bridging and version checks. Its `cowork verify` external-tool subset is not
+evidence that a coverage, mutation, CRAP or baseline ratchet passed.
+
 ## The gates you bump into at edit time
 
-### Expression readability is advisory
+Edit-time function tokens, cyclomatic complexity and cognitive complexity now
+advise by default. Shared `.interlinked/config.json` can explicitly select
+`harness.edit_metrics.mode: "enforced"` for the existing hard cap behavior.
+The following cap-block and grandfather-ledger instructions apply in that mode;
+measurements, protected baselines, explicit verification and behavioral test gates
+remain intact. Do not add concepts merely to lower a structural count.
 
-`interlinked metrics expressions [file-or-directory] --cwd <repo> --json` measures
-JS/TS expressions with `interlinked-expression-v1`. It reports source hashes, UTF-16
-half-open spans, syntax tokens, callback counts/depth and literal-data classification.
-Default preferences: tokens >60, callback depth >2, inline callbacks >=3, control-flow
-depth >3; nested ternaries, multiline unbraced bodies and same-line sibling statements
-also advise. Single-line guards are accepted by default. Generic brace advice defers
-to a target's configured style tools; imported rules preserve their explicit policy.
-Literal-only tables are excluded from the token warning. Test registration calls are
-excluded as containers; computations inside their bodies are still inspected.
+Per-metric settings in the check policy `metrics` map now control `cyclomatic`,
+`cognitive`, and `function-tokens`: report, warn, block or off, with targets and
+file/role scopes. Missing entries inherit the legacy posture. Blocking targets may
+only tighten canonical caps, and adopted policy is protected against agent weakening.
+See [metric policies](references/metric-policies.md) for edit configuration and
+unsupported metric IDs. `metrics policies export|inspect|evaluate` shares versioned
+data-only references to installed metrics and detectors. Its report/warn/off
+assessment retains all 23 project readings and explicit evidence gaps. See
+[policy profiles](references/policy-profiles.md) for the schema, aggregate-scope
+limits and reviewable structural proposals.
 
-Optional `.interlinked/readability.json` is `{ "version": 1, "limits": {
-"expressionTokens": 60, "callbackDepth": 2, "callbackCount": 3,
-"controlFlowDepth": 3 } }`. Omitted limits keep defaults; unknown fields and invalid
-integers are unavailable evidence. The nearest ancestor policy applies, stopping at
-the git root. These are calibrated preferences, not protected complexity baselines.
-Keep useful domain abstractions and explicit loops even when their branch count rises.
-Naming a predicate does not fix discarded provenance or a false success claim.
+Physical per-file size is now advisory. The `lines` setting remains a review
+preference and historical measurements remain available; it never blocks source
+edits, native cold fallback, verification or commits solely for size. Do not remove
+braces, join lines, invent temporary variables, or split modules merely to satisfy
+that number. This is a decomposition prompt, not an LLM context-token budget.
+Guard ownership belongs to predict–reveal–reconcile; see **interlinked-harness**.
+The `file.lines` metric-policy entry controls advice targets, path/role scope and
+report/warn/off disposition in the daemon and native cold pre-write path. Standalone
+generated cold hooks emit NOT MEASURED for physical-line settings. The policy
+reference records phase coverage and the project AST line-count convention.
 
-The command exits 0 for measured inventories, including findings, and 2 for unavailable,
-unsupported or empty scope. Directory completeness refers only to listed discovered
-JS/TS files. Missing TypeScript or recovery syntax is NOT CHECKED. Hook advice compares
-whole expressions against captured pre-edit content, so a change below an unchanged
-initializer line is visible; moving or formatting existing debt does not reintroduce it.
-Identity uses owner/label and metric-value allowances, not semantic equivalence. Without
-a usable before-state the current inventory cannot prove a regression.
-
-Use **interlinked-verify** for `verify --all-checks` and explicit formatter/linter gates.
-Do not turn these advisory checks into heuristic `pre_block` errors or lower protected
-function/coverage baselines to accommodate formatting.
-
-### E2E coverage water-line
-
-In the Interlinked CLI repository, run `npm run build:e2e`, then
-`npm run test:e2e:coverage`, then
-`node dist/index.js coverage check --lane e2e --strict --require-measured`.
-`interlinked coverage status` shows quality coverage lanes; it is distinct from
-`interlinked harness coverage status`, which describes filesystem observations.
-
-The e2e lane reads only `coverage-e2e/coverage-summary.json` by default. Its
-adjacent `run.json` must bind a passing child-process run to the current build,
-test inputs, inventory and report. Missing, partial, stale or malformed evidence
-fails. The full inventory includes zeroes for unexecuted code. Generated-hook
-strings are checked behaviorally and excluded from line metrics.
-
-Create an absent `.interlinked/coverage-e2e-baseline.json` only with
-`coverage check --lane e2e --init-baseline`. It refuses an existing file.
-`--update-baseline` saves only after every check passes; failure preserves the
-baseline bytes. All four percentages, touched-file share and weighted line
-coverage have zero tolerance. `--changed-files` conflicts with `--lane e2e`.
-`coverage baseline --lane e2e` displays the baseline, including line counts.
-
-Deleted code carries no obligation; surviving files retain their floors.
-A deletion plus a new boundary path is UNRESOLVED until the author records
-`coverage move --lane e2e <old> <new>` or `coverage retire --lane e2e <old>`.
-Retire refuses surviving executable boundaries. Moves preserve entries; use
-repeatable `--map A=B --map B=C` for atomic chains. A destination must meet its
-transferred, pre-write and base floors. If a move cannot meet them, collect
-coverage and use `coverage check --lane e2e --map A=B --map B=C --update-baseline`
-to apply mapping and measured values in one locked transaction.
-
-Local comparisons use HEAD. CI supplies `--base <sha>`: the PR merge base or
-the push's previous revision. Missing history, new-ref zero SHAs and force pushes
-fail closed. `INTERLINKED_PRE_PUSH_SKIP_E2E=1` records an explicit skipped e2e
-row; CI still runs. Intent and effect guards also check CLI writes; they judge
-values and tree evidence without trusting a writer's identity.
-
-Behavioral contracts complement metric gates: `tests contracts inspect|run` separates
-expectation provenance, configured acceptance, execution failures and unavailable evidence.
-Exact example/expectation conflicts require reconciliation; a citation without an exact
-observation binding remains a semantic review obligation. Passing agent-authored tests,
-coverage or mutation scores cannot certify expected answers. `tests contracts run
---previous <manifest>` retains old expectations against current code; legitimate behavior
-changes remain possible through explicit requirement/rationale review. This is not a new
-heuristic edit block. Use **interlinked-verify** for schema, runner budgets and ownership.
-
-Execution evidence is available through `interlinked data checks` and `data investigate`.
-`check-results.jsonl` retains per-call findings and reported execution coverage;
-`check-executions.jsonl` records each configured quality-loop entry, including disabled,
-skipped, deferred, error, and completed states. A completed check with no reported findings
-is not necessarily a clean whole-file verdict because diff-aware filtering applies. Other
-check pipelines have separate coverage. Capture does not change any gate decision.
-These run before an edit lands. The local metric ratchets use **delta semantics**: holding or
-reducing existing debt is allowed. Per-edit mutation is separately configurable as off, warn,
-or block.
+File-size and per-function checks share Write/Edit/MultiEdit and native patch projection.
+Multi-file patches check every reconstructed target, and moves retain their source
+before-state. Equivalent known effects face the same policy. Unknown reconstruction
+is unmeasured, never a passing receipt. Arbitrary shell writes still require checking
+their observed effects after execution.
 
 | Gate | Blocks when | Threshold | Correct response |
 |---|---|---|---|
@@ -286,7 +96,7 @@ bricked and coverage only moves toward the goal. The separate `min_coverage`
 hard floor blocks outright and, once set, only rises (baseline-integrity gate).
 | **CRAP** | a touched function is both complex AND under-covered | shipped **30**; this repo overrides to **25**, default on | Decompose OR add coverage (both lower CRAP) |
 | **Per-edit mutation** | a measured edit adds a changed-region survivor/uncovered site, makes affected tests red, or exceeds the site limit | default **off**; site limit **50**; `mode: block\|warn\|off` | Strengthen the test, fix/remove the source behavior, or split an oversized behavioral change |
-| **Baseline-integrity** | a Write/Edit *loosens* any `.interlinked/` water-line | per-file direction | Meet the bar; don't edit the baseline |
+| **Baseline-integrity** | a Write/Edit *loosens* any `.interlinked/` water-line (the name matches in any letter case), or a `git commit` deletes one (`git rm`, `git mv`, `--pathspec-from-file` counts as the whole tree) | per-file direction | Meet the bar; don't edit, move or delete the baseline |
 
 **Modes ladder the philosophy-dependent gates (2026-08-17).** `interlinked mode`
 writes gate posture into `guard-rules.json` alongside its check-policy overrides:
@@ -296,33 +106,6 @@ coverage debt mode; `lenient` = TDD/characterize gates, per-edit coverage, and
 session-end nudges off. Findings still surface as warnings in lenient; security
 rails and every tighten-only ratchet ignore the mode. Hand edits to
 `guard-rules.json` win until the mode is re-applied.
-
-**Refactor-readiness additions (plan 25, 2026-08-17).**
-- `characterize_before_touch` (`structural_checks.characterize_mode`): editing
-  a file on the untested list asks for a characterization test FIRST — capture
-  today's behavior with exact assertions, then change it. Same
-  `// interlinked-tdd: exempt` escape as the new-file gate.
-- Ratchet-family dimensions: `seam_ratchet` tracks added ambient clock/random/env
-  reads. `assertion_strength_ratchet` is heuristic PostToolUse advice for test files,
-  never a block: it flags introduced broad matchers without introduced exact checks.
-  JS/TS comparison uses complete assertion calls, ignoring comments, strings,
-  formatting, moves, and existing calls; Python retains a stripped-line heuristic.
-  Missing raw pre-edit content or unusable JS/TS syntax yields no assertion advice.
-  Exact undefined/null, call-count, and zero-call checks are legitimate contracts.
-  Broad membership/type checks can also be appropriate; assess the tested behavior
-  before changing them. A matcher classification does not prove mutation coverage
-  or require literal-only expected values.
-- `new_import_cycle` (structural, default warn): fires the moment an edit
-  closes a module cycle that did not exist before.
-- Advisory portability family: `dynamic_code_execution`,
-  `builtin_prototype_mutation`, `float_equality_comparison`, plus
-  `test_contract_annotation` (mutation-directed files only) and
-  `unvalidated_input_boundary`.
-- `per_edit_mutation.max_test_scope` (default 150) is an engine budget.
-  `per_edit_coverage.drop_epsilon` is a tighten-only water-line: values above the
-  built-in 0.005 are ignored with a warning unless an operator intentionally resets
-  it in the daemon environment. Daemon timings are separate implementation budgets.
-  Cognitive and cyclomatic have no sub-cap slew rule.
 
 **File size** — three advisory surfaces: PreToolUse growth advice,
 `large_files` under `verify --all-checks`, and a `[interlinked:file-size]` PostToolUse
@@ -381,76 +164,15 @@ then decides: red-bar (default on) → uncovered-added-line → per-file coverag
 `coverage-edit-baseline.json` → `min_coverage` floor → CRAP (default on). With default
 `debt_mode:true`, the first uncovered or red result opens a pair-scoped debt and the edit lands;
 keep working in that source/test pair until it is covered and green. The commit gate remains the
-ground-truth backstop.
-
-JS/TS can select affected tests from its supported dependency evidence. Python currently
-uses the bounded full-suite route: a companion filename or an empty JS graph cannot prove
-a complete Python test selection. Over-budget work retains the existing deferral policy.
-Python suite and coverage paths share interpreter selection: explicit adapter configuration,
-active `VIRTUAL_ENV`, project `.venv`/`venv`, then the platform Python. A selected but broken
-environment is unavailable, with no silent fallback. Overlays execute in the staged tree
-using the original project's interpreter; recognized environment layouts are linked rather
-than copied, with proposed writes kept from mutating the original environment.
-If observed imports resolve to original project source outside the staged tree, the run
-is unmeasured for that edit, even when those cases pass or fail. This detects common editable
-install mistakes; it does not remap editable installs or certify all subprocess/data inputs.
-
-Default pytest execution records fresh structured case outcomes. Missing, empty, skipped-only
-or incomplete execution never earns a green verdict or a clean baseline. Observed assertion,
-fixture or teardown failures remain red even if coverage is missing or collection is incomplete;
-the configured failure/debt policy still applies. Custom Python command overrides retain their
-argv but are unmeasured for red/green without structured evidence. Default Python coverage
-runs own separate JSON report directories and `COVERAGE_FILE` databases, cleaned after parsing;
-they preserve project cwd/configuration and do not clear a caller's existing report/database.
-Custom command overrides keep their existing report-path contract and are not qualified for
-concurrent report isolation. Reusable dependency-aware indexing and live mutation still lack
-parity. Do not describe the language as fully qualified from a runner pass.
-
-Python edit/commit CRAP now uses coverage.py's native function-region executable lines,
-matched to Radon by declaration line and function name. Nested bodies do not contribute to
-their enclosing function's coverage; excluded lines and branch percentages do not inflate
-function line coverage. Reports must include native regions with `start_line` (introduced in
-coverage.py 7.13.1). Older/malformed reports, ambiguous or unmatched functions, and functions
-with no measured executable lines produce explicit missingness, not inferred coverage or
-invocation counts. A wholly excluded function is unmeasured for CRAP. Missing attribution
-cannot earn a clean edit baseline or discharge commit obligations while CRAP is enabled;
-known coverage violations still apply. Unavailable complexity analysis also keeps commit
-obligations open. These changes qualify the edit/commit paths, not every metrics/report surface.
-Active distributed pytest execution is explicitly unmeasured until worker collection and
-runtime identity are qualified; installing xdist alone does not make a serial run unsupported.
-
-Vitest coverage include/exclude edits block only when a concrete path example is
-provably included by HEAD and omitted by the proposed combined scope. These
-examples describe configured path membership, not an on-disk file census.
-Supported comparisons cover positive relative globs with literal directories,
-complete globstars, filename suffix wildcards and bounded comma brace alternatives.
-Widened includes, narrowed exclusions and equivalent redundant patterns pass.
-Negation, extglobs, character classes, unsupported wildcard placement, unknown
-defaults, computed object keys, object spreads or unresolved overlaps allow with an explicit abstention warning:
-review manually; an abstention makes no measured or clean claim. The shared
-baseline bypass policy is unchanged.
-Any computed property name in the config source causes abstention, including
-literal-looking computed names and nested objects accessed through aliases or
-factories. The gate does not evaluate JavaScript bindings to prove a computed
-value irrelevant. Ordinary identifiers and quoted property names retain the
-literal-array/glob comparison. When a coverage literal exists, any object spread
-in the source also requires abstention: an enclosing or aliased spread may
-replace the entire `test` or `coverage` object. A blocking comparison requires
-unique plain `test.coverage` properties in a directly default-exported object,
-optionally wrapped by the named `defineConfig` import from `vitest/config` or
-`vite` (including an import alias). Duplicate keys, accessors, detached literals,
-exported bindings, factories, arbitrary calls and CommonJS assignments are not
-resolved by this guard; they warn when a coverage literal cannot be established
-as the effective configuration. Parentheses and TypeScript assertions are transparent.
+ground-truth backstop. Commit coverage takes the real checkout’s heavy-process lease and the shared host test slot. Vitest runs one instrumented worker. A busy host or interrupted run leaves coverage obligations open. Retry the full coverage suite against the same staged contents or resulting commit.
 
 **CRAP** = `cyclomatic² · (1 − coverage/100)³ + cyclomatic`, where coverage is a percentage.
 Full coverage reduces the score to cyclomatic, but low coverage can exceed the default threshold
 even at modest complexity (complexity 5 at 0% coverage scores 30). Treat complexity and coverage
 as independent levers; neither cap alone guarantees a safe CRAP score.
 
-The per-function Istanbul reader scopes its cache to the normalized report path and
-repository root, with mtime invalidation. A shared monorepo report can therefore be
-read from a package root or workspace root without reusing the other root's file keys.
+The Coverage row reports whether the source coverage report was available. With
+coverage present, an empty hotspot list means there are no CRAP rows to display.
 
 **A function with no coverage reading gets no CRAP score at all.** When the report contains no
 measurement for a function — the source moved since the last coverage run, or the instrumenter
@@ -501,9 +223,21 @@ Set the score floor in `.interlinked/check-policy.json` (team) or
 **Current contract:** `min_score` affects the comparison. `enabled` and `schedule` record policy
 intent but do not invoke or schedule Stryker; wire the command into the chosen CI/hook/cron
 surface yourself. The public command currently exposes `--report`, `--baseline`,
-`--update-baseline`, and `--json`; `--baseline` is accepted but the handler still reads the
-standard `.interlinked/mutation-baseline.json`. Internal `minScore`/`changedFiles` support is not
-registered as public CLI flags.
+`--update-baseline`, and `--json`. Omitted `--report` searches
+`reports/mutation/mutation.json`, `reports/mutation/mutation-report.json` and
+`.stryker-tmp/reports/mutation.json` in order. An explicit report selects that
+path and empty path arguments fail visibly.
+
+`--baseline <path>` selects an existing comparison baseline. The default is
+`.interlinked/mutation-baseline.json`. Explicit inputs require readable,
+shape-checked mutation data. With `--update-baseline`, the selected file receives
+the preserved-or-tightened water-lines. JSON output retains requested and resolved
+paths, selection source and update status. Ordinary aliases update their resolved
+baseline target under the same cross-process claim. Other protected runtime
+control paths, including resolved aliases, fail before comparison or updates.
+The root mutation policy supplies `min_score`. Alternate updates target the
+selected comparison file. Internal `minScore`/`changedFiles` support remains
+available to existing callers.
 
 The score is `killed / (killed + survived)`. Timeout, no-coverage, compile-error, and
 runtime-error mutants are excluded from that denominator; inspect the engine report instead of
@@ -514,403 +248,39 @@ engine: Stryker's `mutate` paths/ranges, test runner and selected tests, mutator
 concurrency, timeouts, coverage analysis, and incremental mode. There is no Interlinked
 `light|standard|full` preset.
 
-### Current dogfood and cloud boundary (2026-08-31)
-
-The local synchronous runner can be exercised without enabling the edit gate
-or changing a manifest:
-
-```bash
-interlinked mutation measure src/path/to/file.ts \
-  --runner-url http://127.0.0.1:8790 --budget-ms 180000
-```
-
-Omit `--record` for a read-only smoke test. A successful command proves that
-the selected local runner completed this one measurement; it does not prove
-that background delivery, cloud tenancy, or the live hook path is ready.
-
-An HTTP 200 alone is not a recordable measurement. `measure` and sweep label a
-syntactically readable but incomplete response `PARTIAL — NOT RECORDED`, show
-any parsed mutants/survivors for diagnosis, and withhold the raw report from the
-write path. `--record` moves the manifest only when the response names the exact
-target and source, reports engine exit 0, proves a green test run with more than
-zero executed tests, loses zero mutant rows during parsing, and has a non-zero,
-conclusive whole-file census. On an existing baseline, every prior mutant in an
-unchanged symbol must also remain in that census. The record function repeats
-these checks itself, so callers cannot bypass them by invoking the writer
-directly. Missing, malformed, red, stale, truncated, timeout, and indeterminate
-evidence remains visible but cannot establish or replace a baseline.
-
-A request that outlives the per-request timeout (default 300 s) is not run
-again blindly. The client asks the runner for the retained report by job id
-(`GET <endpoint>/job/<id>`) on every later round and takes it when it lands;
-the outcome then carries `request.resumed: true` and the command prints a NOTE.
-Only when the runner holds nothing for that id does the client POST again, and
-an accepted repeat is counted: `request.attempts: 2` and a WARNING that the file
-was measured twice. Treat `attempts: 2` as two separate runs when comparing
-survivor counts.
-
-Protocol v3 now has a digest-pinned evidence contract, authenticated local
-adapter, SQLite leases/journal-before-ack primitives, and strict cloud HTTP
-submission/claim clients. The manual, explicit opt-in CLI composition is:
-
-```bash
-interlinked mutation cloud submit \
-  --request scratch/job-request.json --artifact scratch/source.bundle
-interlinked mutation cloud submit-edit src/path/to/file.ts
-interlinked mutation cloud onboard src/path/to/file.ts
-interlinked mutation cloud process
-```
-
-All four commands require `.interlinked/mutation-cloud-v3.local.json` (or
-`--config`) with `version:1`, `enabled:true`, one HTTPS endpoint, project /
-claimant / owner identities, timeouts and lease duration, the pinned contract
-digest and key registry, independently configured server authority, evaluator
-policy version, and site limit.
-The configured digest must equal the contract identity compiled into this CLI
-build; agreement between a config file and a remote service is not sufficient,
-and a mismatch is refused before source upload, admission, or evaluation.
-These four durable-journal verbs require Node
-22.5 or newer because they use the built-in `node:sqlite`; importing or using
-other CLI commands does not open that runtime. The separate
-`background_enabled` field defaults to `false` and is not required for any
-manual command. `submit` authenticates cloud acceptance before
-the job enters `.interlinked/mutation-journal.sqlite`, then makes ONE immediate
-claim attempt. `submit-edit <target>` is the bounded convenience path for one
-current proposed target: it rejects symlinks and unsafe paths, captures immutable
-HEAD plus exactly those current target bytes, selects tests only from that synthetic
-snapshot, and submits the parser-minted request plus its exact archive and target.
-Its deterministic job key makes an exact retry idempotent, while a changed target,
-HEAD, authority, artifact, scope, or test set produces a different job. It always
-uses `require_established`; it cannot establish its own baseline, adopt current code,
-or enable the live gate. `process` resumes at most one job through claim → authenticate →
-the shared local evaluator → atomic SQLite decision/manifest/receipt/run/outbox
-commit → remote ack. A failed ack leaves the committed row recoverable; none of
-these verbs enables `per_edit_mutation` or changes its mode.
-
-`onboard <target>` is the separate, safe first-baseline path. It refuses any
-staged, unstaged, or untracked change; binds the configured repository identity,
-a stable immutable HEAD, and a tracked regular-file target; builds a bounded,
-versioned `git archive` and selects tests only from its materialized HEAD snapshot.
-The protocol binding names that byte format exactly as `git-archive-tar-v1`;
-the request, acceptance receipt, and execution receipt all hash-bind the same
-format/hash/length tuple, so a cloud executor must decode that format and must
-never infer an archive type from content or a filename.
-Before any network call it persists a fresh random job key plus the exact request,
-archive, and target bytes as an unclaimable schema-v7 prepared intent. Only an
-authenticated acceptance activates that intent atomically as a normal pending job
-with `adopt_current`; reopen/replay reuses those exact bytes and rejects drift.
-Ordinary `cloud submit` remains `require_established` and cannot carry adoption
-intent. Onboarding does not deploy infrastructure or enable the live edit gate.
-
-Schema-v6 authenticated evidence retains the canonical envelope, receipt, and
-terminal JSON plus exact report BLOB bytes for offline re-verification, with the
-journal commit completed before remote acknowledgement.
-
-Schema v8 scopes the authoritative protocol-v3 manifest head by the exact
-authenticated tenant, project, and repository. Switching any of those values is
-a baseline miss, never reuse of another authority's state; reopening with the
-same values reuses the same head. Upgrading a pre-v8 journal deliberately leaves
-the old unscoped singleton head as historical data and creates no attributed
-head from it. Ordinary v3 runtime startup does not scan or import
-`.interlinked/mutation-manifest.json` or the legacy JSONL stores at all, so a
-large, changing, corrupt, or unreadable legacy file cannot grow the SQLite
-journal or block startup. The internal explicit audit-import seam is bounded to
-256 KiB per file and 512 KiB total; larger files record only bounded metadata
-and an `oversized` skip reason. Whether captured or skipped, legacy bytes never
-mint or replace v3 authority state. After that migration, run authenticated
-`mutation cloud onboard <target>` for each target whose v3 baseline should be
-established; `submit` and `submit-edit` remain `require_established` and cannot
-bootstrap from legacy state.
-
-Schema v9 applies that same authority boundary before a queue lease is minted.
-Both keyed immediate processing and background `process` claims require exact
-tenant, project, and repository columns written with the job; runtimes sharing
-one local journal cannot claim one another's rows. Pre-v9 job rows are preserved
-for audit but deliberately receive no inferred authority, remain unclaimable,
-and are not automatically resumable; preserve/review them separately rather
-than treating them as v3 work for the configured authority. Onboarding lookup
-and uniqueness use the full tenant/project/repository/commit/target tuple, so
-the same repository commit and target may establish independent baselines for
-different authorities. Existing onboarding rows migrate using the tenant and
-project values already persisted and request-bound in those rows; no authority
-is reconstructed from a response.
-
-The protocol-v3 contract digest includes the normative source files. After updating those
-files, regenerate the CLI digest and have the remote service vendor the matching contract
-before expecting strict verification to accept its results. Updating a local pin alone does
-not update the remote service; a mismatch remains a verification failure.
-
-Local mutation manifests validate each retained file, symbol, mutant and provenance record.
-An invalid nested record makes the snapshot corrupt: it is not a missing baseline, cannot
-start adoption, and remains on disk for recovery. Legacy `accepted_reason` and raw partial or
-newer disposition data remain preserved; the disposition interpreter decides their meaning
-without treating their mere presence as verification evidence.
-
-The separate shadow-v1 contract has its own schema and digest. In this CLI repository,
-`npx tsx scripts/gen-shadow-schema.mts --check` and
-`npx tsx scripts/gen-shadow-contract-digest.mts --check` verify the committed artifacts;
-omit `--check` to regenerate them after an intentional contract change. Shared generator
-implementations live under `src/harness/shadow/generation/`, outside the normative protocol
-source inventory. Tuple schemas preserve required array entries and rest elements; the binding
-mismatch outcome requires a nonempty array. Regenerate its schema and digest together, and
-coordinate the matching contract with any remote verifier before using changed results.
-After updating the shadow protocol package, re-vendor and re-pin its regenerated
-contract digest in remote consumers. Literal ignored input paths retain their
-filename bytes, including brackets and Git pathspec prefixes.
-
-The authority key intentionally excludes contract digest and evaluator policy
-version. The head stores mechanical mutant identities and statuses, not an old
-clean verdict or policy decision. Each result is authenticated under the
-currently pinned contract and evaluated under the current policy; missing
-prior mutants in unchanged symbols produce not-measured rather than clean.
-Evaluation rows and receipts retain the evaluator policy version separately.
-
-The CLI resolves the request, source artifact, target source, and local config
-through real paths under the repository root before opening the journal. Each
-local input is opened once with no-follow semantics where the host supports
-them, then regular-file identity, size, and repository confinement are checked
-on that same descriptor before and after a bounded read. Final-component
-symlinks are refused even when they point back inside the repository; a path,
-inode, parent-link, or size change during the read also refuses the operation.
-Protocol-v3 source artifacts are capped at 64 MiB, reports at 16 MiB, target
-source at 2 MiB, request JSON at 1 MiB, and the ignored local config at 64 KiB;
-remote JSON responses are capped at 8 MiB. These limits are enforced while
-reading streams even when `Content-Length` is missing or dishonest, so an
-oversized response is **not measured**, never a clean result.
-
-The SQLite queue persists a `next_attempt_at_ms` for every deferral so one old
-job cannot monopolize `process`. A normal not-ready response waits one second
-and clears the consecutive-failure counter. Operational, parse, evaluation,
-commit, and acknowledgement failures retry after 1, 2, 4, 8, 16, 32, then 60
-seconds (the delay remains capped at 60 seconds). The eighth consecutive
-failure dead-letters the row, preserves its last stage-qualified error, and
-exits nonzero with “no clean verdict exists”; it is no longer auto-claimed.
-Running `process` before a row is due returns idle rather than hot-looping.
-Inspect and token-fence recovery through the public local operations:
-
-```bash
-interlinked mutation cloud dead-letters --limit 20
-interlinked mutation cloud redrive <job-id> --redrive-token <token>
-```
-
-The list limit defaults to 20 and must be from 1 through 100. It reports each
-row's poll-vs-ack phase, failure count, last error, and current redrive token.
-Redrive only clears the dead-letter state and makes the row due; it does not
-claim, process, evaluate, acknowledge, or return a verdict. A poll row resumes
-polling and an evaluated row resumes acknowledgement-only when a later
-`mutation cloud process` invocation claims it. A stale token is refused.
-
-The explicit commands remain available for inspection and recovery with
-`enabled:true`. Autonomous daemon work has a second, default-off boundary:
-only a local config that also sets `background_enabled:true` starts the
-daemon-owned scheduler. This second opt-in is experimental while each terminal
-job still copies the full manifest into an append-only journal snapshot. Leave
-it false until bounded/delta manifest storage and retention land. When it is
-explicitly enabled, every 15 seconds while the harness daemon is running the
-scheduler processes at most one due job and delivers at most one committed
-finding. Delivery fsyncs a versioned record to
-`.interlinked/mutation-findings.jsonl` before acknowledging the exact SQLite
-outbox lease. The stable `outbox_id` makes retries safely deduplicable; every
-session active at delivery time queues the bounded finding for its next hook
-event (subject to the in-memory queue's 10-minute TTL). With no active session
-the durable JSONL row still exists, but the daemon does not currently replay
-that file into a later-created session.
-
-This local scheduler is **not** the protocol-v3 live edit gate or proof of a
-deployed cloud product. The cloud deployment still needs provisioned
-D1/R2/Workflow/private-Sandbox bindings and an isolated executor, followed by
-the deployed crash/retry/adverse acceptance matrix. Until that cutover is
-atomic, the live gate remains the legacy synchronous v2 path and the old late
-harvest remains survivor-only evidence.
-
-Protocol-v3 signing authority is split across that deployment boundary. The
-control plane may sign admission plus pre-execution terminalization and its
-matching failure result; it must not possess the runner private key. The
-isolated executor signs every execution receipt and matching execution result
-before returning its service artifact. Verification requires the result signer
-to be the same key that signed the receipt for that arm, so a control key cannot
-mint measured execution and a runner key cannot approve admission or
-terminalization. Only the runner public key is configured in the control
-Workflow; provisioning the private runner key in the separate executor remains
-a release prerequisite, not something `mutation cloud` commands do locally.
-
-A protocol-v3 durable first sighting defaults to **not measured** when no
-baseline exists. It may adopt only when the caller explicitly marks a
-background onboarding measurement of current code; a proposed per-edit job
-must never establish its own floor.
-
 ### Live per-edit survivor gate
 
-The shipped default is off. Opt in under `.interlinked/guard-rules.json` for team policy or
-`.interlinked/guard-rules.local.json` for machine-local runner topology/credentials:
-
-```json
-{
-  "per_edit_mutation": {
-    "enabled": true,
-    "mode": "warn",
-    "unavailable_behavior": "allow_unmeasured",
-    "site_count_threshold": 25,
-    "budget_ms": 10000,
-    "harvest_budget_ms": 15000,
-    "runner_url": "https://mutation-runner.example"
-  }
-}
-```
-
-| Knob | Effect |
-|---|---|
-| `enabled` | Master opt-in. `false` does no live mutation work. |
-| `mode` | `block` rejects measured findings; `warn` runs the same measurement but allows with warnings; `off` is a no-op. |
-| `unavailable_behavior` | `allow_unmeasured` preserves continuity with `[mutation:not-measured]`; `block` fails closed when no verdict is available. |
-| `site_count_threshold` | Maximum distinct changed-symbol mutation sites in one established file before "split this patch"; default 50. |
-| `budget_ms` | Initial runner round-trip ceiling; default 25,000 ms. Expiry is not a pass. Harvest of an expired run works only when the configured runner implements the durable job protocol; the current experimental Cloud Worker does not, so its expired runs are simply not-measured. |
-| `harvest_budget_ms` | PostToolUse wait for an over-budget pending run; default 25,000 ms. A harvest that comes back with nothing is reported as **survivor-only evidence, NOT clean** (2026-08-27): the late path carries back survivors and nothing else — no test-run, engine-exit or mutant-census evidence, and it does not go through the evaluator the synchronous path uses — so "no survivors" is equally consistent with a run that executed no tests. Read that message as "nothing adverse was reported", never as a pass. |
-| `runner_url` | THE mutation-runner endpoint (exactly one). No endpoint means unavailable, not clean. |
-| `runner_urls` | OBSOLETE (2026-08-27): line-range sharding is retired from v1 — a mutant spanning a range split vanished from both sides. Extra entries are NOT used (no partition, no failover) and the daemon logs a deprecation warning. Remove them. |
-| `token` | Optional bearer credential. Keep it in the gitignored local rules file, never committed policy. |
-
-Every v1 run measures the WHOLE FILE (the runner receives no line range; the
-incremental cache is explicitly off on the wire); the evaluator still judges
-only changed symbols. Scope is deliberately narrow: JS/TS product source
-(`.ts/.tsx/.js/.jsx/.mjs/.cjs`) only; test and root `scratch/` paths are
-excluded. A change set with MORE THAN ONE eligible source file returns
-not-measured (MUT-AC-26) — today's tool adapters are single-file, so
-multi-file shapes (apply_patch, CLI batch) are simply NOT measured yet;
-adapters are open work. A **NEW file** (no on-disk baseline) is likewise
-reported as not-measured naming the file, rather than passing silently
-(2026-08-27): with no prior manifest entry every mutant is first-sighting,
-which is baseline ADOPTION, not evidence this edit is safe — and the silent
-version made brand-new untested code the one edit that skipped the gate with
-no trace. It ships the full proposed change set, companion
-test, and local dependencies as
-overlays; the runner measures that primary file, while the ratchet judges mutants in changed
-symbols. There is no sharding in v1: the range-split prototype was retired because a mutant
-whose span crossed a shard boundary vanished from both sides. A future partial-scope design
-lives dormant in plan 27 Appendix B and would need sharded-vs-whole-file census equality
-proven before it can return.
-
-The first measured sighting of a file is a distinct **`baseline_adopted`** outcome (2026-08-28):
-it records the accepted floor so brownfield survivors do not make adoption impossible, persists
-the manifest, and appends a receipt whose `outcome` field says "baseline_adopted" — it is an
-allow with a visible "baseline adopted … NOT certified clean" warning, never a clean verdict
-(nothing was compared, because that run created the baseline; "adopted" is declared only after
-the persistence callback completes — but the current file-based state (manifest → receipt →
-index → ledger, no transaction) can still be PARTIAL after a crash, and a failed persist
-downgrades to "measured but NOT fully adopted"; true atomicity waits on the SQLite journal). A
-red affected suite still blocks in `block` mode even on first sighting. Later runs flag new
-changed-region survivors and uncovered sites, plus killed→survived regressions in unchanged
-symbols (the accepted floor never grows from a routine run). Beyond adoption, only a FULL-scope,
-fully-conclusive clean run refreshes the manifest and appends a receipt (its receipt says
-"measured_clean"). A partial (line-range) run can block on
-positive evidence but never certifies clean, never creates a first-sighting baseline, and never
-touches the manifest; changed-region timeout/indeterminate results are likewise not-measured.
-A report with zero mutants for the target — or no entry for it at all — is not-measured, never
-clean: an empty report is not proof of a mutant-free scope.
-Certifying clean also requires an explicit **engine exit 0** from the runner (strict since
-2026-08-28): a response whose `engine.exitCode` is absent, `null`, or non-zero is not-measured —
-a crashed engine's partial report is indistinguishable from a complete one, and its unreached
-survivors are exactly what a forged clean pass would hide. A red suite still blocks WITHOUT
-engine evidence (the engine legitimately never ran; adverse evidence outranks missing evidence).
-It also requires a positive **executed-test count**. A green boolean with an absent, malformed,
-or zero count is not-measured: it does not prove that any test oracle actually ran. The live
-protocol-v2 gate and `mutation measure [--record]` share this evidence floor; neither may persist
-or certify from a zero-test run. The sole v3 exception is an authenticated `not_mutatable`
-result with an exact zero-mutant report and a `no_test_policy` approved by the signed acceptance
-receipt. That exception reaches the evaluator through an opaque verifier-minted capability, not
-a caller-controlled flag, and cannot be used by v2 runners. Proven adverse evidence still wins
-first, so a survivor or red suite is reported even when the executed-test count is missing.
-Note: Stryker exits non-zero when its score is under `thresholds.break`, so a runner that does
-not disable that threshold will produce not-measured runs on valid reports — fail-safe, but
-configure the runner's Stryker with `thresholds.break: null`.
-Every "could not measure" exit — no runner, runner failure, missing shards, inconclusive
-evidence — obeys `unavailable_behavior`. Warn-mode findings never launder the manifest clean.
-
-When the live gate reports:
-
-- **New survivor:** strengthen the assertion, fix the source behavior, or remove dead/over-specific code.
-- **Uncovered site:** add a test that executes the changed behavior.
-- **Affected suite red:** restore green before interpreting mutation results.
-- **Over site limit:** split the patch into smaller behavioral changes with their tests.
-- **Not measured:** check runner configuration/reachability, test selection, budget, and the target repo's Stryker setup. Do not describe it as a pass.
-
-### Full-manifest census and survivor rounds
-
-Use `mutation measure <file> --record` for one source file. Use `mutation sweep` for a ranked
-survivor batch. For a genuinely current whole-repo manifest, take one cutoff after proving the
-exact working tree green, then reuse it across every restart:
-
-```bash
-cutoff="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-interlinked mutation sweep --all-eligible --measured-before "$cutoff" --dry-run
-interlinked mutation sweep --all-eligible --measured-before "$cutoff" --limit 20 \
-  --runner-url http://runner-a:8790 --runner-url http://runner-b:8790 \
-  --budget-ms 1200000 --skip-preflight
-```
-
-Repeat the second command with the **same cutoff**. Each successful record gets newer provenance
-and drops out of the next batch. `--all-eligible` inventories JS/TS product source under `src/`,
-including absent and previously measured-clean files; it excludes test/spec paths and `.d.ts`.
-Repeated runner URLs create worker lanes pulling from one queue, so one CLI process owns manifest
-writes. Use `--skip-preflight` only after this exact overlay/tree passed its suite; otherwise a red
-suite can falsely report mutants killed. Keep `not_measurable` and errors as explicit census residue.
-
-After the census, rank work with `interlinked mutation survivors`. Add or strengthen tests in
-small file/symbol batches, remeasure each target with `mutation measure --record`, and run an
-independent final census from a new cutoff. A baseline is fully current only when every eligible
-file has qualifying provenance from that final round; a high score alone does not prove that.
-
-For a file-scoped survivor report, the CLI also prints the mutation-test grounding form. Put one
-receipt immediately before every new case in a mutation-directed JS/TS test:
-
-```ts
-// test-contract: <public-api|invariant|bug|security|boundary> — <specific reference or rationale>
-```
-
-Mutation-directed filenames are dotted policy segments. Canonical forms are
-`foo.mutation-kill.test.ts`, `foo.mutation-hardening.test.ts`, and `foo.survivors.test.ts`.
-Model/wave qualifiers are allowed directly on the semantic token — for example
-`foo.mutation-kill-luna.test.ts` — and remain inside the same strict class. A repo opts into the
-blocking profile with `{"mutation_directed_strict_profile":{"enabled":true}}` in
-`.interlinked/guard-rules.json` (team policy) or the local rules file. Under that profile,
-introduced missing receipts, broad truthiness, missing SUT grounding, and assertion removal are
-pre-execution blocks; pre-existing findings remain warnings. Do not rename a file to evade this
-classification.
-
-The write hook now surfaces `test_legitimacy` before a mutation-directed test edit lands; then run
-`interlinked verify --all-checks --details` for the full audit. The advisory check reviews
-missing/generic receipts, broad truthiness, incidental call order, and explicitly private/internal
-imports (including multiline named imports); a companion warning catches cast-based private-member
-access. Exact CLI/help/policy strings can be the public contract. “Kills mutant X” cannot: a
-mutation kill proves sensitivity to an injected fault, not that the asserted distinction is a
-supported behavior. The wider branch/partition, property/model, hermetic-repeat,
-refactor-resistance, and blinded-review protocol is currently a design workflow, not a shipped
-single command; see `docs/design/session-2026-08-11-synthesis.md` Part 6. Do not claim those
-evidence layers ran merely because `mutation measure` succeeded.
-
-For survivor repair, first reproduce against current source, tests, fixtures and runner
-configuration. A live worker or HTTP health response is not proof of measurement. Retain
-the initial green test execution, full report and input identities; match the same mutant
-before/after, and keep timeouts, uncovered sites and changed-scope results separate from
-kills. A fixture missing from a runner checkout is a delivery failure: preserve and ship
-the fixture rather than excluding its test. Dispatch agents from the freshly reproduced
-survivor set; historical logs can contain mutants already killed by existing tests. Keep
-realistic failing application examples intact while investigating a source defect; do not
-remove surrounding context merely to get green tests. Document equivalent mutations with
-their supported-input reasoning instead of inventing impossible private-helper inputs.
-A collected-test inventory is not an executed
-test count. Do not add malformed inputs or private-state assertions solely to kill an
-equivalent mutant; derive the observable obligation first. Where a behavior crosses a CLI
-or hook boundary, share concrete input/expected-outcome examples between unit and e2e
-tests, with independent assertions at each boundary. Local personal runner automation
-does not establish a supported local-mutation product feature or autonomous repair service.
-
-**Baseline-integrity** — a PreToolUse block on any edit that loosens a water-line file (below).
-Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline change with
-`INTERLINKED_DISABLE_BASELINE_GUARD=1` (logged). A commit-gate backstop closes the
-`apply_patch`/subagent hole for the git-tracked baselines.
+The shipped default is off. Opt in with a `per_edit_mutation` block in `.interlinked/guard-rules.json`
+(team policy) or `.interlinked/guard-rules.local.json` (machine-local runner and credentials).
+The knob table (`enabled`, `mode`, `unavailable_behavior`, `site_count_threshold`, `budget_ms`,
+`harvest_budget_ms`, `runner_url`, `token`) and the per-finding fixes (new survivor, uncovered site,
+affected suite red, over site limit, not measured) are in
+[references/mutation-live-gate.md](references/mutation-live-gate.md).
+A "not measured" result is never a pass.
 
 ## Command surface
+
+`caps --json <subcommand>` and `caps <subcommand> --json` both preserve JSON output.
+`metrics --cwd <path>` propagates the selected repository to nested commands,
+including every `metrics decisions` action. A leaf's explicitly parsed options
+take precedence when merging inherited options.
+
+Finding review uses `metrics decisions findings plan BUNDLE --select IDS --output PLAN`
+to freeze complete semantic inputs, provider identity and labeled cost estimates.
+`assess PLAN --approve-plan ID --output RUN` admits that frozen identity, while
+`--estimate-allowance-usd` explicitly accepts estimate-based admission. Inspect saved
+plans and v1/v2 runs with `show`; viewing and validated v2 `--reuse` are inference-free.
+TypeSafe exposes its exact public JSON body. Other installed decision adapters expose
+semantic inputs and retain actual wire receipts after dispatch. Unknown costs stop
+later paid requests, and byte-derived estimates can exceed monetary allowances.
+
+`findings questions DRAFT --output PROFILE` freezes alternative disposition and
+priority instructions and criteria. `plan --question-profile PROFILE` creates
+plan/2 with a full map and checksum. Outcome keys stay fixed. Metadata-only renaming
+retains semantic request identity, while wording or criteria changes miss the cache.
+Default plan/1 and saved v1/v2 runs remain readable. Orchestrator retries are zero,
+with external adapter retry guarantees recorded as capability-dependent.
+
 | Command | Purpose |
 |---|---|
 | `interlinked caps` | Show effective caps (lines/function-tokens/cyclomatic/crap/coverage) + provenance. |
@@ -919,11 +289,11 @@ Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline 
 | `interlinked caps ratchet <cyclomatic\|cognitive> --to <n> [--dry-run]` | Tighten a per-function cap AND regenerate the grandfather ledger (`function-complexity-baseline.json`) for everything over it. Only writer of the ledger; `caps set` delegates here when a section exists. |
 | `interlinked caps status` | Ledger burn-down per metric: cap, entries remaining, top offenders, delta vs the previous snapshot. |
 | `interlinked caps propose` | Data-driven cap proposals from a live census: percentile ladder and the count each candidate cap would grandfather. |
-| `interlinked metrics complexity [--metric <m>] [--top <n>] [--churn-days <n>]` | Complexity census: within-repo ranks, histograms, per-file mass, churn hotspots (90 days by default), directory line-count Gini, over-cap counts. |
-| `interlinked metrics jit [ref] [--staged] [--message <text>] [--calibrate <n>] [--cwd <path>] [--json\|--short]` | Ordinal commit-risk score and rank against recent first-parent commits (default 200); defaults to HEAD. `--message` classifies the staged commit's purpose. |
-| `interlinked metrics diagnostics [--profile js-ts\|python] [--cwd <path>] [--json\|--short]` | Explicit verbosity/erosion census, line overlap and absolute contributors; separate language profiles, diagnostic only. |
-| `interlinked metrics diagnostics compare <before> <after> [--json]` | Validate snapshot identity, scope and totals; incompatible overall deltas are withheld with nonzero exit, dilution remains visible. |
-| `interlinked metrics score [--profile structure-v1] [--cwd <path>] [--json\|--short]` | Explained composite and individual burdens, explicit evidence bounds and ranking eligibility; legacy structure profile remains selectable. |
+| `interlinked metrics complexity [--metric <m>] [--top <n>] [--churn-days <n>]` | Complexity census: within-repo ranks, histograms, per-file mass, churn hotspots (90 days by default), directory line-count Gini, over-cap counts. Generated, vendored and minified files are set aside (source roles v5, as in `metrics score`) and counted in `population`. |
+| `interlinked metrics jit [ref] [--staged] [--message <text>] [--calibrate <n>] [--cwd <path>] [--json\|--short]` | Scores HEAD or the selected commit against recent first-parent commits (default 200). Use `--calibrate 0` for the score with an empty comparison population. `--message` classifies the staged commit's purpose. |
+| `interlinked metrics diagnostics [--profile auto\|js-ts\|python] [--cwd <path>] [--json\|--short]` | Explicit verbosity/erosion census, line overlap and absolute contributors; separate language profiles, diagnostic only. Without `--profile` the profile follows the product files: only JS/TS runs `js-ts`, only Python runs `python`, both return `{mixed, profileSelection, profiles: [js-ts, python]}` with one report per language and no shared denominator; `profileSelection {rule, languages, shares}` is printed. An explicit `--profile` is unchanged. A mixed envelope is not a snapshot: save one profile to run `compare`. Uses source roles v5 (`population` in the JSON). |
+| `interlinked metrics diagnostics compare <before> <after> [--cwd <path>] [--json]` | Resolve relative snapshots against the selected root and validate identity, scope and totals. Incompatible overall deltas remain explicit with nonzero exit. |
+| `interlinked metrics score [--profile structure-v1] [--cwd <path>] [--json\|--short\|--full]` | Explained composite and individual burdens, explicit evidence bounds and ranking eligibility; full/JSON adds every retained action and evidence gap. Legacy structure profile remains selectable. |
 | `interlinked metrics arch [--cwd <path>] [--json]` | Import graph statistics including isolated modules; graphVersion 2 retains N² propagation cost and adds normalizedReach with N(N−1). |
 | `interlinked metrics split-plan <file>` | Where to cut one over-cap file: 2–4 cohesive modules from the intra-file reference graph. |
 | `interlinked coverage check [--strict] [--changed-files a,b] [--report <p>] [--update-baseline] [--json]` | Full-suite per-file coverage ratchet vs `coverage-baseline.json`. ADVISORY by default (exit 0 with findings); `--strict` exits 1 on any per-file drop; `--changed-files` scopes to a comma-separated list (what the pre-push hook passes). |
@@ -931,6 +301,7 @@ Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline 
 | `interlinked mutation check [--report <p>] [--update-baseline]` | Per-file mutation-score ratchet vs `mutation-baseline.json` (needs a Stryker report). |
 | `interlinked mutation measure <file> [--record]` | Measure one source file; `--record` persists a complete, conclusive measured report as an explicit manifest baseline update. Recording is not a clean verdict. |
 | `interlinked mutation survivors [--file <substr>]` | Rank open manifest survivors by file, symbol, and mutator. |
+| `interlinked mutation saturation [--file <substr>] [--ratchet]` | Per-file saturation from the manifest: `saturated` (every mutant killed or proved equivalent on current symbol hashes), `open`, `unknown` (stale or unmeasured symbols), `unmeasured`, `gone`. `--ratchet` only adds files to `.interlinked/saturation-baseline.json` (a water-line: a removal is blocked). A listed file that is no longer saturated exits 1. Stability, not correctness. |
 | `interlinked mutation sweep [--all-eligible] [--measured-before <iso>]` | Re-measure ranked debt or run a restartable full-source census; repeat `--runner-url` for worker lanes. |
 | `interlinked mutation cloud submit --request <json> --artifact <bytes>` | Explicitly submit one protocol-v3 job, authenticate acceptance, journal it, and poll once. Requires the ignored local v3 config; does not enable the edit gate. |
 | `interlinked mutation cloud submit-edit <target>` | Capture immutable HEAD plus the current regular target as one proposed edit, submit it with deterministic replay identity and `require_established`, journal its authenticated acceptance, and poll once. Never adopts a baseline or enables the edit gate. |
@@ -938,7 +309,7 @@ Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline 
 | `interlinked mutation cloud process` | Manually resume at most one due journaled v3 job through the same verified evaluator and journal-before-ack path. A separately opted-in (`background_enabled:true`) harness daemon also runs this single-row processor on a 15-second cadence; autonomous processing is default-off while manifest snapshots are copy-amplifying. Pending/failure retries are durably delayed; eight consecutive failures dead-letter and exit nonzero. |
 | `interlinked mutation cloud dead-letters [--limit <1..100>]` | List bounded local job dead letters without claiming or processing them, including the poll/ack phase and token needed for fenced recovery. |
 | `interlinked mutation cloud redrive <job-id> --redrive-token <token>` | Make one matching dead letter due again without processing it or returning a verdict; preserves poll-vs-ack phase. |
-| `interlinked metrics [--top <n>] [--full] [--include-tests] [--json]` | Read-only whole-repo scan: exhaustive function-token inventory and file aggregates, companion-test, coverage, cyclomatic, CRAP + gate verdicts. |
+| `interlinked metrics [--top <n>] [--full] [--include-tests] [--json]` | Measures function tokens, companion tests, coverage, cyclomatic complexity and CRAP. The hotspot limit accepts decimal integers from 1 through 200 and defaults to 25. Full and JSON output retain every projected action and next step. |
 | `interlinked debt list \| show <file> \| resolve <file>` | The obligation ledger — coverage / red-suite debts AND `transient` debts (the deferred tsc/registry findings a coordinated edit opens). All three verbs see every kind; `resolve` is the human override for a debt no future edit will clear. |
 | `interlinked debt markers [--root <path...>] [--exclude <path...>] [--record [--reason <text>]] [--json\|--short\|--full]` | Scan explicit design-debt receipts in source comments. The default is read-only; `--record` appends a local snapshot and lifecycle transitions. Neither mode consults or mutates the obligation ledger. |
 | `interlinked adopt [--dry-run] [--suite-baseline]` | Seed the supported adoption artifacts from the repo's current state (see below; mutation state is excluded). |
@@ -951,395 +322,6 @@ Coverage readers validate nested report data before using it in ratchets. Partia
 entries may omit a metric; a present metric must have the expected numeric fields. Malformed
 entries are excluded rather than trusted through a type assertion. Missing or rejected data
 does not establish coverage, and must not be described as a clean measurement.
-
-### Within-repository ranks and commit-risk nudges
-
-Complexity rows and file mass now include `pct`; coupling pairs and rework rows include
-`percentile`. Ranks are the rounded percentage of the measured population strictly below
-the value, so ties share a rank. They are computed before the displayed top-N slice; coupling
-uses pairs surviving its filters, and rework ranks all files with measured old-side lines.
-These are within-repository comparisons, not cross-project quality grades.
-
-`metrics complexity` additionally reports hotspots as file cyclomatic mass times changed
-lines in the `--churn-days` window. First-parent history is bounded to 2,000 commits and
-commits touching more than 30 files are excluded from churn. Directory spread measures
-line-count Gini among direct children, with at least three files. These reports are advisory;
-an empty hotspot section can mean no usable history rather than no risk.
-
-`metrics jit` reports size, diffusion, history, experience and purpose contributions to a
-static versioned score. It is ordinal, never a defect probability. Calibration uses the
-repository's recent first-parent history (up to 365 days / 2,000 commits); no population
-means an unranked result. A missing commit, empty staged diff or unavailable Git causes
-the command to exit nonzero. The commit-time `[interlinked:jit][heuristic]` nudge inspects
-the current staged diff and warns at p90 or above. It never blocks and remains silent when
-measurement is unavailable. For `git commit -a` or commands that construct the index later,
-the staged snapshot is advisory context, not a measurement of the eventual commit.
-
-The commit-time session checks read the files this SESSION edited, not the commit. Since
-2026-10-05 three of them — `prod_delta_no_test_delta`, `tpp_leapfrog`,
-`reintroduces_removed_code`, whose `file` is the file they judged — are narrowed to the files the
-commit captures (`evaluator/commit-file-set.ts`). The scope is used only when git alone makes it
-certain: the WHOLE command is one `git commit` (the index) or `git commit -a` (plus tracked edits)
-with only message/author/quiet/no-verify-style flags, in the session directory. Any other command
-in the same line (`git add`, `git apply --cached`, `cd`), an environment or `git -c` override, a
-pathspec, `--amend`, `-p` or a heredoc leaves the scope unknown, and every finding is reported
-session-wide. The capped
-`reintroduces_removed_code` detector gets the committed files as its INPUT, so unstaged files
-cannot use up its result limit. Every other commit-time check is reported session-wide as before,
-because its `file` can be an example or a cycle's source rather than the evidence. Errors are
-never narrowed.
-
-A second warn-only commit-time backstop, `[interlinked:commit-shippability]`, checks that the
-commit would work in a clean checkout. It warns when a staged `.ts/.tsx/.js/.mjs/.cjs/.mts`
-file imports a relative file that exists on disk but is untracked or gitignored, and when a
-`.github/workflows/*.yml|yaml` `run:` line names a `scripts|src|bin|tools` path that is
-ignored, untracked or missing. The workflow scan uses a documented regex, not a YAML parser,
-and runs only when the commit stages a workflow or a file under those directories. It inspects
-at most 200 staged files and reports any git failure as one `NOT CHECKED` line. It never blocks.
-
-A third warn-only backstop, `[interlinked:commit-coverage]`, echoes the pre-push per-file
-coverage ratchet at commit time. A passed coverage run writes `coverage/sources.json` in its run
-directory: the sha256 of each file it measured, with its percentages. At `git commit` the gate
-hashes each staged product code file (the line-cap scope, at most 50). If a recent run measured
-exactly those bytes below `.interlinked/coverage-baseline.json`, the gate names the file and the
-metrics. Staged bytes that no run measured get one `NOT MEASURED` line with the command that
-measures them (`interlinked tests run --all --coverage`). A match binds the source bytes only,
-not the staged tests, so the pre-push ratchet stays the gate. It never blocks.
-
-### Function-token inventory
-
-`interlinked metrics --top 10` shows the stable function bands, percentile summaries, the ten
-largest functions, and the ten files with the largest summed function-token counts. `--json`
-always includes every measured function and file under `functionTokenMetrics`; `--full` prints
-that exhaustive inventory for humans. The default scope is exactly the hard cap's hand-written
-product-source scope. `--include-tests` adds test/spec functions as advisory measurements — it
-does not make the hard cap apply to tests. Unsupported adapters and unreadable tracked sources
-appear under `notMeasured`; they are never reported as zero. Normal output previews up to five
-of those gaps with their reasons, while `--full` and `--json` show the complete list. Hand-written
-product files with an unrecognized code extension are reported as unsupported instead of silently
-disappearing; generated, vendored, declaration, documentation/configuration, markup/data,
-dependency/build/binary, scratch, and tool-state paths remain outside the product scope. The
-function-token census uses its own broad tracked/unignored discovery pass, so hidden product
-source and large source files omitted by the ordinary verify walk are still classified.
-
-Per-file `summedFunctionTokens` is the sum of function measurements, not a unique lexical count
-for the whole file. Nested implementations intentionally count once in their own row and again
-inside the enclosing function's span, and imports/types/top-level statements outside functions
-are absent. Use `maxFunctionTokens` to judge the cap and the summed value to understand the
-nested-inclusive function payload carried by a file.
-
-### Model-free scoring and evidence workflows
-
-`interlinked metrics diagnostics` is a separate read-only `interlinked-iterative-js-ts-v1`
-profile: union of existing trivial-helper pattern lines and all exact-clone body lines over
-token-bearing product SLOC, plus CC × sqrt(innermost-owned function SLOC) mass above CC 10.
-JSON retains overlap, redundant clone lines, per-function contributions, source/parser identity,
-exclusions and gaps. No target tests, models or new per-edit scans run. Interpret absolute
-burdens alongside ratios: unrelated simple code can dilute the denominator. `--profile python`
-selects a separate AST/tokenize profile using isolated stdlib Python >=3.10, bounded batches
-(eight files, ten seconds each, thirty-second analysis budget). It excludes docstrings and
-Python test names, preserves nesting/indentation in clone evidence, and measures an advisory
-opposite-boolean-return pattern. The body CC counter is versioned independently of radon;
-existing Python edit gates are unchanged. Missing tools, exhausted budgets, unsupported source
-and parse failures remain gaps. This limited pattern set is
-not benchmark-equivalent, a composite score, a safe-deletion verdict or a new hard gate.
-Interactive trivial-helper warnings remain capped; the explicit census is uncapped.
-`metrics diagnostics compare` accepts saved reports and refuses incompatible/missing scope;
-the older `metrics compare` remains for scores. Save snapshots outside the measured tree so
-their files do not change recorded exclusions. `simplify review --diagnostics js-ts|python`
-joins candidates to existing scoped review/overlap/recording, with validation still not run. See
-`docs/metrics-iterative-diagnostics.md` for the counting contract and pending qualification.
-
-`interlinked metrics score` defaults to the schema-2 `interlinked-slop-v1` composite:
-individual structure, file-size, coverage, mutation, test-integrity, redundancy,
-type-operation, architecture, correctness and declared-contract measurements.
-The profile has a fixed 100-point budget and hashes its measurement revision.
-Higher burden is worse. This is an experimental quality policy, not authorship detection.
-
-Use **syntax tokens** (lexical tokens) in user-facing explanations. AST nodes are
-different units. JS/TS uses parser-resolved lexical leaves under `interlinked-code-v2` /
-`interlinked-ts-ast-v1`; regexes, templates and JSX follow that contract. Complete
-function size includes types and nested functions, while composite exposure excludes
-double ownership. The stable `canonicalTokens` field retains counter provenance.
-The inclusive 500 syntax-token cap and existing over-limit hold-or-shrink policy are
-independent of scoring curves. There is no additional LLM-token cap or model download.
-The optional semantic index's `llama-tokenize` path has a separate purpose.
-
-Every reading supplies state, numerator/denominator, eligible/measured entities,
-evidence IDs and limitations. States are `measured`, `not-applicable`, `missing`,
-`stale`, `unsupported` and `inconclusive`. `observedScore` covers measured weight;
-`evidenceCompleteness` is not line coverage. Missing evidence widens `range` and
-withholds `slopScore` / `rankingEligible`. Unmeasured source broadens whole-repo
-bounds to 0–100. Do not rank provisional reports as complete repository scores.
-CRAP and uncovered mutation sites remain diagnostics to avoid overlap.
-
-`--profile structure-v1` retains the schema-1 structural report and its earlier
-field names. Select it explicitly for existing consumers. Do not silently compare
-different profile hashes, parser revisions, source roles or behavioral policies.
-Export-surface correction revision `2026-09-08.2` changes the profile hash;
-historical `2026-09-08.1` corpus measurements retain their original identity.
-
-Declared `export` contracts name the module's exported binding, including aliases
-and re-exports; use `name: "default"` for a default export. A default function's
-local declaration name does not establish a named export. The compiler reads
-inventoried project source and its standard library; unresolved export bindings,
-re-export dependencies outside that inventory, conflicting exports and malformed
-modules remain inconclusive. Unrelated type errors or unresolved ordinary imports
-do not erase a provable local export name. This checks the declared export surface,
-including TypeScript type exports, without executing the module or proving its behavior.
-
-```bash
-interlinked metrics catalog --checks --json
-interlinked metrics explain tokens --json
-interlinked metrics compare before.json after.json --json
-interlinked metrics corpus manifest.json --out scratch/corpus --json
-interlinked metrics evidence status --json
-interlinked metrics evidence identity --json
-interlinked metrics evidence import receipt.json artifact.json --json
-interlinked metrics gates --json
-interlinked metrics coverage status --json
-```
-
-Catalog assigns each registered check/guard a scored, supporting, advisory or
-enforcement disposition. A changed registry requires scoring review. Scoring
-supports JS/TS; recognized unsupported source remains a gap, even when another
-CLI capability supports that language. Generated/vendor/fixture/test roles cannot
-pad product denominators. Bare `@generated` comments do not exempt product code.
-Only recognized dependency lockfile names and suffixes receive the configuration
-role; product filenames containing `lock`, such as `clock.ts` or
-`file-mutation-lock.ts`, remain product. Source roles use
-`interlinked-source-roles-v2`; composite profile revision `2026-09-08.3` invalidates
-older scope and score comparisons.
-
-`types.unsafe` scores unsafe access/call/assertion/assignment/return sites and
-reports explicit `any`/`unknown` counts separately. Safe unknown narrowing and
-sound widening do not incur penalties. Missing compiler bindings and saturated
-detector limits produce inconclusive results. Graph/deletion candidates still
-need review for dynamic and external consumers. A surviving mutant is not dead-code proof.
-
-The corpus manifest contains `repositories: [{name,path,commit,stars?,cohort?}]`,
-with full Git SHAs, manifest-relative paths and optional `calibration`/`held-out`
-cohorts. The command requires clean pinned clones, writes individual reports plus
-`corpus.json`, and does not clone, install dependencies, execute target code or
-call a model. The source script `scripts/metrics-corpus.ts` delegates to this engine.
-
-Behavioral work is explicit: `metrics evidence run --kind coverage|mutation
---command '<JSON argv>' --artifact <relative-json> --runner-version <version>
---policy <id> [--timeout <ms>] [--resume]`. It runs without a shell in a disposable
-copy, binds source/tests/configuration/manifests/locks/support inputs, runner,
-outcome and artifact hashes, and supports cancellation. Dependencies must already
-exist. Resume requires matching inputs; failed/cancelled attempts cannot be hidden
-by older passes. These runs consume CPU time but make no model calls by Interlinked.
-An explicitly selected third-party command remains responsible for its own behavior.
-
-Local evidence runs capture the complete inherited environment before asynchronous
-work and pass that snapshot to the child process. The receipt stores a digest of
-its string entries and Node runtime identity, never raw environment values. Any
-environment change, including a feature flag, invalidates `--resume`; absent and
-empty values remain distinct. Unchanged environments can reuse matching receipts.
-Imported CI receipts continue to assert their own runner environment provenance.
-
-Local `--resume` also requires a digest of the actual disposable workspace inputs,
-including Git-ignored runtime files such as `.env`, installed dependency bytes,
-relative symlinks and file/directory permissions. The configured output artifact
-and control directories omitted by the copy policy are excluded. Raw runtime
-configuration is never added to receipts. A cache lookup still copies and hashes
-the workspace; this can be substantial for installed dependencies. Copying and
-hashing share the execution deadline and the 200,000-entry / 4-GiB workspace
-bounds. Unavailable, escaping or unstable inputs cannot produce measured evidence.
-The original inputs must match the copy before execution and remain unchanged
-afterward; new runner outputs are allowed. Older receipts without the workspace
-digest remain readable but cannot satisfy local `--resume`. The normalized
-`--artifact` selector is persisted and is part of cache identity: selecting
-`a.json` and then `b.json` requires separate evidence even for the same runner;
-equivalent relative spellings share one selector.
-
-Local evidence status and scoring revalidate the runtime digest and current
-inherited environment before treating a receipt as measured. Changed bytes or
-environment make it stale; missing provenance, unreadable inputs or exhausted
-validation budgets make it inconclusive. Synchronous reads share a ten-second
-validation deadline and hash each artifact selector at most once per store load;
-an execution's earlier deadline takes precedence. No raw environment/configuration
-values are persisted. Copied ignored directories such as `scratch` and `coverage`
-remain inputs, so changing them can invalidate evidence and increase hash cost.
-Imported CI receipts retain explicitly asserted provenance rather than claiming
-that the local process independently reproduced the CI runtime.
-
-Coverage accepts strict Istanbul maps; mutation accepts source-bound Stryker-style
-reports. Missing files remain inconclusive. Timeout/error/ignored outcomes are not
-kills, and no-coverage mutants cannot establish assertion discrimination. Imported
-CI receipts have asserted provenance and hash integrity, not signed CI attestation
-or independent verification of all installed dependency bytes. Artifact and receipt
-JSON must be valid UTF-8; malformed bytes make the evidence unavailable.
-
-In this repository, the pre-push gate groups protected ref updates by their exact
-pushed revision and unions changed source paths within each revision. New refs or
-unknown comparison bases require that revision's full tracked source tree. Each
-revision runs in a disposable export; source-changing pushes run the tests once
-with coverage there, using a 120-second per-test timeout and JSON summary output.
-Working-tree coverage reports and report timestamps never establish freshness.
-Distinct revisions get distinct runs, and export failures block the push.
-
-The full pre-push suite remains mandatory. `INTERLINKED_PRE_PUSH_WORKERS=1|2|3|4`
-selects a bounded local worker count (default 1); it changes neither test scope nor the
-strict coverage ratchet. Use `node scripts/benchmark-tests.mjs` in this repository to
-compare 1/2/4 workers on explicit unit and subprocess samples with retries disabled,
-elapsed time, failures and sampled process-tree RSS. Add `--full --coverage` for the
-actual full coverage workload and `--iterations=3` for repeated measurements. Sample
-speedups alone do not establish a safe CI or pre-push default.
-
-The repository's E2E-capable build and deterministic E2E preflight run before that
-suite. Malformed baselines, unresolved inventory moves, invalid source maps or unsafe
-report destinations therefore fail before unit execution. Preflight is explicitly unmeasured:
-the E2E run, merge and strict measured ratchet remain required. Build fingerprints
-exclude untracked runtime-state files only when current build-input analysis proves
-they are not inputs; tracked files, declaration inputs, copied assets and uncertain
-cases remain bound. This does not authorize ignoring runtime files in test receipts.
-
-The gate copies the local coverage baseline into the export and checks that every
-changed, previously baselined runtime source is measured in that export's report,
-including when other changed files are present. A reporter captures the native
-coverage provider's effective inclusion decisions during that same test run;
-explicitly excluded files do not become required merely because a retained
-baseline still names them. Dynamic configuration is evaluated by Vitest, and
-missing scope evidence fails closed. A scope with no remaining runtime targets is
-reported explicitly without certifying a coverage pass. Deleted files, test-only paths
-and modules containing only explicit type/declaration syntax do not require an
-entry. Ordinary imports retain a measurement requirement because compiler options
-can preserve their runtime side effects. It then runs
-`coverage check --strict --json` on that report and checks the JSON measurement
-verdict as well as the exit code. Partial, missing or malformed evidence cannot
-certify coverage. The CLI's existing advisory/partial-report exit behavior is
-unchanged. Coverage instrumentation increases source-push verification time;
-there is no second uninstrumented test run. Working-tree files and reports are
-left untouched.
-
-`coverage check --from-index [--index-store <root>] [--timeout <ms>]` (Unit 7,
-2026-09-29) is the ratchet over that index instead of a report: only the test
-shards whose transitive inputs changed re-run, every other shard's recorded
-contribution and the zeroed `@denominators` shard stay, so the summary is
-full-shaped and the ratchet can judge it (a report assembled from selected tests
-alone reads as partial and certifies nothing). `--index-store` names the checkout
-whose `.interlinked/coverage-index/` holds the index, so a disposable pre-push
-export measures against the source checkout's index the way `--receipt-store`
-reuses its receipts. When the index cannot certify (a failed or unstable shard,
-a changed runtime, quarantine, or a missing index whose full warm then failed)
-the command exits 75 — no verdict, never a pass — and the `coverage:index`
-stage row carries the reason as `reuse_denied_reason`; `reused: true` means no
-shard re-ran. The route is ADMITTED like a scheduled test run
-(`coverage-index/admission.ts`: the project's heavy-process lease, the
-foreground host slot, then a memory budget the capture's child tree is
-supervised against — a refused admission is exit 75 with its reason), and a run
-that captured shards ACCEPTS its proposal before returning (a proposal the
-current bytes no longer match is no verdict). The test child's environment
-identity excludes the supervisor's own variables and the shell's working
-directory (`PWD`, `OLDPWD`, `INIT_CWD`), so two exports of one revision share
-one identity. The pre-push hook runs this route only when explicitly enabled with
-`INTERLINKED_PRE_PUSH_COVERAGE_COMPARE=1`, in COMPARISON MODE — after a measured
-regression immediately (nothing follows), after a passing verdict LAST, once
-e2e and packaging have judged the export (the comparison runs tests in that
-export; no authoritative gate reads bytes it could have modified); only a
-partial or unmeasured result compares nothing — and appends `{push_sha, full, index, agree}` to
-`.interlinked/coverage-index-comparison.jsonl` (`interlinked query
-coverage-compare`); it never decides the push, and promotion waits on that
-ledger agreeing over recorded pushes (`INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE=1`
-takes precedence and skips it for one push). When enabled, the comparison runs in a DETACHED
-background job that owns the export: the push returns as soon as the
-authoritative gates finish, the job appends the same row, writes its notes to
-`.interlinked/coverage-index-compare.log` and removes the export when done
-(`INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND=1` keeps it inline; the hook tests use
-that). Indexed checks and warm runs propagate SIGINT/SIGTERM through discovery and
-capture; cancellation prevents accepted summary/proposal promotion and exits without
-a verification verdict. Measured on this repository (2507 test shards, an
-export, 2026-09-30, supervised, one worker — `--workers`, default 1: three
-instrumented workers exceeded the 4 GiB tree budget): the first full index
-run 1679 s (961 s unsupervised with three workers on 2026-09-29), a re-run of
-the same revision from a DIFFERENT export directory 28 s with `reused: true`
-(6 s runtime census plus 22 s folding the shard blobs), one edited source line
-1035 s with 2506/2506 test files re-run — nearly every test here is OPAQUE and an opaque shard binds
-the whole inventory, so on this repository the index buys exact-revision reuse,
-not selection, until the opacity backlog is worked down — peak RSS 3.8 GB;
-materialization STREAMS
-(each shard is persisted and folded as it is read; holding every contribution
-at once needed 11 GB), an opaque shard binds the whole inventory through ONE
-`@inventory` digest entry, and the indexed capture is worker-capped by the
-host governor. The index is 156 MB on disk. Limits: the runtime census that
-validates the index walks every file in the checkout except `.git`,
-`.interlinked`, generated and tool directories (`coverage-e2e/`, the e2e
-lane's own outputs; `node_modules/.vite`, Vite's cache; the index's own
-`.interlinked-coverage-capture-*` scratch), so a working tree carrying
-gigabytes of probe or eval bulk (`scratch/`, `evals/`) exceeds the 4 GiB bound
-and the index cannot be built there — build and measure in an export. A test
-file the runner discovers under a fixture directory is inventoried as a test
-(roles v3), because the index needs every executed test in the inventory. A
-test that writes into the checkout (a fixture-rooted harness run, a learned
-permission persisted to the daemon's cwd) makes the runtime "change" during
-the run and the index unavailable; the census error names the files. A wholly
-skipped test file is a passed, empty shard; a negative implicit-else branch
-count from the V8→istanbul converter is 0 hits.
-
-`metrics coverage warm --timeout <ms>` runs full Vitest coverage in an overlay and
-initializes an exact per-test-file contribution index. Its scoring receipt remains
-explicitly inconclusive: index validation uses its own overlay input policy, not
-the workspace identity required by local composite scoring receipts.
-Use `metrics evidence run` to obtain that scoring evidence. Warming and index
-operations remain available; warming alone does not certify a composite score.
-Affected tests replace their previous contribution; untouched shards and zero-hit
-denominators remain. Input/configuration/dependency/discovery/runner/environment
-changes invalidate reuse. Dependency uncertainty is per importing module and
-per shard: a pure shard can remain valid alongside an unrelated opaque I/O shard.
-Opaque consumers retain repository-wide source dependencies; opaque shared setup or
-configuration widens every shard. Configuration/runtime/discovery identity still
-invalidates globally when needed. The same static dependency graph powers
-`tests plan/run`; ordinary test-run receipts do not replace coverage contributions.
-
-Coverage-index runtime validation captures a shared original/workspace root once
-per validation boundary, comparing that capture with both expected identities.
-Distinct overlays still get separate captures, and later validations read fresh
-bytes; this is not a time-based cache or a lockfile-only dependency identity.
-Proposal promotion checks whether candidate entries exist before scanning source
-or runtime inputs. No candidate means no promotion, not a fresh coverage verdict.
-
-A bounded child process uses Vitest's native discovery
-to identify executable test files. Both warm and status load the project's Vitest
-configuration in that child; status does not execute tests. Helpers, resolved setup
-and global-setup files, and configuration dependencies remain invalidating inputs
-without being counted as executable shards. Their static import closure is global
-support even when filenames otherwise look like product code. Streamed snapshots bind the
-actual overlay inputs, including Git-ignored files and linked dependency bytes,
-before and after execution. They require a project-root `node_modules` directory
-(a verified dependency mount may be linked), allow at most 200,000 entries and
-4 GiB per snapshot, and share the command deadline. Vite's bundle directory is
-initialized before capture; existing cache contents remain hashed. Unreadable,
-unstable or over-budget inputs prevent an authoritative index verdict. Dynamic dependencies widen selection. Unsupported,
-multi-project, incomplete-location or ambiguous capture degrades visibly.
-A staged generation promotes only after its exact source is on disk. Corruption
-prevents reuse; identical-input coverage churn quarantines it until three full
-warm runs agree. Do not enable a local gate solely from the small synthetic benchmark.
-
-`metrics gates` reports policy separately from actual execution reach, freshness,
-deferred/unavailable attempts and measured latency. Historical ratchet reach is
-not test coverage; a disabled gate measures nothing. Use warm/status to establish
-local evidence before changing a disabled gate's policy.
-
-`metrics deletions` joins advisory candidates with source-bound behavioral evidence.
-`metrics deletions validate plan.json` runs explicit removal trials in isolation,
-requiring both baseline and candidate tests plus type checking. A checks-passed
-result still requires public-API/runtime review; it does not apply the deletion.
-Baseline and candidate phases use separate matching copies prepared before any
-check runs. Each phase executes the same ordered checks, so a compiler/build can
-produce artifacts consumed by later tests within that phase. Baseline side effects
-do not become candidate inputs. Copying and validation share the trial deadline;
-changed original runtime inputs make the result inconclusive. This uses two
-bounded disposable trees and can increase copy/storage costs.
-See `docs/metrics-scoring.md` and `docs/metrics-corpus-2026-09-08.md` for the complete
-contract, policies, bounds and pinned empirical artifacts.
-
-`metrics arch` now retains isolated modules in directory and propagation populations. Its existing
-`propagation.cost` still uses N² with self excluded from reach. `normalizedReach` uses N(N−1), or
-zero for a fully inventoried singleton/empty graph. The JSON identifies `graphVersion: 2`; old and
-new node populations are not interchangeable. These are import-reach diagnostics, not proven change
-impact or an architecture quality score. Type-only/runtime edge qualification remains separate work.
 
 ## Automatic obligations vs manual debt markers
 
@@ -1409,125 +391,7 @@ The integrity gate matches these eight files; direction is **per-file**:
 | `mutation-manifest.json` | the accepted-survivor set may only **shrink**. |
 | `function-complexity-baseline.json` | per-function grandfather ledger (cyclomatic / cognitive): a recorded value may only **fall**, an entry may only be **dropped**; new entries enter only through `caps ratchet` on a tightening; Write-tool creation is refused. A listed function may hold or shrink at its value; an unlisted over-cap function blocks even when held. When the cap in `metric-caps.json` is tighter than the ledger's, the block says so and names `caps ratchet <metric> --to <cap>`. |
 
-### Decomposition campaigns (added 2026-09-02)
-The gates carry campaign-aware relaxations so a refactor is never blocked by the
-metric it improves: the cyclomatic block lists a `↳ plan:` (fewest arm
-extractions to get under the cap); per-edit coverage treats a RELOCATED uncovered
-line as moved, not added; per-edit mutation reconciles survivors that moved into
-an extracted helper; `mutation_directed_assertion_removal` recognizes an assertion
-moved to a new test file (`INTERLINKED_ASSERTION_MOVE_WAIVER=1` is the logged
-escape). `structural_checks.characterize_mode: block` requires a test run covering
-the file before a ledger-listed function is edited. Two advisory nudges catch the
-decomposition footguns: `new_export_without_importer` and
-`extracted_helper_duplicate`.
-
-### SessionEnd baseline auto-fold (added 2026-08-16)
-
-Three of those water-lines used to go stale, because refreshing them needed a human to
-remember a manual full run — measured 2026-08-16, the coverage and untested-files
-baselines were 49 and 66 days old, and one `interlinked adopt` dropped 38 exemptions
-that had been earned weeks earlier. The daemon now folds the session's own evidence
-back in at **SessionEnd**, so the bar tracks the tree instead of lagging it:
-
-| Fold | What it does | Refusal direction |
-|---|---|---|
-| coverage | raises per-file high-waters from a **fresh** `coverage/coverage-summary.json` | a pct that FELL is held at its high-water, never lowered |
-| untested-files | drops the exemption for a file you wrote that now has a companion test | never ADDS an exemption |
-| large-files | drops (or lowers) the grandfather count for a file you brought back under the cap | never adds a new entry, never raises a count |
-
-Each fold is independent and skippable; the whole pass is time-bounded (~2s) and never
-throws into SessionEnd. When something folds, the session shows one line —
-`[interlinked:baseline-fold] coverage +N raised, untested -M dropped, large-files -K dropped`
-— and one JSONL row per fold lands in `.interlinked/baseline-folds.jsonl`. A dry run
-(`interlinked harness test`) writes nothing.
-
-The fold writes through plain `fs` from inside the daemon, so it does not pass the
-PreToolUse baseline-integrity gate — the same sanctioned carve-out `coverage-ratchet.ts`
-and `interlinked adopt` use. That is safe only because the loosening direction is refused
-in the planners themselves, not merely avoided.
-
-**Opt out** with `{"baseline_autofold": {"enabled": false}}` in
-`.interlinked/guard-rules.local.json` (default ON). This does not replace
-`interlinked adopt` — adopt still seeds a repo from scratch and folds metrics the
-auto-fold leaves alone.
-
-The unjustified-cast ratchet counts distinct assertion-token lines, even when a line contains
-multiple assertions. AST detection broadens syntax coverage without changing that unit.
-Both pre-edit and proposed content use the same file path and parser selection. If the
-optional TypeScript parser is unavailable, the legacy lexical counter is used; malformed
-syntax retains lexical findings alongside recovered AST findings. This remains an advisory
-cast review signal, not proof that an assertion is unsound or a safety comment is correct.
-
-### `max_predicate_drift` — ratchet the unchecked-assertion count to zero (added 2026-08-09)
-
-A repo-wide COUNT water-line, not a per-function cap. It bounds how many
-`type_predicate_drift` findings the tree may carry: a hand-rolled
-`function isFoo(v): v is Foo` that validates some of `Foo`'s required properties
-and silently ignores the rest.
-
-Why it needs a ratchet rather than a block: `v is T` is an **unchecked assertion**.
-TypeScript never compares the predicate body to `T`, so adding a required field to
-`T` leaves every stale guard returning `true` — no compile error, no test failure.
-The count only ever grows by accident, so the water-line only ever falls.
-
-To clear a finding, do not enlarge the guard — replace it with a parser:
-
-```ts
-export function parseFoo(v: unknown): Foo | null {
-  if (!isJsonObject(v)) return null;
-  // …validate each field…
-  return { a, b, c };   // CONSTRUCTED literal — the compiler checks it against Foo
-}
-```
-
-The constructed return is the point: add a required field to `Foo` and this fails
-to compile at the boundary instead of under-validating at runtime.
-
-Measure the current count with `interlinked verify --all-checks` (section
-"type predicate drift"), then lower `max_predicate_drift` to match. Raising it is
-blocked by `baseline_integrity_gate`.
-
-> **Two different "min coverage" numbers:** `metric-caps.json → min_coverage` = the per-file
-> **floor for the edit-time gate** (default 0 = off). `untested-files-baseline.json →
-> min_coverage_pct` = the threshold deciding whether a companion-less file counts as "tested"
-> for the `untested_files` verify check (default 60). And **two coverage baselines**:
-> `coverage-baseline.json` (full-suite CLI) vs `coverage-edit-baseline.json` (per-edit gate).
-> Editing the wrong one has no effect on the gate you're trying to satisfy.
-
 ## Adopting on a legacy repo — `interlinked adopt`
-
-Existing lint debt has its own adoption flow: `interlinked lint import` previews
-recognized configs; `lint import --write --baseline` enables the imported check
-and seeds `.interlinked/lint-baseline.json` from a complete analyzer batch.
-`lint check --update-baseline` may seed previously unadopted scopes; existing
-allowances only shrink. Complete ordinary checks and PostToolUse batches retire
-resolved allowances automatically. Missing tools, malformed output, timeouts,
-or changed config never count as fixes and never update the baseline.
-
-Native analyzers and declared SARIF adapters participate in the same ratchet.
-Named ESLint profiles are discovered automatically as audit candidates.
-Use repeatable `lint import --eslint-config <file>` for named configs; optional
-`--eslint-scope <directory>` chooses their working scope. Re-import retains those
-selections and refreshes digests without requiring the flags again. A selected
-config that disappeared must be restored; it is never silently unenforced.
-
-The baseline is a multiset of fingerprints keyed by tool/scope/config/targets/flags, file, rule,
-message and trimmed source line. It tolerates line movement and counts duplicate
-occurrences; identical-line relocation/replacement is ambiguous, so do not treat
-matching as an AST identity proof. Added/increased allowances within adopted scopes
-and deleting scope history are covered by the shared baseline integrity guard.
-First adoption of another scope retains all existing scope history. The reader
-uses recorded trusted bytes while a detected loosening awaits restoration. Keep original
-lint configs/dependencies; conversion preserves their analyzer semantics.
-Default entries keep their original `tool:scope` keys. Explicit/invocation profiles
-use separate identities, so multiple configs in one scope cannot share allowances.
-Use **interlinked-verify** for the command contract and review-list limitations.
-
-PostToolUse and ordinary verify measure hook profiles; `lint check` and
-`verify --all-checks` also measure audit profiles. Skipping an audit profile in a
-hook never retires its debt. `lint import --cadence hook|audit` changes scheduling
-without changing baseline identity. Re-import retains saved cadence. SARIF analysis
-failures, error notifications and stale/out-of-project locations cannot retire debt.
 
 Seeds the supported non-mutation water-lines from the repo's **current** state so day-1 gates become ratchets
 ("everything can only improve from here"). Human-invoked `fs` writes, so it bypasses the
@@ -1592,87 +456,6 @@ public `interlinked mutation adopt` command.
   from a line scanner, and every JS/TS edit then carries a `[interlinked:self_import] NOT
   MEASURED` warning (the daemon startup warning names both degrades). A clean edit in that state
   was not scanned for self-imports — keep `typescript` installed. Python needs `radon` on PATH.
-  Module resolution respects each usage's mode: dynamic imports in CommonJS use import
-  resolution, while import-equals declarations in ESM use require resolution. Parser
-  availability at startup does not establish that any particular file was measured.
-  `self_import` resolves each specifier with the PROJECT's own compiler options (the nearest
-  tsconfig, following `references` to the project whose `files`/`include` claim the file; nothing
-  cached, so an edited `extends` target or a new nearer tsconfig applies on the next edit). Five
-  more states are NOT MEASURED rather than guessed, each with its own `[interlinked:self_import]
-  NOT MEASURED` warning: a tsconfig on that walk that cannot be parsed, two referenced projects
-  that both claim the file, a reference walk that hits its 32-project bound with projects
-  unvisited, a file that no config in reach claims by a `files`/`include` pattern (the nearest
-  config, its `references`, and its sibling `tsconfig*.json` files are all consulted; an
-  unclaimed file may be a transitive member — a `/// <reference>` target — which root patterns
-  cannot decide, so it is never guessed into the nearest config), and an importer whose
-  directory is not on disk yet. Inside a batch (`write --batch`, `multi-edit`, `verify-changeset`
-  — all three run the one shared gate) every check sees the WHOLE proposed batch: a sibling the
-  batch creates is visible to `self_import` AND to the type checker's overlay, and the
-  introduced-only baseline is judged against the DISK, so an exporter-first batch that adds
-  `widget.native.ts` and points `widget.ts` at it passes end to end, while a batch that rewrites
-  `tsconfig.json` so an existing re-export becomes a self-import is refused as INTRODUCED. A
-  batch that rewrites any file of the project's configuration graph — the selected tsconfig,
-  any file its `extends` chain reaches whatever its name (`base.json` counts), or a
-  tsconfig/jsconfig/package.json anywhere in the batch — gets a `type checker cannot see the
-  proposed configuration` row for its TypeScript entries (the checker reads the disk's config):
-  land the configuration change first, then the sources. A member whose bytes equal the disk
-  is still type-checked against the members that differ (a changed exporter can break an
-  untouched consumer); `multi-edit` validates every manifest member and writes only the
-  changed ones. Only a batch whose members are ALL unchanged skips the type check, and a
-  config member whose bytes equal the disk is not a rewrite. The type checker judges each
-  file under the SAME project `self_import` selects (one program per governing config); a
-  file no single project claims is `type checker unavailable (project_orphan: …)` rather than
-  checked under the project root's config. Its disk baseline is recomputed on every check, so
-  a dependency repaired on disk cannot mask a reintroduced error; a warm compiler service is
-  rebuilt when the content of its tsconfig or any `extends` target changes on disk and
-  re-reads the project's root files on every reuse (a declaration file added or removed on
-  disk joins or leaves the program), sees a dependency rewritten on disk whatever its
-  timestamp says, and forgets a proposal the moment its check ends (a refused proposal never
-  colours a later check); and a configured project with no source on disk yet still measures
-  the first source written into it.
-
-The type checker's snapshot and its identity share one captured compiler text per file
-per check. The identity preserves every UTF-16 code unit, including lone surrogates;
-UTF-8 replacement encoding would incorrectly merge distinct compiler texts.
-An unreadable disk baseline is unavailable, not an empty baseline. Diagnostic comparison
-counts repeated equivalent findings, so moving existing debt is allowed while another
-occurrence remains new debt.
-
-## Dead code: two controls, four evidence layers, buckets before deletion
-
-Per-edit detection and repo scanning are SEPARATE controls (operator decision
-2026-08-17). The config keys `structural_checks.dead_imports` /
-`dead_exports` run on every edit (with `dead_code_action: "flag" | "delete"`
-deciding whether the warning reports candidates or instructs the agent to
-remove them in the same edit — the harness never deletes code itself). The
-verb `interlinked deadcode` sweeps the whole repo on demand, in its own
-process, and works with or without any of the per-edit checks enabled.
-
-Four evidence layers, weakest claim first: unreachable files (nothing imports
-them — the scan resolves `export … from` barrels and dynamic `import()` edges,
-but runtime path-loading stays invisible, so every row is a CANDIDATE), unused
-import bindings (same-file evidence, near-zero FP), unused exports (cross-file
-inference, type-surface FPs are common), and behaviorally inert branches —
-which only the MUTATION lane can prove (`interlinked mutation disposition
---list dead_code`; reachable code whose mutants change nothing observable).
-
-**Never hand a raw candidate list to a deletion agent.** Run
-`interlinked deadcode --categorize` first: every candidate buckets by
-mechanical signals (git first-import probe, docs/plans references, seam-shaped
-names, package.json published surface, test-only importers, re-export shape,
-type-only shape). `future-scaffolding` (never imported + doc-referenced —
-planned design) and `deliberate-seam` (test seams, published API) are KEEP
-buckets; `reexport-residue` and `orphaned-type` are compiler-guarded
-deletions; `superseded` carries git evidence of a successor; `ambiguous`
-means review, not delete. The buckets exist because the costly error is
-deleting planned or deliberate code — a candidate is a lead, a bucket is a
-policy.
-
-`interlinked simplify scan/review/audit` composes a bounded subset of these dead-code signals
-with other advisory simplification evidence. Its local dead-code adapter deliberately skips
-per-candidate Git archaeology for latency, so it does not replace `deadcode --categorize` before
-deletion or mutation evidence for behaviorally inert branches. Load
-**interlinked-simplification** for its evidence, coverage, recording, and deep-handoff contract.
 
 ## Quick reference
 ```bash
@@ -1689,16 +472,24 @@ interlinked debt markers --full        # explicit source-comment debt + coverage
 interlinked debt markers --record --reason "reviewed" # append source snapshot + transitions
 ```
 
+## References
+
+Read a reference file only when the task needs it.
+
+- [references/gates-detail.md](references/gates-detail.md): language coverage and Python test-first naming, refactor readiness, Python and Vitest coverage-gate internals, the `self_import` and batch type-check detail, and evidence qualification additions.
+- [references/expression-readability.md](references/expression-readability.md): `interlinked metrics expressions` and `.interlinked/readability.json`.
+- [references/e2e-coverage-water-line.md](references/e2e-coverage-water-line.md): the e2e coverage lane and its baseline in the Interlinked CLI checkout, and behavioral contracts beside metric gates.
+- [references/mutation-live-gate.md](references/mutation-live-gate.md): how the live per-edit survivor gate measures a file, and `baseline_adopted`.
+- [references/mutation-cloud-v3.md](references/mutation-cloud-v3.md): `mutation cloud`, runner connection and sharding, protocol-v3 durable jobs and the mutation journal.
+- [references/mutation-campaigns.md](references/mutation-campaigns.md): source-only mutation research helpers, the full-manifest census and survivor rounds.
+- [references/metrics.md](references/metrics.md): ranks and commit-risk nudges, the function-token inventory, model-free scoring, evidence runs, this repository's pre-push gate and the coverage index.
+- [references/decision-metrics.md](references/decision-metrics.md) covers changed-function evidence, declaration-level complexity, frozen finding assessments and directional Astra reference reviews in the experimental `metrics decisions` namespace.
+- [references/baselines-detail.md](references/baselines-detail.md): decomposition campaigns, the SessionEnd baseline auto-fold and `max_predicate_drift`.
+- [references/lint-debt-adoption.md](references/lint-debt-adoption.md): `interlinked lint import` and the lint-debt baseline.
+- [references/dead-code.md](references/dead-code.md): dead-code controls, evidence layers and deletion buckets.
+
 ## Related skills
 - **interlinked-verify** — the content gate (pre_block/biome/tsc) and how to land edits.
 - **interlinked-harness** — the general guard, suppression grammar, cold fallback.
 - **interlinked-observability** — `interlinked metrics` and recurrence for finding hotspots.
 - **interlinked-simplification** — advisory delete/stdlib/native/YAGNI/shrink review and audit.
-
-## Evidence qualification additions
-
-The baseline-integrity gate treats removing entries from `check-evidence-baseline.json#corpus_cohort` as weakening. Qualification requires fresh complete v2 corpus evidence and the named controls; stale or legacy zero-hit records cannot qualify. This remains local, bypassable enforcement. The broader policy-change contract is a design proposal, not an implemented external authority.
-
-Stryker adapter paths retain optional statusReason, killedBy, testsCompleted, test IDs, unknown fields and report/run hashes in `.interlinked/mutation-evidence/`. Reports exceeding the 16 MiB retention budget or failed writes emit NOT RETAINED. These are locally hashed JSON-value sidecars, not authenticated protocol-v3 extensions or original HTTP-byte attestations. Mutation score semantics are unchanged. A historical kill and applicability to current tests/helpers/fixtures/config/runtime/environment are separate; incomplete dependency closure remains unknown, and killedBy alone is not closure or causal attribution. Signed v3 payloads retain their existing strict schema; the sidecar capability design is documented separately.
-
-The cloud runner requires an explicit evidence root and never uses the process working directory as an implicit persistence target. Sidecar retention is bounded to 64 MiB, 128 reports and 30 days, retaining the current report. Run metadata keeps two generations of at most 1 MiB each. Pruning counts are recorded; unrelated files are untouched. This diagnostic store is not an indefinite audit archive, and old run metadata may reference a pruned report.

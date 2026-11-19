@@ -1,8 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
+import { withForegroundCheckScan } from "./check-scan-policy.js";
 import { checkMockOnlyTest, classifyBlockExpects } from "./test-hygiene-quality-mock-only.js";
 
 const TEST = "src/lib/foo.test.ts";
+
+describe("checkMockOnlyTest foreground result collection", () => {
+	it("P1 retains twenty test blocks and the tail while ordinary edits keep twelve", () => {
+		const content = Array.from({ length: 20 }, (_, index) => `it("case ${index}", () => { expect(log).toHaveBeenCalled(); });`).join("\n");
+		const scan = () => checkMockOnlyTest(content, TEST);
+		expect(scan()).toHaveLength(12);
+		expect(withForegroundCheckScan(scan).map(match => match.line)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+		expect(scan()).toHaveLength(12);
+	});
+
+	it("N1 retains argument-pinning and negated-only exceptions in foreground scans", () => {
+		const content = Array.from({ length: 20 }, (_, index) => `it("case ${index}", () => { expect(log).toHaveBeenCalledWith("payload"); });\nit("guard ${index}", () => { expect(log).not.toHaveBeenCalled(); });`).join("\n");
+		expect(withForegroundCheckScan(() => checkMockOnlyTest(content, TEST))).toEqual([]);
+	});
+});
 
 describe("checkMockOnlyTest — expect() shapes without a resolvable matcher chain", () => {
 	it("does not fire when the only expect() has no matcher chain at all (bare expect)", () => {

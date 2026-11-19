@@ -1,17 +1,23 @@
 import { readFileSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { compareDiagnosticSnapshots } from "../lib/metrics/diagnostic-compare.js";
 import { parseDiagnosticSnapshot } from "../lib/metrics/diagnostic-snapshot.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 
 function load(path: string) {
     if (statSync(path).size > 32 * 1024 * 1024) throw new Error("Diagnostic snapshot exceeds 32 MiB");
-    return parseDiagnosticSnapshot(JSON.parse(readFileSync(path, "utf8")));
+    const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof value === "object" && value !== null && "mixed" in value) {
+        throw new Error("Snapshot holds several language reports; save one with --profile js-ts or --profile python and compare those");
+    }
+    return parseDiagnosticSnapshot(value);
 }
 
-export function metricsDiagnosticsCompareCommand(before: string, after: string, options: { json?: boolean; short?: boolean }): void {
+export function metricsDiagnosticsCompareCommand(before: string, after: string, options: { cwd?: string; json?: boolean; short?: boolean }): void {
     const mode = getOutputMode(options);
     try {
-        const result = compareDiagnosticSnapshots(load(before), load(after));
+		const root = options.cwd ?? process.cwd();
+		const result = compareDiagnosticSnapshots(load(resolve(root, before)), load(resolve(root, after)));
         const summary = result.comparable ? "Diagnostic snapshots comparable; no quality verdict" : `No overall comparison: ${result.reasons.join("; ")}`;
         const lines = [summary];
         for (const key of ["verbosity", "erosion"] as const) {

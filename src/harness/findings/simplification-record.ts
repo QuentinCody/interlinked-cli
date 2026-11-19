@@ -7,6 +7,8 @@
 //   - corpus.jsonl owns finding identity, provenance, and lifecycle.
 // The receipt is a snapshot, not a second reconciliation ledger.
 
+import { tornTailPrefix } from "../../lib/bounded-file-io.js";
+import { stringList } from "../../lib/report-value-parsers.js";
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -165,13 +167,6 @@ function corpusFinding(
 	}, context.cwd);
 }
 
-function stringList(value: unknown): string[] | null {
-	if (!Array.isArray(value)) return null;
-	return value.every((entry): entry is string => typeof entry === "string")
-		? [...value]
-		: null;
-}
-
 export function parseSimplificationRunReceipt(value: unknown): SimplificationRunReceipt | null {
 	if (!isJsonObject(value)) return null;
 	if (value.schema_version !== SIMPLIFICATION_RUN_RECEIPT_SCHEMA_VERSION) return null;
@@ -218,17 +213,6 @@ export function loadSimplificationRunReceipts(cwd: string): SimplificationRunRec
 		}
 	}
 	return receipts;
-}
-
-function tornTailPrefix(path: string): string {
-	if (!existsSync(path)) return "";
-	try {
-		const bytes = readFileSync(path);
-		return bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a ? "\n" : "";
-	} catch (readError) {
-		void readError;
-		return "";
-	}
 }
 
 /**

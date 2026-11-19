@@ -3,6 +3,7 @@
 // Extracted from agent-safety.ts to stay under the per-file line ceiling.
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import { arrayForEachOffsets } from "./array-for-each.js";
 import { memberChainStart } from "./member-chain-scan.js";
 import { blankJsxText } from "./nan-comparison-scan.js";
@@ -405,8 +406,9 @@ export function checkFloatingPromises(content: string, filePath: string): Inline
 
 	// Pass 2: scan statement-position lines for bare calls to known-async ids.
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		const match = matchFloatingPromiseAt(strippedLines, originalLines, i, asyncIds);
 		if (match) matches.push(match);
 	}
@@ -423,7 +425,7 @@ export function checkAsyncPromiseExecutor(content: string, filePath: string): In
 	const stripped = stripCommentsAndStrings(content);
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
-	return scanLinesStripped(originalLines, strippedLines, /new\s+Promise\s*\(\s*async\b/, 10);
+	return scanLinesStripped(originalLines, strippedLines, /new\s+Promise\s*\(\s*async\b/, checkMatchLimit(10));
 }
 
 /**

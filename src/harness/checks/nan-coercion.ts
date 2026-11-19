@@ -2,8 +2,9 @@
 //
 // `Date.parse(x)`, `Number(x)`, `parseInt(x, ...)`, or `parseFloat(x)`
 // returns NaN on malformed input. When that result flows into a relational
-// comparison (`<`, `>`, `<=`, `>=`) WITHOUT a Number.isFinite / Number.isNaN /
-// isNaN guard the comparison is silently `false`, causing the code to fall
+// comparison (`<`, `>`, `<=`, `>=`) WITHOUT a Number.isFinite / isInteger /
+// isSafeInteger / isNaN / isNaN guard — or, inline, a preceding anchored
+// digit-only regex `.test(<same argument>)` — the comparison is silently `false`, causing the code to fall
 // through to a permissive/default branch — a classic fail-open bug.
 //
 // Real example that motivated this check:
@@ -79,8 +80,8 @@ const TWO_STEP_ASSIGN_RE = new RegExp(
 function hasGuardForName(window: string, name: string): boolean {
 	const n = escapeForRegex(name);
 	const guardRe = new RegExp(
-		// Number.isFinite(name), Number.isNaN(name), isNaN(name)
-		String.raw`(?:Number\.isFinite\s*\(\s*${n}\s*\)|Number\.isNaN\s*\(\s*${n}\s*\)|(?<!\w)isNaN\s*\(\s*${n}\s*\))`,
+		// Number.isFinite / isInteger / isSafeInteger / isNaN (name), isNaN(name) — each is false (or true) for NaN.
+		String.raw`(?:Number\.(?:isFinite|isInteger|isSafeInteger|isNaN)\s*\(\s*${n}\s*\)|(?<!\w)isNaN\s*\(\s*${n}\s*\))`,
 	);
 	return guardRe.test(window);
 }
@@ -88,10 +89,33 @@ function hasGuardForName(window: string, name: string): boolean {
 /**
  * Return true when the inline coercion expression (coerce call + relational
  * operator, already matched) is itself wrapped in a guard call, i.e.
- * `Number.isFinite(…)` or `isNaN(…)` appears in the surrounding 120 chars.
+ * `Number.isFinite(…)`, `Number.isInteger(…)`, `Number.isSafeInteger(…)` or
+ * `isNaN(…)` appears in the surrounding 120 chars.
  */
 function hasInlineGuard(surrounding: string): boolean {
-	return /Number\.isFinite\s*\(|Number\.isNaN\s*\(|(?<!\w)isNaN\s*\(/.test(surrounding);
+	return /Number\.(?:isFinite|isInteger|isSafeInteger|isNaN)\s*\(|(?<!\w)isNaN\s*\(/.test(surrounding);
+}
+
+/** The first argument of the coercion call whose `(` is at the start of `afterParen`, or null. */
+function coercionArgument(afterParen: string): string | null {
+	const m = /^\s*([^(),]+?)\s*[,)]/.exec(afterParen);
+	return m?.[1] ?? null;
+}
+
+/**
+ * True when `before` (the text just ahead of the coercion) tests the SAME argument against an
+ * anchored digit-only regex literal (`/^\d+$/`, `/^-?\d+$/`, `/^[0-9]+$/`): in
+ * `!/^\d+$/.test(v) || Number(v) <= 0` the comparison is reached only for digits, so NaN cannot occur.
+ */
+function hasDigitRegexGuard(before: string, arg: string): boolean {
+	const re = new RegExp(String.raw`\/\^[-+]?\??(?:\\d|\[0-9\])\+\$\/\.test\(\s*${escapeForRegex(arg)}\s*\)`);
+	return re.test(before);
+}
+
+/** The digit-regex guard check for one inline hit; `parenAt` is the offset of the coercion's `(`. */
+function digitRegexGuarded(stripped: string, coerceAt: number, parenAt: number): boolean {
+	const arg = coercionArgument(stripped.slice(parenAt + 1, parenAt + 1 + 120));
+	return arg !== null && hasDigitRegexGuard(stripped.slice(Math.max(0, coerceAt - 120), coerceAt), arg);
 }
 
 /** Escape special regex metacharacters in a variable name. */
@@ -135,6 +159,7 @@ function detectInlineShape(
 		const surroundEnd = Math.min(stripped.length, hit.index + hit[0].length + 40);
 		const surround = stripped.slice(surroundStart, surroundEnd);
 		if (hasInlineGuard(surround)) continue;
+		if (digitRegexGuarded(stripped, hit.index, hit.index + hit[0].indexOf("("))) continue;
 		recordMatch(
 			stripped,
 			rawLines,
@@ -153,6 +178,8 @@ function detectInlineShape(
 		const surroundEnd = Math.min(stripped.length, hit.index + hit[0].length + 40);
 		const surround = stripped.slice(surroundStart, surroundEnd);
 		if (hasInlineGuard(surround)) continue;
+		const coerceAt = hit.index + hit[0].search(/Date\.parse|Number|parseInt|parseFloat/);
+		if (digitRegexGuarded(stripped, coerceAt, hit.index + hit[0].length - 1)) continue;
 		recordMatch(
 			stripped,
 			rawLines,

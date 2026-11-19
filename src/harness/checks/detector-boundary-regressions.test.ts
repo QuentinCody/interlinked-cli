@@ -7,6 +7,7 @@ import { checkFloatingPromises, checkMisusedPromises } from "./agent-safety-asyn
 import { checkExtraneousDependencies } from "./agent-safety-deps.js";
 import { checkTlsVerifyDisabled } from "./agent-safety-crypto.js";
 import { checkFocusedTests } from "./focused-tests.js";
+import { withCheckRoot } from "./check-root.js";
 import { checkImportFromOwnBarrel } from "./imports.js";
 import { checkPlaceholderTests } from "./placeholder-tests.js";
 import { checkPackageJsonPublishInvariants, checkPackageJsonScriptPaths } from "./package-json.js";
@@ -121,21 +122,32 @@ describe("barrel graph boundaries", () => {
 
     it("follows alias edges and exact-extension files without treating packages as local modules", () => {
         const root = project();
+        writeFileSync(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { paths: { "@/*": ["./*"] } } }));
+        writeFileSync(join(root, "consumer.ts"), importingBarrel);
+        writeFileSync(join(root, "external.ts"), 'export * from "./consumer.ts";');
+        mkdirSync(join(root, "node_modules", "external"), { recursive: true });
+        writeFileSync(join(root, "node_modules", "external", "index.js"), "export const value = 1;");
         writeFileSync(join(root, "index.ts"), 'export * from "@/bridge.ts"; export * from "external";');
         writeFileSync(join(root, "bridge.ts"), 'export * from "./consumer.ts";');
-        expect(checkImportFromOwnBarrel(importingBarrel, join(root, "consumer.ts"))).toHaveLength(1);
+        const scan = () => withCheckRoot(root, () => checkImportFromOwnBarrel(importingBarrel, join(root, "consumer.ts")));
+        expect(scan()).toEqual({ result: [expect.objectContaining({ line: 1 })], notMeasured: [] });
         writeFileSync(join(root, "bridge.ts"), 'export * from "external";');
-        expect(checkImportFromOwnBarrel(importingBarrel, join(root, "consumer.ts"))).toEqual([]);
+        expect(scan()).toEqual({ result: [], notMeasured: [] });
     });
 
     it("keeps an unreadable or over-budget barrel graph unknown instead of claiming it cannot cycle", () => {
         const root = project();
+        const scan = () => withCheckRoot(root, () => checkImportFromOwnBarrel(importingBarrel, join(root, "consumer.ts")));
         mkdirSync(join(root, "index.ts"));
-        expect(checkImportFromOwnBarrel(importingBarrel, join(root, "consumer.ts"))).toHaveLength(1);
+        const unreadable = scan();
+        expect(unreadable.result).toEqual([]);
+        expect(unreadable.notMeasured.join("\n")).toMatch(/index\.ts.*(?:EISDIR|directory)/i);
         rmSync(join(root, "index.ts"), { recursive: true });
         writeFileSync(join(root, "index.ts"), Array.from({ length: 65 }, (_, i) => `export * from "./part${i}.ts";`).join("\n"));
         for (let i = 0; i < 65; i++) writeFileSync(join(root, `part${i}.ts`), "export const value = 1;");
-        expect(checkImportFromOwnBarrel(importingBarrel, join(root, "consumer.ts"))).toHaveLength(1);
+        const exhausted = scan();
+        expect(exhausted.result).toEqual([]);
+        expect(exhausted.notMeasured.join("\n")).toContain("64-module budget");
     });
 });
 

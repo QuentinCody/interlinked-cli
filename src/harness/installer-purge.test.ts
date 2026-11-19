@@ -6,9 +6,10 @@
 // every later install. `sweepUndeclaredKeys` closes that, using the SAME
 // verdict so a user-scope install still spares another repo's hooks.
 //
-// `PostToolUseFailure` is the live instance: it was removed from the Claude
+// `PostToolUseFailure` was the first instance: it was removed from the Claude
 // Code adapter's registered events to stop the runner reporting "2 PostToolUse
-// hooks ran", but the old registration stayed in `.claude/settings.json`.
+// hooks ran", but the old registration stayed in `.claude/settings.json`. It is
+// registered again since 2026-11-16 (failed Bash calls arrive only on it).
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -258,7 +259,7 @@ describe("cleanProjectOwnedHooks — file-level cleanup", () => {
 	});
 });
 
-describe("installHooks — the live PostToolUseFailure double-count", () => {
+describe("installHooks — stale and re-declared Claude registrations", () => {
 	let tmp = "";
 	let homeDir = "";
 	let originalHome: string | undefined;
@@ -280,7 +281,31 @@ describe("installHooks — the live PostToolUseFailure double-count", () => {
 		rmSync(homeDir, { recursive: true, force: true });
 	});
 
-	it("P6: an install drops a stale PostToolUseFailure registration the adapter no longer declares", () => {
+	// PermissionDenied is a Claude event the adapter parses but does not
+	// register (install: false), so it stands in for "used to register".
+	it("P6: an install drops a stale registration the adapter no longer declares", () => {
+		const binaryPath = join(tmp, "dist", "hook-entry.js");
+		const settingsPath = join(tmp, ".claude", "settings.json");
+		mkdirSync(join(tmp, ".claude"), { recursive: true });
+		writeFileSync(
+			settingsPath,
+			JSON.stringify({
+				hooks: {
+					PermissionDenied: [entry(hookCommand(binaryPath, "PermissionDenied"))],
+				},
+			}),
+		);
+
+		const result = installHooks({ cwd: tmp, binaryPath, runners: ["claude-code"] });
+
+		const after = parseWire(JSON.parse(readFileSync(settingsPath, "utf-8")), wireObject({ hooks: wireRecord(wireArray(wireUnknown)) }), "installed hook settings");
+		// Pre-fix the stale key survived every install.
+		expect(after.hooks).not.toHaveProperty("PermissionDenied");
+		expect(after.hooks.PostToolUse).toHaveLength(1);
+		expect(result.purged).toBe(1);
+	});
+
+	it("P7: a prior PostToolUseFailure registration converges to exactly one entry", () => {
 		const binaryPath = join(tmp, "dist", "hook-entry.js");
 		const settingsPath = join(tmp, ".claude", "settings.json");
 		mkdirSync(join(tmp, ".claude"), { recursive: true });
@@ -293,13 +318,11 @@ describe("installHooks — the live PostToolUseFailure double-count", () => {
 			}),
 		);
 
-		const result = installHooks({ cwd: tmp, binaryPath, runners: ["claude-code"] });
+		installHooks({ cwd: tmp, binaryPath, runners: ["claude-code"] });
+		installHooks({ cwd: tmp, binaryPath, runners: ["claude-code"] });
 
 		const after = parseWire(JSON.parse(readFileSync(settingsPath, "utf-8")), wireObject({ hooks: wireRecord(wireArray(wireUnknown)) }), "installed hook settings");
-		// Pre-fix the stale key survived every install, so the runner kept
-		// reporting "2 PostToolUse hooks ran".
-		expect(after.hooks).not.toHaveProperty("PostToolUseFailure");
-		expect(after.hooks.PostToolUse).toHaveLength(1);
-		expect(result.purged).toBe(1);
+		expect(after.hooks.PostToolUseFailure).toHaveLength(1);
+		expect(JSON.stringify(after.hooks.PostToolUseFailure)).toContain("--event 'PostToolUseFailure'");
 	});
 });

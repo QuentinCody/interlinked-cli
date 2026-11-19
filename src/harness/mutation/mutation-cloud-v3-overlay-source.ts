@@ -258,6 +258,74 @@ function validateInput(input: CaptureMutationOverlaySourceInput): Uint8Array {
 	return proposedBytes;
 }
 
+function captureBaseTree(inputRoot: string, targetFile: string, resolveRealpath: (path: string) => string) {
+	const root = resolveRealpath(inputRoot);
+	const top = decodeLine(git(root, ["rev-parse", "--show-toplevel"], { label: "repository root" }), "repository root");
+	if (resolveRealpath(top) !== root) throw new Error("mutation overlay cwd is not the repository root");
+	const baseCommit = decodeLine(
+		git(root, ["rev-parse", "--verify", "HEAD^{commit}"], { label: "HEAD" }),
+		"HEAD",
+	);
+	if (!/^[a-f0-9]{40}$/.test(baseCommit)) throw new Error("mutation overlay HEAD is not a full SHA-1 commit");
+	const entries = parseTree(git(root, ["ls-tree", "-rz", "--full-tree", baseCommit], { label: "HEAD tree" }));
+	const existing = checkTargetCollision(entries, targetFile);
+	const sourceObjects = decodeLine(
+		git(root, ["rev-parse", "--path-format=absolute", "--git-path", "objects"], { label: "object path" }),
+		"object path",
+	);
+	return { root, baseCommit, mode: existing?.mode ?? "100644", sourceObjects };
+}
+
+function writeOverlayCommit(
+	base: ReturnType<typeof captureBaseTree>, targetFile: string, proposedBytes: Uint8Array, env: NodeJS.ProcessEnv,
+): string {
+	const { root, baseCommit, mode } = base;
+	git(root, ["read-tree", baseCommit], { env, label: "temporary read-tree" });
+	const blob = decodeLine(
+		git(root, ["hash-object", "-w", "--stdin"], { env, input: proposedBytes, label: "temporary blob" }),
+		"proposed blob id",
+	);
+	git(root, ["update-index", "--add", "--cacheinfo", `${mode},${blob},${targetFile}`], {
+		env,
+		label: "temporary index update",
+	});
+	const tree = decodeLine(git(root, ["write-tree"], { env, label: "temporary tree" }), "synthetic tree id");
+	return decodeLine(
+		git(root, ["commit-tree", tree, "-p", baseCommit], {
+			env,
+			input: Buffer.from(SYNTHETIC_COMMIT_MESSAGE, "utf8"),
+			label: "synthetic commit",
+		}),
+		"synthetic commit id",
+	);
+}
+
+function verifiedOverlayArchive(root: string, commit: string, env: NodeJS.ProcessEnv, byteLimit?: number): Uint8Array {
+	const requestedLimit = byteLimit ?? MAX_SOURCE_ARTIFACT_BYTES;
+	const artifactLimit = Math.min(MAX_SOURCE_ARTIFACT_BYTES, requestedLimit);
+	if (!Number.isSafeInteger(artifactLimit) || artifactLimit < 1) {
+		throw new Error("mutation overlay sourceArtifactByteLimit must be a positive safe integer");
+	}
+	const sourceArtifactBytes = git(
+		root,
+		["archive", "--format=tar", `--prefix=${MUTATION_ONBOARDING_ARCHIVE_PREFIX}`, commit],
+		{ env, maxBytes: artifactLimit + 1, label: "synthetic archive" },
+	);
+	if (sourceArtifactBytes.byteLength < 1 || sourceArtifactBytes.byteLength > artifactLimit) {
+		throw new Error(`mutation overlay archive must contain 1..${artifactLimit} bytes`);
+	}
+	const embeddedCommit = decodeLine(
+		git(root, ["get-tar-commit-id"], {
+			env,
+			input: sourceArtifactBytes,
+			label: "archive commit verification",
+		}),
+		"archive commit id",
+	);
+	if (embeddedCommit !== commit) throw new Error("mutation overlay archive commit id disagrees with the request commit");
+	return sourceArtifactBytes;
+}
+
 /**
  * Public protocol-v3 capture primitive for the future per-edit adapter.
  * Capture immutable HEAD plus exactly one proposed regular-file target.
@@ -267,67 +335,15 @@ export function captureMutationOverlaySource(
 	dependencies: MutationOverlaySourceDependencies = {},
 ): CapturedMutationOverlaySource {
 	const proposedBytes = validateInput(input);
-	const resolveRealpath = dependencies.realpath ?? realpathSync;
-	const root = resolveRealpath(input.root);
-	const top = decodeLine(git(root, ["rev-parse", "--show-toplevel"], { label: "repository root" }), "repository root");
-	if (resolveRealpath(top) !== root) throw new Error("mutation overlay cwd is not the repository root");
-	const baseCommit = decodeLine(
-		git(root, ["rev-parse", "--verify", "HEAD^{commit}"], { label: "HEAD" }),
-		"HEAD",
-	);
-	if (!/^[a-f0-9]{40}$/.test(baseCommit)) throw new Error("mutation overlay HEAD is not a full SHA-1 commit");
-	const entries = parseTree(git(root, ["ls-tree", "-rz", "--full-tree", baseCommit], { label: "HEAD tree" }));
-	const existing = checkTargetCollision(entries, input.targetFile);
-	const sourceObjects = decodeLine(
-		git(root, ["rev-parse", "--path-format=absolute", "--git-path", "objects"], { label: "object path" }),
-		"object path",
-	);
+	const base = captureBaseTree(input.root, input.targetFile, dependencies.realpath ?? realpathSync);
+	const { root, baseCommit, sourceObjects } = base;
 	const tempRoot = mkdtempSync(join(tmpdir(), "interlinked-overlay-git-"));
-	mkdirSync(join(tempRoot, "objects"));
 	let materialized: { container: string; root: string } | null = null;
 	try {
+		mkdirSync(join(tempRoot, "objects"));
 		const env = isolatedEnvironment(tempRoot, sourceObjects);
-		git(root, ["read-tree", baseCommit], { env, label: "temporary read-tree" });
-		const blob = decodeLine(
-			git(root, ["hash-object", "-w", "--stdin"], { env, input: proposedBytes, label: "temporary blob" }),
-			"proposed blob id",
-		);
-		const mode = existing?.mode ?? "100644";
-		git(root, ["update-index", "--add", "--cacheinfo", `${mode},${blob},${input.targetFile}`], {
-			env,
-			label: "temporary index update",
-		});
-		const tree = decodeLine(git(root, ["write-tree"], { env, label: "temporary tree" }), "synthetic tree id");
-		const commit = decodeLine(
-			git(root, ["commit-tree", tree, "-p", baseCommit], {
-				env,
-				input: Buffer.from(SYNTHETIC_COMMIT_MESSAGE, "utf8"),
-				label: "synthetic commit",
-			}),
-			"synthetic commit id",
-		);
-		const requestedLimit = dependencies.sourceArtifactByteLimit ?? MAX_SOURCE_ARTIFACT_BYTES;
-		const artifactLimit = Math.min(MAX_SOURCE_ARTIFACT_BYTES, requestedLimit);
-		if (!Number.isSafeInteger(artifactLimit) || artifactLimit < 1) {
-			throw new Error("mutation overlay sourceArtifactByteLimit must be a positive safe integer");
-		}
-		const sourceArtifactBytes = git(
-			root,
-			["archive", "--format=tar", `--prefix=${MUTATION_ONBOARDING_ARCHIVE_PREFIX}`, commit],
-			{ env, maxBytes: artifactLimit + 1, label: "synthetic archive" },
-		);
-		if (sourceArtifactBytes.byteLength < 1 || sourceArtifactBytes.byteLength > artifactLimit) {
-			throw new Error(`mutation overlay archive must contain 1..${artifactLimit} bytes`);
-		}
-		const embeddedCommit = decodeLine(
-			git(root, ["get-tar-commit-id"], {
-				env,
-				input: sourceArtifactBytes,
-				label: "archive commit verification",
-			}),
-			"archive commit id",
-		);
-		if (embeddedCommit !== commit) throw new Error("mutation overlay archive commit id disagrees with the request commit");
+		const commit = writeOverlayCommit(base, input.targetFile, proposedBytes, env);
+		const sourceArtifactBytes = verifiedOverlayArchive(root, commit, env, dependencies.sourceArtifactByteLimit);
 		materialized = materializeArchive(sourceArtifactBytes);
 		readExactTarget(materialized.root, input.targetFile, proposedBytes);
 		const scope = (dependencies.selectTests ?? computeMutationTestScopeForRepo)({

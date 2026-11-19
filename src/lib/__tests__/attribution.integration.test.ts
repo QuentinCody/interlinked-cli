@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
-	execSync: vi.fn(),
+	execFileSync: vi.fn(),
 }));
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
 	calculateAttribution,
 	type PreRunSnapshot,
@@ -12,17 +12,17 @@ import {
 	snapshotPreRun,
 } from "../attribution.js";
 
-const mockExecSync = vi.mocked(execSync);
+const mockExecFileSync = vi.mocked(execFileSync);
 
 beforeEach(() => {
 	vi.restoreAllMocks();
 	// Re-mock after restore
-	mockExecSync.mockImplementation(() => "");
+	mockExecFileSync.mockImplementation(() => "");
 });
 
 function setupGitMock(responses: string[]) {
 	let callIndex = 0;
-	mockExecSync.mockImplementation(() => {
+	mockExecFileSync.mockImplementation(() => {
 		const response = responses[callIndex] || "";
 		callIndex++;
 		return response;
@@ -32,7 +32,7 @@ function setupGitMock(responses: string[]) {
 describe("snapshotPreRun", () => {
 	it("captures files with changes", () => {
 		setupGitMock([
-			"10\t5\tsrc/index.ts\n3\t1\tsrc/lib/config.ts", // diff --numstat
+			"10\t5\tsrc/index.ts\u00003\t1\tsrc/lib/config.ts", // diff --numstat
 			"", // ls-files --others
 		]);
 
@@ -50,7 +50,7 @@ describe("snapshotPreRun", () => {
 	});
 
 	it("handles git errors gracefully", () => {
-		mockExecSync.mockImplementation(() => {
+		mockExecFileSync.mockImplementation(() => {
 			throw new Error("not a git repo");
 		});
 
@@ -133,7 +133,7 @@ describe("calculateAttribution", () => {
 		};
 
 		setupGitMock([
-			"10\t0\ta.ts\n3\t0\tb.ts\n8\t0\tc.ts", // diff --numstat
+			"10\t0\ta.ts\u00003\t0\tb.ts\u00008\t0\tc.ts", // diff --numstat
 			"", // ls-files --others
 		]);
 
@@ -146,16 +146,16 @@ describe("calculateAttribution", () => {
 
 describe("snapshotPreRun — untracked files", () => {
 	it("includes untracked files using wc line count", () => {
-		mockExecSync.mockImplementationOnce(() => "3\t0\ttracked.ts") // diff --numstat
+		mockExecFileSync.mockImplementationOnce(() => "3\t0\ttracked.ts") // diff --numstat
 			.mockImplementationOnce(() => "untracked.ts") // ls-files --others
-			.mockImplementationOnce(() => "7"); // wc -l
+			.mockImplementationOnce(() => "patch\n".repeat(7)); // patch newline count
 
 		const snap = snapshotPreRun("/test/cwd");
 		expect(snap.files["untracked.ts"]).toBe(7);
 	});
 
 	it("falls back to 1 line when wc invocation throws", () => {
-		mockExecSync
+		mockExecFileSync
 			.mockImplementationOnce(() => "3\t0\ttracked.ts") // diff --numstat
 			.mockImplementationOnce(() => "untracked.ts") // ls-files --others
 			.mockImplementationOnce(() => {
@@ -167,7 +167,7 @@ describe("snapshotPreRun — untracked files", () => {
 	});
 
 	it("falls back to 1 line when wc output is not a number", () => {
-		mockExecSync
+		mockExecFileSync
 			.mockImplementationOnce(() => "3\t0\ttracked.ts") // diff --numstat
 			.mockImplementationOnce(() => "untracked.ts") // ls-files --others
 			.mockImplementationOnce(() => "not-a-number");
@@ -177,8 +177,8 @@ describe("snapshotPreRun — untracked files", () => {
 	});
 
 	it("falls back to 0 added/deleted lines for non-numeric numstat fields and skips empty filenames", () => {
-		mockExecSync
-			.mockImplementationOnce(() => "abc\txyz\t\n5\t2\tvalid.ts") // diff --numstat
+		mockExecFileSync
+			.mockImplementationOnce(() => "abc\txyz\t\u00005\t2\tvalid.ts") // diff --numstat
 			.mockImplementationOnce(() => ""); // ls-files --others
 
 		const snap = snapshotPreRun("/test/cwd");
@@ -186,7 +186,7 @@ describe("snapshotPreRun — untracked files", () => {
 	});
 
 	it("skips malformed numstat lines with fewer than 3 fields", () => {
-		mockExecSync
+		mockExecFileSync
 			.mockImplementationOnce(() => "10\t5") // malformed: missing filename
 			.mockImplementationOnce(() => ""); // ls-files --others
 
@@ -195,12 +195,13 @@ describe("snapshotPreRun — untracked files", () => {
 	});
 
 	it("uses process.cwd() when no cwd argument is given", () => {
-		mockExecSync.mockReset();
-		mockExecSync.mockImplementation(() => "");
+		mockExecFileSync.mockReset();
+		mockExecFileSync.mockImplementation(() => "");
 		const snap = snapshotPreRun();
 		expect(snap.files).toEqual({});
-		expect(mockExecSync).toHaveBeenCalledWith(
-			expect.any(String),
+		expect(mockExecFileSync).toHaveBeenCalledWith(
+			"git",
+			expect.any(Array),
 			expect.objectContaining({ cwd: process.cwd() }),
 		);
 	});
@@ -225,13 +226,14 @@ describe("calculateAttribution — reverted files and defaults", () => {
 	});
 
 	it("uses process.cwd() when no cwd argument is given", () => {
-		mockExecSync.mockReset();
-		mockExecSync.mockImplementation(() => "");
+		mockExecFileSync.mockReset();
+		mockExecFileSync.mockImplementation(() => "");
 		const preSnapshot: PreRunSnapshot = { timestamp: "2025-01-01T00:00:00Z", files: {} };
 		const result = calculateAttribution(preSnapshot);
 		expect(result.total_lines).toBe(0);
-		expect(mockExecSync).toHaveBeenCalledWith(
-			expect.any(String),
+		expect(mockExecFileSync).toHaveBeenCalledWith(
+			"git",
+			expect.any(Array),
 			expect.objectContaining({ cwd: process.cwd() }),
 		);
 	});
@@ -269,14 +271,15 @@ describe("readAttributionTrailer", () => {
 			agent_percentage: 50,
 			per_file: {},
 		});
-		expect(mockExecSync).toHaveBeenCalledWith(
-			expect.stringContaining("log -1 --format=%B HEAD"),
+		expect(mockExecFileSync).toHaveBeenCalledWith(
+			"git",
+			["log", "-1", "--format=%B", "--end-of-options", "HEAD", "--"],
 			expect.objectContaining({ cwd: process.cwd() }),
 		);
 	});
 
 	it("returns null on git error", () => {
-		mockExecSync.mockImplementation(() => {
+		mockExecFileSync.mockImplementation(() => {
 			throw new Error("bad ref");
 		});
 

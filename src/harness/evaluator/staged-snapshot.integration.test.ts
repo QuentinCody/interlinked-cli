@@ -8,6 +8,7 @@ import {
 	readlinkSync,
 	rmSync,
 	symlinkSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -81,6 +82,26 @@ describe("materializeIndexSnapshot", () => {
 		const snap = materializeIndexSnapshot(repo);
 		expect(snap).not.toBeNull();
 		expect(existsSync(join(snap?.root ?? "", "node_modules", "dep", "index.js"))).toBe(true);
+		snap?.cleanup();
+	});
+
+	it("symlinks each workspace package's own node_modules, not only the root one (pnpm monorepo)", () => {
+		writeRepo("packages/a/src/m.ts", "export const v = 1;\n");
+		writeRepo("packages/a/package.json", "{}\n");
+		writeRepo(".gitignore", "node_modules/\n");
+		mkdirSync(join(repo, "node_modules", "rootdep"), { recursive: true });
+		mkdirSync(join(repo, "packages", "a", "node_modules", "pkgdep"), { recursive: true });
+		writeFileSync(join(repo, "packages", "a", "node_modules", "pkgdep", "index.js"), "module.exports = 1;\n");
+		git("add", ".gitignore", "packages");
+		git("commit", "-qm", "init");
+
+		const snap = materializeIndexSnapshot(repo);
+		const root = snap?.root ?? "";
+		expect(existsSync(join(root, "node_modules", "rootdep"))).toBe(true);
+		expect(lstatSync(join(root, "packages", "a", "node_modules")).isSymbolicLink()).toBe(true);
+		expect(existsSync(join(root, "packages", "a", "node_modules", "pkgdep", "index.js"))).toBe(true);
+		// A tracked directory with no real node_modules beside it gets no link.
+		expect(existsSync(join(root, "packages", "a", "src", "node_modules"))).toBe(false);
 		snap?.cleanup();
 	});
 
@@ -340,7 +361,7 @@ describe("materializeIndexSnapshot — tracked symlink re-pointing", () => {
 	});
 
 	it("-a mode: a repointed tracked symlink is re-created with the NEW target", () => {
-		rmSync(join(repo, "src/link.ts"));
+		unlinkSync(join(repo, "src/link.ts"));
 		symlinkSync("target-b", join(repo, "src/link.ts")); // tracked, unstaged repoint
 
 		const snap = materializeIndexSnapshot(repo, true);
@@ -356,7 +377,7 @@ describe("materializeIndexSnapshot — tracked symlink re-pointing", () => {
 	});
 
 	it("narrow constructed path: a repointed tracked symlink is re-created with the NEW target", () => {
-		rmSync(join(repo, "src/link.ts"));
+		unlinkSync(join(repo, "src/link.ts"));
 		symlinkSync("target-c", join(repo, "src/link.ts"));
 
 		const snap = materializeIndexSnapshot(repo, false, ["src/link.ts"]);
@@ -372,7 +393,7 @@ describe("materializeIndexSnapshot — tracked symlink re-pointing", () => {
 	});
 
 	it("tracked-only pathspec scope: a repointed tracked symlink is re-created with the NEW target", () => {
-		rmSync(join(repo, "src/link.ts"));
+		unlinkSync(join(repo, "src/link.ts"));
 		symlinkSync("target-d", join(repo, "src/link.ts"));
 
 		const snap = materializeIndexSnapshot(repo, false, ["src"], ["src"]);

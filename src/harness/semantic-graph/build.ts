@@ -126,7 +126,7 @@ export function liveHashes(edges: Edge[]): Set<string> {
 	return live;
 }
 
-export function judgedKey(type: string, source: string, packetHash: string): string {
+function judgedKey(type: string, source: string, packetHash: string): string {
 	return `${type}|${source}|${packetHash}`;
 }
 

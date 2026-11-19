@@ -184,6 +184,13 @@ describe("legacy skill migration", () => {
             recursive: true,
             force: true,
         });
+        // The old installer shipped no references/ folder either.
+        for (const copy of [".interlinked", ".claude"]) {
+            rmSync(join(tmpRoot, copy, "skills", "enforce", "references"), {
+                recursive: true,
+                force: true,
+            });
+        }
         writeFileSync(target, stale);
 
         const [result] = installEnforceSkill(tmpRoot, ["claude"]);

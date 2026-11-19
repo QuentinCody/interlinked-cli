@@ -2,6 +2,7 @@
 // Extracted from generic-checks.ts.
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -179,8 +180,9 @@ export function checkFocusedTests(content: string, filePath: string): InlineMatc
 				)
 			: null;
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(15);
 	for (const [i, line] of strippedLines.entries()) {
-		if (matches.length >= 15) break;
+		if (matches.length >= maxMatches) break;
 		const only = ONLY_CALL_RE.exec(line);
 		const bare = bareRe?.exec(line);
 		const focusedOnly = only !== null && !isForwardingDefinition(line.slice(0, only.index));

@@ -12,6 +12,7 @@
 // HOW TO EXTEND: add matcher aliases to the spy/pin sets with labeled P/N cases;
 // retain behavioral-value exemptions. Census: scripts/scan-test-discrimination.ts.
 
+import { readCaseName } from "./test-structure.js";
 import { nonNull } from "../../lib/non-null.js";
 import { getExtension, type InlineMatch, isTestFile, JS_TS_EXTS } from "./shared.js";
 import { findCallSpan, IT_TEST_OPEN_RE } from "./test-hygiene-shared.js";
@@ -128,13 +129,6 @@ function scanBlockAssertions(body: string): { hasPositiveSpyCall: boolean; hasRe
 		m = EXPECT_ASSERTION_RE.exec(body);
 	}
 	return { hasPositiveSpyCall, hasRealOther };
-}
-
-/** Read an it()/test() case's name from its first argument's string literal
- *  in the ORIGINAL (unmasked) content, for a readable warning. */
-function readCaseName(content: string, argsStart: number, firstArgEnd: number): string {
-	const nameMatch = content.slice(argsStart, firstArgEnd).match(/["'`]([^"'`]{0,80})["'`]/);
-	return nameMatch ? `"${nameMatch[1]}" ` : "";
 }
 
 /** One candidate `it(`/`test(` callsite's block extent, or null when the

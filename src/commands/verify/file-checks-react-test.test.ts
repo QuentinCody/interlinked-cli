@@ -3,6 +3,7 @@ import { parseWire, wireArray, wireObject, wireRecord, wireString } from "../../
 // file-checks React / test-smell / taste group unit tests
 // ===========================================
 
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import { type FileCheckContext, runPerFileChecks } from "./file-checks.js";
@@ -401,7 +402,10 @@ describe("runReactAndTasteChecks", () => {
 		const src = 'const x = a ? (b ? 1 : 2) : (c ? 3 : 4);\n';
 		const c = ctx(src);
 		runReactAndTasteChecks(c);
-		expect(c.r.nestedTernaries).toEqual(orchestrate(src).nestedTernaries);
+		// The orchestrator binds each primary-file finding to the sha256 of the content it checked.
+		const sourceHash = createHash("sha256").update(src).digest("hex");
+		expect(c.r.nestedTernaries.length).toBeGreaterThan(0);
+		expect(orchestrate(src).nestedTernaries).toEqual(c.r.nestedTernaries.map(row => ({ ...row, sourceHash })));
 	});
 
 	it("runs PII detection into piiDetection bucket without throwing", () => {

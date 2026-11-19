@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { __resetDedupForTesting, dedupKey, recordDeliveryForShadow } from "./event-dedup.js";
+import { __resetDedupForTesting, claimToolCompletion, dedupKey, recordDeliveryForShadow } from "./event-dedup.js";
 import type { HarnessEvent } from "./types.js";
 
 /** Overridden only by the one test forcing appendFileSync to fail (a
@@ -159,5 +159,53 @@ describe("recordDeliveryForShadow", () => {
 		recordDeliveryForShadow(e); // first delivery — establishes `prior`
 		const result = recordDeliveryForShadow(e); // duplicate -> appendShadowRecord throws
 		expect(result).toEqual({ isDuplicate: false, deliveryIndex: 1, kind: "composite" });
+	});
+});
+
+describe("claimToolCompletion", () => {
+	beforeEach(() => {
+		__resetDedupForTesting();
+	});
+
+	it("P: a folded PostToolUse and a PostToolUseFailure for one call complete once", () => {
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-twice", hook_event: "PostToolUse" }))).toBe(true);
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-twice", hook_event: "PostToolUseFailure" }))).toBe(false);
+	});
+
+	it("P: whichever completion arrives first wins", () => {
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-rev", hook_event: "PostToolUseFailure" }))).toBe(true);
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-rev", hook_event: "PostToolUse" }))).toBe(false);
+	});
+
+	it("N: same-name redeliveries stay with the shadow detector", () => {
+		const e = ev({ tool_use_id: "toolu-same", hook_event: "PostToolUseFailure" });
+		expect(claimToolCompletion(e)).toBe(true);
+		expect(claimToolCompletion(e)).toBe(true);
+	});
+
+	it("N: never claims pre-tool, id-less, dry-run, or another session's call", () => {
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-pre", hook_event: "PreToolUse" }))).toBe(true);
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-pre", hook_event: "PostToolUseFailure" }))).toBe(true);
+		expect(claimToolCompletion(ev({ tool_use_id: undefined }))).toBe(true);
+		expect(claimToolCompletion(ev({ tool_use_id: undefined, hook_event: "PostToolUseFailure" }))).toBe(true);
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-dry", dry_run: true }))).toBe(true);
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-dry", hook_event: "PostToolUseFailure" }))).toBe(true);
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-s", session_id: "a" }))).toBe(true);
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-s", session_id: "b", hook_event: "PostToolUseFailure" }))).toBe(true);
+	});
+
+	// Scope of the guarantee: the claims live in the daemon process. A second
+	// completion that arrives after a daemon restart is not recognized.
+	it("N: a claim does not survive a daemon restart", () => {
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-restart", hook_event: "PostToolUse" }))).toBe(true);
+		__resetDedupForTesting();
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-restart", hook_event: "PostToolUseFailure" }))).toBe(true);
+	});
+
+	it("bounds memory by dropping the oldest claim", () => {
+		claimToolCompletion(ev({ tool_use_id: "toolu-first" }));
+		for (let i = 0; i < 2_000; i++) claimToolCompletion(ev({ tool_use_id: `toolu-fill-${i}` }));
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-first", hook_event: "PostToolUseFailure" }))).toBe(true);
+		expect(claimToolCompletion(ev({ tool_use_id: "toolu-fill-1999", hook_event: "PostToolUseFailure" }))).toBe(false);
 	});
 });

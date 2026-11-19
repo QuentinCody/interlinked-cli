@@ -21,13 +21,16 @@ import { methodForPhase } from "./harness/daemon-protocol.js";
 import type { HarnessDecision } from "./harness/types.js";
 import { resetSupervisorBackoff } from "./harness/supervisor-backoff.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
-import { encodeHookResult, recordSuppressedStop } from "./hook-entry-translation.js";
+import { deliveryChannel, encodeHookResult, recordSuppressedStop } from "./hook-entry-translation.js";
 import {
 	firstColdBlock,
 	coldGuardPredictionDecision,
 	coldLargeFileWarning,
+	coldPacketsWarnings,
 	coldProjectE2eStopNotice,
+	recordColdFallbackDelivery,
 } from "./hook-entry-cold-gates.js";
+import { eventCapability } from "./harness/adapters/provider-capabilities.js";
 import {
 	attemptDaemonSelfHealDetailed,
 	type SelfHealAttempt,
@@ -353,13 +356,19 @@ async function encodeColdFallback(
 		return coldBlockResult(adapter, event, reason, "guard-prediction", guardPrediction.reason ?? "Guard reconciliation required", lateWarnings);
 	}
 	const fileSizeAdvice = coldLargeFileWarning(event);
-	const fallbackWarnings = [...lateWarnings, ...(guardPrediction?.warnings ?? [])];
+	// Released instruction text rides the decision (session context), not stderr: it IS task context — and it
+	// goes FIRST, so a runner that keeps only the head of the context (Codex) keeps the words.
+	const dryRun = isDryRunEvent(event);
+	const cap = eventCapability(adapter.capabilities, event.runner_native_event);
+	const releasedText = dryRun ? [] : coldPacketsWarnings(event, cap !== null && cap.install && cap.model_context);
+	const fallbackWarnings = [...releasedText, ...lateWarnings, ...(guardPrediction?.warnings ?? [])];
 	if (fileSizeAdvice) fallbackWarnings.push(fileSizeAdvice);
 	const decision: HarnessDecision =
 		fallbackWarnings.length > 0
 			? { decision: "allow", warnings: fallbackWarnings }
 			: { decision: "allow" };
 	const output = adapter.encodeDecision(decision, event);
+	if (!dryRun) recordColdFallbackDelivery(event, decision.warnings ?? [], output.stdout, deliveryChannel(adapter, event, decision));
 	const fallbackNotice = `[interlinked] ${reason}; evaluator skipped${recoveryAttemptNotice(recoveryAttempt)}\n`;
 	const functionTokenNotice = isCodeEditEvent(event)
 		? "[interlinked:function-tokens:not-measured] function-token enforcement requires the running harness daemon and an exact language adapter; this cold-fallback edit was not measured\n"

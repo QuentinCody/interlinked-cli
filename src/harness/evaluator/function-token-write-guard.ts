@@ -1,6 +1,7 @@
 import type { JsonObject } from "../../lib/json-types.js";
 import { selectFunctionTokenAnalyzer } from "../function-tokens/index.js";
 import { CANONICAL_TOKENIZER_ID, type FunctionTokenEntry } from "../function-tokens/types.js";
+import type { ResolvedMetricPolicy } from "../metric-policy.js";
 import {
     DEFAULT_MAX_FUNCTION_TOKENS,
     maxFunctionTokensFor,
@@ -44,8 +45,9 @@ export function checkFunctionTokenWrite(
     toolInput: JsonObject,
     cwd: string,
     observe?: MetricObserver<FunctionTokenEntry>,
+    policy?: ResolvedMetricPolicy,
 ): MetricWriteBlock | null {
-    return checkPerFunctionMetricWrite(FUNCTION_TOKEN_SPEC, toolInput, cwd, observe);
+    return checkPerFunctionMetricWrite(FUNCTION_TOKEN_SPEC, toolInput, cwd, observe, policy);
 }
 
 /** Compare two already-materialized versions of one file (commit-gate seam). */

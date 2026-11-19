@@ -22,7 +22,7 @@
 // imports this; the type-only `import type` is erased at build.
 
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
+import { optionalTypescript } from "../../lib/optional-typescript.js";
 import { extname } from "node:path";
 import type * as TS from "typescript";
 import { nonNull } from "../../lib/non-null.js";
@@ -30,22 +30,7 @@ import type { FunctionComplexityEntry } from "./cyclomatic.js";
 
 export type TsModule = typeof TS;
 
-let tsCache: TsModule | null | undefined;
-
-/**
- * Resolve `typescript` once, synchronously, treating absence as a non-error.
- * Cached (including the null result) so a missing dep costs one failed require.
- */
-function loadTs(): TsModule | null {
-	if (tsCache !== undefined) return tsCache;
-	try {
-		// SAFETY: the installed TypeScript package exposes the compiler API described by the erased TS module import.
-		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
-	} catch {
-		tsCache = null;
-	}
-	return tsCache;
-}
+const { load: loadTs, set: setTsModule } = optionalTypescript(import.meta.url);
 
 /** True when the optional `typescript` dep is resolvable (→ AST path available). */
 export function astComplexityAvailable(): boolean {
@@ -54,7 +39,7 @@ export function astComplexityAvailable(): boolean {
 
 /** Test-only cache reset so a suite can exercise both the present/absent paths. */
 export function __resetTsCacheForTesting(): void {
-	tsCache = undefined;
+	setTsModule(undefined);
 	parseMemo.clear();
 }
 
@@ -215,7 +200,7 @@ export function isDecisionPoint(ts: TsModule, node: TS.Node): boolean {
  * Cyclomatic = 1 + decision points inside `fn`'s own body, NOT descending into
  * nested function-likes (they are counted as their own entries).
  */
-function complexityOf(ts: TsModule, fn: TS.Node): number {
+export function cyclomaticOfFunction(ts: TsModule, fn: TS.Node): number {
 	let count = 1;
 	const visit = (node: TS.Node): void => {
 		// A nested function starts its own scope — stop here.
@@ -268,7 +253,7 @@ export function computeCyclomaticAst(
 				name: functionName(ts, node, sf),
 				line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
 				endLine: sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
-				cyclomatic: complexityOf(ts, node),
+				cyclomatic: cyclomaticOfFunction(ts, node),
 				language: "js_ts",
 			});
 		}

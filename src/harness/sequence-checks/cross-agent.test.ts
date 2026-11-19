@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildTrajectoryFixture, makeCandidate } from "../__tests__/sequence-fixtures.js";
 import { _clearCrossSessionCache } from "../cross-session.js";
+import { clearObservedOnly, recordObservedOnly } from "../observed-files.js";
 import {
 	CROSS_AGENT_DETECTORS,
 	fileOverwriteAfterOtherAgent,
@@ -661,6 +662,31 @@ describe("subagent_diverged_edit", () => {
 				},
 			]);
 			const candidate = makeCandidate({ hook_event: "Stop", cwd: dir, agent_name: "parent", session_id: "test-session" });
+			expect(subagentDivergedEdit.fn(session, candidate)).toHaveLength(1);
+		});
+
+		// 2026-11-17: a session that only ran read commands was told "[proven] Both this
+		// session and <other> wrote <file>". The file was in its list only because Stop
+		// observed the other session's change in the shared checkout.
+		it("N3: does not fire when this session's side is an observed-only path, and fires again after a declared write", () => {
+			const filePath = "src/gate.ts";
+			const { session } = buildTrajectoryFixture(
+				[{ tool_name: "Read", tool_input: { file_path: "src/unrelated.ts" }, cwd: dir }],
+				{ agent_name: "parent", session_id: "test-session" },
+			);
+			recordObservedOnly(session, [filePath], dir);
+			writeActivityLog(dir, [
+				{
+					agent_name: "rival",
+					session_id: "rival-session",
+					tool_name: "Write",
+					tool_input: { file_path: filePath },
+					timestamp: isoMinutesFromNow(-1),
+				},
+			]);
+			const candidate = makeCandidate({ hook_event: "Stop", cwd: dir, agent_name: "parent", session_id: "test-session" });
+			expect(subagentDivergedEdit.fn(session, candidate)).toEqual([]);
+			clearObservedOnly(session, [filePath]);
 			expect(subagentDivergedEdit.fn(session, candidate)).toHaveLength(1);
 		});
 	});

@@ -71,6 +71,7 @@ import {
 	selectChangedSources,
 } from "./commit-gate-changes.js";
 import { degradeWithWarnings, noVerifyWarnings } from "./commit-gate-decision.js";
+import { runAdmittedCommitSuite } from "./commit-gate-admission.js";
 import { type CommitGateDeps, runSuiteAndScan } from "./commit-gate-suite.js";
 import { parseGitCommit } from "./commit-parse.js";
 import type { CommitParse } from "./commit-parse.js";
@@ -91,6 +92,7 @@ export { parseGitCommit } from "./commit-parse.js";
 /** Production defaults — real runner factory, git diff, analyzer, clock, reader. */
 const DEFAULT_DEPS: CommitGateDeps = {
 	runnerFor: (language) => coverageRunnerFor(language),
+	runAdmittedSuite: runAdmittedCommitSuite,
 	gitChangedFiles: defaultGitChangedFiles,
 	cyclomaticFor: defaultCyclomaticFor,
 	clock: Date.now,

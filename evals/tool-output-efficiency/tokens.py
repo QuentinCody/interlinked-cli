@@ -39,6 +39,6 @@ def shingles(text):
         value = " ".join(words[i:i+8])
         if len(value) >= 32:
             yield hashlib.blake2b(value.encode(), digest_size=8).digest()
-PATH = re.compile(r"(?:[A-Za-z0-9_@.()+-]+/)*[A-Za-z0-9_@()+-]+\.(?:[cm]?[jt]sx?|py|rs|go|java|json|md|toml|ya?ml|sh|txt|css|html)\b")
+_PATH = re.compile(r"(?:[A-Za-z0-9_@.()+-]+/)*[A-Za-z0-9_@()+-]+\.(?:[cm]?[jt]sx?|py|rs|go|java|json|md|toml|ya?ml|sh|txt|css|html)\b")
 def paths(text):
-    return {p.split("interlinked-cli/",1)[-1] for p in PATH.findall(text)}
+    return {p.split("interlinked-cli/",1)[-1] for p in _PATH.findall(text)}

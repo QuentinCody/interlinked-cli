@@ -2,8 +2,17 @@
 
 import type { Determinism } from "../types.js";
 
+/** Supporting source captured by the detector, without a later disk reread. */
+export interface InlineSourceEvidence {
+	file: string;
+	sha256: string;
+	line: number;
+	role: "producer" | "consumer";
+}
+
 /** A single match found by an inline check */
 export interface InlineMatch {
+	sourceEvidence?: InlineSourceEvidence[];
     /** Optional full source span; UTF-16 half-open offsets. */
     startOffset?: number;
     endOffset?: number;

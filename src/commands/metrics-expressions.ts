@@ -4,6 +4,8 @@ import { relative, resolve } from "node:path";
 import { analyzeExpressions, EXPRESSION_COUNTER, expressionLimitsFor, expressionReadabilityChecks } from "../harness/checks/expression-readability.js";
 import type { ExpressionAnalysis, ExpressionFinding, ExpressionLimits } from "../harness/checks/expression-readability.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
+import type { InventoryOptions } from "../lib/metrics/inventory-paths.js";
+import { addFileAt, createPopulation, type PopulationSummary } from "../lib/metrics/role-population.js";
 import { discoverFunctionTokenFiles } from "./verify/file-discovery.js";
 
 interface ExpressionFileReport extends ExpressionAnalysis {
@@ -20,14 +22,16 @@ export interface ExpressionReport {
     complete: boolean;
     scope: "discovered-js-ts-files" | "explicit-file";
     disposition: "advisory";
+    /** Source roles v5: files per role, and the generated or vendored files set aside before measuring, with the reason. */
+    population: PopulationSummary;
     files: ExpressionFileReport[];
     limitations: string[];
 }
 
-function measureFile(file: string, root: string): ExpressionFileReport {
+function measureFile(file: string, root: string, options: Pick<InventoryOptions, "resourcePolicy">): ExpressionFileReport {
     const path = relative(root, file);
     try {
-        if (statSync(file).size > 2_000_000) throw new Error("File exceeds the 2 MB expression analysis budget");
+        if (options.resourcePolicy !== "foreground-survey" && statSync(file).size > 2_000_000) throw new Error("File exceeds the 2 MB expression analysis budget");
         const content = readFileSync(file, "utf8");
         const sourceHash = createHash("sha256").update(content).digest("hex");
         const limits = expressionLimitsFor(file);
@@ -40,19 +44,22 @@ function measureFile(file: string, root: string): ExpressionFileReport {
 }
 
 /** Advisory inventory over explicit files or the repository's discovered source scope. */
-export function collectExpressionReport(target = ".", cwd = process.cwd()): ExpressionReport {
+export function collectExpressionReport(target = ".", cwd = process.cwd(), options: Pick<InventoryOptions, "resourcePolicy"> = {}): ExpressionReport {
     const root = resolve(cwd);
     const path = resolve(root, target);
     const directory = statSync(path).isDirectory();
-    const selected = directory
+    const population = createPopulation();
+    const discovered = directory
         ? discoverFunctionTokenFiles(path).filter(file => /\.[cm]?[jt]sx?$/i.test(file) && !/\.d\.[cm]?ts$/i.test(file))
         : [path];
-    const files = selected.sort().map(file => measureFile(file, root));
+    // A directory scan sets generated and vendored files aside (source roles v5); an explicitly named file is always measured.
+    const selected = discovered.filter(file => addFileAt(population, root, relative(root, file)).kept || !directory);
+    const files = selected.sort().map(file => measureFile(file, root, options));
     const complete = files.length > 0 && files.every(file => file.status === "measured");
     return {
         version: 1, counter: EXPRESSION_COUNTER, root, target, complete,
         scope: directory ? "discovered-js-ts-files" : "explicit-file",
-        disposition: "advisory", files,
+        disposition: "advisory", population: population.summary(), files,
         limitations: [
             "Directory discovery excludes ignored/build paths; completeness applies only to the listed files, not every repository path or language.",
             "Syntax budgets are review signals. They do not establish behavioral correctness or justify trivial helper extraction.",
@@ -77,7 +84,7 @@ function renderReport(report: ReturnType<typeof collectExpressionReport>): strin
 export function metricsExpressionsCommand(target: string | undefined, options: { cwd?: string; json?: boolean; short?: boolean }): void {
     const mode = getOutputMode(options);
     try {
-        const report = collectExpressionReport(target, options.cwd);
+        const report = collectExpressionReport(target, options.cwd, { resourcePolicy: "foreground-survey" });
         output(mode, report, { normal: () => renderReport(report), short: () => renderReport(report) });
         if (!report.complete) process.exitCode = 2;
     } catch (error) {

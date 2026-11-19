@@ -435,15 +435,13 @@ export function checkCrossPackageImports(
 	const results: StructuralCheckResult[] = [];
 	const edges = graph.getDependencies(filePath);
 	const fileDir = dirname(filePath);
+	const owners = new Map<string, string | null>();
 
 	for (const edge of edges) {
 		if (!edge.specifier.startsWith(".") || !edge.toFile) continue;
-		// Check if there's a package.json between the importing file and the imported file
 		const targetDir = dirname(edge.toFile);
 		if (targetDir === fileDir) continue;
-
-		// Walk from fileDir toward targetDir looking for package.json boundaries
-		const boundaryDir = findCrossPackageBoundary(filePath, fileDir, edge.specifier);
+		const boundaryDir = findCrossPackageBoundary(fileDir, targetDir, owners);
 		if (boundaryDir === null) continue;
 
 		results.push({

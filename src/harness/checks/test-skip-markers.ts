@@ -361,10 +361,11 @@ function markerIsConditional(lang: SkipMarkerLanguage, lines: string[], idx: num
 }
 
 /**
- * Public API — every unconditional skip marker in the file, as InlineMatch[].
- * Consumed by `checkDisabledTests` (the `disabled_tests` inline check).
+ * Public API — recognized unconditional skip markers, up to the collection
+ * limit. The detector can select a foreground limit explicitly; default
+ * callers, including the skipped-test counter, retain the historical bound.
  */
-export function findSkipMarkers(content: string, filePath: string): InlineMatch[] {
+export function findSkipMarkers(content: string, filePath: string, maxMarkers = MAX_MARKERS_PER_FILE): InlineMatch[] {
 	const lang = languageFor(filePath);
 	if (!lang) return [];
 	if (lang.requireTestFile && !isTestFile(filePath)) return [];
@@ -373,7 +374,7 @@ export function findSkipMarkers(content: string, filePath: string): InlineMatch[
 	const scanLines = (lang.strip ?? stripCommentsAndStrings)(content).split("\n");
 	const matches: InlineMatch[] = [];
 	for (let i = 0; i < scanLines.length; i++) {
-		if (matches.length >= MAX_MARKERS_PER_FILE) break;
+		if (matches.length >= maxMarkers) break;
 		const match = lang.marker.exec(scanLines[i] ?? "");
 		if (!match || markerIsConditional(lang, scanLines, i, match)) continue;
 		matches.push({

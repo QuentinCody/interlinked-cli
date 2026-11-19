@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { isHookCheckReceipt, parseHookCheckReceipts } from "./hook-coverage-evidence.js";
 
+it("preserves advisory gaps as validated history without required unavailability", () => {
+	const receipt = { id: "advisory", path: "source.ts", identity: "version", policyDigest: "policy", policyGeneration: 1,
+		checks: ["typescript"], findings: [], unavailable: [], advisoryGaps: [{ check: "commander_option_attribute", file: "source.ts", reason: "partial importer inventory" }], checkedAt: "2026-11-12T00:00:00Z", kind: "automated_check" };
+	expect(parseHookCheckReceipts([receipt])).toEqual([receipt]);
+	expect(() => parseHookCheckReceipts([{ ...receipt, advisoryGaps: [{ check: 7 }] }])).toThrow("Invalid hook check receipts");
+});
+
 describe("persisted hook check evidence", () => {
     it("reads older ledgers without inventing completed checks", () => {
         expect(parseHookCheckReceipts(undefined)).toEqual([]);

@@ -9,9 +9,23 @@
 import type { ImportEdge } from "./types.js";
 
 /**
+ * True when `edge` runs when the module loads: it resolved to a project file,
+ * the compiler keeps it, and it is not a lazy `import()` expression.
+ */
+function isLoadTimeEdge(edge: ImportEdge): boolean {
+	return edge.toFile !== "" && !edge.isTypeOnly && edge.isDynamic !== true;
+}
+
+/**
  * Detect import cycles involving `absPath` (an already-absolute file path).
  * Returns arrays of file paths forming each cycle, or empty if none. Depth is
  * capped to avoid pathological cases.
+ *
+ * Dynamic `import()` edges are skipped too: they run lazily, after both modules
+ * finished loading, so a loop that needs one cannot deadlock at load time. They
+ * stay in the graph for reachability, dead-code and blast-radius readers.
+ * KNOWN GAPS: an `import { X }` without `type` whose binding is used only in
+ * type positions is elided by TypeScript but still counted as a runtime edge.
  *
  * Type-only edges (`import type { X }`) are skipped: the compiler erases them,
  * so a loop that crosses one cannot execute at runtime. Mirrors Effect's madge
@@ -35,7 +49,7 @@ export function findCyclesThroughGraph(
 		visited.add(current);
 		const edges = importGraph.get(current) || [];
 		for (const edge of edges) {
-			if (edge.toFile && !edge.isTypeOnly) {
+			if (isLoadTimeEdge(edge)) {
 				dfs(edge.toFile, [...path, current]);
 			}
 		}
@@ -44,7 +58,7 @@ export function findCyclesThroughGraph(
 
 	const startEdges = importGraph.get(absPath) || [];
 	for (const edge of startEdges) {
-		if (edge.toFile && !edge.isTypeOnly) {
+		if (isLoadTimeEdge(edge)) {
 			dfs(edge.toFile, [absPath]);
 		}
 	}

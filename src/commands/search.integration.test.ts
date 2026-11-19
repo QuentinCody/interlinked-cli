@@ -935,6 +935,65 @@ describe("searchCommand — output modes", () => {
 // ===========================================
 
 describe("searchCommand — option parsing", () => {
+	it("rejects unknown engines before probing or scanning", () => {
+		withRipgrep(rgSummary(0));
+		searchCommand("needle", { engine: "absent", json: true });
+		expect(process.exitCode).toBe(1);
+		expect(mockSpawnSync).not.toHaveBeenCalled();
+		expect(mockReaddirSync).not.toHaveBeenCalled();
+		expect(errored()).toContain("--engine must be ripgrep or native");
+	});
+
+	it.each([
+		["ts", ["a.ts", "b.tsx"]],
+		["typescript", ["a.ts", "b.tsx"]],
+		["js", ["c.js", "d.jsx", "e.mjs", "f.cjs"]],
+		["javascript", ["c.js", "d.jsx", "e.mjs", "f.cjs"]],
+	])("filters native --type %s before reading file contents", (type, expected) => {
+		const files = ["a.ts", "b.tsx", "c.js", "d.jsx", "e.mjs", "f.cjs", "g.py"];
+		withNativeTree({ "/repo": files }, Object.fromEntries(files.map((file) => [`/repo/${file}`, "needle"])));
+		searchCommand("needle", { engine: "native", json: true, type });
+		expect(loggedJson()).toHaveProperty("searched_files", expected.length);
+		expect(mockReadFileSync.mock.calls.map(([file]) => file)).toEqual(expected.map((file) => `/repo/${file}`));
+	});
+
+	it("rejects unsupported native types before scanning", () => {
+		withoutRipgrep();
+		searchCommand("needle", { engine: "native", json: true, type: "absent" });
+		expect(process.exitCode).toBe(1);
+		expect(mockReaddirSync).not.toHaveBeenCalled();
+		expect(logSpy).not.toHaveBeenCalled();
+		expect(errored()).toContain("Unsupported native file type");
+	});
+
+	it("honors zero context in ripgrep arguments", () => {
+		withRipgrep(`${rgMatch("/repo/a.ts", 1, "needle")}\n${rgSummary(1)}`);
+		searchCommand("needle", { json: true, context: "0" });
+		const call = mockSpawnSync.mock.calls.find((entry) => entry[1][0] === "--json")!;
+		const args = call[1];
+		expect(args[args.indexOf("-C") + 1]).toBe("0");
+	});
+
+	it("omits native context when explicitly set to zero", () => {
+		withNativeTree({ "/repo": ["a.ts"] }, { "/repo/a.ts": "before\nNEEDLE\nafter" });
+		searchCommand("NEEDLE", { json: true, context: "0" });
+		expect(loggedJson()).toHaveProperty("matches", [{ file: "a.ts", line: 2, text: "NEEDLE" }]);
+	});
+
+	it.each([
+		{ status: 2, stderr: Buffer.from("unrecognized file type: absent") },
+		{ status: null, signal: "SIGTERM" as const },
+		{ status: null, error: new Error("spawnSync rg ETIMEDOUT") },
+	])("reports ripgrep execution failure without publishing a successful result ($status)", (failure) => {
+		mockSpawnSync.mockImplementation((_cmd: string, args: string[]) => args[0] === "--version"
+			? spawnResult({ status: 0 })
+			: spawnResult({ ...failure, stdout: Buffer.from(rgMatch("/repo/a.ts", 1, "partial")) }));
+		searchCommand("needle", { json: true });
+		expect(process.exitCode).toBe(1);
+		expect(logSpy).not.toHaveBeenCalled();
+		expect(JSON.parse(String(errSpy.mock.calls[0]?.[0]))).toHaveProperty("error", expect.stringContaining("ripgrep"));
+	});
+
 	it("clamps limit above MAX_LIMIT (200)", () => {
 		// 250 matches available, limit requested 999 → clamped to 200.
 		const lines: string[] = [];

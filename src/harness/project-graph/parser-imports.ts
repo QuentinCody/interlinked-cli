@@ -7,6 +7,7 @@
 
 import { nonNull } from "../../lib/non-null.js";
 import type { ImportEdge } from "../types.js";
+import { maskCommentsAndTemplates } from "./mask-templates.js";
 
 /**
  * Returns true when `keyword` (`"require("` or `"import("`) at `idx` in `text`
@@ -132,6 +133,20 @@ function parseNamedSymbols(rawSymbols: string): string[] {
 }
 
 /**
+ * True when every entry of a named-import body carries the inline `type`
+ * keyword (`{ type A, type B }`), so the compiler erases the whole statement
+ * exactly as it does for `import type { A, B }`. One value entry keeps the edge
+ * at runtime. `type as x` names a value called `type`, so it does not count.
+ */
+function everySpecifierIsInlineType(rawSymbols: string): boolean {
+	const entries = rawSymbols
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	return entries.length > 0 && entries.every((e) => /^type\s+(?!as(?:\s|$))[\w$]/.test(e));
+}
+
+/**
  * Split the `{ a, b: c }` destructuring body of a dynamic import into export
  * names. Rename targets like `b: c` are recorded as `b` — the export side.
  */
@@ -165,22 +180,54 @@ function matchStaticImport(
 		const rawSymbols = namedImport[1];
 		const specifier = namedImport[2];
 		if (rawSymbols === undefined || specifier === undefined) return null;
-		return { fromFile, specifier, symbols: parseNamedSymbols(rawSymbols), isTypeOnly };
+		return {
+			fromFile,
+			specifier,
+			symbols: parseNamedSymbols(rawSymbols),
+			isTypeOnly: isTypeOnly || everySpecifierIsInlineType(rawSymbols),
+		};
+	}
+
+	// import Default, { a, b } from 'module' — the default is recorded as the
+	// export name "default", never as its local binding.
+	const defaultAndNamed = trimmed.match(
+		/^import\s+(?:type\s+)?[\w$]+\s*,\s*\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/,
+	);
+	if (defaultAndNamed) {
+		return {
+			fromFile,
+			specifier: nonNull(defaultAndNamed[2]),
+			symbols: ["default", ...parseNamedSymbols(nonNull(defaultAndNamed[1]))],
+			isTypeOnly,
+		};
+	}
+
+	// import Default, * as ns from 'module'
+	const defaultAndNamespace = trimmed.match(
+		/^import\s+(?:type\s+)?[\w$]+\s*,\s*\*\s+as\s+[\w$]+\s+from\s+['"]([^'"]+)['"]/,
+	);
+	if (defaultAndNamespace) {
+		return {
+			fromFile,
+			specifier: nonNull(defaultAndNamespace[1]),
+			symbols: ["default"],
+			isTypeOnly,
+		};
 	}
 
 	// import DefaultName from 'module'
-	const defaultImport = trimmed.match(/^import\s+(?:type\s+)?(\w+)\s+from\s+['"]([^'"]+)['"]/);
+	const defaultImport = trimmed.match(/^import\s+(?:type\s+)?[\w$]+\s+from\s+['"]([^'"]+)['"]/);
 	if (defaultImport) {
 		return {
 			fromFile,
-			specifier: nonNull(defaultImport[2]),
-			symbols: [nonNull(defaultImport[1])],
+			specifier: nonNull(defaultImport[1]),
+			symbols: ["default"],
 			isTypeOnly,
 		};
 	}
 
 	// import * as name from 'module'
-	const nsImport = trimmed.match(/^import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/);
+	const nsImport = trimmed.match(/^import\s+\*\s+as\s+([\w$]+)\s+from\s+['"]([^'"]+)['"]/);
 	if (nsImport) {
 		return { fromFile, specifier: nonNull(nsImport[2]), symbols: [], isTypeOnly };
 	}
@@ -221,6 +268,7 @@ function matchDynamicImport(
 			specifier: nonNull(destructuredDynamic[2]),
 			symbols: parseDestructuredSymbols(nonNull(destructuredDynamic[1])),
 			isTypeOnly: false,
+			isDynamic: true,
 		};
 	}
 
@@ -228,16 +276,28 @@ function matchDynamicImport(
 	// identifier with an (optionally awaited) import() call on the RHS.
 	// Equivalent to `import * as mod from 'module'`. See parser-imports.test.ts.
 	const namespaceDynamic = trimmed.match(
-		/^(?:const|let|var)\s+\w+\s*=\s*(?:await\s+)?import\(\s*['"]([^'"]+)['"]\s*\)/,
+		/^(?:const|let|var)\s+[\w$]+\s*=\s*(?:await\s+)?import\(\s*['"]([^'"]+)['"]\s*\)/,
 	);
 	if (namespaceDynamic) {
-		return { fromFile, specifier: nonNull(namespaceDynamic[1]), symbols: [], isTypeOnly: false };
+		return {
+			fromFile,
+			specifier: nonNull(namespaceDynamic[1]),
+			symbols: [],
+			isTypeOnly: false,
+			isDynamic: true,
+		};
 	}
 
 	// Dynamic import('module')
 	const dynamic = trimmed.match(/import\(['"]([^'"]+)['"]\)/);
 	if (dynamic) {
-		return { fromFile, specifier: nonNull(dynamic[1]), symbols: [], isTypeOnly: false };
+		return {
+			fromFile,
+			specifier: nonNull(dynamic[1]),
+			symbols: [],
+			isTypeOnly: false,
+			isDynamic: true,
+		};
 	}
 
 	return null;
@@ -251,7 +311,9 @@ function matchDynamicImport(
  */
 export function parseImports(content: string, fromFile: string): Omit<ImportEdge, "toFile">[] {
 	const imports: Omit<ImportEdge, "toFile">[] = [];
-	const collapsed = collapseImportLines(content.split("\n"));
+	// Comment text (JSDoc `{import(...)}` types) and template-literal text (source
+	// that a test or codemod writes out as a string) are never load-time edges.
+	const collapsed = collapseImportLines(maskCommentsAndTemplates(content).split("\n"));
 
 	for (const line of collapsed) {
 		// Strip inline comments from collapsed lines (e.g., // MCP Tasks Protocol handlers)

@@ -1,5 +1,4 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { collectStaticMeasurements } from "./static-measurements.js";
@@ -8,7 +7,7 @@ import { collectCompositeScoreReport } from "./composite-report.js";
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture(files: Record<string, string>): string {
-    const root = mkdtempSync(join(tmpdir(), "metrics-calibration-")); roots.push(root);
+    const root = mkdtempSync(join(process.cwd(), "scratch", "metrics-calibration-")); roots.push(root);
     for (const [path, content] of Object.entries(files)) { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), content); }
     return root;
 }
@@ -39,13 +38,14 @@ it("does not exempt unused private declarations just because a public barrel imp
         "value.js": "const abandoned = 1; export const value = 2;" }));
     expect(result.findings.some(row => row.metric === "redundancy.unused" && row.message.includes("abandoned"))).toBe(true);
 });
-it("retains saturation as missing evidence when a detector stops after ten findings", () => {
+it("retains the full recognized assertion-free population in foreground scoring", () => {
     const tests = Array.from({ length: 25 }, (_, index) => `it("case ${index}", () => { const unused = ${index}; });`).join("\n");
     const result = collectStaticMeasurements(fixture({ "index.js": "export const value = 1;", "value.test.js": tests }));
     const reading = result.metrics.find(row => row.id === "tests.integrity");
     expect(reading?.denominator).toBe(25);
-    expect(reading?.state).toBe("inconclusive");
-    expect(reading?.limitations.join()).toContain("lower bound");
+    expect(result.findings.filter(finding => finding.message.startsWith("assertion_free_test:"))).toHaveLength(25);
+    expect(reading?.state).toBe("measured");
+    expect(reading?.limitations.join()).not.toContain("assertion_free_test: reporting cap");
 });
 it("keeps comments out of function size while retaining physical file-length burden", () => {
     const source = "export function identity(value) { return value; }", root = fixture({ "index.js": source });

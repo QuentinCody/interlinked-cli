@@ -20,7 +20,7 @@ import type { JevQuestion } from "./types.js";
 /** Operating point from the eval: paragraph-level live probability. */
 export const DOC_CLAIM_LIVE_NOUL_MIN = 0.7;
 /** Secondary filter: the per-path Noul must at least lean yes. */
-export const DOC_CLAIM_PATH_NOUL_MIN = 0.5;
+const DOC_CLAIM_PATH_NOUL_MIN = 0.5;
 const MIN_PARAGRAPH_CHARS = 40;
 const SRC_PATH_RE = /\b(?:src|cloud\/src)\/[\w./-]+\.(?:ts|mts|mjs|js)\b/g;
 
@@ -69,7 +69,7 @@ export function extractPathParagraphs(content: string): DocParagraph[] {
 	return out;
 }
 
-export function liveClaimQuestions(paths: readonly string[]): Record<string, JevQuestion> {
+function liveClaimQuestions(paths: readonly string[]): Record<string, JevQuestion> {
 	const questions: Record<string, JevQuestion> = {
 		live_any: {
 			type: "noul",

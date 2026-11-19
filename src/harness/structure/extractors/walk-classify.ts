@@ -15,12 +15,17 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ArtifactEdge, ArtifactNode, ExtractorResult } from "../types.js";
-import { consumeWalkEntry, type WalkBudget, warnWalkTruncated } from "./bounded-walk.js";
+import { consumeWalkEntry, createWalkBudget, type WalkBudget, warnWalkTruncated } from "./bounded-walk.js";
 import { isRootScratchDir, resolveIgnoredDirs, SHARED_SKIP_DIRS } from "./skip-dirs.js";
 
 /** Classifies ONE repo-relative path into its nodes/edges, using path/name
  *  logic only (no filesystem read). Each extractor exports one of these. */
 export type FileClassifier = (repoRoot: string, relPath: string) => ExtractorResult;
+
+export function createPathExtractor(extractorName: string, classify: FileClassifier) {
+	return (repoRoot: string, budget: WalkBudget = createWalkBudget()): ExtractorResult =>
+		walkAndClassify(repoRoot, { classify, budget, extractorName });
+}
 
 interface WalkContext {
 	repoRoot: string;

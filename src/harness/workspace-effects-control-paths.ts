@@ -55,6 +55,7 @@ export function formatWorkspaceResidueWarning(changeSet: WorkspaceChangeSet): st
 		`[interlinked:effect-residue] Stop observed ${changeSet.files.length} filesystem effect(s) ` +
 		`that were not reconciled by PostToolUse (${completeness} snapshot): ${shown.join(", ")}${more}.` +
 		`${attributedNote} ` +
-		"The files were added to the touched-file rescan; this is a backstop, not rollback of the originating command."
+		"No tool call of this session declared them, so the writer is unknown and they are not attributed to this session. " +
+		"They were added to the Stop rescan; this is a backstop, not rollback of the originating command."
 	);
 }

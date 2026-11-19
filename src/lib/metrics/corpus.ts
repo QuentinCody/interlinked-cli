@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { record, textField } from "./evidence-json.js";
 import { collectCompositeScoreReport, type CompositeScoreReport } from "./composite-report.js";
 
-export interface CorpusRepository { name: string; path: string; commit: string; stars: number | null; cohort: "calibration" | "held-out"; }
+interface CorpusRepository { name: string; path: string; commit: string; stars: number | null; cohort: "calibration" | "held-out"; }
 export interface CorpusRow {
     name: string; commit: string; stars: number | null; cohort: string; status: string;
     artifact?: string; structuralScore?: number | null; observedScore?: number | null; slopScore?: number | null;
@@ -21,14 +21,14 @@ function parseRepository(value: unknown, directory: string): CorpusRepository {
     return { name: textField(row.name, "name"), path: resolve(directory, textField(row.path, "path")), commit,
         stars: typeof stars === "number" ? stars : null, cohort: row.cohort === "held-out" ? "held-out" : "calibration" };
 }
-export function readCorpusManifest(path: string): CorpusRepository[] {
+function readCorpusManifest(path: string): CorpusRepository[] {
     const json = record(JSON.parse(readFileSync(path, "utf8")), "corpus manifest");
     if (!Array.isArray(json.repositories) || !json.repositories.length) throw new Error("Manifest requires repositories");
     const rows = json.repositories.map(value => parseRepository(value, dirname(path)));
     if (new Set(rows.map(row => row.name)).size !== rows.length) throw new Error("Duplicate repository names");
     return rows;
 }
-export function verifyCorpusSnapshot(repository: CorpusRepository): void {
+function verifyCorpusSnapshot(repository: CorpusRepository): void {
     const options = { cwd: repository.path, encoding: "utf8" as const, stdio: "pipe" as const, timeout: 15_000, maxBuffer: 8 * 1024 * 1024 };
     const head = execFileSync("git", ["rev-parse", "HEAD"], options).trim();
     if (head !== repository.commit) throw new Error("Repository HEAD differs from pinned commit");

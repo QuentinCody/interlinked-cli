@@ -24,7 +24,7 @@ export function registerCapsCommands(program: Command): void {
 		.description("Set a cap (metric: lines | function-tokens | cyclomatic | cognitive | crap | coverage)")
 		.option("--json", "Machine-readable output")
 		.action(async (metric: string, value: string, opts: { json?: boolean }) => {
-			process.exitCode = await capsSetAction(metric, value, opts);
+			process.exitCode = await capsSetAction(metric, value, { ...caps.opts(), ...opts });
 		});
 
 	caps
@@ -32,7 +32,7 @@ export function registerCapsCommands(program: Command): void {
 		.description("Explain what each metric means, its default, and how to change it")
 		.option("--json", "Machine-readable output")
 		.action(async (metric: string | undefined, opts: { json?: boolean }) => {
-			process.exitCode = await capsExplainAction(metric, opts);
+			process.exitCode = await capsExplainAction(metric, { ...caps.opts(), ...opts });
 		});
 
 	caps
@@ -44,7 +44,7 @@ export function registerCapsCommands(program: Command): void {
 		.option("--dry-run", "Report what would change; write nothing")
 		.option("--json", "Machine-readable output")
 		.action(async (metric: string, opts: { to?: string; dryRun?: boolean; json?: boolean }) => {
-			process.exitCode = await capsRatchetAction(metric, opts);
+			process.exitCode = await capsRatchetAction(metric, { ...caps.opts(), ...opts });
 		});
 
 	caps
@@ -55,7 +55,7 @@ export function registerCapsCommands(program: Command): void {
 		.option("--json", "Machine-readable output")
 		.action(async (opts: { json?: boolean }) => {
 			const { capsProposeAction } = await import("../commands/metrics-complexity.js");
-			process.exitCode = await capsProposeAction(opts);
+			process.exitCode = await capsProposeAction({ ...caps.opts(), ...opts });
 		});
 
 	caps
@@ -63,6 +63,6 @@ export function registerCapsCommands(program: Command): void {
 		.description("Per-metric burn-down of the grandfather ledger: cap, entries remaining, top offenders, delta vs previous")
 		.option("--json", "Machine-readable output")
 		.action(async (opts: { json?: boolean }) => {
-			process.exitCode = await capsStatusAction(opts);
+			process.exitCode = await capsStatusAction({ ...caps.opts(), ...opts });
 		});
 }

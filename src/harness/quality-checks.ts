@@ -17,6 +17,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, isAbsolute, resolve, sep } from "node:path";
 import type { FilePriority } from "./file-priority.js";
 import { runInlineCheckBlock } from "./quality-checks/inline-block.js";
+import { withCommanderOptionEvidence, type CommanderOptionEvidence } from "./checks/commander-option-evidence.js";
+import { withNumericZeroDefaultEvidence, type NumericZeroDefaultEvidence } from "./checks/numeric-zero-default-evidence.js";
 import { runRatchetComparison } from "./quality-checks/ratchet-comparison.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./quality-checks/result-types.js";
 import { collectSoftwareVersionReferences } from "./quality-checks/software-version-regression.js";
@@ -76,6 +78,10 @@ export { classifyDeterminism, formatQualityWarnings } from "./quality-checks/war
 
 /** Options for filtering quality check output. */
 export interface QualityCheckOptions {
+	/** Optional existing-index query evidence, scoped to this inline evaluation. */
+	commanderEvidence?: CommanderOptionEvidence;
+	/** Numeric parser helper dependencies from the existing importer index. */
+	numericZeroEvidence?: NumericZeroDefaultEvidence;
 	/** When set, filter tsc output to only errors mentioning this file path */
 	tscFilterFile?: string;
 	/** Pre-edit baseline for diff-aware filtering (suppresses pre-existing findings) */
@@ -116,6 +122,41 @@ export interface QualityCheckOptions {
 	 *  software_version_regression, the inline-checks block) still run.
 	 *  Defaults to `true` (legacy behavior for verify / direct test callers). */
 	editedFileInRepo?: boolean;
+}
+
+function commanderInlineEvidence(options: QualityCheckOptions | undefined, run: () => QualityCheckResult[]): QualityCheckResult[] {
+	const evidence = options?.commanderEvidence;
+	if (!evidence) return run();
+	const missing: QualityCheckResult[] = [], seen = new Set<string>();
+	return withCommanderOptionEvidence({ ...evidence, onUnavailable: input => {
+		evidence.onUnavailable?.(input);
+		const key = `${input.file}\0${input.reason}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		missing.push({ name: "commander_option_attribute", severity: "warning", measurementState: "unavailable", findingCount: 0, file: input.file,
+			message: "Commander option evidence NOT MEASURED", detail: input.reason });
+	} }, () => {
+		const results = run();
+		return [...results, ...missing];
+	});
+}
+
+function numericInlineEvidence(options: QualityCheckOptions | undefined, run: () => QualityCheckResult[]): QualityCheckResult[] {
+	const evidence = options?.numericZeroEvidence;
+	if (!evidence) return run();
+	const missing: QualityCheckResult[] = [], seen = new Set<string>();
+	return withNumericZeroDefaultEvidence({ ...evidence, onUnavailable: input => {
+		evidence.onUnavailable?.(input);
+		const key = `${input.file}\0${input.reason}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		missing.push({ name: "numeric_zero_default", severity: "warning", measurementState: "unavailable", findingCount: 0, file: input.file,
+			message: "Numeric default evidence NOT MEASURED", detail: input.reason });
+	} }, () => {
+		const results = run();
+		for (const gap of missing) results.push(gap);
+		return results;
+	});
 }
 
 export interface QualityCheckTarget {
@@ -258,7 +299,7 @@ export async function runQualityChecks(
 	const sharedForInline = getSharedContent();
 	if (sharedForInline !== null) {
 		results.push(
-			...runInlineCheckBlock({
+			...commanderInlineEvidence(options, () => numericInlineEvidence(options, () => runInlineCheckBlock({
 				event,
 				filePath,
 				absFilePath,
@@ -267,7 +308,7 @@ export async function runQualityChecks(
 				diffAware: options?.diffAware,
 				baseline: options?.baseline,
 				filePriority: options?.filePriority,
-			}),
+			}))),
 		);
 	}
 

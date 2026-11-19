@@ -11,13 +11,9 @@
 // ...)` threw ENOENT when `.interlinked/` didn't exist.
 //
 // Design decisions:
-//   - Line-based approach: we locate write calls by scanning the stripped
-//     (no-strings, no-comments) source for their line numbers, then operate
-//     on those line numbers in the other source views (raw, comment-stripped).
-//     This avoids offset-mismatch bugs between stripped views that replace
-//     content at different byte lengths.
-//   - Path argument analysis: we scan raw lines (string content visible) to
-//     detect `join(…,…)` with ≥2 args or a string literal with a `/`.
+//   - Offset-preserving masking identifies each executable call and the end
+//     of its destination argument. Raw destination text retains filename
+//     literals, including multiline calls and commas inside a filename.
 //   - Guard detection: we scan comment-stripped (string-preserving) lines from
 //     function start to the write line for `mkdirSync`/`mkdir` + `recursive`
 //     or `existsSync`. String content survives so `{ recursive: true }` is
@@ -33,6 +29,8 @@ import {
 	stripComments,
 	stripCommentsAndStrings,
 } from "./shared.js";
+import { buildLineIndex } from "./shared-text-utils.js";
+import { maskCommentsAndStringsHeuristic } from "./test-hygiene-masking.js";
 
 const MAX_MATCHES_PER_FILE = 10;
 const REPORT_LINE_TRUNC = 150;
@@ -130,6 +128,7 @@ function isSingleSegmentIntoKnownDir(argWindow: string, knownDirs: Set<string>):
 		const inner = argWindow.slice(openIdx + 1);
 		const firstArg = new RegExp(`^\\s*(${dirAlt})\\s*,`).exec(inner);
 		if (!firstArg) return false;
+		if (NESTED_LITERAL_RE.test(inner.slice(firstArg[0].length))) return false;
 		return countTopLevelArgs(argWindow, openIdx + 1, 300) === 2;
 	}
 
@@ -168,21 +167,9 @@ function countTopLevelArgs(text: string, afterOpenParen: number, budget: number)
 }
 
 /**
- * Detect a write call on `lineText` (raw or comment-stripped line). Returns
- * true when:
- *   - a `join(` with ≥2 arguments appears as the first argument, OR
- *   - a string literal containing `/` appears as the first argument.
- *
- * We extract the first argument by walking forward from the write call's `(`.
+ * Recognize a nested write destination from its literal or path-join expression.
  */
-function hasNestedPathArg(lineText: string, knownDirs: Set<string>): boolean {
-	// Find the write function call
-	const writeMatch = /\b(?:writeFileSync|appendFileSync|writeFile|createWriteStream)\s*\(/.exec(lineText);
-	if (writeMatch === null) return false;
-
-	const afterOpen = writeMatch.index + writeMatch[0].length;
-	const argWindow = lineText.slice(afterOpen, afterOpen + 300);
-
+function hasNestedPathArg(argWindow: string, knownDirs: Set<string>): boolean {
 	// A file placed directly inside a directory already known to exist
 	// (mkdtemp*, or a bare mkdirSync(name)) can't ENOENT — not a nested path.
 	if (isSingleSegmentIntoKnownDir(argWindow, knownDirs)) return false;
@@ -279,7 +266,10 @@ export function detectWriteWithoutMkdir(content: string, filePath: string): Inli
 
 	// Fully stripped source — used to locate write call line numbers without
 	// triggering on write calls mentioned inside strings or comments.
-	const stripped = stripCommentsAndStrings(content);
+	WRITE_STRIPPED_RE.lastIndex = 0;
+	if (!WRITE_STRIPPED_RE.test(content)) return [];
+	const stripped = maskCommentsAndStringsHeuristic(content);
+	const lineIndex = buildLineIndex(content);
 	// Comment-stripped (strings preserved) — used for path analysis and guard
 	// detection where string literal content must be visible.
 	const commentStrippedLines = stripComments(content).split("\n");
@@ -292,15 +282,15 @@ export function detectWriteWithoutMkdir(content: string, filePath: string): Inli
 	let m: RegExpExecArray | null;
 
 	while ((m = WRITE_STRIPPED_RE.exec(stripped)) !== null) {
-		// Compute 0-based line index from character offset in stripped source
-		const lineIdx = stripped.slice(0, m.index).split("\n").length - 1;
-		const lineNo = lineIdx + 1; // 1-based for output
+		const lineNo = lineIndex.lineAt(m.index);
+		const lineIdx = lineNo - 1;
 
 		if (seen.has(lineNo)) continue;
 
-		// Analyse the raw line for the path argument (strings visible)
+		// Masked offsets identify delimiters even when a quoted filename contains a comma.
 		const rawLine = rawLines[lineIdx] ?? "";
-		if (!hasNestedPathArg(rawLine, knownDirs)) continue;
+		const pathArgument = firstArgWindow(content, m.index + m[0].length, stripped);
+		if (!hasNestedPathArg(pathArgument, knownDirs)) continue;
 
 		// Find enclosing function start in comment-stripped lines (brace balance)
 		const fnStartLineIdx = findEnclosingFunctionStartLine(commentStrippedLines, lineIdx);
@@ -419,11 +409,11 @@ function collectHomeDerivedNames(strippedLines: string[]): Set<string> {
  * Bounding the scan to the path argument is what keeps read-only home use
  * clean: `writeFileSync(join(cwd, "out.json"), credsFromHome)` must not fire.
  */
-function firstArgWindow(text: string, afterOpen: number): string {
+function firstArgWindow(text: string, afterOpen: number, structure = text): string {
 	let depth = 1;
 	const end = Math.min(text.length, afterOpen + 300);
 	for (let i = afterOpen; i < end; i++) {
-		const ch = text.charAt(i);
+		const ch = structure.charAt(i);
 		if (ch === "(" || ch === "[" || ch === "{") depth++;
 		else if (ch === ")" || ch === "]" || ch === "}") {
 			depth--;

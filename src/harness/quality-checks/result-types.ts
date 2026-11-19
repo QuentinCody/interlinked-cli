@@ -6,6 +6,7 @@
 // inline-block, ratchet-comparison) and the orchestrator all reference one
 // type definition instead of redeclaring it. Mirrors the shape consumed by
 // formatQualityWarnings.
+import type { InlineSourceEvidence } from "../check-registry/types.js";
 
 export interface QualityCheckResult {
 	name: string;
@@ -13,9 +14,14 @@ export interface QualityCheckResult {
 	message: string;
 	file?: string;
 	detail?: string;
+	/** Missing advisory evidence stays visible without becoming a defect or
+	 * acquiring operational Stop-blocking semantics. */
+	measurementState?: "unavailable";
 	/** Novelty is relative to the last report, not proof of writer identity. */
 	novelty?: "newly-observed" | "pre-existing";
 	findingCount?: number;
+	/** Exact supporting source captured by the inline detector. */
+	sourceEvidence?: InlineSourceEvidence[];
 	writeAttribution?: "declared-target" | "observed-workspace";
     /** Full unformatted diagnostic identities for durable batch repair tracking. */
     diagnosticKeys?: string[];

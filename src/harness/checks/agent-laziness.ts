@@ -418,7 +418,7 @@ export function checkFileLevelSuppression(content: string, filePath: string): In
 	if (isGeneratedFile(content)) return [];
 
 	const matches: InlineMatch[] = [];
-	const lines = content.split("\n");
+	const lines = (JS_TS_EXTS.has(getExtension(filePath)) ? stripStrings(content) : content).split("\n");
 	const MAX_MATCHES = 3;
 	for (let i = 0; i < lines.length; i++) {
 		if (matches.length >= MAX_MATCHES) break;

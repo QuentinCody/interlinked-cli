@@ -9,6 +9,7 @@
 import { nonNull } from "../lib/non-null.js";
 import { stripComments } from "./strip-helpers.js";
 import { type InlineMatch, isJsTs, isTestFile, push, stripCommentsAndStrings } from "./taste-checks-shared.js";
+import { checkMatchLimit } from "./checks/check-scan-policy.js";
 
 // `(x as any).privateThing` in a test reaches past the public API — EXCEPT when
 // the accessed surface is itself public API of a different contract: vitest/jest
@@ -176,14 +177,15 @@ export function checkPrivateMemberTestAccess(content: string, filePath: string):
 	const sLines = stripped.split("\n");
 	const cLines = commentFree.split("\n");
 	const matches: InlineMatch[] = [];
-	for (let i = 0; i < sLines.length && matches.length < 10; i++) {
+	const maxMatches = checkMatchLimit(10);
+	for (let i = 0; i < sLines.length && matches.length < maxMatches; i++) {
 		const sLine = nonNull(sLines[i]);
 		const fires =
 			hasCastAnyViolation(sLine, stripped) ||
 			hasCastUnknownViolation(sLine) ||
 			hasDunderViolation(sLine) ||
 			hasBracketPrivateViolation(nonNull(cLines[i]));
-		if (fires) push(matches, i, lines, 10);
+		if (fires) push(matches, i, lines, maxMatches);
 	}
 	return matches;
 }

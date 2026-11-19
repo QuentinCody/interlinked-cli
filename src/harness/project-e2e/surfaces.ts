@@ -7,7 +7,9 @@
 // OpenAPI JSON operations. Routes registered in code and YAML documents are
 // reported as limits, never as an empty complete inventory (PE-64).
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { discoveryInputs } from "./discovery-inputs.js";
+import { isJsonObject as isRecord } from "../../lib/json-types.js";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pythonEntryPoints } from "./discover.js";
 import { E2E_POLICY_PATH, type E2ePolicy, type E2eProject } from "./policy.js";
@@ -25,20 +27,8 @@ const HTTP_METHODS = ["get", "post", "put", "patch", "delete", "head", "options"
 const HTTP_FRAMEWORKS = ["express", "fastify", "hono", "koa", "@nestjs/core", "restify", "fastapi", "flask", "django", "starlette", "aiohttp"];
 const OPENAPI_DIRECTORIES = [".", "api", "docs", "openapi", "spec"];
 const OPENAPI_NAMES = ["openapi.json", "openapi.yaml", "openapi.yml", "swagger.json", "swagger.yaml"];
-const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+const { readText, readJson } = discoveryInputs(2 * 1024 * 1024);
 
-function readText(path: string): string | null {
-    try { if (statSync(path).size > MAX_TEXT_BYTES) return null; return readFileSync(path, "utf8"); } catch { return null; }
-}
-function readJson(path: string): Record<string, unknown> | null {
-    const text = readText(path);
-    if (text === null) return null;
-    try {
-        const value: unknown = JSON.parse(text);
-        // SAFETY: non-null, non-array object per the guard.
-        return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-    } catch { return null; }
-}
 function cliSurface(projectId: string, name: string, address: string, source: string, method: SurfaceRecord["discovery"]["method"]): SurfaceRecord {
     return { projectId, id: `cli:${name}`, kind: "cli", address, source: { path: source }, discovery: { method, version: 1 } };
 }
@@ -94,7 +84,6 @@ function operationsOf(projectId: string, path: string, route: string, item: Reco
     return surfaces;
 }
 const MAX_REF_HOPS = 4;
-function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 /** Resolves a LOCAL JSON pointer (`#/a/b`) inside the document; null when external, malformed or missing. */
 function resolvePointer(document: Record<string, unknown>, ref: string): Record<string, unknown> | null {
     if (!ref.startsWith("#/")) return null;

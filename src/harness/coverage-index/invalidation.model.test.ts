@@ -74,6 +74,8 @@ it("models edits, deletion, restoration and no-op changes across every declared 
                 writeFileSync(join(root, path), path.endsWith(".ts") ? `export const value = ${JSON.stringify(value)};` : value ?? "");
             }
             const real: Real = { root, current: { ...INITIAL }, manifest: snapshot({ root, current: INITIAL }) };
+            expect(manifestValidity(real.manifest, inputs(real))).toEqual({ valid: true, reasons: [] });
+            expect(staleShards(real.manifest, root)).toEqual([]);
             fc.modelRun(() => ({ model: { accepted: { ...INITIAL }, current: { ...INITIAL } }, real }), commands);
         } finally { rmSync(root, { recursive: true, force: true }); }
     }), { numRuns: 40 });

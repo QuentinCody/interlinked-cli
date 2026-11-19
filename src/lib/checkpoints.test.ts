@@ -47,22 +47,29 @@
 //     recovers the original value whenever eventType is exactly that key,
 //     the only case where the mutated entry is ever looked up.
 //
-// NOTE (real bug, flagged per the fleet-r3 contract, not fixed here — this
-// wave is tests-only): archiveCheckpoints's over-`max_stash_count` branch
-// archives from a NEWEST-FIRST sort while counting down, which archives the
-// *newest* excess stash first and leaves older ones restorable — the
-// opposite of the usual "trim the oldest first" intent. Verified by direct
-// simulation (see the "archives exactly the checkpoint..." test below, whose
-// asserted values reflect this actual behavior, not the presumably-intended
-// one).
-
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("node:child_process", () => ({ execSync: vi.fn() }));
+vi.mock("node:child_process", () => ({
+	execSync: vi.fn(),
+	execFileSync: vi.fn((file: string, args: readonly string[], options: Parameters<typeof execSync>[1]) => {
+		if (args[0] === "diff" && args[1] === "--name-only") return String(execSync("git diff --name-only HEAD", options)).split("\n").join("\0");
+		if (args[0] === "ls-files") return String(execSync("git ls-files --others --exclude-standard", options)).split("\n").join("\0");
+		if (args[0] === "rev-parse" && args[1] === "--verify") return "a".repeat(40);
+		if (args[0] === "cat-file" || args[0] === "update-ref") return "";
+		if (args[0] === "rev-list") return `${"e".repeat(40)} ${"a".repeat(40)} ${"f".repeat(40)}`;
+		if (args[0] === "ls-tree") return "";
+		if (args[0] === "stash" && args[1] === "list") {
+			const push = vi.mocked(execSync).mock.calls.find(([command]) => String(command).startsWith("git stash push"));
+			const id = String(push?.[0]).match(/interlinked:checkpoint:([a-f0-9]{12}):/)?.[1];
+			return `${"e".repeat(40)}:interlinked:checkpoint:${id}:{}`;
+		}
+		return execSync(`${file} ${args.join(" ")}`, options);
+	}),
+}));
 
 import {
 	archiveCheckpoints,
@@ -131,10 +138,10 @@ function mkCheckpoint(overrides: Partial<Checkpoint> & { id: string }): Checkpoi
 		agent: overrides.agent ?? "agent-default",
 		message: overrides.message ?? "msg-default",
 		timestamp: overrides.timestamp ?? new Date().toISOString(),
-		base_commit: overrides.base_commit ?? "commit-default",
+		base_commit: overrides.base_commit ?? "a".repeat(40),
 		trigger: overrides.trigger ?? "manual",
 		files_changed: overrides.files_changed ?? [],
-		stash_ref: overrides.stash_ref,
+		stash_ref: overrides.stash_ref ?? "e".repeat(40),
 		restorable: overrides.restorable ?? true,
 		metadata: overrides.metadata,
 	};
@@ -187,12 +194,15 @@ describe("createCheckpoint", () => {
 		execSyncMock.mockImplementation(
 			gitCommandMock({
 				"git rev-parse --git-dir": "",
-				"git rev-parse HEAD": "headcommit123",
-				"git diff --name-only HEAD": "",
+				"git rev-parse HEAD": "a".repeat(40),
+				"git diff --name-only HEAD": "changed.ts",
 				"git ls-files --others --exclude-standard": "",
 				"git stash push*": "",
 				"git stash list -1 --format=%H": "stashhash456",
 				"git stash pop": "",
+				[`git stash apply --index ${"e".repeat(40)}`]: "",
+				[`git restore --source ${"e".repeat(40)} --worktree -- . :(literal,exclude).interlinked`]: "",
+				[`git restore --source ${"f".repeat(40)} --staged -- . :(literal,exclude).interlinked`]: "",
 			}),
 		);
 
@@ -210,10 +220,10 @@ describe("createCheckpoint", () => {
 			agent: "agent-1",
 			message: "test checkpoint",
 			timestamp: expect.any(String),
-			base_commit: "headcommit123",
+			base_commit: "a".repeat(40),
 			trigger: "manual",
-			files_changed: [],
-			stash_ref: "stashhash456",
+			files_changed: ["changed.ts"],
+			stash_ref: "e".repeat(40),
 			restorable: true,
 			metadata: undefined,
 		});
@@ -236,9 +246,9 @@ describe("createCheckpoint", () => {
 			agent: "agent-1",
 			trigger: "manual",
 		});
-		const expectedPushCmd = `git stash push --include-untracked -m "interlinked:checkpoint:${result.id}:${expectedStashMeta}"`;
+		const expectedPushCmd = `git stash push --include-untracked -m interlinked:checkpoint:${result.id}:${expectedStashMeta} -- . :(literal,exclude).interlinked`;
 		expect(execSyncMock.mock.calls.some(([cmd]) => cmd === expectedPushCmd)).toBe(true);
-		expect(execSyncMock.mock.calls.some(([cmd]) => cmd === "git stash pop")).toBe(true);
+		expect(execSyncMock.mock.calls.some(([cmd]) => cmd === `git restore --source ${"e".repeat(40)} --worktree -- . :(literal,exclude).interlinked`)).toBe(true);
 	});
 });
 
@@ -298,22 +308,48 @@ describe("getCheckpoint", () => {
 // ===========================================
 
 describe("rewindToCheckpoint", () => {
+	it("stops before changing the tree when git status fails", () => {
+		const tmpA = mkTmp();
+		seedCheckpoints(tmpA, [mkCheckpoint({ id: "status-failed", restorable: true })]);
+		execSyncMock.mockImplementation(gitCommandMock({ "git rev-parse --git-dir": "" }));
+
+		expect(() => rewindToCheckpoint("status-failed", { cwd: tmpA, force: true })).toThrow("git status --porcelain");
+		expect(execSyncMock.mock.calls.map(([command]) => command)).toEqual([
+			"git rev-parse --git-dir", "git status --porcelain",
+		]);
+	});
+
+	it("stops before applying a stash when the checkpoint base checkout fails", () => {
+		const tmpA = mkTmp();
+		seedCheckpoints(tmpA, [mkCheckpoint({ id: "checkout-failed", base_commit: "a".repeat(40), restorable: true })]);
+		execSyncMock.mockImplementation(gitCommandMock({
+			"git rev-parse --git-dir": "", "git status --porcelain": "", "git rev-parse HEAD": "current",
+		}));
+
+		expect(() => rewindToCheckpoint("checkout-failed", { cwd: tmpA })).toThrow(`git restore --source ${"a".repeat(40)}`);
+		expect(execSyncMock.mock.calls.map(([command]) => command)).toEqual([
+			"git rev-parse --git-dir", "git status --porcelain", "git rev-parse HEAD", `git restore --source ${"a".repeat(40)} --staged --worktree -- . :(literal,exclude).interlinked`,
+		]);
+	});
+
 	// test-contract: public-api — opts.cwd must take priority over
 	// process.cwd(); a matching, restorable checkpoint on a clean tree must
 	// resolve successfully with the stash applied.
 	it("rewinds via opts.cwd when the tree is clean and a matching stash exists", () => {
 		const tmpA = mkTmp();
 		seedCheckpoints(tmpA, [
-			mkCheckpoint({ id: "cp1", base_commit: "head1", restorable: true, files_changed: ["a.ts"] }),
+			mkCheckpoint({ id: "cp1", base_commit: "a".repeat(40), restorable: true, files_changed: ["a.ts"] }),
 		]);
 
 		execSyncMock.mockImplementation(
 			gitCommandMock({
 				"git rev-parse --git-dir": "",
 				"git status --porcelain": "",
-				"git rev-parse HEAD": "head1",
+				"git rev-parse HEAD": "a".repeat(40),
 				"git stash list --format=%gd:%s": "stash@{0}:interlinked:checkpoint:cp1:{}",
-				"git stash apply stash@{0}": "",
+				[`git stash apply --index ${"e".repeat(40)}`]: "",
+				[`git restore --source ${"e".repeat(40)} --worktree -- . :(literal,exclude).interlinked`]: "",
+				[`git restore --source ${"f".repeat(40)} --staged -- . :(literal,exclude).interlinked`]: "",
 			}),
 		);
 
@@ -346,17 +382,19 @@ describe("rewindToCheckpoint", () => {
 	// `git checkout -- .`, even when force:true is passed.
 	it("does not reset the tree when there are no uncommitted changes, even with force:true", () => {
 		const tmpA = mkTmp();
-		seedCheckpoints(tmpA, [mkCheckpoint({ id: "cp3", base_commit: "head3", restorable: true })]);
+		seedCheckpoints(tmpA, [mkCheckpoint({ id: "cp3", base_commit: "a".repeat(40), restorable: true })]);
 
 		execSyncMock.mockImplementation(
 			gitCommandMock({
 				"git rev-parse --git-dir": "",
 				"git status --porcelain": "",
-				"git rev-parse HEAD": "head3",
+				"git rev-parse HEAD": "a".repeat(40),
 				"git checkout -- .": "",
 				"git clean -fd": "",
 				"git stash list --format=%gd:%s": "stash@{0}:interlinked:checkpoint:cp3:{}",
-				"git stash apply stash@{0}": "",
+				[`git stash apply --index ${"e".repeat(40)}`]: "",
+				[`git restore --source ${"e".repeat(40)} --worktree -- . :(literal,exclude).interlinked`]: "",
+				[`git restore --source ${"f".repeat(40)} --staged -- . :(literal,exclude).interlinked`]: "",
 			}),
 		);
 
@@ -378,13 +416,13 @@ describe("compareCheckpoints", () => {
 	it("resolves cwd and issues the exact git diff --stat command", () => {
 		const tmpA = mkTmp();
 		seedCheckpoints(tmpA, [
-			mkCheckpoint({ id: "cp-from", base_commit: "commitFrom" }),
-			mkCheckpoint({ id: "cp-to", base_commit: "commitTo" }),
+			mkCheckpoint({ id: "cp-from", base_commit: "a".repeat(40) }),
+			mkCheckpoint({ id: "cp-to", base_commit: "b".repeat(40) }),
 		]);
 
 		execSyncMock.mockImplementation(
 			gitCommandMock({
-				"git diff --stat commitFrom..commitTo": "2 files changed, 10 insertions(+)",
+				[`git diff --stat ${"a".repeat(40)}..${"b".repeat(40)} --`]: "2 files changed, 10 insertions(+)",
 			}),
 		);
 
@@ -392,7 +430,7 @@ describe("compareCheckpoints", () => {
 
 		expect(result.diff_summary).toBe("2 files changed, 10 insertions(+)");
 		expect(
-			execSyncMock.mock.calls.some(([cmd]) => cmd === "git diff --stat commitFrom..commitTo"),
+			execSyncMock.mock.calls.some(([cmd]) => cmd === `git diff --stat ${"a".repeat(40)}..${"b".repeat(40)} --`),
 		).toBe(true);
 	});
 });
@@ -542,14 +580,9 @@ describe("archiveCheckpoints", () => {
 		expect(readCheckpointsRaw(tmpA).find((c) => c.id === "ten-days")?.restorable).toBe(true);
 	});
 
-	// test-contract: invariant — when over max_stash_count, the function must
-	// archive from a newest-first sort, counting only restorable checkpoints
-	// toward the initial limit. Expected values below were cross-checked with
-	// a standalone Node simulation of the real (sort, undefined-comparator,
-	// addition-comparator, and restorable-filter-dropped) variants — a
-	// dropped sort, a broken comparator, or counting the non-restorable row
-	// toward the limit each archive a different, wrong checkpoint than this.
-	it("archives exactly the checkpoint the real newest-first over-limit walk selects", () => {
+	// test-contract: retention — archive the oldest excess checkpoint first.
+	// Already archived metadata consumes no active-checkpoint capacity.
+	it("retains the newest active checkpoints when over the stash limit", () => {
 		const tmpA = mkTmp();
 		const now = Date.now();
 		seedCheckpoints(tmpA, [
@@ -563,8 +596,8 @@ describe("archiveCheckpoints", () => {
 
 		expect(result).toEqual({ archived: 1 });
 		expect(readCheckpointsRaw(tmpA).map((c) => ({ id: c.id, restorable: c.restorable }))).toEqual([
-			{ id: "A", restorable: true },
-			{ id: "B", restorable: false },
+			{ id: "A", restorable: false },
+			{ id: "B", restorable: true },
 			{ id: "C", restorable: true },
 			{ id: "D", restorable: false },
 		]);

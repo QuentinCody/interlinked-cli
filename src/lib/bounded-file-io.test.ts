@@ -2,10 +2,12 @@ import {
 	closeSync,
 	existsSync,
 	ftruncateSync,
+	fstatSync,
 	mkdirSync,
 	mkdtempSync,
 	openSync,
 	readFileSync,
+	readSync,
 	rmSync,
 	writeFileSync,
 	writeSync,
@@ -13,7 +15,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("node:fs", async importOriginal => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return { ...actual, openSync: vi.fn(actual.openSync), readSync: vi.fn(actual.readSync) };
+});
 import {
 	countNonEmptyFileLines,
 	findLineBoundaryAtOrBefore,
@@ -23,6 +29,7 @@ import {
 	readFirstNonEmptyFileLine,
 	scanFileLines,
 	sha256File,
+	tornTailPrefix,
 } from "./bounded-file-io.js";
 
 describe("bounded file I/O", () => {
@@ -34,6 +41,34 @@ describe("bounded file I/O", () => {
 
 	afterEach(() => {
 		rmSync(tmp, { recursive: true, force: true });
+		vi.clearAllMocks();
+	});
+
+	it("reads just the final byte to separate a new record after a torn tail", () => {
+		const path = join(tmp, "journal.jsonl");
+		expect(tornTailPrefix(path)).toBe("");
+		writeFileSync(path, "");
+		expect(tornTailPrefix(path)).toBe("");
+		const size = 64 * 1024;
+		writeFileSync(path, Buffer.alloc(size, 0x61));
+		expect(tornTailPrefix(path)).toBe("\n");
+		expect(vi.mocked(readSync).mock.calls.at(-1)?.slice(2)).toEqual([0, 1, size - 1]);
+		writeFileSync(path, "terminated\n");
+		expect(tornTailPrefix(path)).toBe("");
+	});
+
+	it.each(["hash", "scan", "tail"])("closes any acquired descriptor when %s buffer allocation rejects its size", operation => {
+		const path = join(tmp, "input.jsonl");
+		writeFileSync(path, "record\n");
+		const invoke = () => {
+			if (operation === "hash") sha256File(path, NaN);
+			else if (operation === "scan") scanFileLines(path, () => {}, { chunkBytes: NaN });
+			else findTailStartForLines(path, 1, NaN);
+		};
+		expect(invoke).toThrow();
+		for (const acquired of vi.mocked(openSync).mock.results) {
+			if (acquired.type === "return") expect(() => fstatSync(acquired.value)).toThrow(/EBADF/);
+		}
 	});
 
 	it("scans records and boundaries correctly across tiny chunks", () => {

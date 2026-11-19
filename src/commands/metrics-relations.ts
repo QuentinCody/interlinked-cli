@@ -21,25 +21,43 @@ function required(value: string | undefined, flag: string): string { if (!value)
 export async function relationsAction(action: string, input: string | undefined, options: RelationsOptions): Promise<number> {
     const root = resolve(options.cwd ?? process.cwd());
     try {
-        let result: unknown;
-        if (action === "catalog") result = RELATION_CONTRACTS;
-        else if (action === "prepare") {
-            result = prepareRelationCommand(options, root);
-        } else if (action === "compare") {
-            result = compareRelationCommand(options, input);
-        } else {
-            const artifact = loadRelationArtifact(resolve(required(input, "input artifact")));
-            if (action === "freeze") { freezeRelations(root, planFromArtifact(artifact), resolve(required(options.output, "--output bundle directory"))); result = { frozen: resolve(options.output!), status: "exploratory" }; }
-            else if (action === "assess") result = await assessRelations(root, planFromArtifact(artifact, true), { fresh: options.fresh ?? false });
-            else if (action === "export") { const run = parseRelationRun(artifact); exportBundle(resolve(required(options.output, "--output bundle directory")), run, "result"); result = { exported: run.id, directory: resolve(options.output!) }; }
-            else if (action === "labels") { const r = record(artifact); result = blindRelationPackets(r.schema === "interlinked.relation-run/2" ? parseRelationRun(artifact).plan : planFromArtifact(artifact)); }
-            else if (action === "audit") result = auditRelations(parseRelationRun(artifact), readRelationJson(resolve(required(options.labels, "--labels"))));
-            else throw new Error("unknown relation action");
-        }
+        const result = await runRelationAction(action, input, options, root);
         if (options.output && !["freeze", "export"].includes(action)) { writeArtifactFile(resolve(options.output), result); console.log(JSON.stringify({ output: resolve(options.output) })); }
         else console.log(JSON.stringify(result, null, 2));
         return 0;
     } catch (error) { console.error(JSON.stringify({ error: error instanceof Error ? error.message : "relation command failed" })); return 1; }
+}
+
+async function runRelationAction(action: string, input: string | undefined, options: RelationsOptions, root: string) {
+    if (action === "catalog") return RELATION_CONTRACTS;
+    if (action === "prepare") return prepareRelationCommand(options, root);
+    if (action === "compare") return compareRelationCommand(options, input);
+
+    const artifact = loadRelationArtifact(resolve(required(input, "input artifact")));
+    switch (action) {
+        case "freeze": {
+            const plan = planFromArtifact(artifact);
+            const directory = resolve(required(options.output, "--output bundle directory"));
+            freezeRelations(root, plan, directory);
+            return { frozen: directory, status: "exploratory" };
+        }
+        case "assess":
+            return assessRelations(root, planFromArtifact(artifact, true), { fresh: options.fresh ?? false });
+        case "export": {
+            const run = parseRelationRun(artifact);
+            const directory = resolve(required(options.output, "--output bundle directory"));
+            exportBundle(directory, run, "result");
+            return { exported: run.id, directory };
+        }
+        case "labels": {
+            const plan = record(artifact).schema === "interlinked.relation-run/2" ? parseRelationRun(artifact).plan : planFromArtifact(artifact);
+            return blindRelationPackets(plan);
+        }
+        case "audit":
+            return auditRelations(parseRelationRun(artifact), readRelationJson(resolve(required(options.labels, "--labels"))));
+        default:
+            throw new Error("unknown relation action");
+    }
 }
 
 function compareRelationCommand(options: RelationsOptions, input: string | undefined) {

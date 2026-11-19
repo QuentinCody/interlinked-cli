@@ -33,16 +33,13 @@ export function readEnvExampleFromDir(dir: string): Set<string> | null {
 /**
  * Public API — consumed by readEnvExampleFromDir.
  *
- * Parse `.env`-style contents into a Set of declared variable names. Skips
- * comments and blank lines; takes everything before the first `=` as the key.
+ * Example catalogs also use commented assignments to document optional keys.
  */
 export function parseEnvKeys(envContent: string): Set<string> {
 	const out = new Set<string>();
 	for (const line of envContent.split("\n")) {
-		const trimmed = line.trim();
-		if (!trimmed || trimmed.startsWith("#")) continue;
-		const eqIdx = trimmed.indexOf("=");
-		if (eqIdx > 0) out.add(trimmed.slice(0, eqIdx).trim());
+		const key = /^\s*#?\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)?.[1];
+		if (key) out.add(key);
 	}
 	return out;
 }

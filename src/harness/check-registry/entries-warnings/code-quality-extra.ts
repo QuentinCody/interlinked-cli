@@ -8,6 +8,8 @@ import {
 	detectReturnArrayPush,
 } from "../../checks/array-method-misuse.js";
 import { detectDesignSlop } from "../../checks/design-slop.js";
+import { findDeadLiteralStores } from "../../checks/dead-literal-store.js";
+import { findTopLevelBurden } from "../../checks/top-level-burden.js";
 import {
 	checkExtractedHelperDuplicate,
 	checkNewExportWithoutImporter,
@@ -366,5 +368,36 @@ export const CODE_QUALITY_ENTRIES_EXTRA: CheckRegistration[] = [
 		fn: checkSingleUseTrivialHelper,
 		resultsPropName: "singleUseTrivialHelper",
 		content_keywords: ["function", "=>", "def "],
+	},
+	{
+		id: "dead_literal_store",
+		phase: "pre_warn",
+		name: "Dead Literal Store",
+		description:
+			"A local initial value (a number, string, boolean or null) that the very next statement overwrites without reading it. The judgment of the score metric redundancy.dead_stores, with the same definition. TS/JS use the AST; Python uses a line rule over adjacent assignments of one name.",
+		tier: 1,
+		determinism: "partially_deterministic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		fix_instruction:
+			"Delete the initial value and declare the variable at its real first assignment, or keep one assignment. If the first value is a deliberate default for a branch that follows, move the real assignment into that branch.",
+		fn: findDeadLiteralStores,
+		resultsPropName: "deadLiteralStore",
+		content_keywords: ["=", "let ", "var "],
+	},
+	{
+		id: "top_level_burden",
+		phase: "post",
+		name: "Top-Level Burden",
+		description:
+			"A TS/JS module whose import-time WORK weighs 500 or more syntax tokens: loops, conditionals, try, await, bare calls, effect calls, class static blocks. Literal data, pure declarations and declarative builder chains (zod, createAction, defineX) do not count, so this check is stricter in scope than the score metric file.top_level, which counts them.",
+		tier: 2,
+		determinism: "heuristic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		fix_instruction:
+			"Move the work that runs at import (loops, conditionals, awaits, effect calls) into functions that the caller invokes, so that importing the module stays cheap and testable. A script that is meant to run on import belongs in a scripts or bin path with a main guard.",
+		fn: findTopLevelBurden,
+		resultsPropName: "topLevelBurden",
 	},
 ];

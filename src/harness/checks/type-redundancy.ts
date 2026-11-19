@@ -32,26 +32,8 @@ import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { extractInterfaceBodies } from "../project-graph/interface-bodies.js";
 import { getGitSourceFiles } from "./export-ripple.js";
 import { type InlineMatch, isTestFile } from "./shared.js";
-
-const EXPORT_TYPE_DECL_RE = /^export (?:interface|type) (\w+)/;
-
-/** Collapse whitespace so formatting differences don't defeat the identical-
- *  body comparison. */
-function normalizeBody(body: string): string {
-	return body.replace(/\s+/g, " ").trim();
-}
-
-/** Exported type/interface names declared in `content`, with their 1-based
- *  declaration lines. */
-function exportedTypeDecls(content: string): Map<string, number> {
-	const out = new Map<string, number>();
-	const lines = content.split("\n");
-	for (let i = 0; i < lines.length; i++) {
-		const m = EXPORT_TYPE_DECL_RE.exec(lines[i] ?? "");
-		if (m?.[1]) out.set(m[1], i + 1);
-	}
-	return out;
-}
+import { getProjectCheckEvidence } from "./project-check-evidence.js";
+import { exportedTypeDecls, normalizeTypeBody as normalizeBody, projectDuplicateHits, type DuplicateHit } from "./type-declaration-project.js";
 
 /** Best-effort read of a candidate module's source; `null` on any read error
  *  (e.g. a stale git-listed path that no longer exists on disk). */
@@ -61,16 +43,6 @@ function readOtherFileOrNull(cwd: string, rel: string): string | null {
 	} catch {
 		return null;
 	}
-}
-
-/** One own-declared name found duplicated in a sibling module. */
-interface DuplicateHit {
-	name: string;
-	line: number;
-	rel: string;
-	/** Same directory as the edited file — the split-in-progress precondition. */
-	sameDir: boolean;
-	identical: boolean;
 }
 
 /** Build the finding for one own-declared name whose body DIFFERS from (or
@@ -158,11 +130,14 @@ export function checkDuplicateTypeDeclaration(
 	cwd: string = process.cwd(),
 ): InlineMatch[] {
 	if (isTestFile(filePath) || filePath.endsWith(".d.ts")) return [];
+	const evidence = getProjectCheckEvidence(cwd);
+	if (evidence?.isExcluded(filePath)) return [];
 	const ownDecls = exportedTypeDecls(content);
 	if (ownDecls.size === 0) return [];
 	const selfRel = isAbsolute(filePath) ? relative(cwd, filePath) : filePath;
 	if (selfRel.startsWith("..")) return [];
 	const ownBodies = extractInterfaceBodies(content);
+	if (evidence) return renderHits(projectDuplicateHits(evidence, selfRel, ownDecls, ownBodies));
 
 	const hits: DuplicateHit[] = [];
 	const seen = new Set<string>();

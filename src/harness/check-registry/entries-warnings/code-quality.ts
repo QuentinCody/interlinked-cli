@@ -243,16 +243,16 @@ export const CODE_QUALITY_ENTRIES: CheckRegistration[] = [
 		phase: "pre_warn",
 		name: "Import From Own Barrel",
 		description:
-			"Detects a non-barrel source file importing from its own-directory barrel ('./index', './', or the file's own published package name). The barrel re-exports the importing file, so loading order becomes file-resolution-dependent and forms latent module-init cycles. Mirrors Effect's `@effect/no-import-from-barrel-package` lint rule.",
+			"Detects resolved local static value-form dependency paths through a sibling index back to the importing module, plus exact own-package imports as architectural policy advice. These source patterns do not establish a runtime failure. Incomplete graph evidence is reported unavailable.",
 		tier: 1,
 		determinism: "fully_deterministic",
 		severity: "warning",
 		pipeline: "agent_safety",
 		fix_instruction:
-			"Import from the sibling submodule directly rather than from the barrel. In a file at `src/lib/foo.ts`, replace `import { Bar } from './index'` with `import { Bar } from './bar'`. The barrel re-exports your own module, so the import resolves through a partial cycle: at load time `index.js` is mid-evaluation, and `Bar`'s binding may not be set yet. Importing from the sibling's deep path also keeps tree-shaking effective and isolates the dependency graph for bundlers and IDEs.",
+			"For a resolved local dependency pattern, review the witnessed path and import directly from the responsible sibling where appropriate. For exact own-package imports, review the package public-entry policy. Runtime behavior depends on the module system and execution. Resolve unavailable graph or configuration inputs before claiming a complete verdict.",
 		fn: checkImportFromOwnBarrel,
 		resultsPropName: "importFromOwnBarrel",
-		content_keywords: ["from"],
+		content_keywords: ["import", "export"],
 	},
 	{
 		id: "fetch_without_abort_signal",
@@ -275,7 +275,7 @@ export const CODE_QUALITY_ENTRIES: CheckRegistration[] = [
 		phase: "post",
 		name: "Public API Leaks Internal Type",
 		description:
-			"Detects an exported declaration whose signature (params, return type, heritage clause, type-alias RHS) references a same-file type that is not exported. Consumers cannot name the type to annotate their own bindings, and declaration emit fails with TS4023. Internal types used only inside function bodies are the normal pattern and never fire. Effect-TS lessons port: approximates Effect's custom oxlint rule `effect/no-unused-internal` at the same identifier-matching precision.",
+			"Detects a return type, variable annotation, heritage clause or type alias in an exported declaration that references a same-file type without a local export. Consumers cannot import the referenced type by name from this module. TypeScript can still emit its declaration. Parameter-only references are exempt.",
 		tier: 1,
 		determinism: "heuristic",
 		severity: "warning",
@@ -462,7 +462,7 @@ export const CODE_QUALITY_ENTRIES: CheckRegistration[] = [
 		phase: "post",
 		name: "Top-Level Side Effect",
 		description:
-			"Detects I/O and side-effecting calls at module load time (not deferred inside a function/class)",
+			"Flags recognized effect-call names in AST module initialization, including IIFEs and static class initialization. Deferred function bodies and instance fields are excluded; names do not prove the callee's effects.",
 		tier: 2,
 		determinism: "heuristic",
 		severity: "warning",

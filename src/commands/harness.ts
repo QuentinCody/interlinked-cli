@@ -275,105 +275,111 @@ function readDecisionShadowStatus(cwd: string): DecisionShadowStatus | null {
 	}
 }
 
+async function inspectHarnessStatus(cwd: string) {
+	const processStatus = isHarnessRunning(cwd);
+	const socketPath = getSocketPath(cwd);
+	const socketExists = existsSync(socketPath);
+
+	// A pid is not evidence. Ask the socket to ANSWER — that (plus any
+	// framed daemon's health RPC below) is what decides the three states
+	// this report can print. Before this, "running (PID …)" was printed on
+	// pid-liveness alone, directly above "Socket: not found", with no line
+	// admitting the two together mean the guard is off (audit F1/F12).
+	const rawAnswered = await probeHarnessLive(cwd, processStatus.running);
+
+	// Operational signals: orphan count, RSS of active daemon, configured
+	// mode, last-event timestamp. Each is best-effort — a missing data
+	// point shouldn't fail the whole status call.
+	const orphanInfo = await reapOrphanHarnessesVerified(cwd, { dryRun: true });
+	const rssMb =
+		processStatus.running && processStatus.pid !== undefined
+			? readRssMb(processStatus.pid)
+			: null;
+	const activeMode = readActiveMode(cwd);
+	const leases = readProjectLeaseStatus(cwd);
+	const lastEventAt = readLastLatencyTimestamp(cwd);
+	const protocolStatus = readProtocolStatus(cwd);
+	const framedSockets = await readFramedSocketStatuses(cwd);
+	const staleness = distStaleness(cwd);
+	// A framed daemon that returned its health RPC also answered — a
+	// framed-only deployment has no raw socket to probe, and calling that
+	// a zombie would be the same lie in the other direction.
+	const socketAnswered = rawAnswered || framedSockets.some((f) => f.health !== null);
+	const liveness = classifyHarnessLiveness({
+		processRunning: processStatus.running,
+		socketAnswered,
+	});
+
+	const result = {
+		// `running` means exactly "the legacy harness.pid names a live
+		// process" — NOT "the harness is serving" (that is `liveness`).
+		// `pid_running` is the unambiguous alias; in a framed-only
+		// deployment `running` can be false while liveness is "listening"
+		// (review 2026-08-26: both readings were possible before).
+		running: processStatus.running,
+		pid_running: processStatus.running,
+		liveness,
+		socket_answered: socketAnswered,
+		pid: processStatus.pid,
+		socket: socketExists,
+		socket_path: socketPath,
+		raw_socket: {
+			path: socketPath,
+			exists: socketExists,
+			health: socketExists ? "legacy-raw" : "missing",
+		},
+		framed_sockets: framedSockets,
+		protocol_status: protocolStatus,
+		protocol_version: protocolStatus?.protocol_version ?? null,
+		last_raw_event_at: protocolStatus?.last_raw_event_at ?? null,
+		last_framed_event_at: protocolStatus?.last_framed_event_at ?? null,
+		framed_error_count: protocolStatus?.framed_error_count ?? null,
+		framed_timeout_count: protocolStatus?.framed_timeout_count ?? null,
+		orphan_count: orphanInfo.candidates.length,
+		rss_mb: rssMb,
+		lease_holders: leases.holders,
+		lease_inspection_errors: leases.unavailable,
+		mode: activeMode,
+		last_event_at: lastEventAt,
+		build_stale: staleness?.stale ?? false,
+	};
+
+	return { result, leases, staleness, protocolStatus };
+}
+
 export async function harnessStatusCommand(opts: { json?: boolean }): Promise<void> {
 	const mode = getOutputMode(opts);
 	const cwd = process.cwd();
 
 	try {
-		const processStatus = isHarnessRunning(cwd);
-		const socketExists = existsSync(getSocketPath(cwd));
-
-		// A pid is not evidence. Ask the socket to ANSWER — that (plus any
-		// framed daemon's health RPC below) is what decides the three states
-		// this report can print. Before this, "running (PID …)" was printed on
-		// pid-liveness alone, directly above "Socket: not found", with no line
-		// admitting the two together mean the guard is off (audit F1/F12).
-		const rawAnswered = await probeHarnessLive(cwd, processStatus.running);
-
-		// Operational signals: orphan count, RSS of active daemon, configured
-		// mode, last-event timestamp. Each is best-effort — a missing data
-		// point shouldn't fail the whole status call.
-		const orphanInfo = await reapOrphanHarnessesVerified(cwd, { dryRun: true });
-		const rssMb =
-			processStatus.running && processStatus.pid !== undefined
-				? readRssMb(processStatus.pid)
-				: null;
-		const activeMode = readActiveMode(cwd);
-		const leases = readProjectLeaseStatus(cwd);
-		const lastEventAt = readLastLatencyTimestamp(cwd);
-		const protocolStatus = readProtocolStatus(cwd);
-		const framedSockets = await readFramedSocketStatuses(cwd);
-		const staleness = distStaleness(cwd);
-		// A framed daemon that returned its health RPC also answered — a
-		// framed-only deployment has no raw socket to probe, and calling that
-		// a zombie would be the same lie in the other direction.
-		const socketAnswered = rawAnswered || framedSockets.some((f) => f.health !== null);
-		const liveness = classifyHarnessLiveness({
-			processRunning: processStatus.running,
-			socketAnswered,
-		});
-
-		const result = {
-			// `running` means exactly "the legacy harness.pid names a live
-			// process" — NOT "the harness is serving" (that is `liveness`).
-			// `pid_running` is the unambiguous alias; in a framed-only
-			// deployment `running` can be false while liveness is "listening"
-			// (review 2026-08-26: both readings were possible before).
-			running: processStatus.running,
-			pid_running: processStatus.running,
-			liveness,
-			socket_answered: socketAnswered,
-			pid: processStatus.pid,
-			socket: socketExists,
-			socket_path: getSocketPath(cwd),
-			raw_socket: {
-				path: getSocketPath(cwd),
-				exists: socketExists,
-				health: socketExists ? "legacy-raw" : "missing",
-			},
-			framed_sockets: framedSockets,
-			protocol_status: protocolStatus,
-			protocol_version: protocolStatus?.protocol_version ?? null,
-			last_raw_event_at: protocolStatus?.last_raw_event_at ?? null,
-			last_framed_event_at: protocolStatus?.last_framed_event_at ?? null,
-			framed_error_count: protocolStatus?.framed_error_count ?? null,
-			framed_timeout_count: protocolStatus?.framed_timeout_count ?? null,
-			orphan_count: orphanInfo.candidates.length,
-			rss_mb: rssMb,
-			lease_holders: leases.holders,
-			lease_inspection_errors: leases.unavailable,
-			mode: activeMode,
-			last_event_at: lastEventAt,
-			build_stale: staleness?.stale ?? false,
-		};
-
+		const { result, leases, staleness, protocolStatus } = await inspectHarnessStatus(cwd);
 		output(mode, result, {
 			json: () => result,
 			normal: () => {
 				const lines: string[] = [];
 				lines.push(header("Harness Status"));
-				lines.push(kvLine("Status", livenessStatusValue(liveness, processStatus.pid)));
+				lines.push(kvLine("Status", livenessStatusValue(result.liveness, result.pid)));
 				lines.push(
 					kvLine(
 						"Socket",
-						socketExists ? c.green(getSocketPath(cwd)) : c.dim("not found"),
+						result.socket ? c.green(result.socket_path) : c.dim("not found"),
 					),
 				);
 				// The pairing the audit called self-contradictory now always
 				// carries its explanation: a live pid with nothing answering is
 				// named, in one place, as the guard being OFF.
-				if (liveness === "zombie") lines.push(c.red(`  ${zombieWarningLine(processStatus.pid)}`));
+				if (result.liveness === "zombie") lines.push(c.red(`  ${zombieWarningLine(result.pid)}`));
 				if (protocolStatus) lines.push(...protocolStatusLines(protocolStatus));
-				lines.push(...framedSocketLines(framedSockets));
+				lines.push(...framedSocketLines(result.framed_sockets));
 				lines.push(kvLine("Lease holders", formatProjectLeaseStatus(leases)));
 				lines.push(
-					...operationalSignalLines({ rssMb, staleness, activeMode, lastEventAt }),
+					...operationalSignalLines({ rssMb: result.rss_mb, staleness, activeMode: result.mode, lastEventAt: result.last_event_at }),
 				);
 				const orphanLine =
-					orphanInfo.candidates.length === 0
+					result.orphan_count === 0
 						? c.dim("0")
 						: c.yellow(
-								`${orphanInfo.candidates.length} (run 'interlinked harness reap' to inspect)`,
+								`${result.orphan_count} (run 'interlinked harness reap' to inspect)`,
 							);
 				lines.push(kvLine("Orphans", orphanLine));
 				// The guard fails OPEN, so an outage is silent: work proceeds
@@ -383,7 +389,7 @@ export async function harnessStatusCommand(opts: { json?: boolean }): Promise<vo
 				// never firing. State the gap in the unit that matters: how long,
 				// and whether it is still open.
 				appendEnforcementGapWarning(cwd, lines);
-				if (!processStatus.running) {
+				if (!result.running) {
 					lines.push("");
 					lines.push(c.dim("  Start with: interlinked harness start"));
 				}
@@ -396,10 +402,8 @@ export async function harnessStatusCommand(opts: { json?: boolean }): Promise<vo
 }
 
 function appendEnforcementGapWarning(cwd: string, lines: string[]) {
-    const gapWarning = formatEnforcementGapWarning(
-        detectEnforcementGaps(readRecentDaemonEvents(cwd), Date.now()),
-        Date.now()
-    );
+	const now = Date.now();
+	const gapWarning = formatEnforcementGapWarning(detectEnforcementGaps(readRecentDaemonEvents(cwd), now), now);
     if (gapWarning) {
         lines.push("");
         lines.push(c.yellow(`  ${gapWarning}`));

@@ -129,7 +129,8 @@ export function rankRefCommit(repoRoot: string, ref: string, opts: RankOptions =
 		const history = loadHistory(repoRoot, { ref: sha });
 		const subject = history[0];
 		if (!subject || subject.sha !== sha) return null;
-		const hunkCounts = loadHunkCounts(repoRoot, sha, o.calibrate);
+		// The target's own score always includes its hunks, even with no comparison population.
+		const hunkCounts = loadHunkCounts(repoRoot, sha, Math.max(1, o.calibrate));
 		return buildRank({ target: ref, subject, hunks: hunkCounts.get(sha) ?? 0, history, hunkCounts, o });
 	} catch {
 		return null;

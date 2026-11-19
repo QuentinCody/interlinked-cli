@@ -8,6 +8,7 @@ import { skipWithoutCapacity } from "../test-setup/no-verdict.js";
 const REPO = resolve(import.meta.dirname, "../..");
 const ZERO = "0".repeat(40);
 const TARGET = "src/well0.ts";
+const HOOK_TIMEOUT_MS = 60_000;
 // Every case spawns the real hook (some four times) with real git and, in two cases, real Vitest. Plainly the file
 // takes ~50 s; under the coverage index's instrumented capture beside other shards it took 75 s and one case tripped
 // the global 30 s test timeout, which turned the whole index unavailable (measured 2026-09-29 in a HEAD export).
@@ -23,6 +24,7 @@ const E2E_SCRIPTS = {
 };
 
 describe("pre-push coverage integration", () => {
+    let sandbox: string;
     let root: string;
     let base: string;
     const git = (...args: string[]) => execFileSync("git", args, {
@@ -38,7 +40,10 @@ describe("pre-push coverage integration", () => {
 
     beforeEach(() => {
         measurement = {};
-        root = mkdtempSync(join(tmpdir(), "prepush-coverage-"));
+        sandbox = mkdtempSync(join(tmpdir(), "prepush-coverage-"));
+        root = join(sandbox, "repo");
+        mkdirSync(root);
+        mkdirSync(join(sandbox, "tmp"));
         git("init", "-q");
         git("config", "user.name", "Coverage fixture");
         git("config", "user.email", "fixture@example.com");
@@ -115,7 +120,14 @@ if (process.argv.includes("--from-index")) {
     process.exit(findings.length ? 1 : 0);
 }
 require("node:fs").writeFileSync(process.env.COVERAGE_CAPTURE, JSON.stringify(process.argv.slice(2)));
-const result = spawnSync(process.execPath, [${JSON.stringify(join(REPO, "dist/index.js"))}, ...process.argv.slice(2)], { encoding: "utf8" });
+const args = process.argv.slice(2);
+// Leave time for two revision exports and their hook stages. The real one-hour
+// push deadline would otherwise outlive the fixture and strand its scheduler.
+if (args[0] === "tests" && args[1] === "run") {
+    const timeout = args.indexOf("--timeout");
+    if (timeout >= 0) args[timeout + 1] = String(${HOOK_TIMEOUT_MS / 3});
+}
+const result = spawnSync(process.execPath, [${JSON.stringify(join(REPO, "dist/index.js"))}, ...args], { encoding: "utf8" });
 process.stdout.write(result.stdout || "");
 process.stderr.write(result.stderr || "");
 process.exitCode = result.status ?? 1;
@@ -128,7 +140,7 @@ process.exitCode = result.status ?? 1;
 
     afterEach(() => {
         vi.unstubAllEnvs();
-        rmSync(root, { recursive: true, force: true });
+        rmSync(sandbox, { recursive: true, force: true });
     });
 
     let measurement: Record<string, string> = {};
@@ -144,16 +156,20 @@ process.exitCode = result.status ?? 1;
         // describe this pushed revision" after the full suite went green).
         const { INTERLINKED_PRE_PUSH_COVERAGE_SCOPE: _scope, INTERLINKED_PRE_PUSH_COVERAGE_TARGETS: _targets, ...inherited } = process.env;
         const result = spawnSync("bash", [join(root, "scripts/git-hooks/pre-push"), "origin", "unused"], {
-            cwd: root, encoding: "utf8", timeout: 60_000,
+            cwd: root, encoding: "utf8", timeout: HOOK_TIMEOUT_MS,
             // Each fixture owns its gate settings. Outer push preferences must
             // not skip this fixture's assertions or change its worker contract.
             // Individual cases can still override these defaults in measurement.
-            env: { ...inherited, INTERLINKED_PRE_PUSH_WORKERS: "1", INTERLINKED_PRE_PUSH_SKIP_E2E: "0",
+            // The fixture and its detached exports share their own compiler-lock and
+            // capacity namespace. The enclosing verification run can own the host lane.
+            env: { ...inherited, TMPDIR: join(sandbox, "tmp"), INTERLINKED_TEST_CAPACITY_SCOPE: root,
+                INTERLINKED_PRE_PUSH_WORKERS: "1", INTERLINKED_PRE_PUSH_SKIP_E2E: "0",
                 INTERLINKED_PRE_PUSH_COVERAGE_COMPARE: "0",
                 INTERLINKED_PRE_PUSH_SKIP_COVERAGE_COMPARE: "0", INTERLINKED_PRE_PUSH_COMPARE_FOREGROUND: "1",
                 ...measurement, COVERAGE_CAPTURE: join(root, "captured.json") },
             input: updates.map(({ sha, remote, old }) => `refs/heads/local ${sha} refs/heads/${remote} ${old}\n`).join(""),
         });
+        if (result.error) throw new Error(`Pre-push fixture process failed: ${result.error.message}\n${result.stdout}\n${result.stderr}`, { cause: result.error });
         return { status: result.status, output: result.stdout + result.stderr };
     }
 

@@ -15,6 +15,9 @@ import { extname, join, relative } from "node:path";
 
 import { parseEnvDocumentation } from "../../harness/generic-checks.js";
 import { parseExports } from "../../harness/project-graph.js";
+import { getProjectCheckEvidence, withProjectCheckEvidence } from "../../harness/checks/project-check-evidence.js";
+import { checkRepeatedImplementationAsync, type RepeatedImplementationMatch } from "../../harness/checks/repeated-implementation.js";
+import { currentProcessSignal } from "../../harness/check-engine/process-cancellation.js";
 import { type FileSuppressions, loadFileSuppressions } from "../../harness/suppressions.js";
 
 // Suppression-file hygiene: entries that name a missing file match nothing
@@ -26,8 +29,11 @@ import { runVerifyParityChecks } from "../../harness/verify-parity.js";
 import { readSharedConfig } from "../../lib/config.js";
 import { nonNull } from "../../lib/non-null.js";
 import { JS_TS_EXTS } from "./advisory.js";
-import { verifyInputExclusion } from "./input-budget.js";
-import { recordVerifyMeasurement, measureVerifyCheck, recordVerifyInputDeferral } from "./check-timing.js";
+import { classifySetAside } from "./set-aside.js";
+import { sweepFileChecks } from "./registry-sweep.js";
+import { sweepProjectChecks } from "./project-sweep.js";
+import type { SetAsideRow } from "./scan-ledger.js";
+import { recordVerifyInputExclusion, measureVerifyCheck, measureVerifyCheckAsync, isVerifyCheckSelected, recordVerifyInputDeferral, recordSetAside, currentScanLedger, verifyDeadlinePassed, markVerifyPartial } from "./check-timing.js";
 import { runPerFileChecks } from "./file-checks.js";
 import { staleFileSuppressions } from "./suppression-hygiene.js";
 import type { PiiOpts } from "./file-checks-shared.js";
@@ -112,22 +118,20 @@ function buildUndocumentedEnvIssues(
 
 /**
  * Pass 1, one file: record the module's exported names (used by mock-drift).
- * A file that cannot be read contributes nothing, exactly as before.
+ * Read/parse failures retain an explicit coverage gap and allow siblings through.
  */
-function collectOneModuleExport(file: string, moduleExportsCache: Map<string, string[]>): void {
-	let content: string;
-	try {
-		content = readFileSync(file, "utf-8");
-	} catch {
-		return;
-	}
+function collectOneModuleExport(file: string, cwd: string, ctx: CqRunContext): void {
 	const ext = extname(file).toLowerCase();
-	if (!JS_TS_EXTS.has(ext) || file.endsWith(".d.ts")) return;
-	const exports = parseExports(content);
-	moduleExportsCache.set(
-		file,
-		exports.map((e) => e.name),
-	);
+	if (!JS_TS_EXTS.has(ext)) return;
+	const content = readInput(file, cwd, ctx);
+	if (content === null) return;
+	if (setAsideFor(file, cwd, ctx, content)) return;
+	if (file.endsWith(".d.ts")) return;
+	try {
+		ctx.moduleExportsCache.set(file, parseExports(content).map(exported => exported.name));
+	} catch (error) {
+		recordVerifyInputDeferral("module_exports_unavailable", { file: relative(cwd, file), reason: inputFailureReason(error) });
+	}
 }
 
 /**
@@ -141,6 +145,19 @@ interface CqRunContext {
 	documentedEnvVars: Set<string>;
 	allEnvRefs: Map<string, Array<{ file: string; line: number }>>;
 	moduleExportsCache: Map<string, string[]>;
+	unreadableFiles: Set<string>;
+	/** Per-file role decision, computed once: a row when the file is set aside, null when its content checks run. */
+	setAside: Map<string, SetAsideRow | null>;
+}
+
+/** Decide once per file whether source roles set it aside; set-aside files stay consumption context for project checks. */
+function setAsideFor(file: string, cwd: string, ctx: CqRunContext, content: string): SetAsideRow | null {
+	const cached = ctx.setAside.get(file);
+	if (cached !== undefined) return cached;
+	const row = classifySetAside(cwd, file, content);
+	ctx.setAside.set(file, row);
+	if (row) getProjectCheckEvidence(cwd)?.excludeFile(file, row.evidence_kind === "marker" ? row.evidence_detail : row.role);
+	return row;
 }
 
 function prepareRun(cwd: string): CqRunContext {
@@ -158,45 +175,84 @@ function prepareRun(cwd: string): CqRunContext {
 		documentedEnvVars: parseEnvDocumentation(cwd, { existsSync, readFileSync, readdirSync }, join),
 		allEnvRefs: new Map(),
 		moduleExportsCache: new Map(),
+		unreadableFiles: new Set(),
+		setAside: new Map(),
 	};
 }
 
-/** Pass 2, one file: the ~200-detector battery. Unreadable files are skipped. */
-function runOneFileChecks(file: string, cwd: string, ctx: CqRunContext): void {
-	let content: string;
+function inputFailureReason(error: unknown): string {
+	return error instanceof Error ? `${error.name}: ${error.message}` : "Unknown check error";
+}
+
+/** Both passes share the invocation snapshot, including a failed read. */
+function readInput(file: string, cwd: string, ctx: CqRunContext): string | null {
+	if (ctx.unreadableFiles.has(file)) return null;
 	try {
-		content = readFileSync(file, "utf-8");
-	} catch {
+		const evidence = getProjectCheckEvidence(cwd);
+		return evidence ? evidence.readFile(file) : readFileSync(file, "utf-8");
+	} catch (error) {
+		ctx.unreadableFiles.add(file);
+		recordVerifyInputDeferral("file_read_unavailable", { file: relative(cwd, file), reason: inputFailureReason(error) });
+		return null;
+	}
+}
+
+/** Pass 2, one file: complete bodies with explicit exclusions and failures. */
+function runOneFileChecks(file: string, cwd: string, ctx: CqRunContext, repeatedImplementation?: RepeatedImplementationMatch[]): void {
+	const content = readInput(file, cwd, ctx);
+	if (content === null) return;
+	const aside = setAsideFor(file, cwd, ctx, content);
+	if (aside) {
+		recordSetAside(aside);
+		if (aside.evidence_kind === "marker") recordVerifyInputExclusion(`input_excluded:${aside.evidence_detail}`, { file: aside.file, reason: aside.evidence_detail });
 		return;
 	}
-	const excluded = verifyInputExclusion(content);
-	if (excluded) {
-		if (excluded === "oversized") recordVerifyInputDeferral("inline_input_size");
-		else recordVerifyMeasurement(`input_excluded:${excluded}`, 0);
-		return;
-	}
+	const ledger = currentScanLedger();
+	if (ledger) ledger.measuredFiles++;
     try {
         runPerFileChecks({ file, content, cwd, r: ctx.r, moduleExportsCache: ctx.moduleExportsCache,
-            allEnvRefs: ctx.allEnvRefs, piiOpts: ctx.piiOpts });
+            allEnvRefs: ctx.allEnvRefs, piiOpts: ctx.piiOpts,
+			...(repeatedImplementation === undefined ? {} : { repeatedImplementation }) });
+        sweepFileChecks({ file, relPath: relative(cwd, file), content });
     } catch (error) {
         // Malformed/adversarial input must not abort every other file's checks.
         // Findings already collected remain observations, but this file is incomplete.
         recordVerifyInputDeferral("file_checks_unavailable", {
-            file: relative(cwd, file), reason: error instanceof Error ? error.name : "Unknown check error",
+            file: relative(cwd, file), reason: inputFailureReason(error),
         });
     }
 }
 
+/** Public verify awaits the managed Python parser before synchronous detectors. */
+async function runOneFileChecksProgressive(file: string, cwd: string, ctx: CqRunContext): Promise<void> {
+	currentProcessSignal()?.throwIfAborted();
+	const content = readInput(file, cwd, ctx);
+	if (content === null) return;
+	let repeated: RepeatedImplementationMatch[] = [];
+	if (!setAsideFor(file, cwd, ctx, content) && isVerifyCheckSelected("repeated_implementation")) {
+		repeated = await measureVerifyCheckAsync("repeated_implementation", () => checkRepeatedImplementationAsync(content, file, {
+			onUnavailable: reason => recordVerifyInputDeferral("repeated_implementation", { file: relative(cwd, file), reason }),
+		}));
+	}
+	currentProcessSignal()?.throwIfAborted();
+	runOneFileChecks(file, cwd, ctx, repeated);
+}
+
 /** Pass 3 + post-loop aggregation + suppression filtering. */
-function finalizeRun(ctx: CqRunContext, files: string[], cwd: string): CodeQualityResults {
+function finalizeRun(ctx: CqRunContext, files: string[], cwd: string, partial = false): CodeQualityResults {
 	// Pass 2 is the last consumer of the project-wide export census. Release it
 	// before parity/suppression aggregation allocates its own cross-file rows.
 	ctx.moduleExportsCache.clear();
-	applyParityFindings(ctx.r, files, cwd);
-	// Emit one issue per undocumented env var instead of one per reference.
-	ctx.r.undocumentedEnvVars.push(
-		...buildUndocumentedEnvIssues(ctx.allEnvRefs, ctx.documentedEnvVars),
-	);
+	// A stopped run has not seen every file: project-wide aggregates would be wrong, so they are not computed.
+	if (!partial) {
+		applyParityFindings(ctx.r, files.filter((file) => !ctx.setAside.get(file)), cwd);
+		const asideRel = new Set([...ctx.setAside.values()].flatMap((row) => (row ? [row.file] : [])));
+		sweepProjectChecks(cwd, (rel) => asideRel.has(rel));
+		// Emit one issue per undocumented env var instead of one per reference.
+		ctx.r.undocumentedEnvVars.push(
+			...buildUndocumentedEnvIssues(ctx.allEnvRefs, ctx.documentedEnvVars),
+		);
+	}
 	ctx.allEnvRefs.clear();
 	ctx.documentedEnvVars.clear();
 	applyPersistedSuppressions(ctx.r, join(cwd, ".interlinked"));
@@ -212,13 +268,17 @@ async function forEachFileWithProgress(
 	files: string[],
 	progress: ScanProgress,
 	phase: string,
-	visit: (file: string) => void,
+	visit: (file: string) => void | Promise<void>,
 ): Promise<void> {
 	progress.start(phase);
 	let seen = 0;
 	for (const file of files) {
+		if (verifyDeadlinePassed()) {
+			markVerifyPartial(`inline checks (${phase})`, `soft deadline reached after ${seen} of ${files.length} files`);
+			return;
+		}
 		const startedAt = Date.now();
-		visit(file);
+		await visit(file);
 		progress.advance(file, Date.now() - startedAt);
 		seen += 1;
 		if (seen % YIELD_EVERY_FILES === 0) await yieldToEventLoop();
@@ -307,54 +367,63 @@ export function applyPersistedSuppressions(
 }
 
 /**
- * Public API — consumed by `verify.ts` (batch JSON + streaming modes).
+ * Synchronous compatibility API, also consumed by focused callers and tests.
  *
  * Run all code quality checks using shared functions from generic-checks.ts
  * and quality-checks.ts. These are the SAME functions the harness evaluator
  * uses, ensuring verify and PostToolUse always agree.
  */
 export function runCodeQualityChecks(files: string[], cwd: string): CodeQualityResults {
-	const ctx = prepareRun(cwd);
+	return withProjectCheckEvidence(cwd, files, () => {
+		const ctx = prepareRun(cwd);
 
 	// Pass 1: collect all project exports (used by mock-drift check)
-	for (const file of files) collectOneModuleExport(file, ctx.moduleExportsCache);
+		for (const file of files) collectOneModuleExport(file, cwd, ctx);
 
 	// Pass 2: per-file checks (delegated to file-checks.ts)
-	for (const file of files) runOneFileChecks(file, cwd, ctx);
+		for (const file of files) runOneFileChecks(file, cwd, ctx);
 
 	// Pass 3 + aggregation + suppressions
-	return finalizeRun(ctx, files, cwd);
+		return finalizeRun(ctx, files, cwd);
+	}, gap => recordVerifyInputDeferral(gap.check, { file: gap.file, reason: gap.reason }));
 }
 
 /**
  * Public API — consumed by `verify.ts` (both the streaming and the JSON path).
  *
- * Same passes, same order, same result as `runCodeQualityChecks`, but the two
- * per-file passes report progress to `progress` and yield to the event loop as
- * they go. This is the entry point every interactive run should use: the
- * synchronous variant produces no output for minutes on a large tree and
- * cannot be interrupted.
+ * The shared passes preserve detector predicates and suppression handling.
+ * Repeated implementation uses its complete, managed foreground parser instead
+ * of the synchronous hook budgets. Both per-file passes report progress and
+ * yield to the event loop. Human and JSON verify use this entry point.
  */
 export async function runCodeQualityChecksProgressive(
 	files: string[],
 	cwd: string,
 	progress: ScanProgress,
 ): Promise<CodeQualityResults> {
-	const ctx = prepareRun(cwd);
+	return withProjectCheckEvidence(cwd, files, async () => {
+		const ctx = prepareRun(cwd);
 
-	await forEachFileWithProgress(files, progress, "exports", (file) => {
-		collectOneModuleExport(file, ctx.moduleExportsCache);
-	});
-	await forEachFileWithProgress(files, progress, "checks", (file) => {
-		runOneFileChecks(file, cwd, ctx);
-	});
-	progress.finish();
+		await forEachFileWithProgress(files, progress, "exports", (file) => {
+			collectOneModuleExport(file, cwd, ctx);
+		});
+		await forEachFileWithProgress(files, progress, "checks", file => runOneFileChecksProgressive(file, cwd, ctx));
+		progress.finish();
 
-	return finalizeRun(ctx, files, cwd);
+		return finalizeRun(ctx, files, cwd, currentScanLedger()?.partial != null);
+	}, gap => recordVerifyInputDeferral(gap.check, { file: gap.file, reason: gap.reason }));
 }
 
 /** Public API — consumed by `verify.ts` and tests. Re-exports helper. */
-export { checkProjectSetup } from "../../harness/generic-checks.js";
+import { checkProjectSetup as inspectProjectSetup } from "../../harness/checks/project-setup.js";
+
+/** Foreground setup probes retain every eligible source and disclose read gaps. */
+export function checkProjectSetup(cwd: string) {
+	return inspectProjectSetup(cwd, {
+		foreground: true,
+		onUnavailable: input => recordVerifyInputDeferral("project_setup", input),
+	});
+}
 
 /** Public API — consumed by `verify.ts` and tests. Re-export from ./suggestions.js. */
 export { runSuggestions } from "./suggestions.js";

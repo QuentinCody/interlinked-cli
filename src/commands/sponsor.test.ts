@@ -354,8 +354,12 @@ describe("sponsor command actions", () => {
 		writeFileSync(settingsPath, "{ not valid json");
 		const errSpy = vi.mocked(console.error);
 		errSpy.mockClear();
-		await sponsorDisableAction({}, { cwd, claudeSettingsPath: settingsPath });
+		const result = await sponsorDisableAction({}, { cwd, claudeSettingsPath: settingsPath });
 		const printed = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
 		expect(printed).toContain("Spinner verbs not removed: settings.json not parseable — left untouched");
+		expect(result).toBe(1);
+		const config = JSON.parse(readFileSync(join(cwd, ".interlinked", "config.local.json"), "utf8"));
+		expect(config.sponsor.enabled).toBe(false);
+		expect(config.sponsor.spinner_verbs_written).toEqual(["Sponsored by Alpha — a friend project"]);
 	});
 });

@@ -16,6 +16,7 @@ import { scanManualDebtMarkers } from "./manual-debt-markers.js";
  *  ones this same test issues for setup/assertions — passes straight through
  *  to the real implementation. Reset after every test so the fs mock is
  *  transparent everywhere else in the suite. */
+let unreadableTail: string | undefined;
 let readFileSyncFailure: ((args: readonly unknown[]) => boolean) | null = null;
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -24,7 +25,13 @@ vi.mock("node:fs", async (importOriginal) => {
         if (readFileSyncFailure?.(args)) throw new Error("EIO: simulated read failure");
         return actual.readFileSync(...args);
     };
-    return { ...actual, readFileSync };
+    return {
+        ...actual, readFileSync,
+        openSync: (...args: Parameters<typeof actual.openSync>) => {
+            if (args[0] === unreadableTail) throw new Error("EIO: simulated tail read failure");
+            return actual.openSync(...args);
+        },
+    };
 });
 
 let root = "";
@@ -51,6 +58,7 @@ beforeEach(() => {
 afterEach(() => {
     rmSync(root, { recursive: true, force: true });
     readFileSyncFailure = null;
+    unreadableTail = undefined;
 });
 
 describe("manual debt-marker snapshot recording", () => {
@@ -261,11 +269,8 @@ describe("manual debt-marker snapshot recording", () => {
 		writeFileSync(path, truncated, "utf8");
 
 		const secondScan = scanManualDebtMarkers({ cwd: root });
-		// tornTailPrefix's only readFileSync call in this module is the
-		// single-argument raw-bytes form (no encoding) — every other call in
-		// the same recording (the history reload, the append) carries one and
-		// is left untouched.
-		readFileSyncFailure = ([target, ...rest]) => target === path && rest.length === 0;
+		// History reloads still succeed; only the final-byte probe fails.
+		unreadableTail = path;
 		const second = recordManualDebtMarkerSnapshot(secondScan, root, { now: "2026-08-30T11:00:00.000Z" });
 
 		const finalRaw = readFileSync(path, "utf8");

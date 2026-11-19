@@ -19,7 +19,6 @@ import {
 	checkConcurrentEdit,
 	checkDirtyWorkingTree,
 	checkEnvLeakToGit,
-	checkLargeFileLineCountWrite,
 	checkLargeFileWrite,
 	checkSelfKill,
 	checkStaleBranch,
@@ -38,7 +37,9 @@ import { recordComplexityPulse } from "./complexity-pulse.js";
 import { checkFunctionComplexityWrite } from "./complexity-write-guard.js";
 import { checkFunctionTokenWrite } from "./function-token-write-guard.js";
 import { recordFunctionTokenPulse } from "./function-token-pulse.js";
-import { applyEditMetricPolicy } from "./edit-metric-policy.js";
+import { applyEditMetricPolicy, applyStructuralMetricPolicy } from "./edit-metric-policy.js";
+import { loadStructuralMetricPolicies } from "../metric-policy-config.js";
+import { collectFileLineWriteAdvice } from "../file-line-policy.js";
 import { extractPermissionPattern } from "./permission-patterns.js";
 import { checkTestSignalErosion } from "./pre-tool-test-integrity.js";
 import { estimateEditLine, isBash, isFileWrite, isReadOperation } from "./tool-classifiers.js";
@@ -144,8 +145,11 @@ function checkFileWriteMetricCaps(
 	eventCwd: string,
 	toolName: string,
 	toolInput: ToolInput,
+	warnings: string[],
 ): HarnessDecision | null {
 	if (!isFileWrite(toolName)) return null;
+	const policies = loadStructuralMetricPolicies(eventCwd);
+	const legacy = !policies.cyclomatic.configured && !policies.cognitive.configured && !policies["function-tokens"].configured;
 	// GUARD: per-function cyclomatic cap — block a Write/Edit that introduces
 	// or worsens an over-cap function (delta semantics, no override). See
 	// complexity-write-guard.ts. The observer stashes the gate's already-paid
@@ -157,13 +161,14 @@ function checkFileWriteMetricCaps(
 			const absPath = resolve(eventCwd, filePath);
 			recordComplexityPulse(event.session_id, absPath, beforeFns, afterFns, afterContent);
 		},
+		policies.cyclomatic,
 	);
 	// GUARD: per-function cognitive-complexity cap — promoted from warn-only
 	// to a block (2026-08-01) with the SAME delta-semantics contract, mirrored
 	// in cognitive-write-guard.ts. Runs independently of the cyclomatic gate
 	// above so neither shadows the other: a file can trip cognitive alone,
 	// cyclomatic alone, or both (reasons are concatenated below when both fire).
-	const cognitiveBlock = checkCognitiveComplexityWrite(toolInput, eventCwd);
+	const cognitiveBlock = checkCognitiveComplexityWrite(toolInput, eventCwd, policies.cognitive);
 	const functionTokenBlock = checkFunctionTokenWrite(
 		toolInput,
 		eventCwd,
@@ -171,24 +176,30 @@ function checkFileWriteMetricCaps(
 			const absPath = resolve(eventCwd, filePath);
 			recordFunctionTokenPulse(event.session_id, absPath, beforeFns, afterFns, afterContent);
 		},
+		policies["function-tokens"],
 	);
-	if (!complexityBlock?.block && !cognitiveBlock?.block && !functionTokenBlock?.block) return null;
+	const cyclomatic = legacy ? complexityBlock?.block : applyStructuralMetricPolicy(event, "cyclomatic", complexityBlock, policies.cyclomatic, warnings);
+	const cognitive = legacy ? cognitiveBlock?.block : applyStructuralMetricPolicy(event, "cognitive", cognitiveBlock, policies.cognitive, warnings);
+	const tokens = legacy ? functionTokenBlock?.block : applyStructuralMetricPolicy(event, "function-tokens", functionTokenBlock, policies["function-tokens"], warnings);
+	if (legacy) applyStructuralMetricPolicy(event, "cyclomatic", null, policies.cyclomatic, warnings);
+	if (!cyclomatic && !cognitive && !tokens) return null;
 	// rule_id stays "cyclomatic-cap" when the cyclomatic gate fires (even
 	// alongside cognitive) to preserve the existing rule_id contract other
 	// consumers pin on; a cognitive-only block gets its own distinct id.
-	return {
+	const result: HarnessDecision = {
 		decision: "block",
-		reason: [complexityBlock?.block, cognitiveBlock?.block, functionTokenBlock?.block]
+		reason: [cyclomatic, cognitive, tokens]
 			.filter(Boolean)
 			.join("\n\n"),
-		rule_id: complexityBlock?.block
+		rule_id: cyclomatic
 			? "cyclomatic-cap"
-			: cognitiveBlock?.block
+			: cognitive
 				? "cognitive-cap"
 				: "function-tokens-cap",
 		severity: "medium",
 		category: "complexity",
 	};
+	return legacy ? applyEditMetricPolicy(result, eventCwd, warnings) : result;
 }
 
 /** Tail WARNING-only checks: stale-branch, dirty-tree, byte-size large-file,
@@ -251,8 +262,7 @@ function pushTailWarnings(
 	warnings: string[],
 ): void {
 	if (isFileWrite(toolName)) {
-		const size = checkLargeFileLineCountWrite(toolInput, eventCwd);
-		if (size?.warning) warnings.push(size.warning);
+		warnings.push(...collectFileLineWriteAdvice(event, toolInput));
 	}
 	pushStaleBranchWarning(event, session, eventCwd, warnings);
 	pushDirtyTreeWarning(toolName, toolInput, eventCwd, warnings);
@@ -270,7 +280,7 @@ export function evaluatePreChecksTail(
 	warnings: string[],
 ): HarnessDecision | null {
 	const eventCwd = event.cwd || process.cwd();
-	const metricBlock = applyEditMetricPolicy(checkFileWriteMetricCaps(event, eventCwd, toolName, toolInput), eventCwd, warnings);
+	const metricBlock = checkFileWriteMetricCaps(event, eventCwd, toolName, toolInput, warnings);
 	if (metricBlock) return metricBlock;
 	pushTailWarnings(event, session, sessions, eventCwd, toolName, toolInput, warnings);
 	return null;

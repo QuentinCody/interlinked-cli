@@ -163,17 +163,22 @@ export async function tddStatusCommand(opts: TddCommandOpts = {}): Promise<void>
 
 /** Remove matching cycles from every snapshot. Returns how many were dropped. */
 export function clearCycles(cwd: string, file?: string): number {
+	if (file !== undefined && file.trim() === "") {
+		throw new Error("TDD file selector must be nonempty. Omit it to clear all cycles.");
+	}
 	let removed = 0;
 	for (const path of sessionSnapshotPaths(cwd)) {
 		const snap = readSnapshot(path);
 		if (!snap?.tdd_cycles) continue;
+		let removedHere = 0;
 		const kept: [string, SnapshotCycle][] = [];
 		for (const cycle of cyclesOf(snap)) {
-			const match = !file || cycle.source_file === file || basename(cycle.source_file) === file;
-			if (match) removed += 1;
+			const match = file === undefined || cycle.source_file === file || basename(cycle.source_file) === file;
+			if (match) removedHere += 1;
 			else kept.push([cycle.source_file, cycle]);
 		}
-		if (removed === 0) continue;
+		if (removedHere === 0) continue;
+		removed += removedHere;
 		snap.tdd_cycles = kept;
 		writeFileSync(path, `${JSON.stringify(snap, null, 2)}\n`);
 	}
@@ -182,7 +187,13 @@ export function clearCycles(cwd: string, file?: string): number {
 
 export async function tddClearCommand(file: string | undefined, opts: TddCommandOpts = {}): Promise<void> {
 	const cwd = opts.cwd || process.cwd();
-	const removed = clearCycles(cwd, file);
+	let removed: number;
+	try {
+		removed = clearCycles(cwd, file);
+	} catch (error) {
+		outputError(getOutputMode(opts), error instanceof Error ? error.message : String(error));
+		return;
+	}
 	if (removed === 0) {
 		outputError(getOutputMode(opts), `No TDD cycle matched${file ? ` ${file}` : ""}.`);
 		return;

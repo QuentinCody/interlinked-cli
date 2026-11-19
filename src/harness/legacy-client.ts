@@ -138,8 +138,19 @@ export function toLegacyHarnessEvent(event: UnifiedHookEvent): HarnessEvent {
 
 	applyActionFields(event, raw, event.action, out);
 	applyLegacyFieldFallbacks(raw, out);
+	copyFailureFacts(event, raw, out);
 
 	return out;
+}
+
+/** A dedicated failure event (Claude Code's PostToolUseFailure) carries no
+ *  tool_response: its diagnostic is the adapter's `tool_error` text and its
+ *  interrupt flag is top-level. Carry both so the daemon can judge the call;
+ *  `liftOutcomeEvidence` derives the outcome and exit code from the text. */
+function copyFailureFacts(event: UnifiedHookEvent, raw: JsonObject, out: HarnessEvent): void {
+	if (event.phase !== "post-tool" || event.action.kind !== "tool_call") return;
+	if (event.action.tool_error !== undefined) out.error_message = event.action.tool_error;
+	if (out.hook_event === "PostToolUseFailure" && raw.is_interrupt === true) out.tool_outcome = "interrupted";
 }
 
 function copyNormalizedContext(

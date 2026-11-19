@@ -41,7 +41,7 @@ export const SPEC_STRUCTURE_ENTRIES: CheckRegistration[] = [
 		phase: "post",
 		name: "Spec Registry Numbering",
 		description:
-			"Detects numbering defects in ID registries (FG-INV-xx / B7 / W4 style): an id defined on two definition lines, or small gaps in a definition registry (renumber residue after consolidation). Gaps are computed over definition sites only — prose citing a sparse subset of ids never fires.",
+			"Detects numbering defects in ID registries (FG-INV-xx / B7 / W4 style): an id defined on two definition lines (table rows, headings and bold-named bullets always count; a plain bullet under a table or heading registry is a note about the id, not a redefinition), or small gaps in a definition registry (renumber residue after consolidation). Gaps are computed over definition sites only — prose citing a sparse subset of ids never fires.",
 		tier: 1,
 		determinism: "partially_deterministic",
 		severity: "warning",

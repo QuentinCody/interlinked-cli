@@ -99,6 +99,10 @@ describe("ubs_hardcoded_localhost — negative (must not fire)", () => {
 	it("N15: Django ALLOWED_HOSTS allowlist", () => {
 		expect(run(['ALLOWED_HOSTS = ["localhost", "127.0.0.1"]'], "mysite/settings.py")).toEqual([]);
 	});
+
+	it("N16: a Git author email identifies the committer", () => {
+		expect(run(['git("-c", "user.email=builder@localhost", "commit");'], "src/history.ts")).toEqual([]);
+	});
 });
 
 describe("ubs_hardcoded_localhost — positive (must fire)", () => {
@@ -137,5 +141,10 @@ describe("ubs_hardcoded_localhost — positive (must fire)", () => {
 	it("P6: a client socket connect to a loopback InetSocketAddress", () => {
 		const lines = ['socket.connect(new InetSocketAddress("localhost", 8080));'];
 		expect(run(lines, "src/main/java/com/x/Client.java")).toHaveLength(1);
+	});
+
+	it("P7: a remote alongside a Git author email still uses a hardcoded network host", () => {
+		const text = 'git("-c", "user.email=builder@localhost", "fetch", "ssh://git@localhost/repo");';
+		expect(run([text], "src/history.ts")).toEqual([{ line: 1, text }]);
 	});
 });

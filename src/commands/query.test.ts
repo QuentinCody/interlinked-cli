@@ -148,6 +148,36 @@ describe("runQuery", () => {
 });
 
 describe("queryCommand", () => {
+	it("exports historical runtime actions with the original bounded-query coverage", async () => {
+		appendFileSync(join(dir, ".interlinked", "check-results.jsonl"), JSON.stringify({ schema: "check-results.v2", ts: "2026-07-24T10:00:00Z", finding_details: [{ name: "empty_catch", file: "index.ts", line: 4, message: "Inspect error handling" }] }) + "\n");
+		await queryCommand("checks", { cwd: dir, json: true, actions: true, limit: "1" });
+		const result = JSON.parse(logs.join("\n"));
+		expect(result.actions.actions[0]).toMatchObject({ file: "index.ts", line: 4, freshness: "unknown" });
+		expect(result.stats.limit_stopped).toBe(true);
+		expect(result.actions.limitations.join(" ")).toContain("historical");
+	});
+
+	it.each([{ by: "checks.id" }, { fields: "checks.id" }])("rejects incompatible runtime-action presentation options %j", async extra => {
+		await queryCommand("checks", { cwd: dir, actions: true, ...extra });
+		expect(process.exitCode).toBe(1);
+		expect(errors.join(" ")).toContain("--actions");
+	});
+
+	it.each(["1junk", "0.5", "", "Infinity"])("rejects invalid row limit %j before scanning", async limit => {
+		await queryCommand("checks", { cwd: dir, limit });
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("does not accept an action projection on an unrelated log source", async () => {
+		await queryCommand("costs", { cwd: dir, actions: true });
+		expect(process.exitCode).toBe(1);
+		expect(errors.join(" ")).toContain("checks");
+	});
+
+	it("requires the checks source when action projection is requested without a positional", async () => {
+		await queryCommand(undefined, { cwd: dir, actions: true });
+		expect(process.exitCode).toBe(1);
+	});
 	it("prints the source catalog when no target is given", async () => {
 		await queryCommand(undefined, { cwd: dir });
 		const joined = logs.join("\n");

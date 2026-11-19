@@ -61,7 +61,9 @@ const BASELINE_RELS = [
 	".interlinked/skipped-tests-baseline.json",
 	".interlinked/check-evidence-baseline.json",
 	".interlinked/function-complexity-baseline.json",
-    ".interlinked/lint-baseline.json",
+	".interlinked/lint-baseline.json",
+	".interlinked/instruction-packets.json",
+	".interlinked/saturation-baseline.json",
 ];
 const LEDGER_REL = ".interlinked/function-complexity-baseline.json";
 const LEDGER_TIGHT =

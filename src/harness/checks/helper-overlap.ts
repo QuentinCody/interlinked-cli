@@ -71,19 +71,25 @@ function importTargets(file: string, specifier: string): string[] {
     return [base, base.replace(/\.[cm]?js$/, ".ts"), base.replace(/\.jsx?$/, ".tsx"),
         `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.jsx`, `${base}/index.ts`, `${base}/index.js`];
 }
+function jumpTarget(ts: typeof import("typescript"), node: ts.BreakStatement | ts.ContinueStatement): ts.Node | undefined {
+    const label = node.label?.text;
+    for (let target: ts.Node | undefined = node.parent; target; target = target.parent) {
+        if (label !== undefined) {
+            if (ts.isLabeledStatement(target) && target.label.text === label) return target;
+        } else if (ts.isIterationStatement(target, false) || (ts.isBreakStatement(node) && ts.isSwitchStatement(target))) {
+            return target;
+        }
+    }
+    return undefined;
+}
+
 function jumpsOutside(ts: typeof import("typescript"), nodes: readonly ts.Statement[], start: number, end: number, spend: () => boolean): boolean {
     let outside = false;
     function walk(node: ts.Node): void {
         if (!spend()) { outside = true; return; }
         if (isBodyFunction(ts, node)) return;
         if (ts.isBreakStatement(node) || ts.isContinueStatement(node)) {
-            let target: ts.Node | undefined = node.parent;
-            while (target !== undefined) {
-                const label = node.label?.text;
-                if (label !== undefined ? ts.isLabeledStatement(target) && target.label.text === label
-                    : ts.isIterationStatement(target, false) || (ts.isBreakStatement(node) && ts.isSwitchStatement(target))) break;
-                target = target.parent;
-            }
+            const target = jumpTarget(ts, node);
             if (target === undefined || target.getStart() < start || target.end > end) outside = true;
         }
         ts.forEachChild(node, walk);
@@ -122,19 +128,29 @@ export function analyzeHelperOverlap(content: string, file: string): OverlapSour
     return out;
 }
 
+function unrelatedSibling(edited: OverlapSource, other: OverlapSource): boolean {
+    const file = resolve(edited.file), sibling = resolve(other.file);
+    return file !== sibling && dirname(file) === dirname(sibling)
+        && !edited.imports.includes(sibling) && !other.imports.includes(file);
+}
+
+function* matchingWindows(windows: readonly StatementWindow[], other: OverlapSource, introduced: ReadonlySet<string>) {
+    const index = new Map(other.windows.map(window => [window.hash, window]));
+    for (const window of windows) {
+        if (!introduced.has(window.name)) continue;
+        const target = index.get(window.hash);
+        if (target) yield { line: window.functionLine, name: window.name, window, otherFile: other.file, other: target };
+    }
+}
+
 export function matchPartialHelperOverlaps(edited: OverlapSource, siblings: readonly OverlapSource[], introduced: ReadonlySet<string>): PartialOverlapHit[] {
     const matches: PartialOverlapHit[] = [];
-    const seen = new Set<string>();
+    const remaining = new Set(introduced);
     for (const other of siblings.slice(0, HELPER_OVERLAP_LIMITS.siblings)) {
-        if (resolve(other.file) === resolve(edited.file) || dirname(resolve(other.file)) !== dirname(resolve(edited.file))) continue;
-        if (edited.imports.includes(resolve(other.file)) || other.imports.includes(resolve(edited.file))) continue;
-        const index = new Map(other.windows.map(window => [window.hash, window]));
-        for (const window of edited.windows) {
-            if (!introduced.has(window.name) || seen.has(window.name)) continue;
-            const target = index.get(window.hash);
-            if (target === undefined) continue;
-            matches.push({ line: window.functionLine, name: window.name, window, otherFile: other.file, other: target });
-            seen.add(window.name);
+        if (!unrelatedSibling(edited, other)) continue;
+        for (const hit of matchingWindows(edited.windows, other, remaining)) {
+            matches.push(hit);
+            remaining.delete(hit.name);
             if (matches.length >= HELPER_OVERLAP_LIMITS.findings) return matches;
         }
     }
@@ -183,24 +199,30 @@ function normalizeOverlapStatements(context: OverlapContext, parent: BodyFunctio
     const parentStart = parent.getStart(source);
     const identities = new Map<ts.Symbol, number>();
     const tokens: string[] = [];
+    function recordIdentifier(node: ts.Identifier): void {
+        const key = `P${JSON.stringify(node.text)}`;
+        if (propertyName(ts, node)) {
+            tokens.push(key);
+            return;
+        }
+        const owner = node.parent;
+        const shorthand = ts.isShorthandPropertyAssignment(owner);
+        const binding = ts.isBindingElement(owner) && owner.name === node
+            && owner.propertyName === undefined && ts.isObjectBindingPattern(owner.parent);
+        if (shorthand || binding) tokens.push(key);
+        const symbol = shorthand ? checker.getShorthandAssignmentValueSymbol(owner) : checker.getSymbolAtLocation(node);
+        if (symbol?.declarations?.some(decl => decl.getStart(source) >= parentStart && decl.end <= parent.end)) {
+            if (!identities.has(symbol)) identities.set(symbol, identities.size);
+            tokens.push(`I${identities.get(symbol)}`);
+        } else {
+            tokens.push(`G${JSON.stringify(externalIdentity(ts, file, source, symbol, node.text))}`);
+        }
+    }
     function visit(node: ts.Node): void {
         if (!spend()) return;
         tokens.push(`K${node.kind}`);
         if (ts.isIdentifier(node)) {
-            if (propertyName(ts, node)) tokens.push(`P${JSON.stringify(node.text)}`);
-            else {
-                const shorthand = ts.isShorthandPropertyAssignment(node.parent);
-                const binding = ts.isBindingElement(node.parent) && node.parent.name === node && node.parent.propertyName === undefined
-                    && ts.isObjectBindingPattern(node.parent.parent);
-                if (shorthand || binding) tokens.push(`P${JSON.stringify(node.text)}`);
-                const symbol = shorthand ? checker.getShorthandAssignmentValueSymbol(node.parent as ts.ShorthandPropertyAssignment)
-                    : checker.getSymbolAtLocation(node);
-                const local = symbol?.declarations?.some(decl => decl.getStart(source) >= parentStart && decl.end <= parent.end);
-                if (symbol !== undefined && local) {
-                    if (!identities.has(symbol)) identities.set(symbol, identities.size);
-                    tokens.push(`I${identities.get(symbol)}`);
-                } else tokens.push(`G${JSON.stringify(externalIdentity(ts, file, source, symbol, node.text))}`);
-            }
+            recordIdentifier(node);
         } else if (ts.isPrivateIdentifier(node) || ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)
             || ts.isBigIntLiteral(node) || ts.isRegularExpressionLiteral(node)
             || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) tokens.push(`L${JSON.stringify(node.text)}`);
@@ -240,27 +262,28 @@ function collectOverlapWindows(context: OverlapContext, parent: BodyFunction): v
     const selectedName = functionName(ts, parent, source);
     if (selectedName === undefined) return;
     const name = selectedName;
-    const parentStart = parent.getStart(source);
+    const functionLine = source.getLineAndCharacterOfPosition(parent.getStart(source)).line + 1;
+    function recordWindows(statements: readonly ts.Statement[]): void {
+        for (let i = 0; i + HELPER_OVERLAP_LIMITS.statements <= statements.length; i++) {
+            if (out.windows.length >= HELPER_OVERLAP_LIMITS.windows) { out.truncated = true; return; }
+            const window = statements.slice(i, i + HELPER_OVERLAP_LIMITS.statements);
+            const first = window[0];
+            const last = window.at(-1);
+            if (first === undefined || last === undefined) continue;
+            const start = first.getStart(source);
+            const end = last.end;
+            if (jumpsOutside(ts, window, start, end, spend)) continue;
+            const normalized = normalizeOverlapStatements(context, parent, window);
+            if (normalized === undefined) return;
+            out.windows.push({ hash: createHash("sha256").update(normalized).digest("hex"), name, functionLine,
+                line: source.getLineAndCharacterOfPosition(start).line + 1,
+                endLine: source.getLineAndCharacterOfPosition(end).line + 1, start, end });
+        }
+    }
     function lists(node: ts.Node): void {
         if (out.truncated || node !== parent && isBodyFunction(ts, node)) return;
         if (!spend()) return;
-        const statements = ts.isBlock(node) || ts.isCaseClause(node) || ts.isDefaultClause(node) ? node.statements : undefined;
-        if (statements !== undefined) {
-            for (let i = 0; i + HELPER_OVERLAP_LIMITS.statements <= statements.length; i++) {
-                if (out.windows.length >= HELPER_OVERLAP_LIMITS.windows) { out.truncated = true; return; }
-                const window = statements.slice(i, i + HELPER_OVERLAP_LIMITS.statements);
-                const first = window[0]; const last = window.at(-1);
-                if (first === undefined || last === undefined) continue;
-                const start = first.getStart(source); const end = last.end;
-                if (jumpsOutside(ts, window, start, end, spend)) continue;
-                const normalized = normalizeOverlapStatements(context, parent, window);
-                if (normalized === undefined) return;
-                out.windows.push({ hash: createHash("sha256").update(normalized).digest("hex"), name,
-                    functionLine: source.getLineAndCharacterOfPosition(parentStart).line + 1,
-                    line: source.getLineAndCharacterOfPosition(start).line + 1,
-                    endLine: source.getLineAndCharacterOfPosition(end).line + 1, start, end });
-            }
-        }
+        if (ts.isBlock(node) || ts.isCaseClause(node) || ts.isDefaultClause(node)) recordWindows(node.statements);
         ts.forEachChild(node, lists);
     }
     lists(parent);

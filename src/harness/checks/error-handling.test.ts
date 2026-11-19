@@ -761,7 +761,7 @@ describe("checkLossyErrorRethrow — sharper assertions (spacing, caps, boundari
 		expect(excerpt.length).toBe(100);
 	});
 
-	it("matches `Error (` with a space before the call parens", () => {
+	it("locates the multiline catch's throw when the constructor has spaced parentheses", () => {
 		const code = [
 			"function g() {",
 			"  try { risky(); }",
@@ -770,7 +770,7 @@ describe("checkLossyErrorRethrow — sharper assertions (spacing, caps, boundari
 			"  }",
 			"}",
 		].join("\n");
-		expect(checkLossyErrorRethrow(code, TS).length).toBe(1);
+		expect(checkLossyErrorRethrow(code, TS).map((match) => match.line)).toEqual([4]);
 	});
 
 	it("correctly balances a NESTED function call in the throw's argument list before finding the { cause } option", () => {
@@ -1879,15 +1879,13 @@ describe("checkUntypedCatch — regex/boundary precision", () => {
 		expect(checkUntypedCatch(code, TS).length).toBe(1);
 	});
 
-	it("truncates the trailing source-line excerpt to 100 characters", () => {
+	it("keeps the first 100 source characters in an incomplete catch header", () => {
 		const filler = "x".repeat(150);
 		const code = `catch (e) { /* ${filler} */`;
 		const out = checkUntypedCatch(code, TS);
 		expect(out.length).toBe(1);
 		const text = nonNull(out[0]).text;
-		const marker = "tagged errors, or error codes: ";
-		const excerpt = text.slice(text.indexOf(marker) + marker.length);
-		expect(excerpt.length).toBe(100);
+		expect(text.endsWith(code.slice(0, 100))).toBe(true);
 	});
 });
 
@@ -2016,7 +2014,7 @@ describe("checkErrorStringComparison — regex spacing precision", () => {
 		expect(excerpt.length).toBe(120);
 	});
 
-	it("embeds the ACTUAL trimmed source line, not a stray single character", () => {
+	it("selects the comparison excerpt after an earlier unrelated condition", () => {
 		const code = ["      if (a) { x(); }", '      if (err.message === "not found") { retry(); }'].join(
 			"\n",
 		);
@@ -2027,15 +2025,12 @@ describe("checkErrorStringComparison — regex spacing precision", () => {
 		);
 	});
 
-	it("truncates the trailing source-line excerpt to 120 characters", () => {
-		const filler = "x".repeat(150);
-		const code = `if (err.message === "${filler}") { retry(); }`;
-		const out = checkErrorStringComparison(code, TS);
-		expect(out.length).toBe(1);
-		const text = nonNull(out[0]).text;
-		const marker = "use error codes or instanceof instead: ";
-		const excerpt = text.slice(text.indexOf(marker) + marker.length);
-		expect(excerpt.length).toBe(120);
+	it("preserves the source exactly at the 120-character comparison excerpt boundary", () => {
+		const prefix = 'if (err.message === "missing") { retry(); }';
+		const code = prefix.padEnd(119, " ") + ";";
+		expect(checkErrorStringComparison(code, TS)[0]?.text).toBe(
+			`comparing error.message string — fragile, use error codes or instanceof instead: ${code}`,
+		);
 	});
 });
 

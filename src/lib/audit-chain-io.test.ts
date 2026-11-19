@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ArchiveEvidenceError, iterateAllAuditLinesStreaming } from "./audit-chain-io.js";
+import { ArchiveEvidenceError, iterateAllAuditLinesStreaming, iterateFileLines } from "./audit-chain-io.js";
 
 let tmp: string;
 let dataDir: string;
@@ -32,6 +32,29 @@ async function drain(gen: AsyncGenerator<string>): Promise<void> {
 		// draining is the point — the manifest's segment file never exists
 	}
 }
+
+describe("audit line boundaries", () => {
+	it("decodes split UTF-8, keeps CR and empty lines, and emits the final unterminated line", async () => {
+		const path = join(dataDir, "activity.jsonl");
+		// The emoji starts one byte before the async reader's 64 KiB boundary.
+		const first = `${"x".repeat(64 * 1024 - 1)}🌱\r`;
+		writeFileSync(path, `${first}\n\n尾`);
+		const expected = [first, "", "尾"];
+		expect([...iterateFileLines(path, 257)]).toEqual(expected);
+		const streamed: string[] = [];
+		for await (const line of iterateAllAuditLinesStreaming(tmp, path)) streamed.push(line);
+		expect(streamed).toEqual(expected);
+	});
+
+	it("accepts exactly the byte limit and excludes the terminating newline", async () => {
+		const path = join(dataDir, "activity.jsonl");
+		const limit = 16 * 1024 * 1024;
+		writeFileSync(path, `${"é".repeat(limit / 2)}\n`);
+		const sizes: number[] = [];
+		for await (const line of iterateAllAuditLinesStreaming(tmp, path)) sizes.push(Buffer.byteLength(line));
+		expect(sizes).toEqual([limit]);
+	});
+});
 
 describe("iterateAllAuditLinesStreaming — missing segment file", () => {
 	it("wraps the source read-stream's ENOENT as a SegmentReadError naming the segment file", async () => {

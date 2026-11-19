@@ -3,6 +3,9 @@
 
 title = "interlinked-cli gitleaks config"
 
+[extend]
+  useDefault = true
+
 [allowlist]
   description = "Known false positive paths and patterns"
   paths = [

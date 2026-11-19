@@ -3,7 +3,7 @@
 // "positive (must fire)" = the finding reaches the main actor's list;
 // "negative (must not fire)" = it is correctly dropped, collapsed, or moved.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -97,7 +97,7 @@ describe("digestStopRescan — positive (must fire)", () => {
 		const text = out.warnings.join("\n");
 		expect(text).toContain("eval(new)");
 		expect(text).not.toContain("eval(old)");
-		expect(text).toContain("0 absent from the displayed set (repair unverified), 1 unchanged (message suppressed)");
+		expect(text).toContain("0 no longer open (repair unverified), 1 unchanged (message suppressed)");
 	});
 
 	it("P7: records this Stop's open fingerprints so the next Stop can diff them", () => {
@@ -117,8 +117,68 @@ describe("digestStopRescan — positive (must fire)", () => {
 			Array.from({ length: 5 }, (_, i) => finding({ line: i + 1, text: `eval(${i})` })),
 		);
 		const text = out.warnings.join("\n");
-		expect(text).toContain("...and 1 more (see stop-digest.jsonl)");
+		expect(text).toContain("...and 1 more — list all: interlinked query stop-digest --where kind=stop-rescan-finding --where file=src/a.ts");
 		expect(text).not.toContain("eval(4)");
+	});
+
+	// A finding that the message counts must be retrievable: the agent is told to
+	// repair N findings, so it must be able to read check id, line and text for all N.
+	it("P11: spools one detail row for every finding the message counts, shown or hidden", () => {
+		const out = run(
+			Array.from({ length: 6 }, (_, i) => finding({ line: i + 1, text: `eval(${i})` })),
+		);
+		const rows = out.spoolRows.filter((r) => r.kind === "stop-rescan-finding");
+		expect(rows.map((r) => [r.file, r.check, r.line, r.text])).toEqual(
+			Array.from({ length: 6 }, (_, i) => ["src/a.ts", "eval_usage", i + 1, `eval(${i})`]),
+		);
+	});
+
+	it("P12: spools the findings of a file past the listed-file limit and names the query", () => {
+		const files = ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"];
+		const out = run(files.map((file) => finding({ file })));
+		expect(out.warnings.join("\n")).toContain("...and 1 more file(s) — list all: interlinked query stop-digest --where kind=stop-rescan-finding");
+		const spooledFiles = out.spoolRows.filter((r) => r.kind === "stop-rescan-finding").map((r) => r.file);
+		expect(spooledFiles).toEqual(files);
+	});
+
+	it("P13: writes the finding rows to the digest file before the filtered-out rows", () => {
+		run([
+			finding({ file: "scratch/probe.ts", checkId: "ubs_print_debug_leak" }),
+			finding({ line: 7, text: "eval(x)" }),
+		]);
+		const kinds = readFileSync(join(dir, "stop-digest.jsonl"), "utf8").trim().split("\n")
+			.map((line) => (JSON.parse(line) as { kind: string }).kind);
+		expect(kinds).toEqual(["stop-rescan-finding", "sanctioned-scratch"]);
+	});
+
+	// Several sessions work in one checkout. A file that entered the rescan only
+	// because a change was observed is not this session's file.
+	it("P15: reports findings on an observed-only file as writer unknown, not as files you touched", () => {
+		const out = run(
+			[finding({ file: "src/other.ts", line: 3, text: "eval(theirs)" }), finding({ file: "src/mine.ts", line: 5, text: "eval(mine)" })],
+			{ observedOnly: (file) => file === "src/other.ts" },
+		);
+		const [touched, unknown] = [out.warnings.find((w) => w.includes("you touched")), out.warnings.find((w) => w.includes("unknown writer"))];
+		expect(touched).toContain("src/mine.ts");
+		expect(touched).not.toContain("src/other.ts");
+		expect(touched).toContain("1 file(s) you touched");
+		expect(unknown).toContain("1 file(s) changed in the workspace during this session by an unknown writer carry 1 finding(s)");
+		expect(unknown).toContain("interlinked query stop-digest --where kind=unknown-writer");
+		expect(out.spoolRows.filter((r) => r.kind === "unknown-writer").map((r) => [r.file, r.check, r.line, r.text]))
+			.toEqual([["src/other.ts", "eval_usage", 3, "eval(theirs)"]]);
+		expect(out.openIds).toHaveLength(1); // only the declared file enters this session's open set
+	});
+
+	it("N16: keeps a declared file in the main list when the observed-only test says no", () => {
+		const out = run([finding()], { observedOnly: () => false });
+		expect(out.warnings.join("\n")).toContain("1 file(s) you touched");
+		expect(out.warnings.join("\n")).not.toContain("unknown writer");
+	});
+
+	it("P14: does not spool a finding again on the next Stop when it is unchanged", () => {
+		run([finding()]);
+		const second = run([finding()]);
+		expect(second.spoolRows.filter((r) => r.kind === "stop-rescan-finding")).toEqual([]);
 	});
 });
 

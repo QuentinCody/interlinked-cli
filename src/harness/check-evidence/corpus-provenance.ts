@@ -1,10 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evidenceDigest } from "../finding-outcomes.js";
 import { isJsonObject } from "../../lib/json-types.js";
 import { evidenceRuntimeIdentity } from "../evidence-runtime-identity.js";
-import { captureCorpusInputs, type CorpusFailure } from "./corpus-snapshot.js";
+import type { CorpusFailure } from "./corpus-snapshot.js";
+import { captureDetectorSources, type DetectorIdentitySource } from "./detector-closure.js";
 
 export interface CorpusProvenance {
     schema: "corpus-scan.v2";
@@ -34,20 +34,18 @@ export function corpusRuntimeRoot(moduleFile: string): { root: string; code: str
     if (at >= 0) return { root: moduleFile.slice(0, at), code: "dist" };
     return { root: resolve(dirname(moduleFile), "../../.."), code: "src" };
 }
-function sourceIdentity(): string {
+function runtimeDetectorIdentity(): DetectorIdentitySource {
     const { root, code } = corpusRuntimeRoot(fileURLToPath(import.meta.url));
-    if (code === "dist") return evidenceRuntimeIdentity();
-    try {
-        const snapshot = captureCorpusInputs(join(root, code), root, "source");
-        if (snapshot.failures.length || snapshot.inputs.length === 0) return "unavailable";
-        const dependency = existsSync(join(root, "package-lock.json")) ? "package-lock.json" : "package.json";
-        return evidenceDigest(snapshot.digest + readFileSync(join(root, dependency), "utf8") + process.version);
-    } catch { return "unavailable"; }
+    if (code === "src") return captureDetectorSources(root);
+    // A bundle is immutable chunks: its build fingerprint is the whole identity.
+    const build = evidenceRuntimeIdentity();
+    return () => ({ loaded: build, current: evidenceRuntimeIdentity() });
 }
-// Capture once when the source runner imports this module. A disk edit mid-run
-// is detected separately; it cannot relabel already-loaded detector code.
-export const CORPUS_DETECTOR_IDENTITY = sourceIdentity();
-export function currentCorpusDetectorIdentity(): string { return sourceIdentity(); }
+// Capture once when the source runner imports this module, so an edit after
+// load cannot relabel already-loaded detector code. Each detector's identity is
+// its own static import closure (detector-closure.ts): an edit to an unrelated
+// file no longer voids its evidence.
+export const corpusDetectorIdentity: DetectorIdentitySource = runtimeDetectorIdentity();
 
 export function corpusProvenanceMatches(record: CorpusProvenance | undefined, current: CorpusBinding | undefined): boolean {
     if (!record || !current || record.schema !== "corpus-scan.v2") return false;

@@ -12,7 +12,7 @@ export interface CatalogCheck extends CatalogSource {
 
 function classify(source: CatalogSource): CatalogCheck {
     const dimension = source.family === "inline" ? SCORED_CHECKS[source.id] : undefined;
-    if (dimension) return { ...source, disposition: "scored", dimension, reason: "Reviewed standalone content adapter; findings remain evidence-classed" };
+    if (dimension) return { ...source, disposition: "scored", dimension, reason: "Reviewed scoring adapter; input scope and evidence limits remain in its readings" };
     if (["guard", "sequence", "behavioral"].includes(source.family)) {
         return { ...source, disposition: "enforcement", dimension: null, reason: "Describes an execution or agent session, not repository quality" };
     }

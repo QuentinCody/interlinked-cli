@@ -5,6 +5,8 @@
 // paired fixtures prove the complementary property: an overbuilt variant must
 // rank above its behaviorally equivalent minimal variant for every remedy.
 
+import { exactKeys, fixtureText as nonempty, fixturePath as isRepoPath, sortedFixtureStrings as canonicalStrings } from "./simplification-schema-scope-kinds.js";
+import { isRemedy as remedy } from "./simplification-agent-ci-plan-primitives.js";
 import { createHash } from "node:crypto";
 import { isJsonObject } from "./json-types.js";
 import { canonicalSimplificationAgentCiJson } from "./simplification-agent-ci-request.js";
@@ -75,32 +77,6 @@ interface SimplificationBenchmarkSuiteReceipt {
 type SimplificationBenchmarkFixtureParseResult =
 	| { ok: true; fixture: SimplificationBenchmarkFixture }
 	| { ok: false; reason: string };
-
-function exactKeys(value: object, expected: readonly string[]): boolean {
-	return Object.keys(value).sort().join("|") === [...expected].sort().join("|");
-}
-
-function nonempty(value: unknown): value is string {
-	return typeof value === "string" && value.length > 0 && value.length <= 32_768;
-}
-
-function isRepoPath(value: unknown): value is string {
-	return nonempty(value)
-		&& !value.startsWith("/")
-		&& !value.includes("\\")
-		&& value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
-}
-
-function canonicalStrings(value: unknown): value is string[] {
-	if (!Array.isArray(value) || !value.every(nonempty)) return false;
-	if (new Set(value).size !== value.length) return false;
-	return value.every((entry, index) => index === 0 || entry >= (value[index - 1] ?? ""));
-}
-
-function remedy(value: unknown): value is SimplificationRemedy {
-	return typeof value === "string"
-		&& SIMPLIFICATION_REMEDIES.some((candidate) => candidate === value);
-}
 
 function nonNegativeInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isInteger(value) && value >= 0;

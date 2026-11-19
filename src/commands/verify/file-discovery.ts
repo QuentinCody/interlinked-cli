@@ -2,7 +2,7 @@
 // File Discovery (git-based with fallback)
 // ===========================================
 // Prefers `git ls-files` so .gitignore + .interlinked/.claude/dist filters are
-// respected. Falls back to a bounded manual walk for non-git directories.
+// respected. Falls back to a filesystem walk for non-git directories.
 //
 // The discovery surface is intentionally wide: every tracked text file in the
 // repo enters the scan, and each individual check filters to the extensions
@@ -13,10 +13,11 @@
 // the /interlinked verify/ surface covers everything a human would expect
 // it to cover — not just a hard-coded source-extension allowlist.
 
-import { execSync } from "node:child_process";
-import { readdirSync, statSync } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { execSync, type ExecSyncOptionsWithStringEncoding } from "node:child_process";
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { basename, extname, isAbsolute, join, relative } from "node:path";
 import { INTERLINKED_DIR } from "../../lib/interlinked-path.js";
+import { recordVerifyInputDeferral } from "./check-timing.js";
 
 /** Public API — the language-source extensions. Consumed by `verify.ts`,
  *  individual checks as their applicability filter, and tests. Do not widen
@@ -76,20 +77,40 @@ const BLOCKED_BASENAMES = new Set([
 	"go.sum",
 ]);
 
-const MAX_WALK_ENTRIES = 50_000;
-const MAX_FILE_BYTES = 1_000_000;
+const WALK_SKIP = new Set([
+	".git", INTERLINKED_DIR, ".claude", "node_modules", "dist", "build",
+	"coverage", "target", "__pycache__", ".venv", "venv",
+]);
 
-function gitFileList(root: string): string[] | null {
+export interface DiscoveryOptions { onUnavailable?: (input: { file: string; reason: string }) => void; }
+
+function gitFileList(root: string, options: DiscoveryOptions = {}): string[] | null {
+	const env = { ...process.env };
+	for (const name of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"]) delete env[name];
+	const gitOptions: ExecSyncOptionsWithStringEncoding = {
+		cwd: root, env, encoding: "utf-8", maxBuffer: Infinity, stdio: ["ignore", "pipe", "ignore"],
+	};
 	try {
-		const output = execSync("git ls-files --cached --others --exclude-standard -z", {
-			cwd: root,
-			encoding: "utf-8",
-			timeout: 15_000,
-			stdio: ["pipe", "pipe", "pipe"],
-		});
-		return output.split("\0").filter(Boolean);
-	} catch {
+		const output = execSync("git -c core.fsmonitor=false ls-files --cached --others --exclude-standard -z", gitOptions);
+		const files = output.split("\0").filter(Boolean);
+		if (files.length === 0 && selectedIgnoredDirectory(root, gitOptions, options)) return null;
+		return files;
+	} catch (error) {
+		if (existsSync(join(root, ".git"))) discoveryUnavailable(root, root, error, options);
 		return null;
+	}
+}
+
+/** Explicitly selecting an ignored subtree gives it the non-Git walk contract. */
+function selectedIgnoredDirectory(root: string, gitOptions: ExecSyncOptionsWithStringEncoding, options: DiscoveryOptions): boolean {
+	try {
+		if (!execSync("git -c core.fsmonitor=false rev-parse --show-prefix", gitOptions).trim()) return false;
+		execSync("git -c core.fsmonitor=false check-ignore --quiet -- .", gitOptions);
+		return true;
+	} catch (error) {
+		if (typeof error === "object" && error !== null && "status" in error && error.status === 1) return false;
+		discoveryUnavailable(root, root, error, options);
+		return false;
 	}
 }
 
@@ -97,10 +118,8 @@ function gitFileList(root: string): string[] | null {
  *  discovery universe. Keeps the filter centralized so the git-based path
  *  and the manual-walk fallback agree. */
 function shouldDiscover(relPath: string): boolean {
-	if (relPath.startsWith(".interlinked/") || relPath.includes("/.interlinked/")) return false;
-	if (relPath.startsWith(".claude/") || relPath.includes("/.claude/")) return false;
-	if (relPath.startsWith("dist/") || relPath.includes("/dist/")) return false;
-	if (relPath.startsWith("node_modules/") || relPath.includes("/node_modules/")) return false;
+	const segments = relPath.split("/");
+	if (segments[0] === "scratch" || segments.slice(0, -1).some(segment => WALK_SKIP.has(segment))) return false;
 	const ext = extname(relPath).toLowerCase();
 	if (BINARY_EXTENSIONS.has(ext)) return false;
 	const base = basename(relPath);
@@ -109,100 +128,81 @@ function shouldDiscover(relPath: string): boolean {
 }
 
 /** Public API — consumed by `verify.ts` (entry point for verify's file set). */
-export function discoverFiles(root: string): string[] {
+export function discoverFiles(root: string, options: DiscoveryOptions = {}): string[] {
 	// Try git ls-files first (respects .gitignore)
-	const gitFiles = gitFileList(root);
+	const gitFiles = gitFileList(root, options);
 	if (gitFiles !== null) {
-		return gitFiles.filter(shouldDiscover).map((file) => join(root, file));
+		return gitFiles.filter(shouldDiscover).map((file) => join(root, file)).filter(file => discoveredKind(root, file, true, options) === "file");
 	}
-
-	// Fallback: manual walk (for non-git dirs)
-	const files: string[] = [];
-	const skip = new Set([
-		"node_modules",
-		".git",
-		"dist",
-		"build",
-		"coverage",
-		"target",
-		"__pycache__",
-		".venv",
-		"venv",
-	]);
-	/** Recurses into a directory entry, or collects it when it is a discoverable
-	 *  file. Throws whatever `statSync` throws — `walk` owns the catch. */
-	function visitEntry(dir: string, entry: string, relPrefix: string): void {
-		const full = join(dir, entry);
-		const rel = relPrefix ? `${relPrefix}/${entry}` : entry;
-		const stat = statSync(full);
-		if (stat.isDirectory()) {
-			walk(full, rel);
-			return;
-		}
-		if (stat.isFile() && stat.size < MAX_FILE_BYTES && shouldDiscover(rel)) {
-			files.push(full);
-		}
-	}
-	function walk(dir: string, relPrefix: string): void {
-		try {
-			// Match ProjectGraph's root-local scratch exclusion. Disposable
-			// repo copies can otherwise consume the budget before real source.
-			const entries = readdirSync(dir).sort((a, b) =>
-				Number(b === "src") - Number(a === "src") || a.localeCompare(b));
-			for (const entry of entries) {
-				if (files.length >= MAX_WALK_ENTRIES) break;
-				if (!relPrefix && entry === "scratch") continue;
-				if (skip.has(entry) || entry.startsWith(".") || entry === INTERLINKED_DIR) continue;
-				visitEntry(dir, entry, relPrefix);
-			}
-		} catch {
-			/* intentional: fall back to a filesystem walk outside git worktrees */
-		}
-	}
-	walk(root, "");
-	return files;
+	return filesystemFiles(root, shouldDiscover, WALK_SKIP, options);
 }
 
-const FUNCTION_TOKEN_WALK_SKIP = new Set([
-	".git",
-	".interlinked",
-	".claude",
-	".codex",
-	"node_modules",
-	"dist",
-	"build",
-	"coverage",
-	"target",
-	"__pycache__",
-	".venv",
-	"venv",
-]);
+function discoveryUnavailable(root: string, file: string, error: unknown, options: DiscoveryOptions = {}): void {
+	const code = error instanceof Error && "code" in error ? `${String(error.code)}: ` : "";
+	const input = {
+		file: relative(root, file) || ".", reason: code + (error instanceof Error ? error.message : String(error)),
+	};
+	options.onUnavailable?.(input);
+	recordVerifyInputDeferral("file_discovery_unavailable", input);
+}
+
+/** Preserve regular file aliases while refusing cycles, directory aliases and streams. */
+function discoveredKind(root: string, file: string, includeFile = true, options: DiscoveryOptions = {}): "file" | "directory" | null {
+	try {
+		const stat = lstatSync(file);
+		if (stat.isDirectory()) return "directory";
+		if (!includeFile) return null;
+		if (stat.isFile()) return "file";
+		if (stat.isSymbolicLink()) return containedFileAlias(root, file, options);
+		discoveryUnavailable(root, file, new Error("Input is not a regular file"), options);
+	} catch (error) { discoveryUnavailable(root, file, error, options); }
+	return null;
+}
+
+function containedFileAlias(root: string, file: string, options: DiscoveryOptions): "file" | null {
+	const target = realpathSync(file);
+	const rel = relative(realpathSync(root), target);
+	if (rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) {
+		discoveryUnavailable(root, file, new Error("The symbolic link target lies outside the project root"), options);
+		return null;
+	}
+	if (statSync(target).isFile()) return "file";
+	discoveryUnavailable(root, file, new Error("The symbolic link target is a directory or another non-regular input"), options);
+	return null;
+}
+
+function filesystemFiles(root: string, include: (path: string) => boolean, skip = WALK_SKIP, options: DiscoveryOptions = {}): string[] {
+	const files: string[] = [], directories = [root];
+	while (directories.length) {
+		const dir = directories.pop();
+		if (dir === undefined) break;
+		let entries: string[];
+		try {
+			entries = readdirSync(dir).sort((a, b) => Number(b === "src") - Number(a === "src") || a.localeCompare(b));
+		} catch (error) { discoveryUnavailable(root, dir, error, options); continue; }
+		const children: string[] = [];
+		for (const entry of entries) {
+			if (skip.has(entry) || (dir === root && entry === "scratch")) continue;
+			const file = join(dir, entry);
+			const kind = discoveredKind(root, file, include(relative(root, file)), options);
+			if (kind === "directory") children.push(file);
+			else if (kind === "file") files.push(file);
+		}
+		for (const child of children.reverse()) directories.push(child);
+	}
+	return files;
+}
 
 /**
  * Broader discovery for the function-token census. Git repositories return
  * every tracked/unignored path and let the shared cappable-file policy decide
- * scope. The fallback keeps hidden source directories and files >=1 MB, which
- * the ordinary verify walk omits for cost control.
+ * scope. Both inventories retain complete files and populations. The fallback
+ * excludes known generated/runtime directories and root-local scratch copies.
  */
-export function discoverFunctionTokenFiles(root: string): string[] {
-	const gitFiles = gitFileList(root);
+export function discoverFunctionTokenFiles(root: string, options: DiscoveryOptions = {}): string[] {
+	const gitFiles = gitFileList(root, options);
+	// Metric callers own canonicalization and unreadable-source receipts. Keep
+	// missing tracked paths available to that existing reporting boundary.
 	if (gitFiles !== null) return gitFiles.map((file) => join(root, file));
-
-	const files: string[] = [];
-	function walk(dir: string): void {
-		if (files.length >= MAX_WALK_ENTRIES) return;
-		try {
-			for (const entry of readdirSync(dir)) {
-				if (FUNCTION_TOKEN_WALK_SKIP.has(entry)) continue;
-				const full = join(dir, entry);
-				const stat = statSync(full);
-				if (stat.isDirectory()) walk(full);
-				else if (stat.isFile()) files.push(full);
-			}
-		} catch {
-			/* unreadable paths are represented only when discovery can name them */
-		}
-	}
-	walk(root);
-	return files;
+	return filesystemFiles(root, () => true, new Set([...WALK_SKIP, ".codex"]), options);
 }

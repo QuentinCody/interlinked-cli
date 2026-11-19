@@ -143,7 +143,7 @@ export function pickReview(
 	key: string | undefined,
 ): PendingReviewSummary | PickError | null {
 	if (reviews.length === 0) return null;
-	if (key) {
+	if (key !== undefined) {
 		const match = reviews.find((r) => r.key === key);
 		if (!match) return { error: `no pending review with key "${key}"` };
 		return match;

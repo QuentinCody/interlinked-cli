@@ -4,19 +4,17 @@ import { object } from "./answers.js";
 import { CATALOG } from "./contracts.js";
 import type { Band, DecisionConfig } from "./types.js";
 
-export function decisionChildEnvironment(backend: DecisionConfig["backend"]): NodeJS.ProcessEnv {
-    const keys = {
-        typesafe: "TYPESAFE_API_KEY",
-        liquid: "LIQUID_API_KEY",
-        openrouter: "OPENROUTER_API_KEY",
-        perplexity: "PERPLEXITY_API_KEY",
-        ollama: "OLLAMA_API_KEY",
-    };
-    // Only the recorder receives the real upstream credential; the child uses loopback.
+/**
+ * Environment of the ThinkThen child. ThinkThen 0.2 reads its System One key from
+ * THINKTHEN_API_KEY and refuses to start without one. The child talks only to the
+ * loopback recorder, so it gets a placeholder; the recorder alone holds the real
+ * upstream credential.
+ */
+export function decisionChildEnvironment(): NodeJS.ProcessEnv {
     return {
         PATH: process.env.PATH,
         LANG: "en_US.UTF-8",
-        [keys[backend]]: "interlinked-loopback-proxy",
+        THINKTHEN_API_KEY: "interlinked-loopback-proxy",
     };
 }
 

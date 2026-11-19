@@ -574,6 +574,11 @@ describe("debt actions — wiring", () => {
 		});
 	});
 
+	it("query forwards historical action projection through the real parser", async () => {
+		await build().parseAsync(["query", "checks", "--actions", "--json"], { from: "user" });
+		expect(queryCommand).toHaveBeenCalledWith("checks", expect.objectContaining({ actions: true, json: true }));
+	});
+
 	it("query with no positional reaches the catalog path", async () => {
 		const program = build();
 		await program.parseAsync(["query"], { from: "user" });

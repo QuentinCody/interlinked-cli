@@ -16,6 +16,7 @@ import type * as TS from "typescript";
 import type { ParsedTsSource } from "./cyclomatic-ast.js";
 import type { InlineMatch } from "./shared.js";
 import { parseTestQuality, qualityBlocks } from "./test-quality-ast.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 const ASSERTION_LINE = /^\s*(?:\/\/|\/\*|\*)?\s*(?:(?:await|return)\s+)?expect\s*\(.+\)\s*\.(?:(?:not|resolves|rejects)\s*\.)?\s*\w+\s*\(/;
 
@@ -49,5 +50,5 @@ export function checkCommentedOutAssertion(content: string, filePath: string): I
             findings.set(lineNumber, { line: lineNumber, text: "commented_out_assertion: this assertion is commented out and cannot fail. Restore the intended check, or remove the obsolete assertion and explain the current contract." });
         });
     }
-    return [...findings.values()].sort((a, b) => a.line - b.line).slice(0, 10);
+    return [...findings.values()].sort((a, b) => a.line - b.line).slice(0, checkMatchLimit(10));
 }

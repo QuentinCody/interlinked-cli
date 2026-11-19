@@ -1,6 +1,7 @@
 // Performance anti-pattern checks (loop-body analysis, repeated work, etc).
 // Extracted from generic-checks.ts.
 
+import { rawBraceDelta } from "./shared-text-utils-brace-scan.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	getExtension,
@@ -43,16 +44,6 @@ export interface LoopBody {
 	originalBodyLines: string[];
 }
 
-/** Net brace-nesting delta contributed by one (already comment/string-stripped) line. */
-function braceDelta(line: string): number {
-	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		if (ch === "}") delta--;
-	}
-	return delta;
-}
-
 /**
  * Does this stripped line start a for/while/loop head we track?
  * Also matches Go/Rust for without parens — for ... {, for ... in ... {
@@ -90,7 +81,7 @@ function captureLoopBody(
 	const bodyStrippedLines: string[] = [];
 	const bodyOriginalLines: string[] = [];
 	for (let j = bodyStart; j < strippedLines.length; j++) {
-		depth += braceDelta(nonNull(strippedLines[j]));
+		depth += rawBraceDelta(nonNull(strippedLines[j]));
 		if (depth <= 0) break; // Closing brace reached
 		bodyStrippedLines.push(nonNull(strippedLines[j]));
 		bodyOriginalLines.push(nonNull(originalLines[j]));
@@ -116,7 +107,7 @@ export function extractBraceLoopBodies(content: string): LoopBody[] {
 		if (braceLineIdx === -1) continue;
 
 		// Count all braces on the brace line to get initial depth
-		const initialDepth = braceDelta(nonNull(strippedLines[braceLineIdx]));
+		const initialDepth = rawBraceDelta(nonNull(strippedLines[braceLineIdx]));
 		if (initialDepth <= 0) continue; // Single-line loop body or empty
 
 		// Capture body lines

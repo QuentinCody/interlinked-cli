@@ -44,6 +44,7 @@ import { computeCyclomaticAst } from "../checks/cyclomatic-ast.js";
 import { computeCyclomaticPython } from "../checks/cyclomatic-python.js";
 import { makeGrandfatherResolver } from "../function-complexity-baseline.js";
 import { maxCyclomaticFor } from "../metric-caps.js";
+import type { ResolvedMetricPolicy } from "../metric-policy.js";
 import {
 	checkPerFunctionMetricWrite,
 	type MetricGateSpec,
@@ -176,6 +177,7 @@ export function checkFunctionComplexityWrite(
 	toolInput: JsonObject,
 	cwd: string,
 	observe?: ComplexityObserver,
+	policy?: ResolvedMetricPolicy,
 ): ComplexityWriteBlock | null {
-	return checkPerFunctionMetricWrite(CYCLOMATIC_SPEC, toolInput, cwd, observe);
+	return checkPerFunctionMetricWrite(CYCLOMATIC_SPEC, toolInput, cwd, observe, policy);
 }

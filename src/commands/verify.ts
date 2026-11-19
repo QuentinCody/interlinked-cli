@@ -9,9 +9,7 @@
 //   interlinked verify --suggestions       # + scored regex heuristics
 //   interlinked verify --json              # Machine-readable output
 //   interlinked verify --details           # Show file paths for all findings
-//   interlinked verify --file foo.ts       # Single file
-//   interlinked verify --changed           # Changed files only
-//   interlinked verify --staged            # Staged files only
+//   interlinked verify path/to/project     # Another local project
 //   interlinked verify https://github.com/owner/repo  # Remote repo
 //
 // Implementation is split across `src/commands/verify/`:
@@ -33,8 +31,9 @@ import { nonNull } from "../lib/non-null.js";
 import { computeRulesFingerprint } from "../lib/rules-fingerprint.js";
 
 import { CheckEngine, type CheckResult, formatToolReport } from "../harness/check-engine/index.js";
-import { tryAcquireProjectHeavyProcessLease } from "../harness/project-heavy-process-lock.js";
+import { acquireProjectHeavyProcessLease } from "../harness/project-heavy-process-lock.js";
 import { acquireTestCapacity } from "../harness/test-capacity.js";
+import { currentProcessSignal } from "../harness/check-engine/process-cancellation.js";
 import {
 	detectDecisionSurface,
 	detectLockfileMultiplicity,
@@ -44,6 +43,8 @@ import {
 	type RegistryDriftFinding,
 	runRegistryParityCheck,
 } from "../harness/registry-parity.js";
+import { killProofsSection } from "./verify/kill-proofs-section.js";
+import { localScanTarget } from "./verify/local-scan-target.js";
 import { projectE2eSection, streamTailSections } from "./verify/project-e2e-section.js";
 import type { Finding } from "../harness/suggestion-scorer.js";
 import {
@@ -53,8 +54,11 @@ import {
 	parseSuppressionEntry,
 } from "../harness/suppressions.js";
 
-import { DEFAULT_ADVISORY_SKIPS, TOOL_IDS } from "./verify/advisory.js";
+import { DEFAULT_ADVISORY_SKIPS } from "./verify/advisory.js";
 import { getEffectiveSkipChecks, getSkipTools } from "./verify/advisory-skips.js";
+import { resolveVerifyToolIds } from "./verify/tool-selection.js";
+import { createToolInputScopeCollector } from "./verify/tool-input-scope.js";
+import { runBatchDependencyAudit } from "./verify/dependency-audit.js";
 import { cloneRepo, isGitUrl, normalizeGitUrl, repoDisplayName } from "./verify/clone-repo.js";
 import { runCodeQualityPhase } from "./verify/code-quality-phase.js";
 import { fpFilterJsonFor, resolveVerifyFpFilter } from "./verify/fp-filter-section.js";
@@ -84,7 +88,10 @@ import {
 import { streamExternalTools } from "./verify/verify-tools.js";
 import { streamImportedLint } from "./verify/lint-import.js";
 import { runCatalogueAdvisories, streamCatalogueAdvisories } from "./verify/catalogue.js";
-import { withVerifyTimings, measureVerifyCheck, measureVerifyCheckAsync, recordVerifyMeasurement } from "./verify/check-timing.js";
+import { withVerifyTimings, measureVerifyCheck, measureVerifyCheckAsync, recordVerifyMeasurement, recordVerifyInputDeferral, currentVerifyTimings, currentScanLedger, verifyDeadlinePassed } from "./verify/check-timing.js";
+import { emptyToolReport, runUntilSoftDeadline } from "./verify/batch-deadline.js";
+import { softDeadlineOption } from "./verify/soft-deadline.js";
+import { computeNotRun, notRunContextFor } from "./verify/not-run.js";
 
 // Re-export for consumers (tests + external scripts that imported these
 // names historically from this file). These names are load-bearing — the
@@ -96,9 +103,9 @@ export { CODE_EXTENSIONS, discoverFiles } from "./verify/file-discovery.js";
 export { summarizeFlaggedFiles } from "./verify/verify-summary.js";
 export type { ToolSpec } from "./verify/verify-tools.js";
 
-const CHECK_ENGINE_TIMEOUT_MS = 30_000;
 const SUGGESTIONS_LIMIT = 3;
 const SUGGESTIONS_THRESHOLD = 0.5;
+const CAPACITY_NOTICE_DELAY_MS = 1000;
 
 interface VerifyOpts {
 	target?: string;
@@ -107,6 +114,9 @@ interface VerifyOpts {
 	staged?: boolean;
 	cwd?: string;
 	only?: string;
+	timeout?: number;
+	toolTimeout?: number;
+	gitleaksScope?: "working-tree" | "git-visible";
 	json?: boolean;
 	details?: boolean;
 	suggestions?: boolean;
@@ -131,7 +141,11 @@ interface VerifyOpts {
  * scanning. Actual checks live in `runVerify`.
  */
 export async function verifyCommand(opts: VerifyOpts): Promise<void> {
-	return withVerifyTimings(opts.cwd || process.cwd(), () => verifyWithTiming(opts));
+	return withVerifyTimings(opts.cwd || process.cwd(), () => verifyWithTiming(opts), {
+		skipChecks: getEffectiveSkipChecks(opts.skip, opts.allChecks, opts.only),
+		...softDeadlineOption(opts.timeout),
+		allChecks: Boolean(opts.allChecks),
+	});
 }
 
 async function verifyWithTiming(opts: VerifyOpts): Promise<void> {
@@ -159,8 +173,9 @@ async function verifyWithTiming(opts: VerifyOpts): Promise<void> {
 		return;
 	}
 
-	if (opts.target) {
-		await runLocalTargetVerify(opts.target, opts);
+	const localTarget = localScanTarget(opts);
+	if (localTarget) {
+		await runLocalTargetVerify(localTarget, opts);
 		return;
 	}
 
@@ -257,7 +272,7 @@ async function runRemoteVerify(target: string, opts: VerifyOpts): Promise<void> 
 
 	let cloneResult: { dir: string; elapsed_ms: number };
 	try {
-		cloneResult = cloneRepo(url, { branch: opts.branch });
+		cloneResult = cloneRepo(url, { branch: opts.branch, timeoutMs: 0 });
 	} catch (err: unknown) {
 		process.stderr.write(`  ${err instanceof Error ? err.message : String(err)}\n`);
 		process.exitCode = 1;
@@ -277,9 +292,11 @@ async function runRemoteVerify(target: string, opts: VerifyOpts): Promise<void> 
 }
 
 async function runVerify(cwd: string, opts: VerifyOpts): Promise<void> {
+	const signal = currentProcessSignal() ?? new AbortController().signal;
+	const waiting = setTimeout(() => process.stderr.write("  verify waiting for the project check lane; no verification has started.\n"), CAPACITY_NOTICE_DELAY_MS);
 	let releaseHeavyProcess: (() => void) | null;
 	try {
-		releaseHeavyProcess = tryAcquireProjectHeavyProcessLease(cwd);
+		releaseHeavyProcess = await acquireProjectHeavyProcessLease(cwd, Number.POSITIVE_INFINITY, signal);
 	} catch (error) {
 		const detail = errorMessage(error);
 		process.stderr.write(
@@ -287,15 +304,16 @@ async function runVerify(cwd: string, opts: VerifyOpts): Promise<void> {
 		);
 		process.exitCode = 1;
 		return;
-	}
+	} finally { clearTimeout(waiting); }
 	if (!releaseHeavyProcess) {
 		process.stderr.write(
-			"  verify deferred: another heavyweight Interlinked check is already running for this project; no verification verdict was produced.\n",
+			"  verify project capacity wait interrupted; no verification verdict was produced.\n",
 		);
 		process.exitCode = 1;
 		return;
 	}
 	try {
+		signal.throwIfAborted();
 		await runVerifyWithHostCapacity(cwd, opts);
 	} finally {
 		releaseHeavyProcess();
@@ -303,9 +321,12 @@ async function runVerify(cwd: string, opts: VerifyOpts): Promise<void> {
 }
 
 async function runVerifyWithHostCapacity(cwd: string, opts: VerifyOpts): Promise<void> {
-	const capacity = await acquireTestCapacity("foreground", Date.now() + 5000, new AbortController().signal);
+	const signal = currentProcessSignal() ?? new AbortController().signal;
+	const waiting = setTimeout(() => process.stderr.write("  verify waiting for the sequential host check lane; no verification has started.\n"), CAPACITY_NOTICE_DELAY_MS);
+	const capacity = await acquireTestCapacity("foreground", Number.POSITIVE_INFINITY, signal)
+		.finally(() => clearTimeout(waiting));
 	if (!capacity) {
-		process.stderr.write("  verify deferred: host capacity is busy; no verification verdict was produced.\n");
+		process.stderr.write("  verify host capacity wait interrupted; no verification verdict was produced.\n");
 		process.exitCode = 1;
 		return;
 	}
@@ -315,10 +336,12 @@ async function runVerifyWithHostCapacity(cwd: string, opts: VerifyOpts): Promise
 
 /** Run one verify after the caller owns the cross-process project lane. */
 async function runVerifyWithHeavyProcessLease(cwd: string, opts: VerifyOpts): Promise<void> {
+	currentProcessSignal()?.throwIfAborted();
 	const files = measureVerifyCheck("file_discovery", () => discoverFiles(cwd));
-	const engine = new CheckEngine(cwd);
 	const details = opts.details ?? false;
-	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks);
+	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks, opts.only);
+	const engine = new CheckEngine(cwd, { discoveryTimeoutMs: opts.toolTimeout ?? 0,
+		discoverySelection: { skipTools: getSkipTools(skipChecks), ...(opts.only ? { tools: resolveVerifyToolIds([opts.only]) } : {}) } });
 	setActiveSkipChecks(skipChecks);
 	const scope = { projectRoot: cwd, mode: "project" as const };
 
@@ -364,6 +387,7 @@ async function runVerifyWithHeavyProcessLease(cwd: string, opts: VerifyOpts): Pr
 		allFlaggedFiles,
 		details,
 	});
+	currentProcessSignal()?.throwIfAborted();
 
 	streamSupermodelDeadCode(cwd, opts, allFlaggedFiles);
 	await streamImportedLint({ cwd, opts, skipChecks, allFlaggedFiles });
@@ -373,6 +397,7 @@ async function runVerifyWithHeavyProcessLease(cwd: string, opts: VerifyOpts): Pr
 	}
 
 	await streamTailSections(cwd, opts);
+	currentProcessSignal()?.throwIfAborted();
 
 	reportVerifySummary(cwd, files, allFlaggedFiles, summary, opts, cqStart);
 }
@@ -439,42 +464,67 @@ interface VerifyBatchArgs {
 	scope: import("../harness/check-engine/types.js").CheckScope;
 }
 
+async function runBatchExternalChecks(
+	{ engine, scope, cwd, opts }: Omit<VerifyBatchArgs, "files">,
+	skipChecks: Set<string>,
+) {
+	const only = opts.only;
+	// SCA has a dedicated result shape and managed runner below.
+	const skipTools = [...new Set([...getSkipTools(skipChecks), "dep-audit" as const])];
+	const inputScopeCollector = createToolInputScopeCollector();
+	const report = await runUntilSoftDeadline("external_tools", () => measureVerifyCheckAsync("external_tools", () => engine.runChecksAsync({ ...scope, lintCadence: opts.allChecks ? "all" : "hook" }, {
+		timeoutMs: opts.toolTimeout ?? 0,
+		skipTools,
+		...(only === undefined ? {} : { tools: resolveVerifyToolIds([only]) }),
+		admissionAlreadyHeld: true,
+		resourcePolicy: "foreground-verify",
+		onInputScope: inputScopeCollector.record,
+		...(opts.gitleaksScope ? { gitleaksScope: opts.gitleaksScope } : {}),
+	})), () => emptyToolReport("external_tools", "soft deadline reached; external tools did not finish"));
+	const toolInputScopes = inputScopeCollector.finish();
+	currentProcessSignal()?.throwIfAborted();
+	const auditResult = verifyDeadlinePassed() ? null : await runBatchDependencyAudit(report, cwd, only, skipChecks, opts.toolTimeout ?? 0);
+	currentProcessSignal()?.throwIfAborted();
+
+	for (const skipped of report.skipped ?? []) {
+		if (skipped.category === "error" || skipped.category === "resource_busy" || skipped.category === "timeout") {
+			recordVerifyInputDeferral(skipped.check, { file: "<project>", reason: skipped.reason });
+		}
+	}
+
+	return { report, auditResult, toolInputScopes };
+}
+
 async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBatchArgs): Promise<void> {
 	const only = opts.only;
-	const onlySkipTools = only
-		? TOOL_IDS.filter((t) => t !== only && t !== only.replace("_", "-"))
-		: [];
-	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks);
-	const skipTools = [...new Set([...onlySkipTools, ...getSkipTools(skipChecks)])];
+	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks, only);
 	setActiveSkipChecks(skipChecks);
 
-	const report = await measureVerifyCheckAsync("external_tools", () => engine.runChecksAsync({ ...scope, lintCadence: opts.allChecks ? "all" : "hook" }, {
-		timeoutMs: CHECK_ENGINE_TIMEOUT_MS,
-		skipTools,
-		admissionAlreadyHeld: true,
-	}));
-
-	const { tscResults, linterResults, linterName, semgrepResults, gitleaksResults } = groupBatchToolResults(cwd, report);
-	const auditResult = opts.only && opts.only !== "sca" ? null : engine.runDepAudit();
+	// The inline census runs first: it is the part that can be cut short per file, so a deadline keeps its findings.
+	// Progress goes to stderr only — stdout stays byte-identical JSON.
 	const cq = opts.only
 		? emptyResults()
 		: filterCodeQualityResultsInPlace(
-				// Progress goes to stderr only — stdout stays byte-identical JSON.
 				await runCodeQualityChecksProgressive(files, cwd, createScanProgress(files.length)),
 				skipChecks,
 			);
+	const { report, auditResult, toolInputScopes } = await runBatchExternalChecks({ engine, scope, cwd, opts }, skipChecks);
+
+	const { tscResults, linterResults, linterName, semgrepResults, gitleaksResults, externalDiagnostics } = groupBatchToolResults(cwd, report);
 	const setupIssues = checkProjectSetup(cwd);
 	const registryDrift = safeRegistryParity(cwd);
 	const suggestions = batchSuggestions({ opts, files, cwd });
-	const projectE2e = projectE2eSection(cwd);
-	if (projectE2e.failed) process.exitCode = 1;
+	const projectE2e = projectE2eSection(cwd), killProofs = killProofsSection(cwd, skipChecks);
+	if (projectE2e.failed || killProofs.failed) process.exitCode = 1;
 
+	const runContext = notRunContextFor({ only, skipChecks, opts, toolsRun: report.toolsRun, skipped: report.skipped ?? [], diagnostics: externalDiagnostics, hasAuditResult: auditResult !== null });
 	outputJson({
 		tscResults,
 		linterResults,
 		linterName,
 		semgrepResults,
 		gitleaksResults,
+		externalDiagnostics,
 		auditResult,
 		cq,
 		suggestions,
@@ -485,24 +535,30 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 		lockfileMultiplicity: detectLockfileMultiplicity(cwd),
 		decisionSurfaceRatchet: computeDecisionSurfaceRatchet(cwd),
 		structureSection: opts.structure ? buildStructureJsonSection(cwd, opts) : undefined,
-		projectE2e: projectE2e.json,
+		projectE2e: projectE2e.json, killProofs: killProofs.json,
 		rules: computeRulesFingerprint(cwd),
 		fpFilter: fpFilterJsonFor(cq, cwd, opts.fpFilter),
 		catalogue: opts.allChecks && !opts.only ? await runCatalogueAdvisories(cwd, skipChecks) : undefined,
+		checkCoverage: { toolsRun: report.toolsRun ?? [], skipped: report.skipped ?? [] },
+		toolInputScopes,
+		checkSelection: { inlineRequested: !only, externalOnly: only ?? null, excludedIds: [...skipChecks].sort() },
+		checkTimings: currentVerifyTimings(),
+		scanLedger: currentScanLedger(),
+		notRun: computeNotRun(runContext),
+		runContext,
 	});
 }
 
-// Keep `DEFAULT_ADVISORY_SKIPS` in the exported namespace via import below
-// so the regression test's import path keeps working even after the refactor.
-// (The `export { DEFAULT_ADVISORY_SKIPS } from "./verify/advisory.js"` above
-// handles runtime; this reference keeps the name bundled in any build output
-// that tree-shakes aggressively.)
+// Keep `DEFAULT_ADVISORY_SKIPS` in the exported namespace so the regression test's
+// import path keeps working after the refactor. (The `export { DEFAULT_ADVISORY_SKIPS }`
+// above handles runtime; this reference keeps the name bundled under aggressive tree-shaking.)
 void DEFAULT_ADVISORY_SKIPS;
 
 function groupBatchToolResults(cwd: string, report: Awaited<ReturnType<CheckEngine["runChecksAsync"]>>) {
         const interlinkedDir = join(cwd, ".interlinked");
+		const externalDiagnostics = filterSuppressedToolResults(report.results, interlinkedDir);
         const byTool = (tool: string): CheckResult[] =>
-            filterSuppressedToolResults(report.results.filter((result) => result.tool === tool), interlinkedDir);
+            externalDiagnostics.filter(result => result.tool === tool);
         // Timing is supplementary: older/adapted engine reports can contain valid
         // results without per-tool telemetry. Keep the measured batch duration and
         // never prevent those results from being reported or invent zero tool times.
@@ -515,5 +571,5 @@ function groupBatchToolResults(cwd: string, report: Awaited<ReturnType<CheckEngi
         const linterResults = [...biomeResults, ...eslintResults, ...byTool("lint-import")];
         let linterName = eslintResults.length > 0 ? "eslint" : "biome";
         if (report.toolsRun.some((tool) => tool.id === "lint-import")) linterName = "lint";
-    return { tscResults, linterResults, linterName, semgrepResults, gitleaksResults };
+    return { tscResults, linterResults, linterName, semgrepResults, gitleaksResults, externalDiagnostics };
 }

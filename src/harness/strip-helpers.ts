@@ -43,6 +43,8 @@ export function stripTemplateLiterals(content: string): string {
 		out: [],
 		inTpl: false,
 		interpDepth: 0,
+		interpStack: [],
+		interpQuote: null,
 		inLineComment: false,
 		inBlockComment: false,
 		inString: null,
@@ -63,14 +65,14 @@ export function stripTemplateLiterals(content: string): string {
 			// corrupt state tracking for later lines.
 			i = handleTplString(content, ch, next, i, s);
 		} else if (!s.inTpl) {
-			i = handleTplOutsideTemplate(ch, next, i, s);
+			i = handleTplOutsideTemplate(content, ch, next, i, s);
 		} else if (s.interpDepth === 0) {
 			i = handleTplBody(content, ch, next, i, s);
 		} else {
 			// Inside `${...}` — track brace depth to know when the
 			// interpolation ends; the content and braces are blanked so
 			// downstream brace-counting sees the interpolation as opaque.
-			i = handleTplInterpolation(ch, i, s);
+			i = handleTplInterpolation(content, ch, i, s);
 		}
 	}
 
@@ -87,6 +89,10 @@ interface TplStripState {
 	out: string[];
 	inTpl: boolean;
 	interpDepth: number;
+	/** Brace depths of enclosing interpolations while inside a nested template. */
+	interpStack: number[];
+	/** The quote of a string literal open inside the current `${...}` (its backticks and braces are text). */
+	interpQuote: '"' | "'" | null;
 	inLineComment: boolean;
 	inBlockComment: boolean;
 	inString: '"' | "'" | null;
@@ -135,6 +141,7 @@ function handleTplString(
  * that begins a template. Everything else is copied verbatim.
  */
 function handleTplOutsideTemplate(
+	content: string,
 	ch: string,
 	next: string,
 	i: number,
@@ -155,9 +162,35 @@ function handleTplOutsideTemplate(
 		s.out.push(ch);
 		return i + 1;
 	}
+	if (ch === "/") {
+		const regexLen = regexLiteralLengthAt(content, i);
+		if (regexLen > 0) {
+			s.out.push(content.slice(i, i + regexLen));
+			return i + regexLen;
+		}
+	}
 	s.out.push(ch);
 	if (ch === "`") s.inTpl = true;
 	return i + 1;
+}
+
+/** Previous-significant-token rule shared with {@link stripRegexLiterals}. */
+const REGEX_PRECEDER =
+	/(?:[=(,![:?;{}&|+\-*^~>]|\b(?:return|typeof|in|of|instanceof|new|throw|delete|void))\s*$/;
+const REGEX_BODY = /\/(?![*/])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n])+\/[gimsuyd]*/y;
+
+/**
+ * Length of the regex literal starting at `content[i]` (a `/`), or 0 when the
+ * slash is a division: the regex form needs a preceding token that cannot end
+ * an expression (or the start of input).
+ */
+function regexLiteralLengthAt(content: string, i: number): number {
+	const before = content.slice(Math.max(0, i - 64), i);
+	const atStart = i === 0 || /^\s*$/.test(content.slice(0, i));
+	if (!atStart && !REGEX_PRECEDER.test(before)) return 0;
+	REGEX_BODY.lastIndex = i;
+	const m = REGEX_BODY.exec(content);
+	return m ? m[0].length : 0;
 }
 
 /**
@@ -178,8 +211,15 @@ function handleTplBody(
 		return i + 2;
 	}
 	if (ch === "`") {
-		s.out.push("`");
-		s.inTpl = false;
+		const outerDepth = s.interpStack.pop();
+		if (outerDepth === undefined) {
+			s.out.push("`");
+			s.inTpl = false;
+		} else {
+			// Close a nested template: resume the enclosing interpolation.
+			s.out.push(" ");
+			s.interpDepth = outerDepth;
+		}
 	} else if (ch === "$" && next === "{") {
 		// Enter interpolation — blank the `${` itself.
 		s.out.push(" ", " ");
@@ -195,8 +235,28 @@ function handleTplBody(
  * Inside a `${...}` interpolation: track brace depth to find the end, but blank
  * the content (and the braces) so downstream brace-counting sees it as opaque.
  */
-function handleTplInterpolation(ch: string, i: number, s: TplStripState): number {
-	if (ch === "{") s.interpDepth++;
+function handleTplInterpolation(content: string, ch: string, i: number, s: TplStripState): number {
+	// A string literal inside the interpolation: a backtick or brace in it is text, not a nested template or the
+	// interpolation's end (review-100 n44: `${ x.join("`") }` blanked the rest of the file).
+	if (s.interpQuote !== null) {
+		if (ch === "\\" && i + 1 < content.length) {
+			s.out.push(" ", content[i + 1] === "\n" ? "\n" : " ");
+			return i + 2;
+		}
+		if (ch === s.interpQuote || ch === "\n") s.interpQuote = null;
+		s.out.push(ch === "\n" ? "\n" : " ");
+		return i + 1;
+	}
+	if (ch === '"' || ch === "'") {
+		s.interpQuote = ch;
+		s.out.push(" ");
+		return i + 1;
+	}
+	if (ch === "`") {
+		// Open a nested template: save this interpolation's brace depth.
+		s.interpStack.push(s.interpDepth);
+		s.interpDepth = 0;
+	} else if (ch === "{") s.interpDepth++;
 	else if (ch === "}") {
 		s.interpDepth--;
 		if (s.interpDepth === 0) {

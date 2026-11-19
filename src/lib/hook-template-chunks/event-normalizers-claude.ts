@@ -262,6 +262,13 @@ function deriveToolOutcome(toolName, toolResponse, errorDetail, status, isInterr
         }
         if (msg) result.stderr = middleTruncateBytes(msg, cap);
     }
+    if (result.exit_code === null && typeof errorDetail === "string") {
+        // Claude Code's PostToolUseFailure states a failed Bash call's code on
+        // the FIRST line of its error text ("Exit code 3"). Mirrors
+        // exitCodeFromErrorText in src/harness/outcome-evidence.ts.
+        const codeLine = /^Exit code (-?\\d+)[ \\t]*(?:\\r?\\n|$)/.exec(errorDetail);
+        if (codeLine) result.exit_code = Number(codeLine[1]);
+    }
     if (result.tool_outcome === "error") {
         // Canonical diagnostic text. Channels 2/3/6 classify on this.
         const providerMsg = extractProviderErrorMessage(toolResponse, errorDetail);
@@ -430,12 +437,13 @@ const CLAUDE_DISPATCH = {
             : typeof toolResponseRaw === "string" ? Buffer.byteLength(toolResponseRaw)
             : Buffer.byteLength(JSON.stringify(toolResponseRaw));
         const toolResponse = capToolResponse(toolResponseRaw);
-        // Folded failures: Claude / Codex deliver tool failures on the regular
-        // PostToolUse event with tool_response.is_error === true (the
-        // PostToolUseFailure event is intentionally not subscribed — see
-        // CLAUDE_HOOK_EVENTS in src/lib/hook-installers.ts). Channels 2/3/5/6
+        // Folded failures: Codex (and older Claude Code) deliver tool failures
+        // on the regular PostToolUse event with tool_response.is_error === true.
+        // Claude Code 2.1.325 delivers a failed Bash call ONLY as
+        // PostToolUseFailure (handled below; subscribed since 2026-11-16). The
+        // daemon drops a second completion of one tool_use_id. Channels 2/3/5/6
         // depend on this gate firing — treating these as success would silently
-        // drop every Claude/Codex failure from the recovery pipeline.
+        // drop every folded failure from the recovery pipeline.
         const isError = toolResponseRaw && typeof toolResponseRaw === "object"
             && toolResponseRaw.is_error === true;
         const result = {
@@ -453,7 +461,7 @@ const CLAUDE_DISPATCH = {
         if (input.parent_tool_use_id) result.parent_tool_use_id = input.parent_tool_use_id;
         return result;
     },
-    PostToolUseFailure: ({ input, env }) => {
+    PostToolUseFailure: ({ input, env, duration_ms }) => {
         const failToolName = input.tool_name || null;
         const failInput = input.tool_input || {};
         const errorDetail = input.error || input.tool_error || input.message || null;
@@ -462,7 +470,7 @@ const CLAUDE_DISPATCH = {
             : summarize(failToolName, failInput);
         const result = {
             event_type: "tool_use_error", tool_name: failToolName, tool_input_summary: summary,
-            hook_event: "PostToolUseFailure",
+            hook_event: "PostToolUseFailure", duration_ms,
             tool_input: failInput, error: errorDetail, is_interrupt: input.is_interrupt || false,
             tool_use_id: input.tool_use_id || null,
             status: "error",

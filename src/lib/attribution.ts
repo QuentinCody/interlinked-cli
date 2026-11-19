@@ -3,7 +3,8 @@
 // ===========================================
 // Per-file pool heuristic: compare git diff stat before and after agent runs.
 
-import { gitShell } from "./git-shell.js";
+import { gitArgs, gitArgsRaw } from "./git-shell.js";
+import { isJsonObject } from "./json-types.js";
 import { nonNull } from "./non-null.js";
 
 // ===========================================
@@ -27,31 +28,38 @@ export interface PreRunSnapshot {
 // Helpers
 // ===========================================
 
+/** Preserve the existing patch-line estimate without interpolating a path into a shell. */
+function untrackedPatchLineCount(cwd: string, path: string): number {
+	let patch: string;
+	try {
+		patch = gitArgsRaw(["diff", "--no-index", "--no-ext-diff", "--no-textconv", "--", "/dev/null", path], cwd);
+	} catch (error) {
+		// Git diff uses status 1 for a successful comparison with differences.
+		if (!isJsonObject(error) || error.status !== 1 || typeof error.stdout !== "string") return 1;
+		patch = error.stdout;
+	}
+	return patch.split("\n").length - 1 || 1;
+}
+
 function getDiffStat(cwd: string): Record<string, number> {
 	const files: Record<string, number> = {};
 	try {
-		const output = gitShell("diff --numstat HEAD", cwd);
-		if (!output) return files;
-		for (const line of output.split("\n")) {
-			const parts = line.split("\t");
-			if (parts.length >= 3) {
-				const added = Number.parseInt(nonNull(parts[0]), 10) || 0;
-				const deleted = Number.parseInt(nonNull(parts[1]), 10) || 0;
-				const file = parts[2];
+		const output = gitArgsRaw(["diff", "--numstat", "-z", "--no-renames", "HEAD", "--"], cwd);
+		for (const line of output.split("\0")) {
+			const firstTab = line.indexOf("\t");
+			const secondTab = line.indexOf("\t", firstTab + 1);
+			if (firstTab >= 0 && secondTab >= 0) {
+				const added = Number.parseInt(line.slice(0, firstTab), 10) || 0;
+				const deleted = Number.parseInt(line.slice(firstTab + 1, secondTab), 10) || 0;
+				const file = line.slice(secondTab + 1);
 				if (file) files[file] = added + deleted;
 			}
 		}
 
 		// Also include untracked files
-		const untracked = gitShell("ls-files --others --exclude-standard", cwd);
-		for (const file of untracked.split("\n").filter(Boolean)) {
-			try {
-				const wc = gitShell(`diff --no-index /dev/null "${file}" -- | wc -l`, cwd);
-				files[file] = Number.parseInt(wc, 10) || 1;
-			} catch (_err) {
-				/* intentional: wc failure — fall back to assuming 1 added line */
-				files[file] = 1;
-			}
+		const untracked = gitArgsRaw(["ls-files", "--others", "--exclude-standard", "-z"], cwd);
+		for (const file of untracked.split("\0").filter(Boolean)) {
+			files[file] = untrackedPatchLineCount(cwd, file);
 		}
 	} catch (_err) {
 		/* intentional: no changes or not a git repo — return empty diff stats */
@@ -125,7 +133,7 @@ export function readAttributionTrailer(commitSha?: string, cwd?: string): Attrib
 	const ref = commitSha || "HEAD";
 
 	try {
-		const msg = gitShell(`log -1 --format=%B ${ref}`, resolvedCwd);
+		const msg = gitArgs(["log", "-1", "--format=%B", "--end-of-options", ref, "--"], resolvedCwd);
 		const match = msg.match(
 			/Interlinked-Attribution:\s*(\d+)%\s*agent\s*\((\d+)\/(\d+)\s*lines?\)/,
 		);

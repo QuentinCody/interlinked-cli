@@ -1,6 +1,7 @@
 // JS/TS general checks (nested ternaries, catch-and-log, JSON parsing, etc).
 // Extracted from generic-checks.ts.
 
+import { rawBraceDelta } from "./shared-text-utils-brace-scan.js";
 import { nonNull } from "../../lib/non-null.js";
 import { readabilityMatches } from "./expression-readability.js";
 import {
@@ -12,6 +13,7 @@ import {
 	stripCommentsAndStrings,
 } from "./shared.js";
 import { findSkipMarkers } from "./test-skip-markers.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 // ===========================================
 // JS/TS General Checks
@@ -48,16 +50,6 @@ type CatchBodyScan = {
 	closeIdx: number;
 };
 
-/** Net brace-nesting change contributed by one line: `{` opens, `}` closes. */
-function braceDepthDelta(line: string): number {
-	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		if (ch === "}") delta--;
-	}
-	return delta;
-}
-
 /**
  * Scan up to 8 lines from the catch block's opening brace at `braceStart`,
  * tracking brace depth. Reports whether the body contains only `console.*`
@@ -72,7 +64,7 @@ function scanCatchBody(strippedLines: string[], braceStart: number): CatchBodySc
 
 	for (let j = braceStart; j < Math.min(braceStart + 8, strippedLines.length); j++) {
 		const sLine = nonNull(strippedLines[j]);
-		depth += braceDepthDelta(sLine);
+		depth += rawBraceDelta(sLine);
 		if (j > braceStart) {
 			const trimmed = sLine.trim();
 			if (trimmed === "}" || trimmed === "") {
@@ -267,10 +259,11 @@ export function checkHardcodedTimeout(content: string, filePath: string): Inline
  * or re-enable. Polyglot since 2026-07 (Bun test-oracle work): the marker table
  * lives in test-skip-markers.ts, shared with the skipped-tests water-line so
  * the check and the baseline can never disagree about what a "skip" is.
- * JS/TS behavior is unchanged (same pattern, same per-file cap).
+ * Recognition is unchanged. The detector selects foreground result collection;
+ * direct helper calls and skipped-test baseline counters keep their default cap.
  */
 export function checkDisabledTests(content: string, filePath: string): InlineMatch[] {
-	return findSkipMarkers(content, filePath);
+	return findSkipMarkers(content, filePath, checkMatchLimit(15));
 }
 
 /**

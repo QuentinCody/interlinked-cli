@@ -9,6 +9,7 @@
 // path). Extracted from harness.ts to keep that file under the per-file line
 // cap. The tool_input shapes mirror what the evaluator reads in pre-tool.ts.
 
+import { readStdin } from "../lib/read-stdin.js";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import type { JsonObject } from "../lib/json-types.js";
@@ -95,16 +96,6 @@ export function buildHarnessTestEvent(input: HarnessTestInput): HarnessTestPlan 
 	return { toolName, displayLabel, event };
 }
 
-/** Read stdin to EOF as UTF-8. Used by `--write … --stdin`. */
-function readHarnessTestStdin(): Promise<string> {
-	return new Promise<string>((res, rej) => {
-		const chunks: Buffer[] = [];
-		process.stdin.on("data", (ch: Buffer) => chunks.push(ch));
-		process.stdin.on("end", () => res(Buffer.concat(chunks).toString("utf-8")));
-		process.stdin.on("error", rej);
-	});
-}
-
 /** Resolve a user-supplied path to an absolute one against `cwd`. */
 function toAbsolute(filePath: string, cwd: string): string {
 	return isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
@@ -148,7 +139,7 @@ export async function resolveHarnessTestInput(
 /** Read the proposed Write content from --stdin or --from-file. */
 async function resolveProposedContent(opts: HarnessTestOpts): Promise<string> {
 	if (opts.stdin) {
-		return readHarnessTestStdin();
+		return readStdin();
 	}
 	if (opts.fromFile !== undefined) {
 		if (!existsSync(opts.fromFile)) {

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -412,6 +412,27 @@ describe("createTsgoRunner — available()", () => {
 });
 
 describe("createTsgoRunner — cache FIFO eviction", () => {
+	it("retains no results with a zero-entry cache", async () => {
+		const runner = createTsgoRunner({ executable: "/bin/true", disableWatch: true, maxCacheEntries: 0 });
+		const file = join(tmp, "uncached.ts");
+		writeFileSync(file, "export {};\n");
+		try {
+			await runner.checkFile(file);
+			expect((await runner.checkFile(file)).cached).toBe(false);
+			expect(runner.stats().cache_size).toBe(0);
+		} finally { disposeRunner(runner); }
+	});
+	it("refreshing a cached path preserves its older neighbour", async () => {
+		const runner = createTsgoRunner({ executable: "/bin/true", disableWatch: true, maxCacheEntries: 2 });
+		const older = join(tmp, "first.ts"), newer = join(tmp, "second.ts");
+		writeFileSync(older, "export {};\n"); writeFileSync(newer, "export {};\n");
+		try {
+			await runner.checkFile(older); await runner.checkFile(newer);
+			writeFileSync(newer, "export const changed = true;\n");
+			expect((await runner.checkFile(newer)).cached).toBe(false);
+			expect((await runner.checkFile(older)).cached).toBe(true);
+		} finally { disposeRunner(runner); }
+	});
 	it("evicts the oldest entry once the cache exceeds maxCacheEntries", async () => {
 		const runner = createTsgoRunner({ executable: "/bin/true", timeoutMs: 200, maxCacheEntries: 1 });
 		const pathA = join(tmp, "a.ts");
@@ -432,6 +453,23 @@ describe("createTsgoRunner — cache FIFO eviction", () => {
 });
 
 describe("createTsgoRunner — simulateEdit edge paths", () => {
+	it("removes transient simulation files and preserves the original", async () => {
+		const path = join(tmp, "edit.ts");
+		writeFileSync(path, "const x = 1;");
+		const runner = createNoOutputRunner();
+		vi.stubEnv("TMPDIR", tmp);
+		vi.stubEnv("TEMP", tmp);
+		vi.stubEnv("TMP", tmp);
+		try {
+			await runner.simulateEdit(path, "1", "2");
+			expect(readdirSync(tmp)).toEqual(["edit.ts"]);
+			expect(readFileSync(path, "utf8")).toBe("const x = 1;");
+		} finally {
+			vi.unstubAllEnvs();
+			disposeRunner(runner);
+		}
+	});
+
 	it("returns empty diagnostics when the target path is a directory (unreadable as a file)", async () => {
 		const dirPath = join(tmp, "a-directory");
 		mkdirSync(dirPath, { recursive: true });

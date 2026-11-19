@@ -26,10 +26,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
-import {
-	SHADOW_RECORD_REGISTRY,
-	type ShadowRecordDescriptorV1,
-} from "../protocol/registry.js";
+import { SHADOW_RECORD_REGISTRY } from "../protocol/index.js";
+import type { ShadowRecordDescriptorV1 } from "../protocol/registry.js";
 
 const PROTOCOL_DIR = join(import.meta.dirname, "../protocol");
 const OUT = join(import.meta.dirname, "../../../../protocol/shadow-v1/schema");

@@ -210,6 +210,7 @@ describe("lease ancestors — positive (must fire)", () => {
 		children.push(ancestor);
 		const path = plantOwner(root, liveOwner({ pid: ancestor.pid, token: "ancestor-token" }));
 		vi.stubEnv(LEASE_ANCESTORS_ENV, `${ancestor.pid}`);
+		expect(tryAcquireCrossProcessCompilerLease(project, { allowAncestor: false })).toBeNull();
 		const nested = tryAcquireCrossProcessCompilerLease(project);
 		expect(nested).not.toBeNull();
 		nested?.release();

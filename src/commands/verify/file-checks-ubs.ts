@@ -65,7 +65,7 @@ import {
 	checkYamlUnsafeLoad,
 } from "../../harness/generic-checks.js";
 import type { FileCheckContext } from "./file-checks-shared.js";
-import { toIssues } from "./file-checks-shared.js";
+import { contentCheckRunner } from "./file-checks-content.js";
 
 /**
  * Every UBS Plan 04 detector. Mirrors the inline blocks from "=== UBS Plan 04
@@ -73,302 +73,76 @@ import { toIssues } from "./file-checks-shared.js";
  * expansion ===".
  */
 export function runUbsChecks(ctx: FileCheckContext): void {
-	const { content, file, relPath, r } = ctx;
+	const { r } = ctx;
+	const runCheck = contentCheckRunner(ctx);
 
 	// === UBS Plan 04 — rows 27–30 ===
-	r.jsLooseEquality.push(
-		...toIssues("ubs_js_loose_equality", relPath, checkJsLooseEquality, content, file),
-	);
-	r.floatEquality.push(
-		...toIssues("ubs_float_equality", relPath, checkFloatEquality, content, file),
-	);
-	r.javaOptionalGet.push(
-		...toIssues("ubs_java_optional_get", relPath, checkJavaOptionalGet, content, file),
-	);
-	r.rustDebugAssertSideEffect.push(
-		...toIssues(
-			"ubs_rust_debug_assert_side_effect",
-			relPath,
-			checkRustDebugAssertSideEffects, content, file,
-		),
-	);
+	runCheck("ubs_js_loose_equality", r.jsLooseEquality, checkJsLooseEquality);
+	runCheck("ubs_float_equality", r.floatEquality, checkFloatEquality);
+	runCheck("ubs_java_optional_get", r.javaOptionalGet, checkJavaOptionalGet);
+	runCheck("ubs_rust_debug_assert_side_effect", r.rustDebugAssertSideEffect, checkRustDebugAssertSideEffects);
 	// Bun-regression detector pack (2026-07-20): assert-erasure siblings +
 	// reinterpret-alignment pair.
-	r.cAssertSideEffect.push(
-		...toIssues(
-			"ubs_c_assert_side_effect",
-			relPath,
-			checkCAssertSideEffects, content, file,
-		),
-	);
-	r.pythonAssertSideEffect.push(
-		...toIssues(
-			"ubs_python_assert_side_effect",
-			relPath,
-			checkPythonAssertSideEffects, content, file,
-		),
-	);
-	r.javaAssertSideEffect.push(
-		...toIssues(
-			"ubs_java_assert_side_effect",
-			relPath,
-			checkJavaAssertSideEffects, content, file,
-		),
-	);
-	r.rustUncheckedCastSlice.push(
-		...toIssues(
-			"ubs_rust_unchecked_cast_slice",
-			relPath,
-			checkRustUncheckedCastSlice, content, file,
-		),
-	);
-	r.unalignedReinterpret.push(
-		...toIssues(
-			"unaligned_reinterpret",
-			relPath,
-			checkUnalignedReinterpret, content, file,
-		),
-	);
-	r.divisionByVariable.push(
-		...toIssues(
-			"ubs_division_by_variable",
-			relPath,
-			checkDivisionByVariable, content, file,
-		),
-	);
+	runCheck("ubs_c_assert_side_effect", r.cAssertSideEffect, checkCAssertSideEffects);
+	runCheck("ubs_python_assert_side_effect", r.pythonAssertSideEffect, checkPythonAssertSideEffects);
+	runCheck("ubs_java_assert_side_effect", r.javaAssertSideEffect, checkJavaAssertSideEffects);
+	runCheck("ubs_rust_unchecked_cast_slice", r.rustUncheckedCastSlice, checkRustUncheckedCastSlice);
+	runCheck("unaligned_reinterpret", r.unalignedReinterpret, checkUnalignedReinterpret);
+	runCheck("ubs_division_by_variable", r.divisionByVariable, checkDivisionByVariable);
 
 	// === UBS Plan 04 — rows 22–26 (critical-tier) ===
-	r.mutexLockUnwrap.push(
-		...toIssues("ubs_mutex_lock_unwrap", relPath, checkMutexLockUnwrap, content, file),
-	);
-	r.subprocessShellTrue.push(
-		...toIssues(
-			"ubs_subprocess_shell_true",
-			relPath,
-			checkSubprocessShellTrue, content, file,
-		),
-	);
-	r.tlsVerifyDisabled.push(
-		...toIssues("ubs_tls_verify_disabled", relPath, checkTlsVerifyDisabled, content, file),
-	);
-	r.pyNoneEquality.push(
-		...toIssues("ubs_py_none_equality", relPath, checkPyNoneEquality, content, file),
-	);
-	r.weakHash.push(...toIssues("ubs_weak_hash", relPath, checkWeakHash, content, file));
-	r.weakRandom.push(...toIssues("ubs_weak_random_security", relPath, checkWeakRandom, content, file));
+	runCheck("ubs_mutex_lock_unwrap", r.mutexLockUnwrap, checkMutexLockUnwrap);
+	runCheck("ubs_subprocess_shell_true", r.subprocessShellTrue, checkSubprocessShellTrue);
+	runCheck("ubs_tls_verify_disabled", r.tlsVerifyDisabled, checkTlsVerifyDisabled);
+	runCheck("ubs_py_none_equality", r.pyNoneEquality, checkPyNoneEquality);
+	runCheck("ubs_weak_hash", r.weakHash, checkWeakHash);
+	runCheck("ubs_weak_random_security", r.weakRandom, checkWeakRandom);
 	// Plan 04 D.1 partial — high-leverage backlog
-	r.evalInputTainted.push(
-		...toIssues(
-			"ubs_eval_input_tainted",
-			relPath,
-			checkEvalInputTainted, content, file,
-		),
-	);
-	r.sqlStringConcat.push(
-		...toIssues("ubs_sql_string_concat", relPath, checkSqlStringConcat, content, file),
-	);
-	r.sqlEscapeHatchNonLiteral.push(
-		...toIssues(
-			"sql_escape_hatch_non_literal",
-			relPath,
-			checkSqlEscapeHatchNonLiteral, content, file,
-		),
-	);
-	r.pyMutableDefaultArg.push(
-		...toIssues(
-			"ubs_python_mutable_default_arg",
-			relPath,
-			checkPyMutableDefaultArg, content, file,
-		),
-	);
+	runCheck("ubs_eval_input_tainted", r.evalInputTainted, checkEvalInputTainted);
+	runCheck("ubs_sql_string_concat", r.sqlStringConcat, checkSqlStringConcat);
+	runCheck("sql_escape_hatch_non_literal", r.sqlEscapeHatchNonLiteral, checkSqlEscapeHatchNonLiteral);
+	runCheck("ubs_python_mutable_default_arg", r.pyMutableDefaultArg, checkPyMutableDefaultArg);
 	// Plan 04 D.1 backlog (17 of 20)
-	r.tempfileMktempRace.push(
-		...toIssues(
-			"ubs_tempfile_mktemp_race",
-			relPath,
-			checkTempfileMktempRace, content, file,
-		),
-	);
-	r.pickleUntrustedLoad.push(
-		...toIssues(
-			"ubs_pickle_untrusted_load",
-			relPath,
-			checkPickleUntrustedLoad, content, file,
-		),
-	);
-	r.xmlExternalEntity.push(
-		...toIssues(
-			"ubs_xml_external_entity",
-			relPath,
-			checkXmlExternalEntity, content, file,
-		),
-	);
-	r.osSystemTainted.push(
-		...toIssues("ubs_os_system_tainted", relPath, checkOsSystemTainted, content, file),
-	);
-	r.unsafeFormatString.push(
-		...toIssues(
-			"ubs_unsafe_format_string",
-			relPath,
-			checkUnsafeFormatString, content, file,
-		),
-	);
-	r.uncheckedRedirect.push(
-		...toIssues(
-			"ubs_unchecked_redirect",
-			relPath,
-			checkUncheckedRedirect, content, file,
-		),
-	);
-	r.goroutineNoWaitgroup.push(
-		...toIssues(
-			"ubs_goroutine_no_waitgroup",
-			relPath,
-			checkGoroutineNoWaitgroup, content, file,
-		),
-	);
-	r.deferInLoop.push(
-		...toIssues("ubs_defer_in_loop", relPath, checkDeferInLoop, content, file),
-	);
-	r.ubsStringConcatInLoop.push(
-		...toIssues(
-			"ubs_string_concat_in_loop",
-			relPath,
-			checkUbsStringConcatInLoop, content, file,
-		),
-	);
-	r.numericComparisonChain.push(
-		...toIssues(
-			"ubs_numeric_comparison_chain",
-			relPath,
-			checkNumericComparisonChain, content, file,
-		),
-	);
-	r.printDebugLeak.push(
-		...toIssues("ubs_print_debug_leak", relPath, checkPrintDebugLeak, content, file),
-	);
-	r.ubsHardcodedLocalhost.push(
-		...toIssues(
-			"ubs_hardcoded_localhost",
-			relPath,
-			checkUbsHardcodedLocalhost, content, file,
-		),
-	);
-	r.childProcessExecUserInput.push(
-		...toIssues(
-			"child_process_exec_user_input",
-			relPath,
-			checkChildProcessExecUserInput, content, file,
-		),
-	);
-	r.mixedSyncAsyncFileApi.push(
-		...toIssues(
-			"mixed_sync_async_file_api",
-			relPath,
-			checkMixedSyncAsyncFileApi, content, file,
-		),
-	);
-	r.cookieMissingSecurityFlags.push(
-		...toIssues(
-			"cookie_missing_security_flags",
-			relPath,
-			checkCookieMissingSecurityFlags, content, file,
-		),
-	);
-	r.loggerFormatUserInput.push(
-		...toIssues(
-			"logger_format_user_input",
-			relPath,
-			checkLoggerFormatUserInput, content, file,
-		),
-	);
-	r.magicNumberNoConst.push(
-		...toIssues(
-			"ubs_magic_number_no_const",
-			relPath,
-			checkMagicNumberNoConst, content, file,
-		),
-	);
-	r.largeFunction.push(
-		...toIssues("ubs_large_function", relPath, checkLargeFunction, content, file),
-	);
-	r.deeplyNestedCallback.push(
-		...toIssues(
-			"ubs_deeply_nested_callback",
-			relPath,
-			checkDeeplyNestedCallback, content, file,
-		),
-	);
-	r.timeFormatLocaleDep.push(
-		...toIssues(
-			"ubs_time_format_locale_dep",
-			relPath,
-			checkTimeFormatLocaleDep, content, file,
-		),
-	);
-	r.regexInLoopNoCompile.push(
-		...toIssues(
-			"ubs_regex_in_loop_no_compile",
-			relPath,
-			checkRegexInLoopNoCompile, content, file,
-		),
-	);
+	runCheck("ubs_tempfile_mktemp_race", r.tempfileMktempRace, checkTempfileMktempRace);
+	runCheck("ubs_pickle_untrusted_load", r.pickleUntrustedLoad, checkPickleUntrustedLoad);
+	runCheck("ubs_xml_external_entity", r.xmlExternalEntity, checkXmlExternalEntity);
+	runCheck("ubs_os_system_tainted", r.osSystemTainted, checkOsSystemTainted);
+	runCheck("ubs_unsafe_format_string", r.unsafeFormatString, checkUnsafeFormatString);
+	runCheck("ubs_unchecked_redirect", r.uncheckedRedirect, checkUncheckedRedirect);
+	runCheck("ubs_goroutine_no_waitgroup", r.goroutineNoWaitgroup, checkGoroutineNoWaitgroup);
+	runCheck("ubs_defer_in_loop", r.deferInLoop, checkDeferInLoop);
+	runCheck("ubs_string_concat_in_loop", r.ubsStringConcatInLoop, checkUbsStringConcatInLoop);
+	runCheck("ubs_numeric_comparison_chain", r.numericComparisonChain, checkNumericComparisonChain);
+	runCheck("ubs_print_debug_leak", r.printDebugLeak, checkPrintDebugLeak);
+	runCheck("ubs_hardcoded_localhost", r.ubsHardcodedLocalhost, checkUbsHardcodedLocalhost);
+	runCheck("child_process_exec_user_input", r.childProcessExecUserInput, checkChildProcessExecUserInput);
+	runCheck("mixed_sync_async_file_api", r.mixedSyncAsyncFileApi, checkMixedSyncAsyncFileApi);
+	runCheck("cookie_missing_security_flags", r.cookieMissingSecurityFlags, checkCookieMissingSecurityFlags);
+	runCheck("logger_format_user_input", r.loggerFormatUserInput, checkLoggerFormatUserInput);
+	runCheck("ubs_magic_number_no_const", r.magicNumberNoConst, checkMagicNumberNoConst);
+	runCheck("ubs_large_function", r.largeFunction, checkLargeFunction);
+	runCheck("ubs_deeply_nested_callback", r.deeplyNestedCallback, checkDeeplyNestedCallback);
+	runCheck("ubs_time_format_locale_dep", r.timeFormatLocaleDep, checkTimeFormatLocaleDep);
+	runCheck("ubs_regex_in_loop_no_compile", r.regexInLoopNoCompile, checkRegexInLoopNoCompile);
 
-	// === Plan 04 D.2 (2026-05): pattern-parity expansion ===
-	r.marshalLoad.push(
-		...toIssues("ubs_marshal_load", relPath, checkMarshalLoad, content, file),
-	);
-	r.shelveOpen.push(...toIssues("ubs_shelve_open", relPath, checkShelveOpen, content, file));
-	r.yamlUnsafeLoad.push(
-		...toIssues("ubs_yaml_unsafe_load", relPath, checkYamlUnsafeLoad, content, file),
-	);
-	r.torchUnsafeLoad.push(
-		...toIssues("ubs_torch_unsafe_load", relPath, checkTorchUnsafeLoad, content, file),
-	);
-	r.pickleWrapperLoad.push(
-		...toIssues("ubs_pickle_wrapper_load", relPath, checkPickleWrapperLoad, content, file),
-	);
-	r.aesEcbMode.push(
-		...toIssues("ubs_aes_ecb_mode", relPath, checkAesEcbMode, content, file),
-	);
-	r.nodeCreateCipher.push(
-		...toIssues("ubs_node_create_cipher", relPath, checkNodeCreateCipher, content, file),
-	);
-	r.scriptWithoutSri.push(
-		...toIssues("ubs_script_without_sri", relPath, checkScriptWithoutSri, content, file),
-	);
-	r.goShellInjection.push(
-		...toIssues("ubs_go_shell_injection", relPath, checkGoShellInjection, content, file),
-	);
-	r.githubActionsInjection.push(
-		...toIssues(
-			"ubs_github_actions_injection",
-			relPath,
-			checkGithubActionsInjection, content, file,
-		),
-	);
-	r.documentWrite.push(
-		...toIssues("ubs_document_write", relPath, checkDocumentWrite, content, file),
-	);
-	r.outerHtmlAssignment.push(
-		...toIssues(
-			"ubs_outer_html_assignment",
-			relPath,
-			checkOuterHtmlAssignment, content, file,
-		),
-	);
-	r.insertAdjacentHtml.push(
-		...toIssues(
-			"ubs_insert_adjacent_html",
-			relPath,
-			checkInsertAdjacentHtml, content, file,
-		),
-	);
-	r.identicalConditionalBranches.push(
-		...toIssues(
-			"identical_conditional_branches",
-			relPath,
-			checkIdenticalBranches, content, file,
-		),
-	);
+	runSerializationAndPlatformChecks(ctx);
+}
+
+function runSerializationAndPlatformChecks(ctx: FileCheckContext): void {
+	const { r } = ctx;
+	const runCheck = contentCheckRunner(ctx);
+	runCheck("ubs_marshal_load", r.marshalLoad, checkMarshalLoad);
+	runCheck("ubs_shelve_open", r.shelveOpen, checkShelveOpen);
+	runCheck("ubs_yaml_unsafe_load", r.yamlUnsafeLoad, checkYamlUnsafeLoad);
+	runCheck("ubs_torch_unsafe_load", r.torchUnsafeLoad, checkTorchUnsafeLoad);
+	runCheck("ubs_pickle_wrapper_load", r.pickleWrapperLoad, checkPickleWrapperLoad);
+	runCheck("ubs_aes_ecb_mode", r.aesEcbMode, checkAesEcbMode);
+	runCheck("ubs_node_create_cipher", r.nodeCreateCipher, checkNodeCreateCipher);
+	runCheck("ubs_script_without_sri", r.scriptWithoutSri, checkScriptWithoutSri);
+	runCheck("ubs_go_shell_injection", r.goShellInjection, checkGoShellInjection);
+	runCheck("ubs_github_actions_injection", r.githubActionsInjection, checkGithubActionsInjection);
+	runCheck("ubs_document_write", r.documentWrite, checkDocumentWrite);
+	runCheck("ubs_outer_html_assignment", r.outerHtmlAssignment, checkOuterHtmlAssignment);
+	runCheck("ubs_insert_adjacent_html", r.insertAdjacentHtml, checkInsertAdjacentHtml);
+	runCheck("identical_conditional_branches", r.identicalConditionalBranches, checkIdenticalBranches);
 }

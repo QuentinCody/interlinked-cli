@@ -5,6 +5,8 @@ import { readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import { parseImports, resolveImportPath } from "../project-graph.js";
+import { getProjectCheckEvidence } from "./project-check-evidence.js";
+import { projectCircularImports } from "./circular-imports-project.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -386,6 +388,8 @@ export function checkCircularImports(
 
 	const absStart = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
 	if (relative(cwd, absStart).startsWith("..")) return [];
+	const evidence = getProjectCheckEvidence(cwd);
+	if (evidence) return projectCircularImports(evidence, absStart);
 
 	const cycles = collectImportCycles(content, absStart);
 

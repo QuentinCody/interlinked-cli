@@ -518,6 +518,20 @@ describe("checkpointCompareCommand", () => {
 // checkpointPruneCommand
 // ===========================================
 describe("checkpointPruneCommand", () => {
+	it.each(["", "0", "-1", "1junk", "1.5", "Infinity", "9007199254740992"])("rejects invalid retention selection %j before mutation", (value) => {
+		checkpointPruneCommand({ keepLatest: value, olderThan: "7" });
+		expect(mocks.pruneCheckpoints).not.toHaveBeenCalled();
+		expect(errored()).toContain("--keep-latest must be a positive safe integer");
+		expect(process.exitCode).toBe(1);
+	});
+
+	it.each(["", "0", "-1", "1junk", "1.5", "Infinity", "9007199254740992"])("rejects invalid age selection %j before mutation", (value) => {
+		checkpointPruneCommand({ olderThan: value, keepLatest: "10" });
+		expect(mocks.pruneCheckpoints).not.toHaveBeenCalled();
+		expect(errored()).toContain("--older-than must be a positive safe integer");
+		expect(process.exitCode).toBe(1);
+	});
+
 	it("reports the number pruned when > 0", () => {
 		mocks.pruneCheckpoints.mockReturnValue(3);
 

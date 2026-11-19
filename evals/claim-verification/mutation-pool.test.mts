@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { copyClosure, enumeratePool, runBoundedProcess } from "./mutation-pool.mjs";
 
 test("mutation sites exclude comments, imports and type literals while including conventional operators", () => {
@@ -22,12 +23,14 @@ test("timed-out mutation processes terminate and preserve captured output", asyn
 });
 
 test("isolated dependency copies follow runtime re-exports", () => {
-    const fixture = mkdtempSync(join(process.cwd(), "scratch/mutation-closure-"));
+    const fixture = mkdtempSync(join(tmpdir(), "mutation-closure-"));
     try {
         const entry = join(fixture, "entry.ts"), leaf = join(fixture, "leaf.ts"), out = join(fixture, "copy");
         writeFileSync(entry, 'export { value } from "./leaf.js";');
         writeFileSync(leaf, "export const value = 3;");
-        copyClosure(entry, out);
-        assert.equal(readFileSync(join(out, relative(process.cwd(), leaf)), "utf8"), "export const value = 3;");
+        copyClosure(entry, out, undefined, fixture);
+        assert.equal(readFileSync(join(out, "leaf.ts"), "utf8"), "export const value = 3;");
+        writeFileSync(entry, 'export { absent } from "./missing.js";');
+        assert.throws(() => copyClosure(entry, out, undefined, fixture), /Missing dependency/);
     } finally { rmSync(fixture, { recursive: true, force: true }); }
 });

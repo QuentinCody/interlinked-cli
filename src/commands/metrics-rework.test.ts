@@ -457,6 +457,9 @@ describe("metricsReworkCommand — measured against a real repo", () => {
 		// than scanning nothing. Pinned so the fallback operator is not "fixed"
 		// into `??` without a decision.
 		["zero", { days: "0", window: "0", maxCommits: "0", maxCommitFiles: "0" }],
+		["negative", { days: "-1", window: "-1", maxCommits: "-1", maxCommitFiles: "-1" }],
+		["non-finite", { days: "Infinity", window: "Infinity", maxCommits: "Infinity", maxCommitFiles: "Infinity" }],
+		["fractional caps", { maxCommits: "1.5", maxCommitFiles: "1.5" }],
 	];
 
 	// test-contract: boundary — falls back to the day/window defaults for every non-positive-number option shape

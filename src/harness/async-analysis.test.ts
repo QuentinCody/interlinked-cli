@@ -42,6 +42,28 @@ afterEach(() => {
 });
 
 describe("createAsyncAnalysisManager", () => {
+	// test-contract: boundary — persisted JSON is untrusted; malformed records cannot escape as typed findings.
+	it.each([null, [], true, 42, "map", { "src/a.ts": null }, { "src/a.ts": { file: "src/a.ts", findings: [null], produced_at: "now" } }])
+		("ignores valid JSON with an invalid pending-map shape: %j", value => {
+			writeFileSync(join(dir, "pending-async-findings.json"), JSON.stringify(value));
+			expect(createAsyncAnalysisManager(dir).consume("src/a.ts")).toEqual([]);
+		});
+
+	it("retains valid records beside invalid ones and never consumes inherited properties", () => {
+		const finding = { source: "quality", name: "typescript", severity: "warning", message: "unused", determinism: "fully_deterministic" };
+		writeFileSync(join(dir, "pending-async-findings.json"), JSON.stringify({
+			"src/a.ts": { file: "src/a.ts", findings: [finding], produced_at: "2026-11-11T00:00:00Z" },
+			"src/b.ts": { file: "different.ts", findings: [finding], produced_at: "now" },
+			"src/c.ts": { file: "src/c.ts", findings: [{ ...finding, line: "wrong" }], produced_at: "now" },
+		}));
+		const manager = createAsyncAnalysisManager(dir);
+		expect(manager.consume("src/a.ts")).toEqual([finding]);
+		expect(manager.consume("src/b.ts")).toEqual([]);
+		expect(manager.consume("src/c.ts")).toEqual([]);
+		expect(manager.consume("constructor")).toEqual([]);
+		expect(manager.consume("__proto__")).toEqual([]);
+	});
+
 	it("consume() returns an empty array when the pending-findings file is corrupt JSON", () => {
 		const pendingsPath = join(dir, "pending-async-findings.json");
 		writeFileSync(pendingsPath, "{not valid json", "utf-8");

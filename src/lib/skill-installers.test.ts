@@ -278,7 +278,9 @@ describe("installEnforceSkill", () => {
 	});
 });
 
-describe("description transform for runners with strict limits", () => {
+// The runners once received a rewritten enforce description. They now get the
+// authored SKILL.md verbatim; these cases keep the loader limit pinned per runner.
+describe("runner copies keep a loader-safe description", () => {
 	function extractFrontmatter(content: string): string {
 		const match = content.match(/^---\n([\s\S]*?)\n---\n/);
 		return match ? nonNull(match[1]) : "";
@@ -591,7 +593,13 @@ describe("inspectInstalledSkills", () => {
 			listInstallableSkills().reduce((count, skill) => count + nonNull(readSkillSourceFiles(skill)).length, 0),
 		);
 		expect(two.expectedFiles).toBe(one.expectedFiles * 2);
-		expect(none).toEqual({ expectedFiles: 0, currentFiles: 0, issues: [] });
+		expect(none).toEqual({
+			expectedFiles: 0,
+			currentFiles: 0,
+			issues: [],
+			staleSkills: [],
+			blockedFiles: [],
+		});
 	});
 
 	it.each([
@@ -1016,11 +1024,13 @@ describe("unresolvable bundled skill source", () => {
 	it("skips a source-less skill when inspecting rather than counting it missing", () => {
 		installSkills(tmpRoot, ["claude"]);
 		const full = inspectInstalledSkills(tmpRoot, ["claude"]);
+		// SKILL.md + agents/openai.yaml + every references/*.md the skill ships
+		const verifyFileCount = nonNull(readSkillSourceFiles("interlinked-verify")).length;
 
 		sourceOverrides.set("interlinked-verify", null);
 		const partial = inspectInstalledSkills(tmpRoot, ["claude"]);
 
-		expect(partial.expectedFiles).toBe(full.expectedFiles - 2); // SKILL.md + agents/openai.yaml
+		expect(partial.expectedFiles).toBe(full.expectedFiles - verifyFileCount);
 		expect(partial.issues).toEqual([]);
 	});
 

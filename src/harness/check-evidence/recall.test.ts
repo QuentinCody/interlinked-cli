@@ -1,35 +1,11 @@
 import { nonNull } from "../../lib/non-null.js";
-// Tests for derived case floors and detector mutation scores.
+// Tests for derived case floors. (The mutation floor was removed 2026-11-05;
+// recall.ts names the trusted score file that would turn it back on.)
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { OBLIGATION_TIERS } from "./obligations.js";
-import {
-	DERIVED_FLOOR_CAP,
-	derivedCaseFloor,
-	detectorCyclomatic,
-	loadMutationScores,
-	mutationFloorFor,
-	parseMutationScores,
-} from "./recall.js";
-
-let root: string;
-
-function write(rel: string, content: string): void {
-	const full = join(root, rel);
-	mkdirSync(dirname(full), { recursive: true });
-	writeFileSync(full, content, "utf8");
-}
-
-beforeEach(() => {
-	root = mkdtempSync(join(tmpdir(), "cec-recall-"));
-});
-
-afterEach(() => {
-	rmSync(root, { recursive: true, force: true });
-});
+import * as recall from "./recall.js";
+import { DERIVED_FLOOR_CAP, derivedCaseFloor, detectorCyclomatic } from "./recall.js";
 
 const BRANCHY = `
 export function detectThing(content: string, filePath: string): number[] {
@@ -104,56 +80,12 @@ describe("derivedCaseFloor", () => {
 	});
 });
 
-describe("parseMutationScores", () => {
-	it("reads per-file scores", () => {
-		expect(parseMutationScores({ files: { "src/a.ts": { score: 0.75 } } })).toEqual({ "src/a.ts": 0.75 });
+describe("mutation floor (removed 2026-11-05)", () => {
+	it("N1: no tier demands a mutation score while no trusted score file exists", () => {
+		for (const tier of Object.values(OBLIGATION_TIERS)) expect(Object.keys(tier)).not.toContain("requires_mutation");
 	});
 
-	it("drops non-numeric scores", () => {
-		expect(parseMutationScores({ files: { "src/a.ts": { score: "high" } } })).toEqual({});
-	});
-
-	it("ignores non-object file records beside valid mutation scores", () => {
-		expect(parseMutationScores({ files: { bad: null, array: [], "src/a.ts": { score: 0.75 } } })).toEqual({ "src/a.ts": 0.75 });
-	});
-
-	it("drops non-finite scores", () => {
-		expect(parseMutationScores({ files: { "src/a.ts": { score: Number.NaN } } })).toEqual({});
-	});
-
-	it("fails closed on a missing files map", () => {
-		expect(parseMutationScores({ version: 1 })).toEqual({});
-	});
-
-	it("fails closed on non-object input", () => {
-		expect(parseMutationScores(null)).toEqual({});
-	});
-});
-
-describe("loadMutationScores", () => {
-	it("returns an empty map when no baseline exists", () => {
-		expect(loadMutationScores(root)).toEqual({});
-	});
-
-	it("loads scores from a committed baseline", () => {
-		write(".interlinked/mutation-baseline.json", JSON.stringify({ files: { "src/a.ts": { score: 0.9 } } }));
-		expect(loadMutationScores(root)).toEqual({ "src/a.ts": 0.9 });
-	});
-
-	it("fails closed on a malformed baseline", () => {
-		write(".interlinked/mutation-baseline.json", "{ broken");
-		expect(loadMutationScores(root)).toEqual({});
-	});
-});
-
-describe("mutationFloorFor", () => {
-	it("demands a score from tiers that require mutation", () => {
-		expect(mutationFloorFor(OBLIGATION_TIERS.pre_block)).toBeGreaterThan(0);
-		expect(mutationFloorFor(OBLIGATION_TIERS.pre_warn)).toBeGreaterThan(0);
-	});
-
-	it("demands none from tiers that do not", () => {
-		expect(mutationFloorFor(OBLIGATION_TIERS.post_default)).toBe(0);
-		expect(mutationFloorFor(OBLIGATION_TIERS.post_advisory)).toBe(0);
+	it("N2: recall exports no mutation-score reader", () => {
+		expect(Object.keys(recall).filter((name) => /mutation/i.test(name))).toEqual([]);
 	});
 });

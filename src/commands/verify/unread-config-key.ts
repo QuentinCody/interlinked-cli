@@ -1,6 +1,6 @@
 import type * as TS from "typescript";
 import { loadCheckTypescript } from "../../harness/checks/check-typescript.js";
-import type { CatalogueFinding } from "./catalogue-types.js";
+import type { CatalogueFinding, CatalogueInputGap } from "./catalogue-types.js";
 
 export interface ConfigDeclaration { key: string; path: string; file: string; line: number; }
 export interface ConfigSource { file: string; content: string; }
@@ -56,55 +56,73 @@ export function documentedConfigKeys(source: ConfigSource): ConfigDeclaration[] 
     return out;
 }
 
-export function checkUnreadConfigKeys(declarations: readonly ConfigDeclaration[], sources: readonly ConfigSource[]): {
-    findings: CatalogueFinding[]; unavailable: number;
+function declarationGap(declaration: ConfigDeclaration, reason: string): CatalogueInputGap {
+    return { file: declaration.file, line: declaration.line, key: declaration.path, reason };
+}
+
+export function checkUnreadConfigKeys(declarations: readonly ConfigDeclaration[], sources: readonly ConfigSource[], incompleteSource?: string): {
+    findings: CatalogueFinding[]; unavailable: number; unavailable_inputs: CatalogueInputGap[];
 } {
     const compiler = loadCheckTypescript("unread_config_key", "configuration read analysis");
-    if (!compiler) return { findings: [], unavailable: declarations.length };
+    if (!compiler) return { findings: [], unavailable: declarations.length, unavailable_inputs: declarations.map(declaration => declarationGap(declaration, "TypeScript parser unavailable for configuration reads.")) };
     const ts = compiler;
     const reads = new Set<string>();
-    const ambiguous = new Set<string>();
-    let dynamic = false;
+    const ambiguous = new Map<string, string>();
+    const declaredKeys = new Set(declarations.map(declaration => declaration.key));
+    let dynamicSource: string | undefined;
     for (const source of sources) {
-        dynamic = collectConfigurationReads(ts, source, reads, ambiguous) || dynamic;
+        const dynamic = collectConfigurationReads(ts, source, reads, ambiguous, declaredKeys);
+        dynamicSource ??= dynamic;
     }
-    let unavailable = 0;
+    const gaps: CatalogueInputGap[] = [];
     const findings: CatalogueFinding[] = [];
     for (const declaration of declarations) {
         if (reads.has(declaration.key)) continue;
-        if (dynamic || ambiguous.has(declaration.key)) { unavailable++; continue; }
+        const literal = ambiguous.get(declaration.key);
+        const reason = literal ? `Matching string literal at ${literal} could be a runtime key.`
+            : dynamicSource ? `Dynamic access at ${dynamicSource} prevents a complete static inventory of configuration reads.`
+            : incompleteSource ? `Configuration reads could not be examined in ${incompleteSource}.` : undefined;
+        if (reason) { gaps.push(declarationGap(declaration, reason)); continue; }
         findings.push({ check: "unread_config_key", file: declaration.file, line: declaration.line,
             message: `No static source read found for configuration key ${declaration.path}.`, evidence: declaration.path });
     }
-    return { findings, unavailable };
+    return { findings, unavailable: gaps.length, unavailable_inputs: gaps };
 }
 
-function collectConfigurationReads(ts: typeof TS, source: ConfigSource, reads: Set<string>, ambiguous: Set<string>): boolean {
-    let dynamic = false;
+function writeOnlyAccess(ts: typeof TS, node: TS.Node): boolean {
+    const parent = node.parent;
+    return (ts.isBinaryExpression(parent) && parent.left === node && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken)
+        || ts.isDeleteExpression(parent);
+}
+
+function literalUsedAsValue(ts: typeof TS, literal: TS.StringLiteralLike): boolean {
+    const parent = literal.parent;
+    if (ts.isPropertyAssignment(parent)) return parent.name !== literal;
+    if (ts.isElementAccessExpression(parent)) return parent.argumentExpression !== literal;
+    return true;
+}
+
+function collectConfigurationReads(ts: typeof TS, source: ConfigSource, reads: Set<string>, ambiguous: Map<string, string>, declaredKeys: ReadonlySet<string>): string | undefined {
+    let dynamic: string | undefined;
     const sf = ts.createSourceFile(source.file, source.content, ts.ScriptTarget.Latest, true);
-    function isWriteOnly(node: TS.Node): boolean {
-        const parent = node.parent;
-        return (ts.isBinaryExpression(parent) && parent.left === node && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken)
-            || ts.isDeleteExpression(parent);
+    const location = (node: TS.Node) => `${source.file}:${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`;
+    function recordBinding(node: TS.BindingElement): void {
+        if (!ts.isObjectBindingPattern(node.parent)) return;
+        const key = node.propertyName ?? node.name;
+        if (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) reads.add(key.text);
+        if (node.dotDotDotToken) dynamic ??= location(node);
+    }
+    function recordAccess(node: TS.ElementAccessExpression | TS.PropertyAccessExpression): void {
+        if (writeOnlyAccess(ts, node)) return;
+        if (ts.isPropertyAccessExpression(node)) reads.add(node.name.text);
+        else if (ts.isStringLiteralLike(node.argumentExpression)) reads.add(node.argumentExpression.text);
+        else if (/config|rules|settings/i.test(node.expression.getText(sf))) dynamic ??= location(node);
     }
     function visit(node: TS.Node): void {
         if (ts.isTypeNode(node)) return;
-        if (ts.isPropertyAccessExpression(node)) {
-            if (!isWriteOnly(node)) reads.add(node.name.text);
-        }
-        if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) {
-            const key = node.propertyName ?? node.name;
-            if (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) reads.add(key.text);
-            if (node.dotDotDotToken) dynamic = true;
-        }
-        if (ts.isElementAccessExpression(node)) {
-            const argument = node.argumentExpression;
-            if (ts.isStringLiteralLike(argument)) {
-                if (!isWriteOnly(node)) reads.add(argument.text);
-            } else if (!isWriteOnly(node) && /config|rules|settings/i.test(node.expression.getText(sf))) dynamic = true;
-        }
-        if (ts.isStringLiteralLike(node) && !(ts.isPropertyAssignment(node.parent) && node.parent.name === node)
-            && !(ts.isElementAccessExpression(node.parent) && node.parent.argumentExpression === node)) ambiguous.add(node.text);
+        if (ts.isBindingElement(node)) recordBinding(node);
+        else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) recordAccess(node);
+        else if (ts.isStringLiteralLike(node) && declaredKeys.has(node.text) && !ambiguous.has(node.text) && literalUsedAsValue(ts, node)) ambiguous.set(node.text, location(node));
         ts.forEachChild(node, visit);
     }
     visit(sf);

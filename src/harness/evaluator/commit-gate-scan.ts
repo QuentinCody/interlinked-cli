@@ -8,6 +8,7 @@
 // also needs `loudDegrade` + the analyzer type) stays in `commit-gate.ts` and calls
 // these. REUSES `crapScore` / `computeCrap` from `checks/crap.ts` — never reimplemented.
 
+import { rawBraceDelta } from "../checks/shared-text-utils-brace-scan.js";
 import type { FunctionComplexityEntry } from "../checks/cyclomatic.js";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
 import type { CoverageLanguage } from "../coverage-runner.js";
@@ -128,23 +129,13 @@ const TYPE_ONLY_STARTERS = [
 	"& ", // intersection member of a multi-line type alias
 ];
 
-/** Net brace depth contributed by one line (for skipping interface/type bodies). */
-function braceDelta(line: string): number {
-	let depth = 0;
-	for (const ch of line) {
-		if (ch === "{") depth++;
-		else if (ch === "}") depth--;
-	}
-	return depth;
-}
-
 /** Advances a multi-line type-alias continuation (`type X =\n  ...;`) past one
  *  more source line: folds the line's brace delta into `depth` and reports
  *  whether the continuation has closed (a trailing `;` ends it; anything else
  *  keeps it open). Extracted ONLY to satisfy the 15-point cognitive cap that the
  *  file's other edits in this unit re-armed; behavior is the inline original. */
 function advanceContinuationLine(line: string, depth: number): { depth: number; continuation: boolean } {
-	return { depth: depth + braceDelta(line), continuation: !line.endsWith(";") };
+	return { depth: depth + rawBraceDelta(line), continuation: !line.endsWith(";") };
 }
 
 /**
@@ -167,7 +158,7 @@ export function isTypeOnlySource(content: string): boolean {
 		const line = raw.trim();
 		if (line.length === 0) continue;
 		if (depth > 0) {
-			depth += braceDelta(line);
+			depth += rawBraceDelta(line);
 			continue; // type-level body line
 		}
 		if (continuation) {
@@ -180,7 +171,7 @@ export function isTypeOnlySource(content: string): boolean {
 		if (line.startsWith('import "') || line.startsWith("import '")) return false;
 		const starter = TYPE_ONLY_STARTERS.find((s) => line.startsWith(s));
 		if (!starter) return false; // an executable statement
-		depth += braceDelta(line);
+		depth += rawBraceDelta(line);
 		// ONLY a trailing `=` means the alias RHS continues below — any other ending
 		// (`;`, a closed `}`, a re-export's quote) completes the statement. The old
 		// "didn't end with ;" rule swallowed the NEXT line after a one-line

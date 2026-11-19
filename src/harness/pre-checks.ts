@@ -373,15 +373,18 @@ export {
 export function checkLargeFileLineCountWrite(
 	toolInput: JsonObject,
 	cwd: string,
+	policy?: { threshold: number; warningFor: (filePath: string, warning: string) => string | null },
 ): PreCheckResult | null {
     for (const change of projectFileChanges(toolInput, cwd)) {
-        const verdict = checkProjectedFileSize(change, cwd);
-        if (verdict) return verdict;
+        const verdict = checkProjectedFileSize(change, cwd, policy?.threshold);
+        if (!verdict?.warning) continue;
+        const warning = policy ? policy.warningFor(change.path, verdict.warning) : verdict.warning;
+        if (warning) return { warning };
     }
     return null;
 }
 
-function checkProjectedFileSize(change: ProjectedFileChange, cwd: string): PreCheckResult | null {
+function checkProjectedFileSize(change: ProjectedFileChange, cwd: string, threshold?: number): PreCheckResult | null {
     if (change.deleted) return null;
     const filePath = change.path, content = change.after;
     const before = change.existed ? change.before.split("\n").length : 0;
@@ -389,7 +392,7 @@ function checkProjectedFileSize(change: ProjectedFileChange, cwd: string): PreCh
 
 	if (!isCappableFile({ filePath, content, root: cwd })) return null;
 
-	const cap = maxLinesFor(cwd);
+	const cap = threshold ?? maxLinesFor(cwd);
 	if (after <= cap) return null; // result is within the cap
 	if (after <= before) return null; // not growing — refactoring down is always allowed
 

@@ -14,18 +14,20 @@
 // path that flips the file's authority bit.
 
 import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { findTyposquatMatch } from "../harness/checks/supply-chain.js";
 import { isLicenseAllowed } from "../harness/license-policy.js";
 import { findManifestFiles } from "../harness/manifest-file-walk.js";
 import {
 	type Allowlist,
 	addToAllowlist,
+	allowlistPath,
 	effectiveLicenseAllowlist,
 	hashLockfile,
 	loadAllowlist,
     matchingPackageNames,
 	saveAllowlist,
+	snapshotKey,
 } from "../harness/package-allowlist.js";
 import type { Ecosystem } from "../harness/package-install-parser.js";
 // The version the supply-chain screens inspect for a `--version-range` approval
@@ -383,10 +385,14 @@ export function listAllowlistCommand(opts: ListOpts): void {
 }
 
 interface SnapshotOpts {
+	/** Project root: the allowlist that receives the grant. */
 	cwd: string;
 	by: string;
 	reason?: string;
 	lockfile?: string;
+	/** Directory whose manifests are hashed (default: `cwd`). Grants are keyed
+	 *  by the file's path relative to `cwd`. */
+	dir?: string;
 }
 
 const SNAPSHOT_CANDIDATES = [
@@ -429,12 +435,17 @@ const SNAPSHOT_CANDIDATES = [
  *  which is the gate's actual job. Saves only when something was taken. */
 export function takeAllowlistSnapshot(opts: SnapshotOpts): { taken: string[] } {
 	const al = loadAllowlist(opts.cwd);
+	// `dir` hashes ANOTHER directory's files into this project's allowlist. The
+	// install guard reads the allowlist of the project a command runs in, so a
+	// snapshot written under the other directory is never consulted; and a bare
+	// file-name key would replace the root's own grant for the same name.
+	const dir = opts.dir === undefined ? opts.cwd : resolve(opts.cwd, opts.dir);
 	const candidates = opts.lockfile
 		? [opts.lockfile]
-		: [...SNAPSHOT_CANDIDATES, ...discoverCsprojFiles(opts.cwd)];
+		: [...SNAPSHOT_CANDIDATES, ...discoverCsprojFiles(dir)];
 	const taken: string[] = [];
 	for (const name of candidates) {
-		const p = join(opts.cwd, name);
+		const p = join(dir, name);
 		if (!existsSync(p)) continue;
 		try {
 			if (!statSync(p).isFile()) continue;
@@ -443,19 +454,22 @@ export function takeAllowlistSnapshot(opts: SnapshotOpts): { taken: string[] } {
 		}
 		const sha = hashLockfile(p);
 		if (!sha) continue;
-		al.lockfile_snapshots[name] = {
+		const key = opts.dir === undefined ? name : snapshotKey(opts.cwd, p);
+		al.lockfile_snapshots[key] = {
 			sha256: sha,
 			approved_at: new Date().toISOString(),
 			approved_by: opts.by,
 			...(opts.reason !== undefined ? { reason: opts.reason } : {}),
 		};
-		taken.push(name);
+		taken.push(key);
 	}
 	if (taken.length > 0) saveAllowlist(opts.cwd, al);
 	return { taken };
 }
 
 export function snapshotAllowlistCommand(opts: SnapshotOpts): void {
+	const file = allowlistPath(opts.cwd);
+	const existed = existsSync(file);
 	const { taken } = takeAllowlistSnapshot(opts);
 	if (taken.length === 0) {
 		process.stdout.write(
@@ -465,6 +479,14 @@ export function snapshotAllowlistCommand(opts: SnapshotOpts): void {
 	}
 	process.stdout.write(`snapshotted ${taken.length} file(s):\n`);
 	for (const name of taken) process.stdout.write(`  ${name}\n`);
+	// A first snapshot in a directory is correct for a new project, and wrong
+	// when the operator meant to approve that directory for the project whose
+	// guard blocked the install. Say where the grant went and name the other form.
+	if (!existed) {
+		process.stderr.write(
+			`note: created ${file}. The install guard reads the allowlist of the project a command runs in; to approve this directory for another project, run \`interlinked allowlist snapshot --dir ${opts.cwd}\` from that project's root.\n`,
+		);
+	}
 }
 
 // SDK-style NuGet keeps deps in a variably-named, often NESTED *.csproj absent

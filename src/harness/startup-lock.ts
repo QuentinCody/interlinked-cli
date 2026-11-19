@@ -1,3 +1,4 @@
+import { isProcessAlive } from "./daemon-pid-ownership.js";
 import { hasErrorCode } from "./check-engine/tool-errors.js";
 // ===========================================
 // Daemon startup mutex — N concurrent starts collapse to ONE binder
@@ -71,15 +72,6 @@ export type StartupLockResult =
 
 export function startupLockPath(repoRoot: string): string {
 	return join(repoRoot, ".interlinked", STARTUP_LOCK_FILE);
-}
-
-function isProcessAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (err) {
-		return hasErrorCode(err, "EPERM");
-	}
 }
 
 /** The current holder, or null when the file is absent/garbage. Never throws. */

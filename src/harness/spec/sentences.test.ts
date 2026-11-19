@@ -79,3 +79,17 @@ it("requires a document qualifier for compact IDs used by unrelated sessions and
         { file: "src/related.test.ts", content: '// docs/a.md B5' }]);
     expect(rows[0]?.citations.map(citation => citation.file)).toEqual(["src/related.test.ts"]);
 });
+
+it("resolves section links relative to their source and keeps ambiguous compact IDs out of sentence scope", () => {
+    const local = parseSpecSentences("area/plan.md", "# Scope\nR1: It must work.");
+    const root = parseSpecSentences("plan.md", "# Scope\nR1: It must stop.");
+    attachSentenceCitations([...local, ...root], [{ file: "area/reader.test.ts", content: "// See plan.md#scope R1\n// See plan.md#%XX" }]);
+    expect(local[0]?.citations).toEqual([{ file: "area/reader.test.ts", line: 1, kind: "test", scope: "section", reference: "plan.md#scope" }]);
+    expect(root[0]?.citations).toEqual([]);
+});
+
+it("keeps a shorter or annotated fence inside code and recognizes the following Setext heading", () => {
+    const rows = parseSpecSentences("doc.md", ["~~~~", "~~~", "~~~~ annotated", "# not a heading", "~~~~", "After", "=====", "The command must save the file."].join("\n"));
+    expect(rows.map(row => [row.class, row.line, row.endLine])).toEqual([["example", 1, 5], ["requirement", 8, 8]]);
+    expect(rows[1]?.anchors).toEqual(["after"]);
+});

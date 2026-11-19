@@ -10,7 +10,8 @@
 // file's `baseReport` fixture style.
 import { describe, expect, it } from "vitest";
 import { stripAnsi } from "../lib/formatter.js";
-import { type MetricsReport, renderNormal, renderShort } from "./metrics-renderers.js";
+import { type MetricsReport, renderFull, renderNormal, renderShort } from "./metrics-renderers.js";
+import { metricActions } from "./metrics-actions.js";
 
 function baseReport(overrides: Partial<MetricsReport> = {}): MetricsReport {
 	return {
@@ -46,6 +47,14 @@ function baseReport(overrides: Partial<MetricsReport> = {}): MetricsReport {
 }
 
 describe("functionTokenDistributionLines legacy fallback (via renderNormal)", () => {
+	it("shows actionable next steps in full output even without the token inventory", () => {
+		const report = baseReport();
+		report.actions = metricActions({ functions: [], files: [], caps: report.caps, notMeasured: [{ file: "Main.java", reason: "Unsupported complexity adapter" }] });
+		expect(renderNormal(report)).toContain("1 local action");
+		expect(renderFull(report)).toContain("Main.java:1 [evidence_gap]");
+		expect(renderFull(report)).toContain("Validate:");
+		expect(renderNormal(report)).toContain("Threshold observations");
+	});
 	it("renders legacy reports without claiming a measured function denominator", () => {
 		const report = baseReport();
 		report.caps.functionTokens = 500;

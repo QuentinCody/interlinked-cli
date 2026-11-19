@@ -3,10 +3,11 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { nonNull } from "../../lib/non-null.js";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { getExtension, type InlineMatch } from "./shared.js";
 import { extractModuleExportNames } from "./swift.js";
+import { getProjectCheckEvidence } from "./project-check-evidence.js";
+import { parseRippleImportLine, projectExportRipple } from "./export-ripple-project.js";
 
 // ===========================================
 // Check: Export Ripple
@@ -74,45 +75,17 @@ function matchBrokenImportsInLine(
 	importerRel: string,
 	importerLine: string,
 	lineIndex: number,
-	importerDir: string,
 	target: RippleTarget,
 ): InlineMatch[] {
 	const { cwd, noExt, baseName, currentExports } = target;
-	const trimmed = importerLine.trim();
-
-	// Match: import { A, B, C } from "..." or import type { A } from "..."
-	const importMatch = trimmed.match(
-		/^import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+["']([^"']+)["']/,
-	);
-	if (!importMatch) return [];
-
-	const specifier = nonNull(importMatch[2]);
-	// Only check relative imports
-	if (!specifier.startsWith(".") && !specifier.startsWith("@/")) return [];
-
-	// Resolve the import specifier relative to the importer's directory
-	// to verify it actually points to our file (not a different file with the same basename)
-	const specBase = specifier.replace(/\.(js|ts|tsx|jsx|mjs|cjs)$/, "");
-	const specTail = specBase.split("/").pop() || "";
-	if (specTail !== baseName) return [];
-
-	// Resolve the full path and check if it's actually our target file
-	const resolvedImport = resolve(importerDir, specBase);
+	const reference = parseRippleImportLine(importerLine, importerRel, lineIndex, cwd);
+	if (!reference || reference.baseName !== baseName) return [];
 	const targetNoExt = resolve(cwd, noExt);
-	if (resolvedImport !== targetNoExt) return [];
-
-	// Parse named imports
-	const namedImports = nonNull(importMatch[1])
-		.split(",")
-		.map((n) => {
-			const parts = n.trim().split(/\s+as\s+/);
-			return nonNull(parts[0]).trim().replace(/^type\s+/, ""); // Strip inline type prefix and 'as' alias
-		})
-		.filter((n) => n.length > 0);
+	if (reference.modulePath !== targetNoExt) return [];
 
 	// Check each imported name against current exports
 	const found: InlineMatch[] = [];
-	for (const name of namedImports) {
+	for (const name of reference.names) {
 		if (!currentExports.has(name)) {
 			found.push({
 				line: 0,
@@ -141,12 +114,11 @@ function collectImporterMatches(
 	startCount: number,
 ): InlineMatch[] {
 	const importerLines = importerContent.split("\n");
-	const importerDir = dirname(join(target.cwd, importerRel));
 	const found: InlineMatch[] = [];
 
 	for (const [i, importerLine] of importerLines.entries()) {
 		if (startCount + found.length >= 15) break;
-		found.push(...matchBrokenImportsInLine(importerRel, importerLine, i, importerDir, target));
+		found.push(...matchBrokenImportsInLine(importerRel, importerLine, i, target));
 	}
 
 	return found;
@@ -168,6 +140,9 @@ export function checkExportRipple(content: string, filePath: string, cwd: string
 	const noExt = relFromRoot.replace(/\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/, "");
 	const baseName = noExt.split("/").pop() || "";
 	if (!baseName) return [];
+	const evidence = getProjectCheckEvidence(cwd);
+	if (evidence?.isExcluded(filePath)) return [];
+	if (evidence) return projectExportRipple(evidence, relFromRoot, noExt, currentExports, content);
 
 	// Step 3: Find files that import from this module (uses cached git ls-files)
 	const allFiles = getGitSourceFiles(cwd).filter((f) => f !== relFromRoot);

@@ -4,13 +4,15 @@
 // fixture cases against the fallback, so its behavior stays pinned.
 import { describe, expect, it, vi } from "vitest";
 import { effectCleanupCases } from "./__fixtures__/effect-cleanup-cases.js";
+import { effectCleanupMutationScenarios } from "./__fixtures__/effect-cleanup-mutation-scenarios.js";
+import { registerEffectCleanupScenarios } from "./__fixtures__/effect-cleanup-registration.js";
+import { effectCleanupScenarios } from "./__fixtures__/effect-cleanup-scenarios.js";
 import { checkMissingEffectCleanup } from "./missing-effect-cleanup.js";
 
 vi.mock("./missing-effect-cleanup-ast.js", () => ({ effectCleanupFindingsAst: () => null }));
 
-// Their describe blocks register here, under the mock above.
-await import("./missing-effect-cleanup.test.js");
-await import("./missing-effect-cleanup.mutation-kill-w60.test.js");
+registerEffectCleanupScenarios(effectCleanupScenarios(checkMissingEffectCleanup));
+registerEffectCleanupScenarios(effectCleanupMutationScenarios(checkMissingEffectCleanup));
 
 describe("scanner fallback — a return whose bracket group never closes", () => {
     const effect = (returned: string): string => `useEffect(() => {\n  setInterval(tick, 1);\n  ${returned}`;

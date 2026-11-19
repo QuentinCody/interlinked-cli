@@ -2,9 +2,12 @@
 // Simplification review — scalar/list JSON parsing primitives
 // ===========================================
 // Shared by simplification-schema.ts and simplification-schema-report-relations.ts.
-// Pure value/string parsing helpers plus the fixed vocabularies used across the
-// simplification report schema. Kept import-free so both consumers can depend on
-// it without creating a module cycle between them.
+// Fixed vocabularies and validators specific to the simplification report schema.
+import { isRepositoryPath, stringList, uniqueCanonicalStrings } from "./report-value-parsers.js";
+export {
+	isRepositoryPath as isSimplificationRepositoryPath, nonNegativeInteger, nullableString,
+	requiredString, stringList, uniqueCanonicalStrings,
+} from "./report-value-parsers.js";
 
 export const EVIDENCE_STATES = ["candidate", "heuristic", "proven", "sandbox-validated"] as const;
 export const SCOPE_KINDS = ["repository", "changed", "staged", "range"] as const;
@@ -16,38 +19,43 @@ export function isMember<T extends string>(value: unknown, choices: readonly T[]
 	return typeof value === "string" && choices.some((choice) => choice === value);
 }
 
-export function requiredString(value: unknown): string | null {
-	return typeof value === "string" && value.length > 0 ? value : null;
+/** Compare individual keys so a field name containing a separator cannot impersonate two fields. */
+export function exactKeys(value: object, expected: readonly string[]): boolean {
+	const keys = Object.keys(value).sort();
+	const wanted = [...expected].sort();
+	return keys.length === wanted.length && keys.every((key, index) => key === wanted[index]);
 }
 
-export function nullableString(value: unknown): string | null | undefined {
-	if (value === null) return null;
-	return requiredString(value) ?? undefined;
+export function fixtureText(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0 && value.length <= 32_768;
 }
 
-export function stringList(value: unknown): string[] | null {
-	if (!Array.isArray(value)) return null;
-	return value.every((entry): entry is string => typeof entry === "string") ? [...value] : null;
+export function manifestText(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0 && value.length <= 4_096;
 }
 
-export function isSimplificationRepositoryPath(value: string): boolean {
-	if (value.length === 0 || value.startsWith("/") || value.includes("\\")) return false;
-	if (/^[A-Za-z]:/.test(value)) return false;
-	return value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+export function fixturePath(value: unknown): value is string {
+	return fixtureText(value) && !value.startsWith("/") && !value.includes("\\") &&
+		value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+
+export function sortedFixtureStrings(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every(fixtureText) && uniqueCanonicalStrings(value);
+}
+
+export function sortedManifestStrings(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every(manifestText) && uniqueCanonicalStrings(value);
+}
+
+export function isoTimestamp(value: unknown): value is string {
+	if (typeof value !== "string") return false;
+	const millis = Date.parse(value);
+	return Number.isFinite(millis) && new Date(millis).toISOString() === value;
 }
 
 export function pathList(value: unknown): string[] | null {
 	const values = stringList(value);
-	return values?.every(isSimplificationRepositoryPath) ? values : null;
-}
-
-export function uniqueCanonicalStrings(values: readonly string[]): boolean {
-	return new Set(values).size === values.length
-		&& values.every((entry, index) => index === 0 || entry >= (values[index - 1] ?? ""));
-}
-
-export function nonNegativeInteger(value: unknown): number | null {
-	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+	return values?.every(isRepositoryPath) ? values : null;
 }
 
 export function finiteNumberOrNull(value: unknown): number | null | undefined {

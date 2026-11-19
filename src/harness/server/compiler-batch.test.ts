@@ -86,13 +86,74 @@ it("completes a batch whose only finding is NOT APPLICABLE (a project without ts
     expect(stop?.check_results?.some(row => row.name === "external_check_not_applicable")).toBe(true);
     expect(await runCompilerBoundary(ctx, { ...event, hook_event: "Stop" }, session)).toBeNull(); // nothing left pending
 });
-it("retains unavailable checks without claiming a pass or allowing completion", async () => {
+function deferredRow(file: string) {
+    return { name: "external_check_deferred", severity: "warning" as const, file,
+        message: "External check deferred (typescript)", detail: "compiler unavailable" };
+}
+function commitOf(event: HarnessEvent): HarnessEvent {
+    return { ...event, hook_event: "PreToolUse", tool_name: "Bash", tool_input: { command: "git commit -m fix" } };
+}
+
+// No edit can resolve an operational deferral, so a Stop block on it has no exit:
+// the agent can only retry until the lease owner (another session, or its own
+// `interlinked verify`) lets go. Stop reports NOT CHECKED; the commit boundary blocks.
+it("retains an unavailable check without claiming a pass: Stop is not blocked, the batch stays queued, and a commit stays blocked", async () => {
     const { ctx, event, file, session } = fixture();
     await runCompilerBoundary(ctx, { ...event, hook_event: "PostToolBatch" }, session);
     queueBatchCompiler(ctx, event, file);
-    vi.mocked(runCommandCheck).mockResolvedValueOnce([{ name: "external_check_deferred", severity: "warning", file,
-        message: "External check deferred (typescript)", detail: "compiler unavailable" }]);
+    vi.mocked(runCommandCheck).mockResolvedValueOnce([deferredRow(file)]);
+    const stop = await runCompilerBoundary(ctx, { ...event, hook_event: "Stop" }, session);
+    expect(stop?.decision).toBe("allow");
+    expect(stop?.checks_ran ?? []).toEqual([]);
+    expect(stop?.additional_context).toContain("NOT CHECKED");
+    expect(stop?.additional_context).toContain("no edit resolves this");
+    expect(stop?.additional_context).not.toContain("Repair the completed batch");
+    vi.mocked(runCommandCheck).mockResolvedValueOnce([deferredRow(file)]);
+    const commit = await runCompilerBoundary(ctx, commitOf(event), session);
+    expect(commit?.decision).toBe("block");
+    expect(runCommandCheck).toHaveBeenCalledTimes(2); // the Stop did not drop the queued path
+});
+
+// The same NOT CHECKED line arrived after each of more than 30 tool batches while
+// another process held the project lease. It asked for a repair that no edit can make.
+it("says a deferral once per pending state at a tool batch: silent while the same files stay deferred, again when the set changes or after a check ran", async () => {
+    const { ctx, event, file, session } = fixture();
+    const batch: HarnessEvent = { ...event, hook_event: "PostToolBatch" };
+    await runCompilerBoundary(ctx, batch, session);
+    queueBatchCompiler(ctx, event, file);
+    vi.mocked(runCommandCheck).mockResolvedValueOnce([deferredRow(file)]);
+    const first = await runCompilerBoundary(ctx, batch, session);
+    expect(first?.decision).toBe("allow");
+    expect(first?.additional_context).toContain("no edit resolves this");
+    expect(first?.additional_context).not.toContain("Repair the completed batch");
+
+    vi.mocked(runCommandCheck).mockResolvedValueOnce([deferredRow(file)]);
+    const second = await runCompilerBoundary(ctx, batch, session);
+    expect(second?.decision).toBe("allow");
+    expect(second?.additional_context).toBeUndefined();
+    expect(second?.checks_ran ?? []).toEqual([]); // silence is not a pass
+    expect(second?.check_results?.some(row => row.name === "external_check_deferred")).toBe(true); // the record stays
+
+    const other = join(ctx.cwd, "b.ts");
+    queueBatchCompiler(ctx, { ...event, tool_use_id: "second" }, other);
+    vi.mocked(runCommandCheck).mockResolvedValueOnce([deferredRow(file)]);
+    expect((await runCompilerBoundary(ctx, batch, session))?.additional_context).toContain("no edit resolves this");
+
+    await runCompilerBoundary(ctx, batch, session); // the compiler runs clean: the queue empties
+    queueBatchCompiler(ctx, { ...event, tool_use_id: "third" }, file);
+    queueBatchCompiler(ctx, { ...event, tool_use_id: "fourth" }, other);
+    vi.mocked(runCommandCheck).mockResolvedValueOnce([deferredRow(file)]);
+    expect((await runCompilerBoundary(ctx, batch, session))?.additional_context).toContain("no edit resolves this");
+});
+
+it("keeps Stop blocked when a known compiler error is outstanding and the compiler then becomes unavailable", async () => {
+    const { ctx, event, file, session } = fixture();
+    await runCompilerBoundary(ctx, { ...event, hook_event: "PostToolBatch" }, session);
+    queueBatchCompiler(ctx, event, file);
+    vi.mocked(runCommandCheck).mockResolvedValueOnce([{ name: "typescript", severity: "error", file,
+        message: "typescript found newly observed issues", detail: "a.ts(3): TS2304: Cannot find name 'targetOf'." }]);
+    await runCompilerBoundary(ctx, { ...event, hook_event: "PostToolBatch" }, session);
+    vi.mocked(runCommandCheck).mockResolvedValueOnce([deferredRow(file)]);
     const stop = await runCompilerBoundary(ctx, { ...event, hook_event: "Stop" }, session);
     expect(stop?.decision).toBe("block");
-    expect(stop?.checks_ran ?? []).toEqual([]);
 });

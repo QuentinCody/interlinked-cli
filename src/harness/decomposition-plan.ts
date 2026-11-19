@@ -64,16 +64,6 @@ const MAX_MESSAGE_LINES = 3;
 
 // ---------- decision counting (the gate's predicate, applied per subtree) ----------
 
-function isLoop(ts: TsModule, node: TS.Node): boolean {
-	return (
-		ts.isForStatement(node) ||
-		ts.isForInStatement(node) ||
-		ts.isForOfStatement(node) ||
-		ts.isWhileStatement(node) ||
-		ts.isDoStatement(node)
-	);
-}
-
 /** Decision points in `node`'s subtree (itself included), not crossing into nested functions. */
 function countDecisions(ts: TsModule, node: TS.Node): number {
 	if (isFunctionLike(ts, node)) return 0;
@@ -143,7 +133,7 @@ function ifName(ts: TsModule, node: TS.IfStatement): string {
 
 /**
  * Exported so a test can exercise the fallback directly: every call site
- * already guards with `isLoop`, so the `undefined` fallback below is
+ * already checks for an iteration statement, so the `undefined` fallback below is
  * unreachable through `planDecomposition` alone.
  */
 export function loopSubject(ts: TsModule, node: TS.Node): TS.Node | undefined {
@@ -247,7 +237,7 @@ function keywordPos(sf: TS.SourceFile, node: TS.Node, kind: TS.SyntaxKind): numb
 /** A statement labels itself; arms of a control-flow parent are labeled by the parent. */
 function labelStatement(ts: TsModule, node: TS.Node): ArmLabel {
 	if (ts.isIfStatement(node)) return { kind: "if", name: ifName(ts, node) };
-	if (isLoop(ts, node)) return { kind: "loop", name: loopName(ts, node) };
+	if (ts.isIterationStatement(node, false)) return { kind: "loop", name: loopName(ts, node) };
 	if (ts.isSwitchStatement(node)) {
 		return { kind: "case", name: `handle${joinIdents(identifiersOf(ts, node.expression), "Switch")}` };
 	}
@@ -320,12 +310,10 @@ function armsOf(ts: TsModule, sf: TS.SourceFile, node: TS.Node): Arm[] {
 			deepens: true,
 		}));
 	}
-	if (isLoop(ts, node)) {
-		// SAFETY: every kind `isLoop` accepts is an IterationStatement subtype.
-		const body = (node as TS.IterationStatement).statement;
+	if (ts.isIterationStatement(node, false)) {
 		return [
 			...conditionArm(ts, loopSubject(ts, node), "shouldProcess"),
-			{ node: body, label: { kind: "loop", name: loopName(ts, node) }, deepens: true, anchor: node.getStart(sf) },
+			{ node: node.statement, label: { kind: "loop", name: loopName(ts, node) }, deepens: true, anchor: node.getStart(sf) },
 		];
 	}
 	const body = bodyOf(ts, node);

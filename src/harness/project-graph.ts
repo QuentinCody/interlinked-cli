@@ -11,7 +11,10 @@
 //   - Cross-agent awareness via SessionTracker integration
 
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { componentKind, maskComponentScripts } from "../lib/import-resolution/component-scripts.js";
+import { createImportResolver, type ImportResolver } from "../lib/import-resolution/import-resolver.js";
+import { fsRepoView, isConfigFileName } from "../lib/import-resolution/repo-view.js";
 import { nonNull } from "../lib/non-null.js";
 import { extractInterfaceBodies } from "./project-graph/interface-bodies.js";
 import { parseExports } from "./project-graph/parser-exports.js";
@@ -55,6 +58,10 @@ export class ProjectGraph {
 	private projectRoot: string;
 	private initialized = false;
 	private tsconfigPaths: Record<string, string[]> | undefined;
+	/** Single-file components (`.svelte`, `.vue`, `.astro`): importers with edges, but no export surface and not in `allFiles()`. */
+	private componentFiles: Set<string> = new Set();
+	/** Alias and workspace import layer; built on first use, dropped when a config file is edited. */
+	private importResolver: ImportResolver | null = null;
 	/**
 	 * Memo for `isFileReachableFromEntryPoints`.
 	 *
@@ -99,9 +106,10 @@ export class ProjectGraph {
 	initialize(): void {
 		if (this.initialized) return;
 		const files = scanProjectFiles(this.projectRoot);
-		for (const { file, boundary } of files) {
+		for (const { file, boundary, component } of files) {
 			this.projectBoundaries.set(file, boundary);
-			this.indexFile(file);
+			if (component) this.indexComponent(file);
+			else this.indexFile(file);
 		}
 		this.initialized = true;
 	}
@@ -113,7 +121,10 @@ export class ProjectGraph {
 	updateFile(filePath: string, content?: string): ExportedSymbol[] {
 		const absPath = this.toAbsolute(filePath);
 		const oldExports = this.exportIndex.get(absPath) || [];
-		this.indexFile(absPath, content);
+		// A config edit or a new file changes what an alias can resolve to; the resolver caches directory listings.
+		if (isConfigFileName(this.toRepoRelative(absPath)) || !this.hasNode(absPath)) this.importResolver = null;
+		if (componentKind(absPath) !== null) this.indexComponent(absPath, content);
+		else this.indexFile(absPath, content);
 		// Any edit can mutate the import edges and thereby change which
 		// files are reachable from which entry points. Reachability memo
 		// is a function of graph topology, so a single edit invalidates
@@ -144,6 +155,25 @@ export class ProjectGraph {
 			}
 		}
 		return result;
+	}
+
+	/**
+	 * True when `getExports(filePath)` lists the FULL export surface: the file is
+	 * indexed, and every `export * from` in its chain resolved to an indexed file.
+	 * False for a file in a skipped directory, an unreadable file, or a star
+	 * re-export of a missing / skipped / bare-package target. A caller must not
+	 * report "name X is not exported" when this is false.
+	 */
+	hasCompleteExportSurface(filePath: string, seen: Set<string> = new Set()): boolean {
+		const absPath = this.toAbsolute(filePath);
+		const direct = this.exportIndex.get(absPath);
+		if (!direct) return false;
+		if (seen.has(absPath)) return true;
+		seen.add(absPath);
+		const starTargets = this.starReExports.get(absPath) ?? [];
+		const starStatements = direct.filter((e) => e.name === "*" && e.kind === "namespace").length;
+		if (starStatements > starTargets.length) return false;
+		return starTargets.every((target) => this.hasCompleteExportSurface(target, seen));
 	}
 
 	/** Get files that import from the given file (dependents/reverse dependencies) */
@@ -314,6 +344,27 @@ export class ProjectGraph {
 		return [...this.exportIndex.keys()];
 	}
 
+	/** Every graph node: the code files of `allFiles()` plus the single-file components that import. */
+	allNodes(): string[] {
+		return [...this.exportIndex.keys(), ...this.componentFiles];
+	}
+
+	/** Whether `filePath` is a node: an indexed code file or a single-file component. */
+	hasNode(filePath: string): boolean {
+		const absPath = this.toAbsolute(filePath);
+		return this.exportIndex.has(absPath) || this.componentFiles.has(absPath);
+	}
+
+	/** Files that `export * from` re-exports (resolved, absolute), one hop. */
+	getStarReExportTargets(filePath: string): string[] {
+		return this.starReExports.get(this.toAbsolute(filePath)) ?? [];
+	}
+
+	/** Exports the file itself declares: `getExports` without the names it gains through `export * from`. */
+	getDirectExports(filePath: string): ExportedSymbol[] {
+		return this.exportIndex.get(this.toAbsolute(filePath)) ?? [];
+	}
+
 	/** Convert to project-relative path for display */
 	toRelative(filePath: string): string {
 		const abs = this.toAbsolute(filePath);
@@ -335,9 +386,9 @@ export class ProjectGraph {
 		for (const exp of exports) {
 			if (exp.name === "*" && exp.kind === "namespace") {
 				// Find the source specifier from the file content
-				const starRe = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
+				const starRe = /export\s+(?:type\s+)?\*\s+from\s+['"]([^'"]+)['"]/g;
 				for (let m = starRe.exec(fileContent); m !== null; m = starRe.exec(fileContent)) {
-					const resolved = resolveImportPath(absPath, nonNull(m[1]), this.tsconfigPaths);
+					const resolved = this.resolveSpecifier(absPath, nonNull(m[1]));
 					if (resolved) starTargets.push(resolved);
 				}
 				break; // Only need to scan once
@@ -374,14 +425,18 @@ export class ProjectGraph {
 		const starTargets = this.collectStarReExportTargets(fileContent, exports, absPath);
 		this.starReExports.set(absPath, starTargets);
 
-		// Parse imports and resolve paths
-		const rawImports = parseImports(fileContent, absPath);
+		this.registerImports(absPath, parseImports(fileContent, absPath));
+
+		// Extract interface bodies for change detection
+		this.interfaceBodies.set(absPath, extractInterfaceBodies(fileContent));
+	}
+
+	/** Resolve each raw import of `absPath` and record the edges in both directions. */
+	private registerImports(absPath: string, rawImports: ReturnType<typeof parseImports>): void {
 		const resolvedImports: ImportEdge[] = [];
 		for (const raw of rawImports) {
-			const toFile = resolveImportPath(absPath, raw.specifier, this.tsconfigPaths);
+			const toFile = this.resolveSpecifier(absPath, raw.specifier);
 			resolvedImports.push({ ...raw, toFile: toFile || "" });
-
-			// Update reverse graph
 			if (toFile) {
 				let set = this.reverseGraph.get(toFile);
 				if (!set) {
@@ -392,9 +447,48 @@ export class ProjectGraph {
 			}
 		}
 		this.importGraph.set(absPath, resolvedImports);
+	}
 
-		// Extract interface bodies for change detection
-		this.interfaceBodies.set(absPath, extractInterfaceBodies(fileContent));
+	/**
+	 * Relative paths resolve on disk. A bare specifier goes through the alias
+	 * layer first (tsconfig `paths`, workspace packages, framework aliases) and
+	 * then through the older root-tsconfig lookup. Null when nothing resolves.
+	 */
+	private resolveSpecifier(absPath: string, specifier: string): string | null {
+		if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
+			const found = this.aliasResolver().resolve(this.toRepoRelative(absPath), specifier);
+			if (found?.kind === "local") return join(this.projectRoot, found.target);
+		}
+		return resolveImportPath(absPath, specifier, this.tsconfigPaths);
+	}
+
+	private aliasResolver(): ImportResolver {
+		this.importResolver ??= createImportResolver(fsRepoView(this.projectRoot));
+		return this.importResolver;
+	}
+
+	private toRepoRelative(absPath: string): string {
+		return relative(this.projectRoot, absPath).split(sep).join("/");
+	}
+
+	/** Index a single-file component as an importer: its script imports become edges; it has no export surface. */
+	private indexComponent(absPath: string, content?: string): void {
+		const kind = componentKind(absPath);
+		let text = content;
+		if (text === undefined) {
+			try {
+				text = readFileSync(absPath, "utf-8");
+			} catch {
+				return;
+			}
+		}
+		for (const edge of this.importGraph.get(absPath) ?? []) {
+			if (edge.toFile) this.reverseGraph.get(edge.toFile)?.delete(absPath);
+		}
+		this.componentFiles.add(absPath);
+		// A component with no `import` or `require` word cannot import: skip the mask and the parse.
+		const mayImport = kind !== null && /\b(?:import|require)\b/.test(text);
+		this.registerImports(absPath, mayImport ? parseImports(maskComponentScripts(text, kind), absPath) : []);
 	}
 
 }

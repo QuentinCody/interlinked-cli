@@ -12,6 +12,12 @@ import { syncCommand } from "../commands/sync.js";
 import { watchCommand } from "../commands/watch.js";
 
 export function registerActivityCommands(program: Command): void {
+	registerFeedCommands(program);
+	registerMonitoringCommands(program);
+	registerTraceCommands(program);
+}
+
+function registerFeedCommands(program: Command): void {
 	program
 		.command("activity")
 		.description("Recent activity feed")
@@ -61,7 +67,9 @@ export function registerActivityCommands(program: Command): void {
 			const { logsCommand } = await import("../commands/logs.js");
 			await logsCommand(opts);
 		});
+}
 
+function registerMonitoringCommands(program: Command): void {
 	program
 		.command("status")
 		.description("Dashboard: local sessions, recent activity, sync status")
@@ -108,7 +116,9 @@ export function registerActivityCommands(program: Command): void {
 		.option("--limit <n>", "Max events to sync")
 		.option("--json", "Machine-readable output")
 		.action(syncCommand);
+}
 
+function registerTraceCommands(program: Command): void {
 	const traceCmd = program.command("trace").description("Agent trace export/import");
 
 	traceCmd

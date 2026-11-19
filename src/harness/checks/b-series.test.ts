@@ -427,6 +427,27 @@ describe("checkAssertionFreeTests", () => {
 		]);
 	});
 
+	it("N: a brace inside a string literal, a template literal or a line comment is text, not block structure", () => {
+		// Before the fix a `"{bad"` literal on line 2 raised the depth and the real `});` could not close the block,
+		// so the assertion on line 3 was counted for the wrong block (or the block was flagged).
+		const content = [
+			"it('parses', () => {",
+			'  const bad = "{bad"; // a stray } in a comment',
+			"  expect(parse(bad)).toEqual({ ok: false });",
+			"});",
+			"it('templates', () => {",
+			"  const t = `}}}`; const q = '{';",
+			"  expect(t).toBe('}}}');",
+			"});",
+		].join("\n");
+		expect(checkAssertionFreeTests(content, "thing.test.ts")).toEqual([]);
+	});
+
+	it("P: an escaped quote inside a string does not end the string early", () => {
+		const content = ["it('x', () => {", '  const s = "a \\" {";', "  run(s);", "});"].join("\n");
+		expect(checkAssertionFreeTests(content, "thing.test.ts")).toEqual([{ line: 1, text: "it('x', () => {" }]);
+	});
+
 	it("skips leading non-test-block lines before finding the it() block", () => {
 		// Exercises the `if (testMatch)` false branch (a line evaluated while
 		// not yet inside a test block that does NOT start one) before the true
@@ -472,12 +493,22 @@ describe("checkAssertionFreeTests", () => {
 		]);
 	});
 
-	it("truncates the reported test name to 80 characters", () => {
-		const longTitle = `it('${"x".repeat(100)}', () => {`;
+	it("truncates the reported line to 150 characters (the registered detector's format)", () => {
+		const longTitle = `it('${"x".repeat(200)}', () => {`;
 		const content = [longTitle, "  doStuff();", "});"].join("\n");
 		expect(checkAssertionFreeTests(content, "thing.test.ts")).toEqual([
-			{ line: 1, text: longTitle.slice(0, 80) },
+			{ line: 1, text: longTitle.slice(0, 150) },
 		]);
+	});
+	it("N: block comments, multi-line templates and an `it(` inside a fixture string are not test structure (seventh review)", () => {
+		const blockComment = ["it('works', () => {", "  /* } */", "  expect(1).toBe(1);", "});"].join("\n");
+		const multilineTemplate = ["it('works', () => {", "  const text = `", "}", "`;", "  expect(text).toBeTruthy();", "});"].join("\n");
+		const fixture = ["it('real', () => { expect(1).toBe(2); });", "const src = `", "it('fixture', () => {", "  foo();", "});", "`;"].join("\n");
+		for (const content of [blockComment, multilineTemplate, fixture]) expect(checkAssertionFreeTests(content, "thing.test.ts")).toEqual([]);
+	});
+	it("P: an `expect(` that only appears in a comment is not an assertion", () => {
+		const content = ["it('none', () => {", "  // expect(x).toBe(1)", "  run();", "});"].join("\n");
+		expect(checkAssertionFreeTests(content, "thing.test.ts")).toEqual([{ line: 1, text: "it('none', () => {" }]);
 	});
 
 	it("recognizes `expect (` with whitespace before the opening paren as an assertion", () => {

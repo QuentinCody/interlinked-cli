@@ -20,6 +20,7 @@ import { baselineKind } from "./baseline-kind.js";
 import { reconstructToolInput } from "./edit-reconstruction.js";
 import { isSiblingBaselinePath } from "./function-complexity-baseline-gate.js";
 import { normalizeTargetPath, toolWriteTargets, type WriteTarget } from "./write-targets.js";
+import { isMetricPolicyPath } from "./metric-policy-integrity.js";
 
 /** One gated file a tool call targets. */
 export type BaselineProposal = WriteTarget;
@@ -29,7 +30,7 @@ type ReadDisk = (filePath: string) => string | null;
 
 function isGated(filePath: string): boolean {
 	const normalized = normalizeTargetPath(filePath);
-	return baselineKind(normalized) !== null || isSiblingBaselinePath(normalized);
+	return baselineKind(normalized) !== null || isSiblingBaselinePath(normalized) || isMetricPolicyPath(normalized);
 }
 
 /**

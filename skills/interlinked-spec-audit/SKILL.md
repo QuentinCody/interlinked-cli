@@ -1,6 +1,6 @@
 ---
 name: interlinked-spec-audit
-description: "Keep prose specs and design docs honest against the code using Interlinked's spec-audit system. Load this when extracting a doc's invariants or facts (`interlinked spec invariants`, `spec agenda`), when you see `[interlinked:spec-drift]`, `[interlinked:spec-marker]`, `[interlinked:spec-xref]`, or `[interlinked:disputed-ground]` warnings after editing markdown, when ingesting/triaging an external review report (`interlinked findings ingest / status / verify / ack`), or when running executable doc examples (`interlinked doctest`). The system detects and tracks — it never auto-fixes; you write the fix. Covers the fact ledger, findings reconciliation, invariants/agenda, and current-state caveats."
+description: "Keep specs and design docs honest against the code with Interlinked spec-audit. Load to extract a doc's invariants or facts (`interlinked spec invariants`, `spec agenda`); for `[interlinked:spec-drift]`, `[interlinked:spec-marker]`, `[interlinked:spec-xref]`, or `[interlinked:disputed-ground]` after a markdown edit; to ingest or triage a review report (`interlinked findings ingest|status|verify|ack`); or for executable doc examples (`interlinked doctest`). It detects and tracks; you write the fix. Covers the fact ledger and findings reconciliation."
 ---
 
 # interlinked-spec-audit — keep prose specs honest against code
@@ -92,9 +92,10 @@ interlinked findings status
 ````
 Flags: `--path <file|dir>` (default cwd), `--json`. Each block is an independent
 `bash -c` (60s timeout); output `doctest: P/T block(s) passed`, exit 1 on any failure.
+An unstatable target, including a missing `--path`, reports an error and exits 1.
+An existing directory containing no tagged blocks still reports a successful empty suite.
 **Caveats (verified):** it runs in the CLI's `process.cwd()`, **not** `--path`'s directory (run
-it from the repo root); a **missing/typo'd `--path` silently reports `0/0` and exits 0** (check
-the total is nonzero); no `cd`/env/var state carries across blocks; the fence language is ignored
+it from the repo root); no `cd`/env/var state carries across blocks; the fence language is ignored
 (everything runs as bash).
 
 ## Checks you encounter at edit time

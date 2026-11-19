@@ -197,7 +197,7 @@ describe("writePidFile", () => {
 		const lc = createSocketLifecycle(deps);
 		lc.writePidFile();
 		expect(ensureDirectory).toHaveBeenCalledWith("/tmp/h.pid");
-		expect(writeFileSync).toHaveBeenCalledWith("/tmp/h.pid", String(process.pid));
+		expect(vi.mocked(writeFileSync).mock.calls).toEqual([["/tmp/h.pid", String(process.pid)]]);
 		// Ordering: ensureDirectory must precede writeFileSync.
 		const ensureOrder = (vi.mocked(ensureDirectory)).mock
 			.invocationCallOrder[0];

@@ -1,7 +1,7 @@
 import { nonNull } from "../../lib/non-null.js";
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hoisted: spies on statSync only (call-through to the real implementation
@@ -407,6 +407,55 @@ describe("evaluatePackageInstall — effective cwd (P1.4)", () => {
 		saveAllowlist(workspace, al);
 		expect(evalCmd("cd packages/app && npm ci").decision).toBe("allow");
 	});
+
+	// A directory outside the project (a source checkout in a temp folder) used to
+	// collide with the root's bare `Cargo.lock` key: one hash per file name.
+	// `allowlist snapshot --dir` keys the grant by the path relative to the root.
+	describe("path-keyed snapshots for a directory outside the root", () => {
+		let outside: string;
+		beforeEach(() => {
+			outside = mkdtempSync(join(tmpdir(), "guard-outside-"));
+		});
+		afterEach(() => {
+			rmSync(outside, { recursive: true, force: true });
+		});
+
+		function grant(rootLock: string, keyed: Record<string, string>): void {
+			writeFileSync(join(workspace, "Cargo.lock"), rootLock);
+			const snaps: Allowlist["lockfile_snapshots"] = {
+				"Cargo.lock": { sha256: hashLockfile(join(workspace, "Cargo.lock"))!, approved_at: "2026-11-13", approved_by: "qcody" },
+			};
+			for (const [key, sha] of Object.entries(keyed)) snaps[key] = { sha256: sha, approved_at: "2026-11-13", approved_by: "qcody" };
+			saveAllowlist(workspace, {
+				version: 1,
+				packages: { npm: {}, pypi: {}, cargo: {}, rubygems: {}, go: {}, composer: {}, maven: {}, gradle: {}, nuget: {} },
+				lockfile_snapshots: snaps,
+			});
+		}
+
+		it("allows `cd <outside> && cargo build --locked` when the path-keyed grant matches", () => {
+			const lock = join(outside, "Cargo.lock");
+			writeFileSync(lock, "# outside lock\n");
+			grant("# root lock\n", { [relative(workspace, lock).split(sep).join("/")]: hashLockfile(lock)! });
+			expect(evalCmd(`cd ${outside} && cargo build --locked`).decision).toBe("allow");
+		});
+
+		it("blocks when the path-keyed grant hashes a different lockfile, and the hint names --dir", () => {
+			const lock = join(outside, "Cargo.lock");
+			writeFileSync(lock, "# outside lock\n");
+			grant("# root lock\n", { [relative(workspace, lock).split(sep).join("/")]: "0".repeat(64) });
+			const r = evalCmd(`cd ${outside} && cargo build --locked`);
+			expect(r.decision).toBe("block");
+			expect(r.reason).toContain(`interlinked allowlist snapshot --dir ${outside}`);
+		});
+
+		it("still honors a legacy bare-name grant for the cd'd directory", () => {
+			const lock = join(outside, "Cargo.lock");
+			writeFileSync(lock, "# shared\n");
+			grant("# shared\n", {});
+			expect(evalCmd(`cd ${outside} && cargo build --locked`).decision).toBe("allow");
+		});
+	});
 });
 
 describe("evaluatePackageInstall — harness-required dev tooling carve-out", () => {
@@ -709,7 +758,7 @@ describe("evaluatePackageInstall — snapshot coverage across fixed ecosystems",
 		expect(r).toEqual({
 			decision: "block",
 			reason:
-				'[interlinked:supply-chain] npm sync [in nested]: no allowlist snapshot matches the current npm manifest/lockfile state. Run `interlinked allowlist snapshot` to approve the current state of: package.json. (current hashes: package.json=' + hash + ')',
+				'[interlinked:supply-chain] npm sync [in nested]: no allowlist snapshot matches the current npm manifest/lockfile state. Run `interlinked allowlist snapshot --dir nested` to approve the current state of: package.json. (current hashes: package.json=' + hash + ')',
 			rule_id: "supply-chain-snapshot-mismatch",
 			severity: "high",
 			category: "supply-chain",

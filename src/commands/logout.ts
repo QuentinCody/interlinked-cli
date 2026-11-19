@@ -83,7 +83,7 @@ export async function logoutCommand(options: LogoutOptions): Promise<void> {
 		hadHandle: !!local.agent_handle,
 	};
 
-	if (!flags.hadToken && !flags.hadRefresh && !flags.hadOauth) {
+	if (!flags.hadToken && !flags.hadRefresh && !flags.hadOauth && !(options.all && flags.hadHandle)) {
 		printSimpleStatus(options.json, "no_credentials", "No credentials found in config. Already logged out.");
 		return;
 	}

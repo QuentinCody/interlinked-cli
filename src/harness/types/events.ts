@@ -29,8 +29,9 @@ export type Determinism = "fully_deterministic" | "partially_deterministic" | "h
  * `string`) and callers narrow with `===` checks against the constants
  * below, not exhaustive switches.
  *
- * Claude Code — parseable events. PostToolUseFailure remains parse-only;
- * PermissionRequest and WorktreeCreate are installed policy events:
+ * Claude Code — parseable events. PostToolUseFailure is installed (failed
+ * calls arrive only on it); PermissionRequest and WorktreeCreate are installed
+ * policy events:
  * PreToolUse, PostToolUse, PostToolUseFailure, SessionStart, SessionEnd,
  * Interrupt, UserPromptSubmit, Stop, SubagentStart, SubagentStop,
  * Notification, PreCompact, PostCompact, TaskCompleted, TeammateIdle,

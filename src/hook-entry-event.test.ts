@@ -9,8 +9,11 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 it("records execution under the event project and leaves unconfigured directories untouched", () => {
-    const root = mkdtempSync(join(tmpdir(), "hook-entry-event-"));
-    roots.push(root);
+    const sandbox = mkdtempSync(join(tmpdir(), "hook-entry-event-"));
+    roots.push(sandbox);
+    // Keep the entire twenty-hop discovery range inside this unconfigured fixture.
+    const root = join(sandbox, ...Array<string>(20).fill("dir"));
+    mkdirSync(root, { recursive: true });
     const adapter = resolveHookAdapter({ runner: "codex", env: {} });
     if (!adapter) throw new Error("Codex adapter missing");
     const event = buildUnifiedHookEvent(adapter, { session_id: "test", cwd: root, cli_version: "1.2.3", tool_name: "Read", tool_input: {} }, "PreToolUse");

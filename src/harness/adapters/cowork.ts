@@ -8,7 +8,7 @@ import { COWORK_EVENTS } from "../../lib/cowork/capabilities.js";
 import type { HookControl } from "./hook-contract.js";
 
 const PHASES = { SessionStart: "session-start", SessionEnd: "session-end", UserPromptSubmit: "user-prompt", PreToolUse: "pre-tool", PostToolUse: "post-tool", Stop: "stop" } as const;
-export const COWORK_CAPABILITIES: RunnerCapabilities = {
+const COWORK_CAPABILITIES: RunnerCapabilities = {
     project_hook_path: "hooks/hooks.json", hook_trust: "provider-managed", status_line: "none",
     events: COWORK_EVENTS.map(name => ({ name, phase: PHASES[name], install: true,
         control: name === "PreToolUse" ? "deny" : "observe", controls: name === "PreToolUse" ? ["deny", "ask", "rewrite_input", "context"] : name === "PostToolUse" ? ["context"] : [],

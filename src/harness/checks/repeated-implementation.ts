@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import type * as TS from "typescript";
 import { isJsonObject } from "../../lib/json-types.js";
+import { runProcessAsync } from "../check-engine/spawn-async.js";
 import { functionName, hasParseErrors, isImplementationFunction, parseTsSource } from "./cyclomatic-ast.js";
 import { REPEATED_IMPLEMENTATION_PYTHON } from "./repeated-implementation-python.js";
 import { getExtension, isGeneratedFile, isTestFile, JS_TS_EXTS, type InlineMatch } from "./shared.js";
@@ -20,7 +21,11 @@ function pythonImplementations(content: string): Implementation[] {
         input: content, encoding: "utf8", timeout: 1_000, maxBuffer: 4 * 1024 * 1024,
     });
     if (run.error || run.status !== 0) throw new Error("Python parser unavailable");
-    const rows: unknown = JSON.parse(run.stdout);
+    return decodePythonImplementations(run.stdout);
+}
+
+function decodePythonImplementations(output: string): Implementation[] {
+    const rows: unknown = JSON.parse(output);
     if (!Array.isArray(rows)) throw new Error("Invalid parser output");
     return rows.map((row: unknown) => {
         if (!isJsonObject(row) || typeof row.name !== "string" || typeof row.shape !== "string"
@@ -124,4 +129,31 @@ export function checkRepeatedImplementation(content: string, path: string): Repe
         cache.set(key, findings);
         return findings.map(row => ({ ...row }));
     } catch { return unavailable("parser missing, timed out, or source syntax invalid"); }
+}
+
+interface ForegroundOptions {
+	signal?: AbortSignal;
+	onUnavailable?: (reason: string) => void;
+}
+
+/** Foreground verification retains whole input/output and uses managed cancellation.
+ * The isolated Python interpreter parses candidate text without executing it. */
+export async function checkRepeatedImplementationAsync(content: string, path: string, options: ForegroundOptions = {}): Promise<RepeatedImplementationMatch[]> {
+	const extension = getExtension(path);
+	if ((!JS_TS_EXTS.has(extension) && extension !== ".py") || isTestFile(path) || isGeneratedFile(content)) return [];
+	try {
+		options.signal?.throwIfAborted();
+		if (extension !== ".py") return groupImplementations(typescriptImplementations(content, path));
+		const run = await runProcessAsync("python3", ["-I", "-S", "-B", "-c", REPEATED_IMPLEMENTATION_PYTHON], {
+			input: content, timeout: 0, maxBufferBytes: null, ...(options.signal ? { signal: options.signal } : {}),
+		});
+		if (run.code !== 0 || run.killed || run.timedOut || run.stdoutTruncated || run.stderrTruncated || run.inputError) {
+			throw new Error(run.inputError ? `Python input delivery failed (${run.inputError})` : `Python parser did not complete (exit ${run.code}, killed ${run.killed}, timed out ${run.timedOut}, truncated ${Boolean(run.stdoutTruncated || run.stderrTruncated)})`);
+		}
+		return groupImplementations(decodePythonImplementations(run.stdout));
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		options.onUnavailable?.(reason);
+		return [{ line: 1, fingerprint: hash(reason), text: `Repeated implementation NOT CHECKED: ${reason}. No duplication conclusion is available.` }];
+	}
 }

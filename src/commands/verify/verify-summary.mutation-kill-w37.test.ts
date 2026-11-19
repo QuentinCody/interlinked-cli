@@ -96,14 +96,16 @@ describe("emitVerifyRun — exact git invocation args (mutation kill)", () => {
 			stdio: ["ignore", "pipe", "ignore"],
 			timeout: 3000,
 		};
+		// Every probe runs with --no-optional-locks: a timed-out `git status` must not
+		// leave .git/index.lock behind in the user's repository (2026-11-13).
 		expect(vi.mocked(execFileSync)).toHaveBeenNthCalledWith(
 			1,
 			"git",
-			["rev-parse", "--abbrev-ref", "HEAD"],
+			["--no-optional-locks", "rev-parse", "--abbrev-ref", "HEAD"],
 			expectedOpts,
 		);
-		expect(vi.mocked(execFileSync)).toHaveBeenNthCalledWith(2, "git", ["rev-parse", "HEAD"], expectedOpts);
-		expect(vi.mocked(execFileSync)).toHaveBeenNthCalledWith(3, "git", ["status", "--porcelain"], expectedOpts);
+		expect(vi.mocked(execFileSync)).toHaveBeenNthCalledWith(2, "git", ["--no-optional-locks", "rev-parse", "HEAD"], expectedOpts);
+		expect(vi.mocked(execFileSync)).toHaveBeenNthCalledWith(3, "git", ["--no-optional-locks", "status", "--porcelain"], expectedOpts);
 	});
 });
 

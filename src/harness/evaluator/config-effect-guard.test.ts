@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	BASELINE_RESTORE_PREFIX,
 	captureConfigWaterLines,
+	captureConfigWaterLinesSafely,
+	configCaptureFailures,
 	detectConfigWaterLineLoosening,
 	isConfigWaterLineName,
 	resetConfigDiscovery,
@@ -39,6 +41,14 @@ beforeEach(() => {
 
 afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
+});
+
+it("counts a failed config snapshot and can capture the next request", () => {
+	const before = configCaptureFailures();
+	expect(captureConfigWaterLinesSafely(root, () => { throw new Error("unreadable"); })).toEqual({});
+	expect(configCaptureFailures()).toBe(before + 1);
+	expect(captureConfigWaterLinesSafely(root, read)["tsconfig.json"]).toBe(STRICT);
+	expect(configCaptureFailures()).toBe(before + 1);
 });
 
 describe("config effect arm — positive (must fire)", () => {
@@ -87,6 +97,19 @@ describe("config effect arm — positive (must fire)", () => {
 		writeFileSync(join(root, "base.json"), '{ "extends": "./other.json" }');
 		writeFileSync(join(root, "other.json"), '{ "extends": "./base.json" }');
 		expect(Object.keys(captureConfigWaterLines(root, read)).sort()).toEqual(["base.json", "other.json", "tsconfig.json"]);
+	});
+
+	it("reads shared bases once and exhausts the snapshot budget in declaration order", () => {
+		const bases = Array.from({ length: 70 }, (_, n) => "./base-" + n + ".json");
+		writeFileSync(join(root, "tsconfig.json"), JSON.stringify({ extends: [bases[0], ...bases] }));
+		const reads: string[] = [];
+		const snapshot = captureConfigWaterLines(root, path => {
+			reads.push(path);
+			return read(path);
+		});
+		expect(Object.keys(snapshot)).toEqual(["tsconfig.json", ...bases.slice(0, 63).map(base => base.slice(2))]);
+		expect(reads).toHaveLength(64);
+		expect(new Set(reads).size).toBe(reads.length);
 	});
 
 	it("P4: a vitest coverage.exclude gaining a member is a loosening", () => {

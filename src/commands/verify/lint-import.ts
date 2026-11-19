@@ -5,7 +5,7 @@ import { LINT_POLICY_PATH } from "../../lib/lint-import/policy.js";
 
 interface ImportedLintStream {
     cwd: string;
-    opts: { only?: string | undefined; allChecks?: boolean };
+    opts: { only?: string | undefined; allChecks?: boolean; toolTimeout?: number };
     skipChecks: Set<string>;
     allFlaggedFiles: Set<string>;
 }
@@ -16,7 +16,7 @@ export async function streamImportedLint(args: ImportedLintStream): Promise<void
     if (args.skipChecks.has("lint-import") || args.skipChecks.has("lint_import")) return;
     if (!existsSync(join(args.cwd, LINT_POLICY_PATH))) return;
     try {
-        const findings = await runImportedLintAsync({ scope: { projectRoot: args.cwd, mode: "project", lintCadence: args.opts.allChecks ? "all" : "hook" }, timeoutMs: 30_000 });
+        const findings = await runImportedLintAsync({ scope: { projectRoot: args.cwd, mode: "project", lintCadence: args.opts.allChecks ? "all" : "hook" }, timeoutMs: args.opts.toolTimeout ?? 0, resourcePolicy: "foreground-verify" });
         process.stderr.write(`\n  Imported lint: ${findings.length} findings above baseline\n`);
         for (const finding of findings) {
             args.allFlaggedFiles.add(finding.file);

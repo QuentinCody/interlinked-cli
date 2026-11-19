@@ -83,6 +83,21 @@ function definitionHeadWindow(stripped: string): HeadWindow | null {
 	return { start: offset + (marker?.[0].length ?? lead), end: stripped.length };
 }
 
+/** The registry shape of a definition site. `named` = a list item whose leading bold names the id and a title
+ *  (`- **S1 native-isolated**: …`); `item` = any other list item, blockquote text or bold-leading line. */
+export type DefinitionShape = "heading" | "table" | "named" | "item";
+
+/** A list item that opens with bold text holding an id AND at least one more word. Judged on the RAW line. */
+const NAMED_ITEM_RE = /^[ \t]*(?:[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)\*\*[A-Za-z][A-Za-z0-9-]*\d+[a-z]? [^*]+\*\*/;
+
+/** The shape of a definition-shaped line, judged like `definitionHeadWindow` (blockquote markers are transparent). */
+export function definitionShape(rawLine: string, stripped: string): DefinitionShape {
+	const body = stripped.replace(QUOTE_MARKER_RE, "");
+	if (/^[ \t]*#{1,6}\s/.test(body)) return "heading";
+	if (body.trimStart().startsWith("|")) return "table";
+	return NAMED_ITEM_RE.test(rawLine.replace(QUOTE_MARKER_RE, "")) ? "named" : "item";
+}
+
 /**
  * Whether the id at stripped-column `col` is DEFINED here.
  *

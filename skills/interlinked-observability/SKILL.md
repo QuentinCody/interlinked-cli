@@ -6,76 +6,40 @@ description: "Investigate agent activity and JSONL/gzip evidence. Load for data 
 
 # interlinked-observability — inspect what agents did
 
-For internal claim-verification research, `node --import tsx scripts/internal/jev.mjs claims
-<final-message> <transcript> --receipt-shadow <links-file>` adds default-off, log-only
-deterministic comparisons to `.interlinked/claim-receipt-shadow.jsonl`. It does not run from
-public Stop hooks or change Jev's decision. Links explicitly bind a claim to receipt/source/
-selection identities; missing or duplicate links remain not assessable. Only four narrow
-receipt predicates are supported; see `docs/internal/jev.md`. A missing Jev score is unmeasured,
-including short claims omitted by the legacy splitter. Separate replay statistics from live
-usage, and inspect `receiptShadowFailures()` before treating an absent row as no claim.
+Interlinked captures normalized tool-call events that configured Claude Code,
+Codex, Copilot CLI, Gemini CLI, Cursor, OpenCode, and Pi integrations deliver —
+locally via hooks, offline-first, into append-only JSONL under `.interlinked/`.
+The running daemon persists those delivered events. Detached lifecycle events and
+asynchronous PostTool findings can arrive after the originating provider action,
+and a cold fallback is not a complete capture path, so the log is evidence of
+events already delivered and persisted—not a synchronous transcript of every
+agent action. You can answer *what did I (or a parallel agent) just do? what ran,
+on what files, with what tokens? what did the guard block? what mistakes keep
+recurring?* — **all without a server** (the server is optional enrichment).
 
-Ordinary hook delivery omits deep-audit style/design messages after one review
-notice, while raw check results remain intact. This applies to synchronous responses
-and the late-warning spool; their deduplication state is separate so preparing a
-fallback cannot consume the synchronous notice. Repeated guard-scope advice is
-deduplicated per session. Compare native delivered feedback separately from raw
-finding counts; fewer delivered warnings do not imply fewer findings or clean code.
-Interactive ChangeSet batches defer project-wide Gitleaks to explicit verification
-or background recovery, with an explicit non-verdict. Confirm actual tool timings
-and completion before claiming latency or security-coverage improvements.
+## Load this when
 
-For Claude compiler batching, distinguish tool calls, scheduled checks, compiler
-executions and delivered diagnostics. `hook-observation.v1` rows record scheduled
-TypeScript work; batch results and timing are in `check-results.jsonl`. Pending work
-survives in `.interlinked/compiler-batches/`. Coverage observations are retained even
-when repeated model warnings are suppressed. Silence does not mean coverage is complete.
-Measure a repeated-edit problem by assistant-message/tool-use identity and timestamps:
-an edit emitted before an earlier hook's feedback cannot be attributed to that feedback.
+`recurrence propose <signature>` reports a missing proposal with a nonzero exit.
+Its JSON mode emits a structured error on stderr. `trajectory show --json`
+validates retained JSON before printing it. Missing, unreadable or malformed
+snapshots produce a structured JSON error and nonzero exit. Valid raw JSON keeps
+its stored formatting.
 
-`check-executions.jsonl` also carries `hook-observation.v1`: scheduled external overlays,
-normal complexity/token measurements, and shadow trajectory observations. These are telemetry,
-not check passes or confirmed model delivery. `check-results.jsonl` retains full findings,
-including `novelty`, `findingCount` and server-computed `writeAttribution` where available.
-Newly observed means report novelty, not proven causation. Repeated advisories may be hidden
-from model feedback while remaining in each call's records; hidden findings prevent all-clean.
+`collect --since` requires an explicit nonempty duration. Omitting it retains
+whole-history collection. `telemetry --follow --json --limit N` emits JSONL for
+both the initial tail and later events. When a watched spool shrinks, following
+restarts at byte zero, which can replay retained rows after compaction.
 
-Use `evals/compare-builds.mjs` for paired explicit-build agent pilots. It retains fixtures,
-native streams, usage categories, settings, daemon status, final diffs and evaluator-owned
-functional checks. Activity warning counts are ledger metrics. Missing native delivery/token
-data remains unknown; do not infer billed savings from shorter commands or compressed rows.
+Git attribution preserves exact NUL-delimited paths and uses literal arguments
+for filenames and revisions. Untracked-only work participates in its existing
+patch-line estimate. Attribution remains a heuristic observation.
 
-`repeated_implementation` check results retain each current AST-matched group with
-a `group=<sha256>` detail identity, even when unchanged agent-facing warnings are
-suppressed. Compare these identities rather than line numbers across formatting edits.
-Post-tool suppression is session-local and resets with the daemon; Stop uses its
-existing digest state. NOT CHECKED means missing analysis, not zero clones. Findings
-are review candidates, not proven defects or evidence that an extraction helped.
-
-
-`hook-reentry.jsonl` records Stop/SubagentStop re-entry suppressed before daemon evaluation.
-Translation receipts now include advisory context representation as well as denials and
-rewrites. Operator-only Stop diagnostics are not model-context delivery. Audit native
-completion messages by unique ID; streaming chunks and daemon Stop counts are insufficient
-to count continuations. The SlopCodeBench exporter retains these receipts and registrations.
-
-Shared hook-check receipts may include `scopes` with a batch ID, check name, configuration
-hash and captured request-file identities. `kind: request-inputs` is historical execution
-evidence, not a complete runtime/dependency closure or reusable cache key. Nonempty
-`unavailable` preserves partial evidence and leaves the obligation pending. Keep those states
-separate from clean results when comparing recovered check counts or latency.
-
-`source-scan-scope.v1` capture rows record dependency/runtime exclusions from authored-source
-quality, with `excluded_not_checked` status. `source-scan-security.v1` retains the separate
-security findings and request-input evidence. Neither row authenticates a writer or certifies
-runtime-input closure. Repeated unavailable-check messages are deduplicated for delivery by
-session, project, configuration and reason; raw check results retain missingness. Counts in
-the agent channel therefore differ intentionally from raw deferral counts.
-
-Cowork plugin receipts use a separate metadata-only schema and explicit exports.
-Use **interlinked-cowork** and `interlinked cowork report <receipts> --effects <listing>`
-for native conformance. An intended hook decision is not execution/prevention proof;
-these receipts do not provide complete transcripts or authenticated writer attribution.
+- "What did I / another agent do this session?" — or you want to tail activity live.
+- Reviewing what the guard blocked or warned.
+- Finding recurring mistakes to harden against.
+- Reporting recorded local changes without turning correlation into a savings or causal claim.
+- Inspecting a specific session, event, or the repo dependency graph.
+- Backfilling external (Codex) sessions, verifying the audit log, or syncing to the server.
 
 ## Search and organize all local evidence
 
@@ -105,136 +69,17 @@ literal queries, FTS token queries, and raw `rg` searches have distinct semantic
 interlinked data scan "compiler import" --source check-results --max-mb 32 --limit 10 --full-text --raw --json
 ```
 
-Direct scans default to 32 MiB expanded input and 25,000 physical lines, taking complete-line
-prefixes of the most recently modified files. They include retained gzip archives and numeric
-rotations. A narrow time filter does not jump to a newer portion of a large file. Inspect
-`coverage.complete` and `scope`; increase explicit budgets or choose an existing index when
-necessary. `--raw` returns the observed source text with its hash. Scan/lab IDs are separate
-from production `data show` IDs. File filters for `data scan` use project-relative paths.
-Use `--full-text` when omission by the bounded index projection matters: it searches all
-decoded string values inside each readable complete record, excluding JSON field names.
-Byte/line budgets and oversized-record limits still apply. Without this flag, a complete scan
-with `coverage.truncated > 0` does not establish that a term is absent from original payloads.
-
-Use `interlinked data catalog` to discover registered and unknown JSONL files recursively,
-including numeric rotations and gzip archives. `data health` distinguishes observed writes,
-unsupported/disabled/idle producers, failures, and unmeasured populated files. Its receipt
-window is bounded; a quiet event-driven feed is not automatically broken. `doctor` reports
-capture failures and unmeasured coverage.
-
-```bash
-interlinked data index --max-mb 256 --max-records 250000 --json
-interlinked data status --json
-interlinked data search "compiler import" --since 7d --json
-interlinked data search --source check-results --session SESSION --json
-interlinked data show RECORD_ID
-interlinked data investigate --session SESSION --json
-interlinked data investigate --file src/app.ts --json
-interlinked data checks --check typescript --json
-interlinked data usage --session SESSION --json
-interlinked data suggestions --json
-interlinked data recurrence-inventory --json
-```
-
-Indexing is incremental and bounded: repeat until the retained backlog is covered. `--rebuild`
-clears only derived tables. SQLite/FTS5 loads lazily; use a Node runtime with built-in SQLite
-(Node 22.13+ avoids needing the earlier experimental flag). Search includes retained archives;
-`--no-archives` restricts it to live files. `--fts` opts into FTS5 query grammar. Structured
-filters include source/category/session/actor/provider/model/file/check/call/kind/decision/origin.
-Catalog source names and categories stay consistent between direct scans and indexed search,
-including sources stored under nested paths such as `logs/latency.jsonl`.
-Unknown event timestamps are excluded by time bounds. The older `query` command scans a
-bounded physical tail of one file and reports its scope; it does not promise archive coverage.
-
-Each indexed answer carries a record ID; `data show` retrieves the original JSON and verifies
-its SHA-256. Projection text/field traversal is bounded, and oversized or malformed rows are
-reported without deleting their raw bytes. Check `data status` for freshness and parse failures.
-Invalid UTF-8 is malformed evidence: scans and new imports report it and continue to later
-complete records; `data show` refuses to verify it. A valid replacement character (`�`) in
-UTF-8 is ordinary text. For indexes created before strict UTF-8 validation, use an explicit
-`data index --rebuild` to remove earlier lossy projections; historical raw bytes remain intact.
-Exact duplicate raw records within one logical source share an indexed record but retain all
-physical locations. Cross-stream observations are not automatically independent executions.
-
-`data sessions/files/checks/usage/schema/suggestions` expose evidence aggregates. `investigate`
-correlates exact provider/session/actor/call identities and labels missing phases; a file filter
-also strictly folds the obligations ledger. A block count is not a prevented-defect estimate.
-Suggestion `shown` means selected for presentation, not acknowledged; later absence is an
-observation, not proof of a fix. Usage has unknown values and no invented prices; never add
-overlapping timeline and costs totals. Recurrence inventory is separate from incident counts.
-Usage deduplication chooses a provider-message representative within the query's retained
-scope, so superseded source generations and excluded archives do not hide a retained copy.
-Aggregate limits bound returned groups, not necessarily database work; narrow supported
-filters first. `schema` is a source-wide observed field census: only `--source` and `--limit`
-affect its scope, even though its CLI accepts the shared filter flags.
-
-`data maintain` previews retention. `data maintain --execute --compact --no-index` losslessly
-rotates eligible collection/timeline history without opening or creating SQLite. Add `--index`
-to explicitly import a bounded batch and translate existing evidence pointers during rotation.
-Without either index flag, indexing follows `auto_index`. It never deletes evidence or
-automatically compacts activity/state ledgers/corpora.
-Activity still requires the existing cursor-aware `compact` workflow. After an external
-compactor, rerun `data index` to discover replacement files and archives.
-
-Preserve evidence indefinitely: do not delete, expire, truncate, sample away, or rewrite raw
-records, archives, manifests, or integrity checkpoints to reclaim space or hide bad rows.
-Lossless rotation changes physical placement while retaining every record. A smaller live
-file is not less retained history. Search archives with `data search`; older live-file readers
-cannot answer questions about the complete retained history. `--rebuild` replaces derived
-index tables only and is not a routine retention operation. Index storage can exceed raw-log
-storage substantially; the per-pass import budget is not a cap on total index size.
-
-Rotation prepares the bulk retained suffix before acquiring the append lock. Identity is
-rechecked under the lock, and only a bounded catch-up plus the atomic rename exclude writers.
-An excessive append burst or competing replacement aborts safely for retry. Maintenance
-operation failures are recorded in capture health.
-
-`data configure --auto-index on` opts into bounded SessionEnd background indexing;
-`--auto-compact on` independently enables collection/timeline rotation. Both default off;
-enabling rotation alone does not enable or run the SQLite importer.
-Defaults are 256 MiB/250,000 records per pass, a 256 MiB rotation threshold, and a 64 MiB live
-tail. Configure via `--index-mb`, `--index-records`, `--compact-at-mb`, `--keep-live-mb`.
-Settings live in `data.config.json` under the resolved data directory; capture itself continues
-independently. Load new daemon capture code through the normal build/reload workflow.
-SessionEnd is an actual provider lifecycle event, not each assistant Stop. This automation
-does not continuously watch files or refresh a long-running active session on a timer. Run an
-explicit index pass when recent evidence matters; a deferred background job is not freshness.
-
-`data audit diagnose` locates the first historical failure by physical source/offset and does
-not infer tampering intent. Its source line and byte offset refer to the physical record even
-when archived blank lines are omitted from the verifier's combined line count.
-After investigation, `data audit checkpoint --reason TEXT` records
-an explicit payload-verified live observation boundary. `data audit verify --checkpoint ID`
-checks subsequent retained evidence, including after rotation. The historical verdict stays
-unchanged; checkpoints never rewrite or reset the old chain.
-
 The bundled [workflow reference](references/evidence-workflows.md) is available in installed
 skills. In the Interlinked CLI source repository, `docs/data-observability.md` and
 `docs/generated/data-catalog.md` provide the operator contract and generated source catalog;
 in another project, use `data catalog --json` to inspect its sources.
 
-Interlinked captures normalized tool-call events that configured Claude Code,
-Codex, Copilot CLI, Gemini CLI, Cursor, OpenCode, and Pi integrations deliver —
-locally via hooks, offline-first, into append-only JSONL under `.interlinked/`.
-The running daemon persists those delivered events. Detached lifecycle events and
-asynchronous PostTool findings can arrive after the originating provider action,
-and a cold fallback is not a complete capture path, so the log is evidence of
-events already delivered and persisted—not a synchronous transcript of every
-agent action. You can answer *what did I (or a parallel agent) just do? what ran,
-on what files, with what tokens? what did the guard block? what mistakes keep
-recurring?* — **all without a server** (the server is optional enrichment).
-
-## Load this when
-- "What did I / another agent do this session?" — or you want to tail activity live.
-- Reviewing what the guard blocked or warned.
-- Finding recurring mistakes to harden against.
-- Reporting recorded local changes without turning correlation into a savings or causal claim.
-- Inspecting a specific session, event, or the repo dependency graph.
-- Backfilling external (Codex) sessions, verifying the audit log, or syncing to the server.
-
 ## Command surface
 Output-mode flags are **per-command** (not uniform); all support `--json`. `--since` grammar is
 strict: `\d+(s|m|h|d)` (e.g. `30m`, `2d`) — `15` or `1.5h` throw.
+
+`status --watch --json` emits a sequence of complete JSON objects at each refresh.
+Terminal clearing and refresh banners are limited to human output modes.
 
 **Dashboard / feed**
 | Command | Purpose | Key flags |
@@ -274,8 +119,30 @@ over 250,000 records / 64 MiB instead of exhausting application memory.
 | `compact [--dry-run --keep-recent-mb --all]` | Lossless gzip + rotate `activity.jsonl` (safe prefix ≤ sync cursor, audit-chain-aware) PLUS `collection.jsonl` / `timeline.jsonl` (plain recent-tail rotation, per-log `manifest-<log>.json`). Appenders and rotation share a cross-process lock, so appends made during compaction survive. A durable per-log claim precedes final segment publication; retry verifies its source identity, recorded prefix, gzip size, and SHA-256 before completing the SAME segment, even when the process died before the manifest write. Unknown or mismatched segment bytes stay untouched and stop that recovery. While either a durable claim or a legacy claim-less pending manifest row exists, `clean` and whole-file timeline rebuilds refuse to replace that log; ordinary appends remain allowed so recovery includes later rows. Activity recovery also refuses any recorded sync cursor beyond the retained suffix. Activity compaction refuses a sync cursor beyond the current EOF (unless `--all` explicitly bypasses sync bounds). All bytes remain recoverable via `gunzip` in manifest order. |
 | `sync [--dry-run --limit]` | Push buffered events to the server (`POST /api/hooks/activity/batch`, secret+PII scrubbed at egress). Network — use `--dry-run` for a safe pending count. |
 
+Compaction can start a new archive when its directory is missing. If an existing archive directory cannot be listed, compaction stops before allocating a segment number.
+
 `interlinked metrics` (whole-repo code-quality scan) lives in **interlinked-quality-gates**;
 `interlinked context` (effective config) in **interlinked-setup**.
+
+`interlinked query checks --actions --json` projects selected retained hook evidence
+into the same action schema as metrics and verification, without executing checks or
+calling a model. Normal/full output includes next steps and validation. The ordinary
+query time, row and byte bounds still apply and remain in the report; increase them
+explicitly to inspect more history. This is historical evidence, not a current unresolved
+worklist. Revalidate source and policy before acting. Captured observations with a
+consistent nonempty primary source hash are snapshot-bound. Supplied `sourceEvidence`
+also retains captured producer/consumer paths, lines and hashes. Grouped historical
+versions with conflicting primary or supporting hashes have unknown freshness and
+retain every version's evidence. This does not certify complete dependency capture
+or current disk freshness; older record formats may retain only primary evidence.
+Legacy records without detailed findings remain unknown, and simulated rows are
+excluded. Suppressed raw observations retain their reason and structured suppression
+metadata. Supplied evidence is appended without a function-argument count cutoff;
+the query window limits still apply. Supplied, accepted and rejected finding-row
+counts expose unsupported detail rows separately from unrecognized records. The flag requires
+the `checks` source and cannot combine with `--by`, `--sum` or `--fields`.
+Query row limits must be positive safe integers; byte budgets must represent at least
+one byte. Malformed numeric suffixes are errors rather than partially parsed numbers.
 
 For measured gate execution, `interlinked metrics gates --json` separates enabled policy
 from actual attempts, fresh source-bound reach, stale/deferred/unavailable work and recorded
@@ -294,6 +161,13 @@ returns full pending identities and receipts. Neither starts recovery; route exp
 `harness coverage verify` and unresolved check prerequisites to **interlinked-verify**.
 Hook-check receipts with nonempty `unavailable` retain partial work; their pending version
 is not discharged. Do not count them as fully checked files or reusable passing evidence.
+Receipts may separately retain `advisoryGaps` with a check, file and reason. These record
+unmeasured advisory scope, such as incomplete Commander reverse-import evidence. They are
+not defect findings and do not create required retry or blocking obligations. Completed
+listed checks can settle their work while advisory coverage remains explicitly unknown.
+Own-barrel pre-write unknowns also retain explicit unavailable advisory observations
+in `check-executions`; see [capture notes](references/capture-notes.md). A zero finding
+count on an unavailable observation is not a clean graph verdict.
 For runtime scan profiling, Node's `interlinked.coverage-runtime-scan` diagnostics channel
 emits root, completed flag, bytes read, entries visited and duration even on failed captures.
 Subscribers must be in the scanning process. The optional `evals/slopcodebench/scan-cost.mjs`
@@ -419,53 +293,33 @@ Values: `session_start`, `session_end`, `tool_use_start`, `tool_use`, `tool_use_
 `context_compact`, `task_completed`, `agent_stop`, and guard telemetry `guard_allow` /
 `guard_warn` / `guard_block`.
 
+Claude Code reports a failed Bash call only as `PostToolUseFailure` (row type `tool_use_error`).
+Installs before 2026-11-16 did not subscribe it, so failed calls from that time have no
+completion row and `tests.jsonl` has no `fail` rows for them. That gap is missing capture, not
+proof that the calls passed. Run `interlinked install-hooks --refresh --preserve-mode` to subscribe
+it. A failed test command then gets `outcome: "fail"` and the `exit_code` from the error text.
+
+Read `outcome` in `tests.jsonl` together with `basis`. `exit_code` is always the shell's status,
+and it is the check's verdict only when `exit_attributable` is `true`. After a pipe or a later
+command (`vitest run … | tail`, `npm test; echo done`) the status belongs to that other command,
+so the row gets `basis: "runner-summary"` when the output holds a vitest or jest summary line, and
+`outcome: "unknown"` with `basis: "exit-status-not-attributable"` when it does not. `set -o
+pipefail` before the check makes a piped status attributable again. Rows written before
+2026-11-16 have no `exit_attributable` field: a `pass` with `basis: "provider"` on a piped
+command there is the shell's status, not proof that the check passed. The same rule decides the
+red/green state behind the Stop `unresolved-red` nudge: a typecheck, build or lint run with a
+hidden status records nothing and returns an `[interlinked:check-evidence]` warning.
+
 **Sync modes** (`sync_mode`, or `INTERLINKED_SYNC_MODE`): `realtime` (default — per-event POST +
 session-end batch), `local` (never posts), `manual` (per-event POST, no auto batch — you run
 `interlinked sync`).
 
 ## The Stop digest — what end-of-turn stderr actually shows
 
-Every Stop event runs ~20 independent nudge families. They no longer print in
-full: `src/harness/stop-digest.ts` ranks and caps the whole wall to **≤15
-stderr lines**, and everything it trims goes to the spool.
-
-| Position | Contents |
-|---|---|
-| TOP | up to 3 warnings printed in full (≤4 lines each), ordered **actionable → measurement-threatening → reflection** |
-| SUMMARY | one line per remaining category: `[interlinked:digest] <tag> xN (see …)` |
-| POINTER | `.interlinked/stop-digest.jsonl` — the full detail, per-session capped |
-
-Read the spool when a count line is not enough:
-
-```bash
-interlinked query .interlinked/stop-digest.jsonl --where kind=subagent-attributed
-tail -n 40 .interlinked/stop-digest.jsonl | jq -r '[.kind,.tag//.check,.file]|@tsv'
-```
-
-Row kinds: `stop-warning` (a trimmed nudge), `subagent-attributed` (a finding on
-a file a SUBAGENT wrote — attributed via `timeline.jsonl` and kept out of the
-main list), `pre-existing` (present in the session's git baseline), and
-`sanctioned-scratch` (probe-pattern findings under root `scratch/`, which the
-scratchpad policy sanctions — still reported by `interlinked verify
---all-checks`). The sanctioned classes are what a probe IS: print, no
-companion test, import-time side effect, raw `JSON.parse`, plus the
-entry-script family whose own rationale exempts bin/cli files — argv
-boundary, env read, unjustified cast, wall clock, magic number. Product
-code outside `scratch/` keeps every one of them.
-
-Two consequences worth knowing:
-- **The rescan reports introduced-only.** A whole-file scan still runs, but a
-  finding your session did not introduce is spooled, not printed.
-- **Suite failures are not multiplied into per-file regressions.** A cycle
-  reddened only by a whole-suite failure is excluded from the green→red Stop
-  list; the unresolved `test-suite` outcome remains one check-level signal
-  until a targeted test run supplies file-level evidence.
-- **A repeat Stop prints only what is new**, plus one `R resolved, S unchanged
-  (suppressed)` line. Per-session state lives in
-  `.interlinked/.stop-digest-state.json` (daemon bookkeeping — do not hand-edit).
-
-Activating a change to any of this needs `npm run build && interlinked harness
-restart`: the daemon serves the build it started with.
+`src/harness/stop-digest.ts` caps the Stop stderr wall to 15 lines: up to 3 full warnings, one
+`[interlinked:digest]` count line per other category, and a pointer to `.interlinked/stop-digest.jsonl`
+(the full detail). A repeat Stop prints only what is new. The row kinds, the spool queries and the
+introduced-only rules are in [references/calls-and-outcomes.md](references/calls-and-outcomes.md).
 
 ## `interlinked query stages` — where verification time goes
 
@@ -565,50 +419,6 @@ interlinked viz snapshot [--json] [--full]           # print the graph summary (
 `.interlinked/viz.status` (`url=` + `pid=`), which the statusline reads to render a clickable
 `◈ viz` row; the row disappears when that pid dies, so the link is never stale.
 
-Six lenses, each fed by its own SSE route:
-
-| Lens | Route | Source | Shows |
-|---|---|---|---|
-| FILES | `/api/graph` + `/api/stream` | project graph + `activity.jsonl` | one dot per source file, one line per import, dot size = how many files depend on it; a touched file pulses in the colour of the agent that touched it |
-| GATES | `/api/checks` | `check-results.jsonl` | one frame per tool call: which checks ran, which fired, allowed or blocked, `[proven]`/`[heuristic]` |
-| AGENTS | `/api/agents` | `activity.jsonl` (folded) | one lane per agent session working in this repo, indented lanes for subagents it spawned: runner, model, calls/edits/blocks/warns, current tool + file, live-vs-idle |
-| TESTS | `/api/tests` | `test-events.jsonl` | every test case in the order the runner finished it; pass/fail/skip, slow cases outlined, failure messages |
-| MUTANTS | `/api/mutants` | `mutation-manifest.json` | every mutant, survivors first; live kill-rate; a tile flashes when its status flips |
-| DRIFT | — | — | not built yet (standby pane) |
-
-The AGENTS lens needs no producer: attributed activity rows carry `agent`, `session`,
-`subagent_id`, `parent_agent`, and `model`, so presence is a fold over the stream the dashboard already tails
-(`src/lib/viz/agent-roster.ts`, hosted at `/api/agents`). Each actor gets a stable hue from its
-id, and that hue is reused for its ticker rows and its file pulses — with two sessions running,
-colour alone answers "who did that". A subagent gets its OWN lane keyed under its parent, so a
-session's own edits are never conflated with its subagents'. When a runner names the parent by
-thread/session id, the roster resolves that id through the root lane's session before linking the
-child. Lanes dim to idle after 2 minutes of silence rather than disappearing.
-
-The TESTS lens needs a producer. Any repo using vitest adds one line:
-
-```ts
-// vitest.config.ts
-reporters: ["default", "interlinked-cli/viz-reporter"]
-```
-
-Gating it behind an env var is the recommended setup, so a normal `vitest run` stays
-byte-identical and only an explicit opt-in emits the feed — that is how interlinked-cli's own
-`vitest.config.ts` wires it: `INTERLINKED_VIZ=1 npx vitest run`. Any equivalent conditional
-works; nothing about the lens requires that variable name. The feed schema
-(`.interlinked/test-events.jsonl`) is runner-agnostic — `{kind: run_start|file_start|test|run_end,
-run_id, lane?, file?, name?, status?, ms?, error?}` — so a pytest/cargo adapter writes the same lines
-and the lens renders unchanged. Every feed degrades to an honest empty state when its file is
-absent; nothing about the dashboard is repo-specific.
-
-The Interlinked CLI e2e config always registers the reporter; `test:e2e` also
-sets `INTERLINKED_VIZ=1`. The TESTS lens groups files by `unit`, `integration`,
-`e2e`, `base` or `unknown` lane. A bare Vitest run is `base`; old rows without
-a lane remain `unknown`. Repository test rows are run evidence. Fixture
-ledgers are assertion subjects and do not establish which coding session ran
-the tests. The Stop nudge attributes e2e invocations through that session's
-observed Bash commands instead.
-
 ## Common workflows
 ```bash
 interlinked status                       # sessions + last events + sync/server health
@@ -648,51 +458,20 @@ interlinked sync --dry-run               # safe: pending count, no send
   verify a supplied controlled experiment's artifact bindings, but it does not run or reproduce
   an experiment. No class is a generic savings claim.
 
+## References
+
+Read a reference file only when the task needs it.
+
+- [references/evidence-workflows.md](references/evidence-workflows.md): task recipes, source selection, pagination and a handoff checklist.
+- [references/data-commands.md](references/data-commands.md): direct-scan budgets, `data catalog`, indexing, `data show`, aggregates, `data maintain`, rotation, auto-index and `data audit diagnose`.
+- [references/storage-evaluation.md](references/storage-evaluation.md): storage experiments and `data lab`.
+- [references/capture-notes.md](references/capture-notes.md): capture-record notes, such as `hook-observation.v1`, `hook-reentry.jsonl`, receipt scopes, `source-scan-scope.v1` and Cowork receipts.
+- [references/viz.md](references/viz.md): the `interlinked viz` lenses and the vitest TESTS reporter.
+- [references/calls-and-outcomes.md](references/calls-and-outcomes.md): `harness calls`, the tool-output efficiency lab, finding outcomes and `harness explain`.
+
 ## Related skills
 - **interlinked-quality-gates** — `interlinked metrics` (code-quality hotspots) and `recurrence scan`.
 - **interlinked-harness** — the guard whose block/warn telemetry you're inspecting.
 - **interlinked-coordination** — the server-backed side (tasks, messages) `watch`/`sync` reach.
 - **interlinked-simplification** — advisory opportunities whose estimated and validated impact
   must remain separate.
-
-## Comparing calls with daemon judgments
-
-Recurrence scans use the selected `--cwd` as their repository context. A throwing
-detector or missing prerequisite emits NOT MEASURED while healthy detectors continue.
-These notices are surfaced through stderr/callbacks; the retained finding receipt does
-not yet contain a complete structured inventory of unavailable detector scope. An empty
-finding list therefore does not establish that every detector ran successfully.
-
-`interlinked harness calls [--since 7d] [--session <id>] [--strict] [--json]`
-joins live `timeline.jsonl` tool calls to live collection judgments by session AND
-tool-use ID. It lists unjudged observed calls by tool, working folder and time span.
-Run from the project root. Exit 0 means reported, 1 means `--strict` found unjudged
-calls, and 2 means no calls/evidence or an error. This measures the observed live
-window; rotated or missing capture is a gap, not a clean enforcement claim.
-
-## Tool-output efficiency lab (source checkout only)
-
-Use `evals/tool-output-efficiency/README.md` for frozen native-session measurement,
-code/decision/embedding selection, and the explicit capture/expand wrapper.
-No question means the declared baseline; `--full` bypasses selection. Keep the
-receipt ID and expand missing evidence or exact edit text before acting. Offsets
-are end-exclusive UTF-16 units. Selection is advisory and does not alter hooks.
-Keep native logs local unless remote submission is explicitly authorized.
-The lab's live model controls are synthetic; `.local/` artifacts remain ignored.
-Report same-agent/same-compaction repetition separately from later compactions
-and other agents. No observed later use is not proof of waste. Character budgets,
-recorded token additions, repeated provider input, costs, and live context size
-are different measurements. Replay does not establish live expansion behavior
-or task success. See RESULTS.md before claiming savings or adopting filtering.
-
-## Finding outcomes and explanation
-
-`interlinked harness health --json` adds `finding_outcomes` and `corpus_precision`. `harness health --recheck --file src/a.ts` runs up to 20 confined files (2 MB each); omitted files come from retained finding records. Read failures remain unavailable. This explicit raw-detector recheck is independent of whether the agent edits again.
-
-The first raw file cohort is `async_promise_executor`, `nan_comparison`, and `unawaited_async_assertion`; this measurement cohort is separate from corpus qualification. Versioned `check-observations.v1` rows share the existing check-results stream. Full compatible successful rechecks with zero hits for that file/check can establish observed clearance. Partial scans, suppression, deletion, detector/config changes and missing execution cannot establish repair. The derived `finding-outcomes.v2` uses conservative file/check occurrence slots, independent of build identity. Changed text or multiplicity is ambiguous; it cannot credit a removed occurrence while that check still finds another. Counts are finding slots, not semantically unique defects. Delivery is intended/unknown, not inferred native receipt.
-
-The report shows distinct findings, emissions, follow-up coverage, recurrence, unavailable states, execution time and the observation window. Stop records individual intended emissions after filtering, capping and deduplication; a summary count is not individual delivery evidence. Inline deferrals retain acknowledgement reason/time/session and do not count as clearance. Native receipt remains unknown. Precision uses adjudicated live corpus hits only, with unsampled hits and scope visible; corpus freshness is not recomputed by health. Triage time remains unmeasured. Observed clearance is not causal fix rate. Legacy Boolean resolution scores are no longer produced or used by this report. The current reader covers the unrotated local log only; archives and legacy outcomes remain unknown.
-
-The outcome reader scans at most the newest 2 MiB and retains the newest 2,000 complete rows, with a 128 KiB per-line limit. JSON `read_window` reports omitted prefixes, records, oversized and incomplete lines. It does not claim all-time totals. Build-time identity is embedded in packaged code and combined with the Node runtime/platform; it needs neither a lockfile nor a directory hash at command startup. Source-mode identities remain process epochs and cannot establish cross-process clearance.
-
-`harness explain <topic> --client <client> --json` separates implemented, enabled here, declared client support and latest retained execution (including clean execution). Observations carry timestamp, scope, configuration and detector identity; a seven-day recency field is separate from current-runtime matching. Missing observation is unknown, not disabled.

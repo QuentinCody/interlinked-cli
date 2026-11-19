@@ -200,6 +200,10 @@ async function launchTestPlan(base: TestExecution, options: TestRunOptions, envi
     // The child runs UNDER this process's leases (a test that takes the host lease itself must not deadlock on the run
     // hosting it); a scope reporter (scripts/pre-push-coverage.mjs) writes the coverage-inclusion scope beside the summary.
     const childEnvironment: NodeJS.ProcessEnv = { ...environment, [LEASE_ANCESTORS_ENV]: leaseAncestorsForChildren() };
+    // V8 can reserve a larger young generation for the same old-space limit on newer Node releases.
+    if (!/--max[-_]semi[-_]space[-_]size(?:=|\s)/.test(childEnvironment.NODE_OPTIONS ?? "")) {
+        childEnvironment.NODE_OPTIONS = [childEnvironment.NODE_OPTIONS, "--max-semi-space-size=16"].filter(Boolean).join(" ");
+    }
     if (options.coverage) childEnvironment.INTERLINKED_COVERAGE_SCOPE_FILE = join(directory, COVERAGE_ARTIFACTS.coverage_scope ?? "coverage/scope.json");
     const result = await runProcessAsync(process.execPath, testCommand(options.root, directory, base.plan, workers, heapMb, options.coverage), {
         cwd: options.root, timeout: Math.max(1, options.deadline - started), exactEnv: childEnvironment, resourceBudget,

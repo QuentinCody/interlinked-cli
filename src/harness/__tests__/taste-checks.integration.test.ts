@@ -375,9 +375,9 @@ describe("checkFlagArgument", () => {
 		expect(checkFlagArgument(content, "/src/foo.ts").length).toBe(1);
 	});
 
-	it("flags boolean-flag object arg", () => {
+	it("accepts explicit named boolean options", () => {
 		const content = "doThing(x, { verbose: true });";
-		expect(checkFlagArgument(content, "/src/foo.ts").length).toBe(1);
+		expect(checkFlagArgument(content, "/src/foo.ts")).toEqual([]);
 	});
 
 	it("allows safe builtins", () => {
@@ -570,6 +570,30 @@ describe("checkTestWithoutDescription", () => {
 		const content = 'it("does a thing", () => { expect(1).toBe(1); });';
 		expect(checkTestWithoutDescription(content, "/x/foo.test.ts")).toEqual([]);
 	});
+
+	it("N: an it( / test( inside a string literal is not a test opener", () => {
+		const content = [
+			`write(FILE, text.replaceAll("it('", "it.skip('"));`,
+			`const src = "test(() => 1)";`,
+			`const quoted = 'it("", x)';`,
+		].join("\n");
+		expect(checkTestWithoutDescription(content, "/x/foo.test.ts")).toEqual([]);
+	});
+
+	it("P: a real empty description still fires on a line that also holds a string", () => {
+		const content = `const label = "x"; it(${'""'}, () => { expect(label).toBe("x"); });`;
+		expect(checkTestWithoutDescription(content, "/x/foo.test.ts").length).toBe(1);
+	});
+
+	it("ignores anonymous tests quoted in multiline fixtures and reports the following actual test", () => {
+		const content = [
+			"const fixture = `",
+			"test(() => fake());",
+			"`;",
+			"test(() => real());",
+		].join("\n");
+		expect(checkTestWithoutDescription(content, "/x/cases.test.ts").map(match => match.line)).toEqual([4]);
+	});
 });
 
 describe("checkAssertionRoulette", () => {
@@ -759,7 +783,7 @@ describe("FP: flag-argument safe builtins", () => {
 	});
 
 	it("still flags user-facing boolean-flag calls", () => {
-		const content = "myHelper(input, { verbose: true });";
+		const content = "myHelper(input, true);";
 		expect(checkFlagArgument(content, "/src/foo.ts").length).toBe(1);
 	});
 });

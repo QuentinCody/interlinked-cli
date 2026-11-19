@@ -33,7 +33,7 @@
 
 import { basename, dirname, extname, resolve as toAbsolutePath } from "node:path";
 import type * as TS from "typescript";
-import { proposedFileContent, proposedFileExists } from "./proposed-files.js";
+import { fileExistsInView, readFileInView } from "./proposed-files.js";
 
 type TsModule = typeof TS;
 
@@ -63,16 +63,6 @@ export type OptionsResolution =
 /** The filesystem the config walk reads: the batch's PROPOSED view first (a
  *  tsconfig or package.json the batch itself writes governs the batch), the
  *  disk second. */
-function fileExistsInView(ts: TsModule, path: string): boolean {
-	return proposedFileExists(path) ?? ts.sys.fileExists(path);
-}
-
-function readFileInView(ts: TsModule, path: string): string | undefined {
-	const proposed = proposedFileContent(path);
-	if (proposed === null) return undefined;
-	return proposed ?? ts.sys.readFile(path);
-}
-
 /** "No inputs were found" (18002/18003) is expected: the virtual tree holds one
  *  file, and a config whose patterns do not match it legitimately lists nothing. */
 const BENIGN_CONFIG_ERRORS = new Set([18002, 18003]);

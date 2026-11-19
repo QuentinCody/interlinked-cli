@@ -30,7 +30,9 @@
 // Then the repeat-Stop delta: a second Stop prints only what is NEW since the
 // previous one, plus one line stating how many rows resolved and how many are
 // unchanged-and-suppressed. Everything filtered out is spooled to
-// `.interlinked/stop-digest.jsonl`, so this is relocation, never deletion.
+// `.interlinked/stop-digest.jsonl`, and so is every finding the main message
+// counts (`kind: "stop-rescan-finding"`), because the message lists only a
+// bounded sample. This is relocation, never deletion.
 
 import { join } from "node:path";
 
@@ -107,6 +109,10 @@ interface DigestStopRescanArgs {
 	scanBaseline?: ((relFile: string) => RescanFindingLike[] | null) | undefined;
 	/** Subagent→file attribution; absent ⇒ nothing is re-attributed. */
 	attribution?: SubagentAttribution | undefined;
+	/** True for a file that is in the rescan only because a workspace change
+	 *  was observed (no tool call of this session declared it). Such a file is
+	 *  reported as writer unknown, never as "you touched". */
+	observedOnly?: ((relFile: string) => boolean) | undefined;
 	now?: Date;
 }
 
@@ -186,6 +192,7 @@ interface PartitionResult {
 	subagentFiles: Map<string, RescanFindingLike[]>;
 	/** Distinct subagent ids implicated. */
 	subagents: Set<string>;
+	unknownWriterFiles: Map<string, RescanFindingLike[]>;
 	spoolRows: StopDigestSpoolRow[];
 }
 
@@ -237,6 +244,7 @@ function partitionFindings(args: DigestStopRescanArgs): PartitionResult {
 	const spoolRows: StopDigestSpoolRow[] = [];
 	const main = new Map<string, RescanFindingLike[]>();
 	const subagentFiles = new Map<string, RescanFindingLike[]>();
+	const unknownWriterFiles = new Map<string, RescanFindingLike[]>();
 	const subagents = new Set<string>();
 
 	for (const [file, all] of groupByFile(args.findings)) {
@@ -244,15 +252,30 @@ function partitionFindings(args: DigestStopRescanArgs): PartitionResult {
 		spoolRows.push(...rows);
 		if (kept.length === 0) continue;
 		const owners = ownersOf(file, args.attribution);
-		if (owners.length === 0) {
+		if (owners.length > 0) {
+			subagentFiles.set(file, kept);
+			for (const a of owners) subagents.add(a);
+			spoolRows.push(...subagentSpoolRows({ file, kept, owners }));
+		} else if (args.observedOnly?.(file)) {
+			unknownWriterFiles.set(file, kept);
+			spoolRows.push(...kept.map((f) => ({ kind: "unknown-writer", file, check: f.checkId, line: f.line, text: f.text })));
+		} else {
 			main.set(file, kept);
-			continue;
 		}
-		subagentFiles.set(file, kept);
-		for (const a of owners) subagents.add(a);
-		spoolRows.push(...subagentSpoolRows({ file, kept, owners }));
 	}
-	return { main, subagentFiles, subagents, spoolRows };
+	return { main, subagentFiles, subagents, unknownWriterFiles, spoolRows };
+}
+
+/** One bounded line for findings on files whose writer is unknown. It names the
+ *  query for the detail and says plainly that the files are not this session's. */
+function unknownWriterWarning(files: ReadonlyMap<string, readonly RescanFindingLike[]>): string[] {
+	if (files.size === 0) return [];
+	const open = [...files.values()].flat().length;
+	return [
+		`[interlinked:stop-rescan] ${files.size} file(s) changed in the workspace during this session by an unknown writer carry ${open} finding(s). ` +
+			"No tool call of this session declared them, so they are not attributed to you; do not edit a file that you did not write. " +
+			"List: interlinked query stop-digest --where kind=unknown-writer",
+	];
 }
 
 /** Subagent ids that wrote `file`, matching on the recorded path or its
@@ -270,6 +293,15 @@ function ownersOf(file: string, attribution: SubagentAttribution | undefined): s
 	return [];
 }
 
+/** The command that lists every finding this report counted. The message shows a
+ *  bounded sample; the agent is told to repair all of them, so all must be readable. */
+const FINDING_QUERY = "interlinked query stop-digest --where kind=stop-rescan-finding";
+
+/** Spool row for one finding the main message counts, shown or hidden. */
+function findingSpoolRow(file: string, f: RescanFindingLike): StopDigestSpoolRow {
+	return { kind: "stop-rescan-finding", file, check: f.checkId, line: f.line, text: f.text, deferred: f.deferred };
+}
+
 /** One collapsed block per file: up to MAX_FINDINGS_PER_FILE lines, then a
  *  count. Deferred rows never list individually — they are already
  *  acknowledged, so a count is the whole signal. */
@@ -279,7 +311,7 @@ function formatFileBlock(file: string, findings: readonly RescanFindingLike[]): 
 	const shown = open.slice(0, MAX_FINDINGS_PER_FILE);
 	const lines = shown.map((f) => `    ${f.checkId}:${f.line} — ${f.text}`);
 	if (open.length > shown.length) {
-		lines.push(`    ...and ${open.length - shown.length} more (see stop-digest.jsonl)`);
+		lines.push(`    ...and ${open.length - shown.length} more — list all: ${FINDING_QUERY} --where file=${file}`);
 	}
 	if (deferred.length > 0) {
 		lines.push(`    (${deferred.length} acknowledged-deferred, not escalated)`);
@@ -296,13 +328,29 @@ function intendedDetails(main: Map<string, RescanFindingLike[]>, newIds: Set<str
         .flatMap(findings => findings.filter(f => !f.deferred).slice(0, MAX_FINDINGS_PER_FILE));
 }
 
+/** What is new for the main actor since the previous Stop: one message block for
+ *  each file, and one spool row for each finding those blocks count. */
+function collectFresh(
+	main: ReadonlyMap<string, readonly RescanFindingLike[]>,
+	newIds: ReadonlySet<string>,
+): { blocks: string[]; rows: StopDigestSpoolRow[] } {
+	const blocks: string[] = [];
+	const rows: StopDigestSpoolRow[] = [];
+	for (const [file, findings] of main) {
+		const fresh = findings.filter((f) => newIds.has(fingerprintFinding(f)));
+		if (fresh.length > 0) blocks.push(formatFileBlock(file, fresh));
+		rows.push(...fresh.map((f) => findingSpoolRow(file, f)));
+	}
+	return { blocks, rows };
+}
+
 /**
  * Filter, attribute, diff and format one Stop's rescan findings. Persists this
  * Stop's fingerprints and spool rows (both no-ops under `dryRun`).
  */
 export function digestStopRescan(args: DigestStopRescanArgs): StopRescanDigest {
 	const interlinkedDir = args.interlinkedDir ?? join(args.cwd, ".interlinked");
-	const { main, subagentFiles, subagents, spoolRows } = partitionFindings(args);
+	const { main, subagentFiles, subagents, unknownWriterFiles, spoolRows } = partitionFindings(args);
 
 	const openIds = [...main.values()].flat().map(fingerprintFinding);
 	const prior = priorSnapshot(loadStopDigestState(interlinkedDir), args.sessionId);
@@ -310,16 +358,12 @@ export function digestStopRescan(args: DigestStopRescanArgs): StopRescanDigest {
 	const newIds = new Set(delta.newIds);
 
 	const warnings: string[] = [];
-	const freshBlocks: string[] = [];
-	for (const [file, findings] of main) {
-		const fresh = findings.filter((f) => newIds.has(fingerprintFinding(f)));
-		if (fresh.length > 0) freshBlocks.push(formatFileBlock(file, fresh));
-	}
+	const { blocks: freshBlocks, rows: findingRows } = collectFresh(main, newIds);
 	if (freshBlocks.length > 0) {
 		const shown = freshBlocks.slice(0, MAX_FILES_LISTED);
 		const overflow =
 			freshBlocks.length > shown.length
-				? [`  ...and ${freshBlocks.length - shown.length} more file(s) — see stop-digest.jsonl`]
+				? [`  ...and ${freshBlocks.length - shown.length} more file(s) — list all: ${FINDING_QUERY}`]
 				: [];
 		warnings.push(
 			[
@@ -332,9 +376,10 @@ export function digestStopRescan(args: DigestStopRescanArgs): StopRescanDigest {
 	}
 	if (delta.resolved > 0 || delta.unchanged > 0) {
 		warnings.push(
-			`[interlinked:stop-rescan] ${delta.resolved} absent from the displayed set (repair unverified), ${delta.unchanged} unchanged (message suppressed) since the previous stop.`,
+			`[interlinked:stop-rescan] ${delta.resolved} no longer open (repair unverified), ${delta.unchanged} unchanged (message suppressed) since the previous stop.`,
 		);
 	}
+	warnings.push(...unknownWriterWarning(unknownWriterFiles));
 	if (subagentFiles.size > 0) {
 		const open = [...subagentFiles.values()].flat().length;
 		warnings.push(
@@ -342,10 +387,13 @@ export function digestStopRescan(args: DigestStopRescanArgs): StopRescanDigest {
 		);
 	}
 
+	// Finding rows go first: the per-session spool cap drops rows from the end,
+	// and a finding the agent must repair outranks a row for a filtered-out one.
+	const allRows = [...findingRows, ...spoolRows];
 	const spooled = appendStopDigestSpool({
 		interlinkedDir,
 		sessionId: args.sessionId,
-		rows: spoolRows,
+		rows: allRows,
 		alreadySpooled: prior?.spooled ?? 0,
 		dryRun: args.dryRun,
 		...(args.now ? { now: args.now } : {}),
@@ -360,5 +408,5 @@ export function digestStopRescan(args: DigestStopRescanArgs): StopRescanDigest {
 		...(args.now ? { now: args.now } : {}),
 	});
 
-	return { warnings, openIds, spoolRows, intendedFindings: intendedDetails(main, newIds) };
+	return { warnings, openIds, spoolRows: allRows, intendedFindings: intendedDetails(main, newIds) };
 }

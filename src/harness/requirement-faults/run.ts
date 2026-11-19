@@ -4,15 +4,16 @@
 // One git-visible copy for the whole run (`fail-before-fix/snapshot.ts`); each fault rewrites one file there
 // (its anchor must occur exactly once, the plan 31 rule), its test files run with vitest's JSON reporter, and the
 // original bytes come back before the next fault. A kill is a test that passes on the live tree and fails BY ITS
-// OWN CHECK under the fault (an assertion, or a plain error thrown from the test file: `failedByOwnCheck`); a crash,
+// OWN CHECK under the fault (an assertion, a plain error thrown from the test file, or a property report wrapping one:
+// `failedByOwnCheck`, the one rule); a crash,
 // an error from product code or a file that no longer loads is inconclusive, never a kill (E66: partial code
 // crashes for reasons unrelated to the requirement), and the report keeps each such test's first failure line.
 // The live tree is only read.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { failedByOwnCheck, type VitestCase } from "../fail-before-fix/classify.js";
+import { describeFailure, failedByOwnCheck, type VitestCase } from "../fail-before-fix/classify.js";
 import { runVitest } from "../fail-before-fix/index.js";
-import { copyWriteTarget, createProjectCopy, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
+import { copyWriteTarget, createProjectCopyAsync, gitVisibleFiles } from "../fail-before-fix/snapshot.js";
 import { summarizeKills, type FaultOutcome, type RequirementFault, type RequirementKills } from "./corpus.js";
 
 export interface FaultRunOptions { root: string; faults: readonly RequirementFault[]; budgetMs: number; }
@@ -29,7 +30,7 @@ function judge(fault: RequirementFault, passing: ReadonlySet<string>, under: rea
         if (row?.status === "passed") continue;
         if (row !== undefined && failedByOwnCheck(row)) { killedBy.push(test); continue; }
         inconclusive.push(test);
-        reasons[test] = row?.message ?? (row ? row.status : "no result");
+        reasons[test] = row?.message !== undefined ? describeFailure(row) : (row ? row.status : "no result");
     }
     const status = killedBy.length ? "killed" : inconclusive.length ? "inconclusive" : "survived";
     const outcome: FaultOutcome = { fault: fault.id, requirement: fault.requirement.id, status, killedBy, inconclusive };
@@ -52,7 +53,7 @@ export async function runFaults(options: FaultRunOptions): Promise<FaultRunRepor
     if (!options.faults.length) return { faults: [], requirements: [] };
     const files = [...new Set(options.faults.flatMap(row => row.tests))];
     const passing = new Set((await runVitest(options.root, files, options.budgetMs)).filter(row => row.status === "passed").map(key));
-    const copy = createProjectCopy(options.root, gitVisibleFiles(options.root) ?? [], new Map());
+    const copy = await createProjectCopyAsync(options.root, gitVisibleFiles(options.root) ?? [], new Map());
     const outcomes: FaultOutcome[] = [];
     try {
         for (const fault of options.faults) {
@@ -67,6 +68,6 @@ export async function runFaults(options: FaultRunOptions): Promise<FaultRunRepor
                 ? { fault: fault.id, requirement: fault.requirement.id, status: "invalid", killedBy: [], inconclusive: [], reason: under }
                 : judge(fault, passing, under));
         }
-    } finally { copy.cleanup(); }
+    } finally { await copy.cleanup(); }
     return { faults: outcomes, requirements: summarizeKills(outcomes), copyDir: copy.dir };
 }

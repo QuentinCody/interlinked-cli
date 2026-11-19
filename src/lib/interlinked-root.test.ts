@@ -5,8 +5,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findRepoRoot } from "./interlinked-root.js";
 
 let root: string;
-beforeEach(() => { root = mkdtempSync(join(tmpdir(), "interlinked-root-")); });
-afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+let sandbox: string;
+beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), "interlinked-root-"));
+    // Every ancestor examined by the resolver belongs to this fixture.
+    root = join(sandbox, ...Array<string>(20).fill("dir"));
+    mkdirSync(root, { recursive: true });
+});
+afterEach(() => { rmSync(sandbox, { recursive: true, force: true }); });
 
 function dataDir(dir: string, ...files: string[]): void {
     mkdirSync(join(dir, ".interlinked"), { recursive: true });

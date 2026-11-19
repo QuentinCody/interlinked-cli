@@ -89,6 +89,11 @@ const CI_STEPS: readonly CiStep[] = [
 		reason: "npm ci — pre-push runs against the existing dev install",
 	},
 	{
+		name: "Install ripgrep and zsh for unit tests",
+		mirror: "skip",
+		reason: "The hosted unit runner needs ripgrep and a real zsh interpreter for generated shell completions.",
+	},
+	{
 		name: "Install ripgrep (CI/dev environment parity)",
 		mirror: "skip",
 		reason:
@@ -111,6 +116,7 @@ const CI_STEPS: readonly CiStep[] = [
 	// is still the unsharded full suite — a superset of every shard.
 	{ name: "Test (unit lane, shard ${{ matrix.shard }})", mirror: "pre-push", command: "npm test" },
 	{ name: "Test (integration lane)", mirror: "pre-push", command: "npm test" },
+	{ name: "Test Python sidecar protocol", mirror: "pre-push", command: "python3 -B -m unittest discover -s test -p 'test_*.py'" },
 	{
 		name: "Pack tarball",
 		mirror: "skip",
@@ -308,8 +314,20 @@ describe("pre-push hook exit-status behavior", () => {
 	// hit this naturally because every buggy run orphaned one stash.
 	const PRELOADED_STASHES = 40;
 
+	// A git hook exports GIT_DIR, GIT_INDEX_FILE and friends. Inherited, they point
+	// every fixture git call at the PARENT repository: the 40 `stash push` calls below
+	// then write the caller's index, and a killed run leaves its `.git/index.lock`
+	// behind (seen twice in mcp-client-bio). The fixture must only see its own repo.
+	const fixtureEnv = (): NodeJS.ProcessEnv => {
+		const env = { ...process.env };
+		for (const key of Object.keys(env)) {
+			if (/^GIT_(DIR|INDEX_FILE|WORK_TREE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|COMMON_DIR|PREFIX|NAMESPACE)$/.test(key)) delete env[key];
+		}
+		return env;
+	};
+
 	const git = (cwd: string, ...args: string[]): string =>
-		execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+		execFileSync("git", args, { cwd, encoding: "utf-8", env: fixtureEnv() }).trim();
 
 	/** Build a package.json whose three gate scripts behave as given. */
 	const writePackageJson = (
@@ -337,8 +355,8 @@ describe("pre-push hook exit-status behavior", () => {
 		work = join(tmp, "work");
 		bare = join(tmp, "remote.git");
 
-		execFileSync("git", ["init", "--bare", "-q", bare]);
-		execFileSync("git", ["init", "-q", work]);
+		execFileSync("git", ["init", "--bare", "-q", bare], { env: fixtureEnv() });
+		execFileSync("git", ["init", "-q", work], { env: fixtureEnv() });
 		git(work, "config", "user.email", "test@example.com");
 		git(work, "config", "user.name", "Test");
 		git(work, "config", "core.hooksPath", "scripts/git-hooks");
@@ -404,7 +422,7 @@ describe("pre-push hook exit-status behavior", () => {
 		const r = spawnSync("git", ["push", "origin", "HEAD:refs/heads/main"], {
 			cwd: work,
 			encoding: "utf-8",
-            env: { ...process.env, INTERLINKED_PRE_PUSH_SKIP_E2E: "1" },
+            env: { ...fixtureEnv(), INTERLINKED_PRE_PUSH_SKIP_E2E: "1" },
 		});
 		return { status: r.status ?? -1, output: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 	};

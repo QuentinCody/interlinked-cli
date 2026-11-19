@@ -61,8 +61,14 @@ export function measureTypeSoundness(inventory: RepositoryInventory): AdapterRes
     for (const file of files) {
         const source = context.program.getSourceFile(resolve(inventory.root, file.path));
         if (!source) { issues.push(`No typed source for ${file.path}`); continue; }
+        const syntax = context.program.getSyntacticDiagnostics(source);
+        if (syntax.length) {
+            issues.push(`${file.path}: ${syntax.length} syntactic diagnostic(s); recovered source is outside typed measurement`);
+            continue;
+        }
         const result = inspectTypedFile(file, source, context);
-        findings.push(...result.findings); operations += result.operations;
+        for (const finding of result.findings) findings.push(finding);
+        operations += result.operations;
         explicitAnyTypes += result.explicitAnyTypes; explicitUnknownTypes += result.explicitUnknownTypes;
     }
     const unresolved = context.program.getSemanticDiagnostics().filter(diagnostic => UNRESOLVED_BINDINGS.has(diagnostic.code));

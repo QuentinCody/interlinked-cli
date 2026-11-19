@@ -2,16 +2,39 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
 	execSync: vi.fn(),
+	execFileSync: vi.fn(),
 }));
 
-import { execSync } from "node:child_process";
-import { gitShell } from "../git-shell.js";
+import { execFileSync, execSync } from "node:child_process";
+import { gitArgs, gitArgsRaw, gitShell } from "../git-shell.js";
 
 const mockExecSync = vi.mocked(execSync);
 
 beforeEach(() => {
 	vi.restoreAllMocks();
 	mockExecSync.mockImplementation(() => "");
+});
+
+describe("gitArgs", () => {
+	it("preserves raw NUL-delimited path output byte-for-byte as text", () => {
+		const paths = " leading path\0line\nbreak\0évidence.ts\0";
+		vi.mocked(execFileSync).mockReturnValue(paths);
+		expect(gitArgsRaw(["ls-files", "-z"], "/repo")).toBe(paths);
+	});
+
+	it("preserves each argument as data and trims output", () => {
+		vi.mocked(execFileSync).mockReturnValue("  result\n");
+		const args = ["stash", "push", "-m", "quoted \" value $(literal) ; data"];
+		expect(gitArgs(args, "/repo")).toBe("result");
+		expect(execFileSync).toHaveBeenCalledWith("git", args, {
+			cwd: "/repo", encoding: "utf-8", timeout: 10000, stdio: ["pipe", "pipe", "pipe"],
+		});
+	});
+
+	it("propagates a Git failure", () => {
+		vi.mocked(execFileSync).mockImplementation(() => { throw new Error("bad revision"); });
+		expect(() => gitArgs(["checkout", "object"], "/repo")).toThrow("bad revision");
+	});
 });
 
 describe("gitShell", () => {

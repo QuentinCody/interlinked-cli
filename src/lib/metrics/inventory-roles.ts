@@ -20,11 +20,29 @@ export function sourceLanguage(path: string): string | null {
     return LANGUAGES[extname(path).toLowerCase()] ?? null;
 }
 
+/** Location roles also contain documentation and data. Keep unknown source formats eligible. */
+export function sourceAnalysisExclusion(path: string, content: string): string | null {
+    if (sourceLanguage(path) !== null || content.startsWith("#!")) return null;
+    const normalized = path.replaceAll("\\", "/");
+    if (normalized.split("/").at(-1) === ".gitkeep") return "Repository placeholder metadata is outside executable-source analysis";
+    if (/\.(md|rst|txt)$/i.test(normalized)) return "Known documentation input is outside executable-source analysis";
+    if (isDependencyLockfile(normalized) || /\.(json|jsonc|yaml|yml|toml)$/i.test(normalized)) {
+        return "Known configuration/data input is outside executable-source analysis";
+    }
+    return null;
+}
+
+/** The path-only vendor and generated rules; `role-evidence.ts` reports which part of the path matched. */
+export const VENDOR_PATH = /(^|\/)(node_modules|vendor|\.venv|venv|target)(\/|$)/;
+export const GENERATED_PATH = /(^|\/)(dist|build|generated|__generated__)(\/|$)|\.gen\.|\.generated\.|\.d\.[cm]?ts$/;
+
 /** Roles are independent of local gate caps and do not execute repository configuration. */
 export function sourceRole(path: string): SourceRole {
     const p = path.replaceAll("\\", "/");
-    if (/(^|\/)(node_modules|vendor|\.venv|venv|target)(\/|$)/.test(p)) return "vendor";
-    if (/(^|\/)(dist|build|generated|__generated__)(\/|$)|\.gen\.|\.generated\.|\.d\.[cm]?ts$/.test(p)) return "generated";
+    if (VENDOR_PATH.test(p)) return "vendor";
+    if (GENERATED_PATH.test(p)) return "generated";
+    if (/(^|\/)(?:bench(?:mark)?\.[cm]?[jt]sx?)$/.test(p)) return "fixture";
+    if (!/(^|\/)(\.?scratch|evals)(\/|$)/.test(p) && /(?:^|\/)(?:tests?\.[cm]?[jt]sx?|tests?\.py|conftest\.py|test_[^/]+\.py|[^/]+_test\.(?:py|go))$|\.test-d\.[cm]?ts$/.test(p)) return "test";
     // A test FILE is a test wherever it lives: the runner discovers `*.test.ts` under `__fixtures__/` and fixture
     // project trees too (this repo: 4 of 2501), and the coverage index needs every executed test in the inventory
     // (roles v3, 2026-09-29). Fixture DIRECTORIES still classify everything else they hold.

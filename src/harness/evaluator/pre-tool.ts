@@ -87,10 +87,6 @@ import { evaluateSpecPreGates } from "./spec-pre-gates.js";
 // lifecycle-events.ts import it from this module — preserve that entry point.
 export { resetProjectSetupWarningsCache } from "./pre-tool-helpers.js";
 
-/** Files that have already had git blame injected this session (dedup per session ID) */
-const _blameInjectedFiles = new Map<string, Set<string>>();
-
-
 /** Loop-level handling of one phase's decision. Terminal decisions — block /
  *  ask, or an allow CARRYING `updated_input` (a rewrite the runner must
  *  apply) — short-circuit the pipeline and are returned. A bare gate-level
@@ -123,6 +119,51 @@ function newPreToolCtx(event: HarnessEvent, session: SessionTrajectory | undefin
 		graphPredAdditionalContext: undefined,
 		...(session ? { actor: actorKeyOf(event, session) } : {}),
 	};
+}
+
+/** Establish which operations may proceed before reserving files or inspecting source content. */
+function preflightGuards(
+	event: HarnessEvent,
+	rules: GuardRulesConfig,
+	session: SessionTrajectory | undefined,
+	toolName: string,
+	toolInput: NonNullable<HarnessEvent["tool_input"]>,
+	warnings: string[],
+): Array<() => HarnessDecision | null> {
+	return [
+		// Sequence detectors + lockdown (pre_block short-circuits, pre_warn warns).
+		() => evaluateSequenceAndLockdown(event, session, warnings),
+		// Supermodel `.graph.*` shard write protection — apply_patch layer.
+		() => evaluateSupermodelShardGuard(event),
+		// Supply-chain — block package-install shell commands not on the allowlist.
+		() => evaluatePackageInstallGuard(event, toolName, toolInput),
+		// Git session-scope gate — ask before staging/committing unwritten files.
+		() => evaluateGitScopeGate(event, rules, session, toolName, toolInput, warnings),
+		// Destructive patterns — Bash/Write/Edit + Bash-routed write bypass.
+		() => evaluateDestructiveRules(event, rules, session, warnings),
+		// Inline-interpreter writes into repo source (`python3 - <<EOF … open(…,"w")`).
+		// MUST follow evaluateDestructiveRules: its Bash-routed write detector owns
+		// shell REDIRECTS (`> file`, `tee`, `sed -i`), so running second is what keeps
+		// the two gates from double-firing on one command.
+		() => evaluateInterpreterWriteGuard(event, toolName, toolInput, warnings),
+		// Protected files.
+		() => evaluateProtectedFilesGuard(toolName, toolInput, rules, warnings, event.cwd),
+		// Scratchpad/temp write policy — tmp-secrets block + authored-code
+		// placement steer. MUST precede repo confinement, whose session-
+		// scratchpad carve-out would otherwise allow these uninspected.
+		() => evaluateScratchpadWriteGuard(event, toolName, toolInput, rules, warnings),
+		// Repo confinement — block writes outside CWD.
+		() => evaluateRepoConfinementGuard(event, toolName, toolInput, rules, warnings),
+		// TDD gate — block new non-test .ts/.tsx without a companion test.
+		() => evaluateTddGate(event, rules, session, toolName, warnings),
+		// Config-loosening gate — ask before strict-flag relaxations.
+		() => evaluateConfigLooseningGate(event, toolName, warnings),
+		// Baseline-integrity gate — block lowering a committed ratchet water-line.
+		() => evaluateBaselineIntegrityGate(event, toolName, warnings),
+		// Bash-edit obligations — the Ring-2 equalizer: a bash-channel edit that
+		// introduced pre_block findings gates write-class calls until fixed.
+		() => evaluateBashEditObligationGate(event, toolName, warnings),
+	];
 }
 
 /** Public API — consumed by server.ts via the root evaluator.ts re-export.
@@ -164,7 +205,6 @@ export function evaluatePreToolUse(
 	}
 
 	const ctx = newPreToolCtx(event, session);
-	void _blameInjectedFiles; // reserved for future blame-injection dedup
 
 	// The PreToolUse pipeline as an ordered list of phases. Each phase pushes
 	// warnings by reference and returns either a `HarnessDecision` (short-circuit)
@@ -172,52 +212,15 @@ export function evaluatePreToolUse(
 	// historical inline order verbatim — see the per-phase helpers for what each
 	// does and why. Running them through one loop keeps this orchestrator's
 	// branching minimal while preserving every early-return and side-effect.
-	const phases: Array<() => HarnessDecision | null> = [
+	const phases: Array<() => HarnessDecision | null | void> = [
 		// Trajectory detector (warning-only, lazy/no-op until flags flip).
-		() => {
-			evaluateTrajectoryDetectorPhase(event, session, cfg, warnings);
-			return null;
-		},
-		// Sequence detectors + lockdown (pre_block short-circuits, pre_warn warns).
-		() => evaluateSequenceAndLockdown(event, session, warnings),
-		// Supermodel `.graph.*` shard write protection — apply_patch layer.
-		() => evaluateSupermodelShardGuard(event),
-		// Supply-chain — block package-install shell commands not on the allowlist.
-		() => evaluatePackageInstallGuard(event, toolName, toolInput),
-		// Git session-scope gate — ask before staging/committing unwritten files.
-		() => evaluateGitScopeGate(event, rules, session, toolName, toolInput, warnings),
-		// Destructive patterns — Bash/Write/Edit + Bash-routed write bypass.
-		() => evaluateDestructiveRules(event, rules, session, warnings),
-		// Inline-interpreter writes into repo source (`python3 - <<EOF … open(…,"w")`).
-		// MUST follow evaluateDestructiveRules: its Bash-routed write detector owns
-		// shell REDIRECTS (`> file`, `tee`, `sed -i`), so running second is what keeps
-		// the two gates from double-firing on one command.
-		() => evaluateInterpreterWriteGuard(event, toolName, toolInput, warnings),
-		// Protected files.
-		() => evaluateProtectedFilesGuard(toolName, toolInput, rules, warnings),
-		// Scratchpad/temp write policy — tmp-secrets block + authored-code
-		// placement steer. MUST precede repo confinement, whose session-
-		// scratchpad carve-out would otherwise allow these uninspected.
-		() => evaluateScratchpadWriteGuard(event, toolName, toolInput, rules, warnings),
-		// Repo confinement — block writes outside CWD.
-		() => evaluateRepoConfinementGuard(event, toolName, toolInput, rules, warnings),
-		// TDD gate — block new non-test .ts/.tsx without a companion test.
-		() => evaluateTddGate(event, rules, session, toolName, warnings),
-		// Config-loosening gate — ask before strict-flag relaxations.
-		() => evaluateConfigLooseningGate(event, toolName, warnings),
-		// Baseline-integrity gate — block lowering a committed ratchet water-line.
-		() => evaluateBaselineIntegrityGate(event, toolName, warnings),
-		// Bash-edit obligations — the Ring-2 equalizer: a bash-channel edit that
-		// introduced pre_block findings gates write-class calls until fixed.
-		() => evaluateBashEditObligationGate(event, toolName, warnings),
+		() => void evaluateTrajectoryDetectorPhase(event, session, cfg, warnings),
+		...preflightGuards(event, rules, session, toolName, toolInput, warnings),
 		// Auto file reservation.
 		() =>
 			evaluateAutoReservation(event, session, toolName, toolInput, reservations, cohort, warnings),
 		// curl-to-MCP detection (warning-only).
-		() => {
-			evaluateCurlMcpPhase(session, rules, toolName, toolInput, warnings);
-			return null;
-		},
+		() => void evaluateCurlMcpPhase(session, rules, toolName, toolInput, warnings),
 		// tail/head/cat output-budget enforcement.
 		() => evaluateFileDumpPhase(toolName, toolInput, warnings),
 		// Pipe-to-bash / exfiltration / dropper-staging.
@@ -238,40 +241,25 @@ export function evaluatePreToolUse(
 		// WebFetch — exfiltration and safety.
 		() => evaluateWebFetchGuard(toolName, toolInput, warnings),
 		// Markdown-first web-fetching nudges (warning-only).
-		() => {
-			evaluateMarkdownFirstPhase(toolName, toolInput, warnings);
-			return null;
-		},
+		() => void evaluateMarkdownFirstPhase(toolName, toolInput, warnings),
 		// Read — block sensitive files, warn on oversized files.
 		() => evaluateReadPhase(toolName, toolInput, warnings),
 		// Structural context injection (warning-only).
-		() => {
-			evaluateStructuralContextPhase(
-				event,
-				rules,
-				graph,
-				sessions,
-				session,
-				routeMap,
-				warnings,
-			);
-			return null;
-		},
+		() => void evaluateStructuralContextPhase(
+			event,
+			rules,
+			graph,
+			sessions,
+			session,
+			routeMap,
+			warnings,
+		),
 		// Supermodel graph awareness (warning-only).
-		() => {
-			evaluateSupermodelGraphContext(event, toolName, warnings);
-			return null;
-		},
+		() => void evaluateSupermodelGraphContext(event, toolName, warnings),
 		// One-time project-setup validation (warning-only).
-		() => {
-			evaluateProjectSetupPhase(event, warnings);
-			return null;
-		},
+		() => void evaluateProjectSetupPhase(event, warnings),
 		// PreToolUse file diagnostics (warning-only).
-		() => {
-			evaluateDiagnosticsPhase(event, rules, toolName, toolInput, warnings);
-			return null;
-		},
+		() => void evaluateDiagnosticsPhase(event, rules, toolName, toolInput, warnings),
 		// Pre-checks (head): self-kill + env-leak-to-git.
 		() => evaluatePreChecksSelfKillEnv(event, toolName, toolInput, warnings),
 		// Supply-chain — block unapproved new deps; warn on license-policy drift.
@@ -286,20 +274,17 @@ export function evaluatePreToolUse(
 		() => evaluateTaintPhase(rules, session, toolName, toolInput, warnings, ctx),
 		// Late side-effects (escalation / permission-pattern / error-memory /
 		// content-scan); never blocks.
-		() => {
-			evaluateLateSideEffects(
-				event,
-				rules,
-				session,
-				graph,
-				errorHistory,
-				toolName,
-				toolInput,
-				warnings,
-				ctx,
-			);
-			return null;
-		},
+		() => void evaluateLateSideEffects(
+			event,
+			rules,
+			session,
+			graph,
+			errorHistory,
+			toolName,
+			toolInput,
+			warnings,
+			ctx,
+		),
 	];
 
 	for (const phase of phases) {

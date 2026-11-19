@@ -325,6 +325,10 @@ export async function harnessLatencyCommand(
 		process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 		return;
 	}
+	process.stdout.write(`${renderLatencyReport(report)}\n`);
+}
+
+function renderLatencyReport(report: LatencyReport): string {
 	const lines: string[] = [];
 	lines.push("Harness latency report");
 	lines.push("──────────────────────");
@@ -367,7 +371,7 @@ export async function harnessLatencyCommand(
 			);
 		}
 	}
-	process.stdout.write(`${lines.join("\n")}\n`);
+	return lines.join("\n");
 }
 
 function formatMs(ms: number | null): string {

@@ -24,8 +24,8 @@ it("collects every metric, explains weights and preserves explicit evidence gaps
 it("never presents unsupported product source as completely measured", () => {
     const root = mkdtempSync(join(tmpdir(), "metrics-unsupported-")); roots.push(root);
     writeFileSync(join(root, "index.js"), "export function value() { return 1; }\n");
-    writeFileSync(join(root, "hidden.py"), "def hidden(): return 1\n");
+    writeFileSync(join(root, "hidden.rb"), "def hidden; 1; end\n");
     const report = collectCompositeScoreReport(root);
-    expect(report.scope.notMeasured.some(row => row.path === "hidden.py")).toBe(true);
+    expect(report.scope.notMeasured.some(row => row.path === "hidden.rb")).toBe(true);
     expect(report.slopScore).toBeNull();
 });

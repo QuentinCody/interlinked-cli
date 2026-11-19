@@ -46,8 +46,8 @@ vi.mock("node:fs", () => ({
 // ---------------------------------------------------------------------------
 let discoverToolsImpl: (root: string) => ToolAvailability[];
 let discoverSingleToolImpl: (id: ToolId, root: string) => ToolAvailability | undefined;
-const discoverToolsSpy = vi.fn((root: string) => discoverToolsImpl(root));
-const discoverSingleToolSpy = vi.fn((id: ToolId, root: string) =>
+const discoverToolsSpy = vi.fn((root: string, _timeoutMs?: number) => discoverToolsImpl(root));
+const discoverSingleToolSpy = vi.fn((id: ToolId, root: string, _timeoutMs?: number) =>
 	discoverSingleToolImpl(id, root),
 );
 const formatToolReportSpy = vi.fn(
@@ -55,8 +55,8 @@ const formatToolReportSpy = vi.fn(
 );
 
 vi.mock("./discovery.js", () => ({
-	discoverTools: (root: string) => discoverToolsSpy(root),
-	discoverSingleTool: (id: ToolId, root: string) => discoverSingleToolSpy(id, root),
+	discoverTools: (...args: [string, number?]) => discoverToolsSpy(...args),
+	discoverSingleTool: (...args: [ToolId, string, number?]) => discoverSingleToolSpy(...args),
 	formatToolReport: (tools: ToolAvailability[]) => formatToolReportSpy(tools),
 }));
 
@@ -180,6 +180,7 @@ vi.mock("./tool-runners/rust.js", () => ({
 	runCargoCheck: mkSyncRunner("cargo-check"),
 	runCargoClippy: mkSyncRunner("cargo-clippy"),
 	runRustfmtCheck: mkSyncRunner("rustfmt"),
+	runRustfmtCheckAsync: mkAsyncRunner("rustfmt"),
 }));
 
 vi.mock("./tool-runners/go.js", () => ({
@@ -412,6 +413,21 @@ describe("deduplicateResults", () => {
 // CheckEngine.discoverTools — caching + single-tool cache population.
 // ===========================================================================
 describe("CheckEngine.discoverTools", () => {
+	it("passes selection to full discovery and avoids skipped single-tool probes", () => {
+		const discoverySelection = { skipTools: ["semgrep" as const, "gitleaks" as const] };
+		new CheckEngine(ROOT, { discoveryTimeoutMs: 0, discoverySelection }).discoverTools();
+		expect(discoverToolsSpy).toHaveBeenCalledWith(ROOT, 0, discoverySelection);
+		discoverSingleToolSpy.mockClear();
+		expect(new CheckEngine(ROOT, { discoverySelection }).isToolAvailable("gitleaks")).toBe(false);
+		expect(discoverSingleToolSpy).not.toHaveBeenCalled();
+	});
+	it.each([0, 1234])("forwards explicit availability deadline %i for full and focused discovery", timeoutMs => {
+		new CheckEngine(ROOT, { discoveryTimeoutMs: timeoutMs }).discoverTools();
+		expect(discoverToolsSpy).toHaveBeenCalledWith(ROOT, timeoutMs);
+		new CheckEngine(ROOT, { discoveryTimeoutMs: timeoutMs }).isToolAvailable("tsc");
+		expect(discoverSingleToolSpy).toHaveBeenCalledWith("tsc", ROOT, timeoutMs);
+	});
+
 	it("calls discovery once and caches the result for subsequent calls", () => {
 		discoverToolsImpl = () => [avail("tsc", true), avail("biome", false)];
 		const eng = new CheckEngine(ROOT);
@@ -721,7 +737,7 @@ describe("CheckEngine.runChecksAsync", () => {
 		expect(rep.toolsRun.map((tool) => tool.id)).toEqual(["tsc"]);
 		expect(rep.skipped).toContainEqual({
 			check: "cargo-check",
-			reason: "async runner unavailable; run `interlinked verify` for this tool",
+			reason: "async runner unavailable for this tool; no verification verdict",
 			category: "error",
 		});
 	});
@@ -758,7 +774,7 @@ describe("CheckEngine.runChecksAsync", () => {
 		expect(syncCalls).toHaveLength(0);
 		expect(rep.skipped).toContainEqual({
 			check: "cargo-check",
-			reason: "async runner unavailable; run `interlinked verify` for this tool",
+			reason: "async runner unavailable for this tool; no verification verdict",
 			category: "error",
 		});
 	});
@@ -777,7 +793,7 @@ describe("CheckEngine.runChecksAsync", () => {
 		expect(rep.toolsRun).toEqual([]);
 		expect(rep.skipped).toContainEqual({
 			check: "dep-audit",
-			reason: "no async check runner is registered; run `interlinked verify` for this tool",
+			reason: "no async check runner is registered for this tool; no verification verdict",
 			category: "error",
 		});
 	});

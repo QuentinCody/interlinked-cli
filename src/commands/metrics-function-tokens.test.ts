@@ -99,6 +99,18 @@ afterEach(() => {
 });
 
 describe("function-token metric summaries", () => {
+	it("keeps conventional root tests outside product caps and honors an explicit shared source list", () => {
+		const root = project();
+		write(root, "index.js", "export function product() { return 1; }");
+		write(root, "test.js", "function exercises() { return 2; }");
+		write(root, "index.test-d.ts", "function typeTest() { return 3; }");
+		const sourceFiles = [join(root, "index.js"), join(root, "test.js"), join(root, "index.test-d.ts")];
+		const product = buildFunctionTokenMetricsReport({ cwd: root, sourceFiles });
+		expect(product.files.map(row => row.file)).toEqual(["index.js"]);
+		const all = buildFunctionTokenMetricsReport({ cwd: root, sourceFiles, includeTests: true });
+		expect(all.files.filter(row => row.sourceScope === "test").map(row => row.file)).toEqual(["index.test-d.ts", "test.js"]);
+		expect(all.files.filter(row => row.sourceScope === "test").every(row => !row.capEnforced)).toBe(true);
+	});
     it("uses deterministic nearest-rank percentiles and preserves exact sums", () => {
         expect(nearestRank([], 0.95)).toBeNull();
         expect(nearestRank([40, 10, 30, 20], 0.5)).toBe(20);

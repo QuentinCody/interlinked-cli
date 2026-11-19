@@ -34,6 +34,7 @@ function renderInventory(inventory: LintInventory, details: boolean, plan = plan
     renderInvocationReview(inventory);
     console.log("Discovery inventories declarations; original analyzers resolve inherited and executable configuration.");
     for (const warning of inventory.warnings) console.log(`NOT INSPECTED: ${warning}`);
+    for (const row of inventory.skipped ?? []) console.log(`SKIPPED: ${row.file}: ${row.reason}`);
 }
 
 export function lintScanCommand(target: string, options: LintOptions): void {

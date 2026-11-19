@@ -57,7 +57,7 @@ export function nameTokens(name: string): Set<string> {
 	return out;
 }
 
-export function isTestFile(file: string): boolean {
+function isTestFile(file: string): boolean {
 	return TEST_SUFFIX_RE.test(file) || file.includes("/__tests__/");
 }
 

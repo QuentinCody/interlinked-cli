@@ -99,6 +99,14 @@ describe("interlinked collect", () => {
 		expect(JSON.parse(out[0] ?? "{}").error).toContain("Invalid duration");
 	});
 
+	it.each(["", "   "])("rejects explicit blank --since %j before collecting", (since) => {
+		const { dir, cwd } = fixture();
+		const { code, out } = run(["--dir", dir, "--cwd", cwd, "--since", since, "--json"]);
+		expect(code).toBe(2);
+		expect(JSON.parse(out[0] ?? "{}").ok).toBe(false);
+		expect(() => readFileSync(join(cwd, ".interlinked", "timeline.jsonl"))).toThrow();
+	});
+
 	it("rejects a malformed --since with exit 2 and a stderr message (non-json)", () => {
 		const { dir, cwd } = fixture();
 		const { code, err, out } = run(["--dir", dir, "--cwd", cwd, "--since", "banana"]);

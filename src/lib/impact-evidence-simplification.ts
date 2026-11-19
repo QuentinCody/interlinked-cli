@@ -5,6 +5,7 @@
 // latest reconciled observations into the potential and sandbox-validated
 // evidence classes. A candidate is never implied to be accepted or applied.
 
+import { compareCodeUnits } from "./compare-code-units.js";
 import { existsSync, readFileSync } from "node:fs";
 import {
 	parseSimplificationRunReceipt,
@@ -154,11 +155,6 @@ export function readSimplificationReceipts(cwd: string): ParsedSimplificationRec
 		receipts,
 		latest: [...latestByFingerprint.values()],
 	};
-}
-
-function compareCodeUnits(left: string, right: string): number {
-	if (left < right) return -1;
-	return left > right ? 1 : 0;
 }
 
 function compareRepresentativeStrength<Finding extends SimplificationFinding>(

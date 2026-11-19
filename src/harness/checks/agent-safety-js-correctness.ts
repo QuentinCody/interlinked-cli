@@ -3,9 +3,13 @@
 // Extracted from agent-safety.ts to stay under the per-file line ceiling.
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import { stripTemplateLiterals } from "../strip-helpers.js";
 import { isExemptBareObject } from "./broad-object-types-exemptions.js";
 import { blankJsxText, blankRegexLiterals, NAN_COMPARISON } from "./nan-comparison-scan.js";
+import type { Node } from "typescript";
+import { parseTsSource, type ParsedTsSource } from "./cyclomatic-ast.js";
+import { blankRegexLiteralsAnywhere } from "./regex-literal-scan.js";
 import { scanBrokenOptionalGrouping } from "./optional-chain-boundaries.js";
 import {
 	getExtension,
@@ -33,8 +37,9 @@ export function checkNonNullAssertions(content: string, filePath: string): Inlin
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 	for (const [i, line] of strippedLines.entries()) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		// Match identifier! followed by . or [ or ) — but not !== or !=
 		if (/\w!\.|\w!\[|\w!\)/.test(line) && !/!==|!=/.test(line.replace(/\w!\./g, ""))) {
 			// The predicate already matched a word character followed by ! and . / [ / ).
@@ -296,7 +301,7 @@ export function checkNanComparison(content: string, filePath: string): InlineMat
 	const stripped = blankRegexLiterals(stripCommentsAndStrings(blankJsxText(content, filePath)));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
-	return scanLinesStripped(originalLines, strippedLines, NAN_COMPARISON, 10);
+	return scanLinesStripped(originalLines, strippedLines, NAN_COMPARISON, checkMatchLimit(10));
 }
 
 /**
@@ -318,10 +323,7 @@ export function checkJsLooseEquality(content: string, filePath: string): InlineM
 	// (misses multi-line regexes and constructor-form `new RegExp("...")`);
 	// covers the common false-positive shape that bit this check on its own
 	// source files.
-	const stripped = stripCommentsAndStrings(content).replace(
-		/\/(?:\\.|\[[^\]]*\]|[^/\\\n])+\/[dgimsuy]*/g,
-		(m) => " ".repeat(m.length),
-	);
+	const stripped = blankRegexLiteralsAnywhere(stripCommentsAndStrings(content));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 
@@ -357,15 +359,36 @@ export function checkJsLooseEquality(content: string, filePath: string): InlineM
 	return matches;
 }
 
-/**
- * Detect constant conditions: if (true), if (false), while (true) without break,
- * if (0), if (""), if (1).
- */
+function constantConditionLines({ ts, sf }: ParsedTsSource): number[] {
+	const lines = new Set<number>();
+	function visit(node: Node): void {
+		if (lines.size === 10) return;
+		let condition = ts.isIfStatement(node) ? node.expression : ts.isConditionalExpression(node) ? node.condition : undefined;
+		if (condition) {
+			while (ts.isParenthesizedExpression(condition)) condition = condition.expression;
+			const literalBoolean = condition.kind === ts.SyntaxKind.TrueKeyword || condition.kind === ts.SyntaxKind.FalseKeyword;
+			const numeric = ts.isNumericLiteral(condition) && (condition.text === "0" || condition.text === "1");
+			const emptyString = ts.isStringLiteral(condition) && condition.text === "";
+			if (literalBoolean || (ts.isIfStatement(node) && (numeric || emptyString))) {
+				lines.add(sf.getLineAndCharacterOfPosition(condition.getStart(sf)).line);
+			}
+		}
+		ts.forEachChild(node, visit);
+	}
+	visit(sf);
+	return [...lines];
+}
+
+/** Detect literal if conditions and literal boolean ternaries. */
 export function checkConstantCondition(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
-	const stripped = stripCommentsAndStrings(content);
+	if (!/\b(?:if|true|false)\b/.test(content)) return [];
 	const originalLines = content.split("\n");
+	const parsed = parseTsSource(content, filePath);
+	if (parsed) return constantConditionLines(parsed).map((i) => ({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) }));
+	// Without the optional parser, retain the lexical fallback.
+	const stripped = stripCommentsAndStrings(content);
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
 	for (const [i, line] of strippedLines.entries()) {
@@ -380,7 +403,7 @@ export function checkConstantCondition(content: string, filePath: string): Inlin
 		// Exclude comparisons like `=== false ?` or `!== true ?` where the
 		// literal is the right-hand side of an operator, not the condition.
 		if (/\b(true|false)\s*\?\s*/.test(trimmed) && !/\/\//.test(trimmed)) {
-			if (!/[=!<>]\s*(true|false)\s*\?/.test(trimmed)) {
+			if (!/(?:[=!<>]|\bextends)\s*(true|false)\s*\?|\b(true|false)\s*\?\s*:/.test(trimmed)) {
 				matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 			}
 		}
@@ -400,7 +423,7 @@ export function checkUnsafeOptionalChaining(content: string, filePath: string): 
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
 	if (isVendoredOrFixturePath(filePath)) return [];
-	return scanBrokenOptionalGrouping(content, filePath);
+	return scanBrokenOptionalGrouping(content, filePath, checkMatchLimit(10));
 }
 
 /**

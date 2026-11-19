@@ -1343,11 +1343,6 @@ describe("checkConstantCondition — positive (must fire)", () => {
 		expect(checkConstantCondition("if (1) {}\n", "src/x.ts")).toHaveLength(1);
 	});
 
-	// NOTE the `return` context. The ternary exclusion is `[=!<>]\s*(true|false)
-	// \s*\?`, which a PLAIN ASSIGNMENT (`x = true ? a : b`) also satisfies via
-	// its single `=` — so the canonical constant ternary is silently exempt.
-	// See the source-defect note reported with this unit; these cases pin the
-	// branch that does still fire.
 	// test-contract: P6: fires on a constant ternary `return true ? a : b`
 	it("P6: fires on a constant ternary `return true ? a : b`", () => {
 		expect(checkConstantCondition("return true ? a : b;\n", "src/x.ts")).toEqual([
@@ -1432,6 +1427,17 @@ describe("checkConstantCondition — negative (must not fire)", () => {
 });
 
 describe("checkConstantCondition — ternary branch report shape", () => {
+	it("distinguishes runtime conditions from optional type members and conditional types", () => {
+		const source = [
+			"type Optional = { true?: string; false?: number };",
+			"type Choice<T> = T extends true ? string : number;",
+			"const compare = x && true ? a : b;",
+			"const assigned = true ? a : b;",
+			"const grouped = (false) ? a : b;",
+		].join("\n");
+		expect(checkConstantCondition(source, "src/value.ts").map((match) => match.line)).toEqual([4, 5]);
+	});
+
 	// test-contract: P12: the ternary branch reports the exact line and ORIGINAL text
 	it("P12: the ternary branch reports the exact line and ORIGINAL text", () => {
 		const content = "const a = 1;\n\treturn true ? a : b; // always a\n";

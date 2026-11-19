@@ -13,7 +13,7 @@ function supportHash(inventory: RepositoryInventory, overrides: ReadonlyMap<stri
     const rows: string[][] = [];
     let bytes = 0;
     for (const file of inventory.excluded) {
-        if (!["fixture", "asset", "generated"].includes(file.role)) continue;
+        if (!["fixture", "asset", "generated", "unlinted"].includes(file.role)) continue;
         if (controlPath(file.path)) continue;
         const override = overrides.get(file.path);
         if (override === null) continue;

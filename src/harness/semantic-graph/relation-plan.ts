@@ -10,7 +10,7 @@ import { RELATION_CONTRACTS } from "../../lib/decision-metrics/relation-contract
 
 // Reuse the graph parser, but resolve exclusively against the immutable snapshot.
 // Bare imports are not guessed. Their omission is reported by the snapshot graph.
-export function snapshotGraph(snapshot: RelationSnapshot, root: string): { graph: ImportGraphView; unresolved: string[] } {
+function snapshotGraph(snapshot: RelationSnapshot, root: string): { graph: ImportGraphView; unresolved: string[] } {
     const edges = new Map<string, ImportEdge[]>(), reverse = new Map<string, string[]>();
     const unresolved: string[] = [];
     for (const [file, source] of Object.entries(snapshot.files)) {
@@ -29,7 +29,11 @@ export function snapshotGraph(snapshot: RelationSnapshot, root: string): { graph
 }
 export function lexicalCandidates(query: string, units: Unit[], k: number): Unit[] {
     const words = nameTokens(query);
-    return units.map(unit => ({ unit, score: [...words].filter(word => nameTokens(`${unit.name} ${unit.text}`).has(word)).length }))
+    return units.map(unit => {
+        const tokens = nameTokens(`${unit.name} ${unit.text}`);
+        const score = [...words].filter(word => tokens.has(word)).length;
+        return { unit, score };
+    })
         .sort((a, b) => b.score - a.score || a.unit.id.localeCompare(b.unit.id)).slice(0, k).map(row => row.unit);
 }
 export function sealPlan(value: Omit<RelationPlan, "id">): RelationPlan { return { ...value, id: hash(value) }; }

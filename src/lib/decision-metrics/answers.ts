@@ -82,7 +82,7 @@ export function interpretAnswer(
     return { status: "answered", value: top[0] };
 }
 
-export function scorePosition(contract: DecisionQuestion, level: string): number {
+function scorePosition(contract: DecisionQuestion, level: string): number {
     const named = contract.levels?.indexOf(level) ?? -1;
     return named >= 0 ? named : Number(level);
 }

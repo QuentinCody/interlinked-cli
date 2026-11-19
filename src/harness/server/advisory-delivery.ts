@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import type { JsonObject } from "../../lib/json-types.js";
 import { ADVISORY_CHECK_IDS } from "../advisory-check-ids.js";
 import type { HarnessDecision } from "../types.js";
@@ -33,6 +33,23 @@ function fresh(owner: object, scope: string, lines: string[], normalize: (line: 
     return output;
 }
 
+/** A per-file "this file was not checked / not measured" notice. Its text is
+ * identical on every edit of the same file for the same reason. */
+function isFileNotice(line: string): boolean {
+    return line.startsWith("[interlinked:checks-deferred]") && line.includes("NOT CHECKED:") && / for \S+ \(/.test(line)
+        || line.startsWith("[interlinked:self_import] NOT MEASURED for ");
+}
+
+/** A file edit whose checks ran clean of deferral resets that file's notices,
+ * so a later deferral (deferred, checked, deferred) is announced again. */
+function forgetFileNotices(owner: object, scope: string, files: string[]): void {
+    const kept = stateFor(owner).get(scope);
+    if (!kept) return;
+    for (const key of [...kept]) {
+        if (files.some(file => key.includes(` for ${file} (`) || key.includes(` for ${file}:`))) kept.delete(key);
+    }
+}
+
 function sessionKey(event: FeedbackEvent): string {
     return `${event.session_id}\0${event.subagent_id ?? ""}`;
 }
@@ -54,16 +71,22 @@ function deliverExistingAdvisories(ctx: Pick<ServerRuntime, "cwd" | "rules">, ev
     const prefix = `${channel}\0${sessionKey(event)}\0${ctx.cwd}\0${policy}`;
     const content = warnings.filter(line => line.startsWith("[interlinked:content-quality]"));
     const tests = warnings.filter(line => line.startsWith("[interlinked:test-evidence]"));
+    const notices = warnings.filter(isFileNotice);
     const delivered = new Set<string>();
+    const file = event.tool_input?.file_path ?? event.tool_input?.path;
+    if (event.hook_event === "PostToolUse" && typeof file === "string" && (decision.check_results?.length ?? 0) > 0
+        && !notices.some(line => line.includes(` for ${file} (`) || line.includes(` for ${file}:`))) {
+        forgetFileNotices(ctx, `${prefix}\0file-notice`, [file, relative(ctx.cwd, resolve(ctx.cwd, file))]);
+    }
+    for (const line of fresh(ctx, `${prefix}\0file-notice`, notices, line => line, true)) delivered.add(line);
     if (event.hook_event === "PreToolUse") {
-        const file = event.tool_input?.file_path ?? event.tool_input?.path;
         const target = typeof file === "string" ? resolve(ctx.cwd, file) : "unknown";
         for (const line of fresh(ctx, `${prefix}\0content\0${target}`, content,
             line => line.replace(/\bline \d+\b/g, "line N").replace(/\bL\d+\b/g, "LN"), false)) delivered.add(line);
     } else for (const line of content) delivered.add(line);
     for (const line of fresh(ctx, `${prefix}\0test-evidence`, tests, line => line, true)) delivered.add(line);
     return { ...decision, warnings: warnings.filter(line =>
-        !content.includes(line) && !tests.includes(line) || delivered.has(line)) };
+        !content.includes(line) && !tests.includes(line) && !notices.includes(line) || delivered.has(line)) };
 }
 
 function warningCheckId(warning: string): string | undefined {

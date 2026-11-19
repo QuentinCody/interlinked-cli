@@ -34,12 +34,10 @@ describe("check-evidence types", () => {
 			label: "PreToolUse block",
 			min_positive: 3,
 			min_negative: 3,
-			min_branch_coverage: 1,
 			requires_corpus: true,
-			requires_mutation: true,
 			requires_adversarial: true,
 		};
-		expect(tier.min_branch_coverage).toBe(1);
+		expect(tier.requires_adversarial).toBe(true);
 	});
 
 	it("CheckEvidence allows unresolved detector/test paths via null", () => {
@@ -53,11 +51,12 @@ describe("check-evidence types", () => {
 			cases: [],
 			positive_count: 0,
 			negative_count: 0,
+			attributed_positive_count: 0,
+			attributed_negative_count: 0,
 			corpus_satisfied: false,
 			unadjudicated_hits: 0,
 			detector_cyclomatic: null,
 			derived_case_floor: 2,
-			mutation_score: null,
 			adversarial_gap: "missing",
 			gaps,
 		};
@@ -68,9 +67,9 @@ describe("check-evidence types", () => {
 	it("EVIDENCE_DIMENSIONS lists the dimensions in phase order", () => {
 		expect(EVIDENCE_DIMENSIONS).toEqual([
 			"cases",
+			"attributed_cases",
 			"corpus",
 			"derived_cases",
-			"mutation",
 			"adversarial",
 		]);
 	});

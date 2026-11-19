@@ -7,6 +7,7 @@ import {
 	readFileSync,
 	rmSync,
 	symlinkSync,
+	unlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -186,7 +187,7 @@ describe("cross-process project compiler lease", () => {
 			await childExit(child);
 		} finally {
 			lease?.release();
-			rmSync(alias, { force: true });
+			unlinkSync(alias);
 		}
 	});
 
@@ -306,7 +307,7 @@ describe("cross-process project compiler lease", () => {
 		expect(tryAcquireCrossProcessCompilerLease(project)).toBeNull();
 	});
 
-	it("reclaims an over-age legacy owner even when its PID is live", () => {
+	it("preserves an over-age legacy owner when its live PID identity is unknown", () => {
 		const project = canonicalProjectRoot(root);
 		writeSyntheticOwner(root, {
 			pid: process.pid,
@@ -315,9 +316,30 @@ describe("cross-process project compiler lease", () => {
 			createdAt: new Date(Date.now() - PROJECT_LEASE_HARD_MAX_AGE_MS - 1).toISOString(),
 		});
 
-		const recovered = tryAcquireCrossProcessCompilerLease(project);
-		expect(recovered).not.toBeNull();
-		recovered?.release();
+		expect(tryAcquireCrossProcessCompilerLease(project)).toBeNull();
+	});
+
+	it("preserves a day-old live owner with a matching process identity", () => {
+		const project = canonicalProjectRoot(root);
+		const lease = tryAcquireCrossProcessCompilerLease(project);
+		expect(lease).not.toBeNull();
+		const ownerPath = join(compilerLockPath(root), "owner.json");
+		const owner: Record<string, unknown> = JSON.parse(readFileSync(ownerPath, "utf8"));
+		owner.createdAt = new Date(Date.now() - PROJECT_LEASE_HARD_MAX_AGE_MS - 1).toISOString();
+		const bytes = JSON.stringify(owner);
+		writeFileSync(ownerPath, bytes);
+		try {
+			expect(tryAcquireCrossProcessCompilerLease(project)).toBeNull();
+			expect(readFileSync(ownerPath, "utf8")).toBe(bytes);
+		} finally { lease?.release(); }
+	});
+
+	it("reclaims a day-old owner only after its PID is proven dead", () => {
+		const project = canonicalProjectRoot(root);
+		writeSyntheticOwner(root, { pid: 999_999, token: "dead-old-owner", project, createdAt: new Date(Date.now() - PROJECT_LEASE_HARD_MAX_AGE_MS - 1).toISOString() });
+		const lease = tryAcquireCrossProcessCompilerLease(project);
+		expect(lease).not.toBeNull();
+		lease?.release();
 	});
 
 	it("does not reclaim fresh malformed owner metadata while another process initializes it", () => {

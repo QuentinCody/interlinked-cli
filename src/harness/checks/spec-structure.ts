@@ -7,7 +7,7 @@ import { claimBindsToNamespace, defLineSet } from "../spec/binding.js";
 import { extractSpecFacts } from "../spec/extract-facts.js";
 import { extractFencedBlocks, fencedLineSet } from "../spec/extract-misc.js";
 import { githubSlug } from "../spec/extract-refs.js";
-import type { SectionRef, SpecFacts } from "../spec/types.js";
+import type { NamespaceId, SectionRef, SpecFacts } from "../spec/types.js";
 import { isSpecEligibleFile, siteText } from "../spec/types.js";
 import type { InlineMatch } from "./shared.js";
 
@@ -162,6 +162,20 @@ export function checkSpecDanglingAnchor(
 const MAX_REPORTED_GAPS = 10;
 
 /**
+ * The definition sites that can redefine an id. Table rows, headings and bold-NAMED bullets
+ * ("- **S1 native-isolated**: …") always count (a heading that reuses a table row's id is a redefinition,
+ * P1/P2/P5). A plain list item, blockquote or bold-leading line counts only when the id's FIRST definition
+ * is one too: under a table or heading registry, a bullet that starts with the id is a status note or an
+ * elaboration of it ("- E1 DONE: …"), not a second entry.
+ */
+function registrySites(id: NamespaceId): number[] {
+	const shapes = id.defShapes;
+	if (shapes === undefined || shapes.length !== id.defSites.length) return id.defSites;
+	const itemRegistry = shapes[0] === "item";
+	return id.defSites.filter((_line, i) => shapes[i] !== "item" || itemRegistry);
+}
+
+/**
  * Registry numbering defects: an id defined on two definition lines
  * (duplicate row — the stable-ID rule says rename the newer one, never
  * renumber), and small gaps in a definition registry (renumber residue).
@@ -178,11 +192,12 @@ export function checkSpecNumbering(
 	for (const ns of facts.namespaces) {
 		for (const id of ns.ids) {
 			if (out.length >= MAX_MATCHES) return out;
-			if (id.defSites.length >= 2) {
+			const sites = registrySites(id);
+			if (sites.length >= 2) {
 				out.push({
-					line: id.defSites[1] ?? id.defSites[0] ?? 0,
+					line: sites[1] ?? sites[0] ?? 0,
 					text: siteText(
-						`${id.id} defined again (first definition at line ${id.defSites[0]})`,
+						`${id.id} defined again (first definition at line ${sites[0]})`,
 					),
 				});
 			}
@@ -360,6 +375,7 @@ export function checkSpecStageOrder(
 		if (fenced.has(i + 1)) continue;
 		const line = lines[i] ?? "";
 		const fwd = FORWARD_DEP_RE.exec(line);
+		// interlinked-ignore: nan_coercion_guard — groups 2 and 3 are \d{1,2} captures, never NaN
 		if (fwd && Number(fwd[3]) > Number(fwd[2])) {
 			out.push({
 				line: i + 1,
@@ -370,6 +386,7 @@ export function checkSpecStageOrder(
 			continue;
 		}
 		const back = BACKWARD_CONSTRAIN_RE.exec(line);
+		// interlinked-ignore: nan_coercion_guard — groups 2 and 3 are \d{1,2} captures, never NaN
 		if (back && Number(back[3]) < Number(back[2])) {
 			out.push({
 				line: i + 1,

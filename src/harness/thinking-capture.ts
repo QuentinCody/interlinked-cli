@@ -11,31 +11,12 @@
 // is SCRUBBED (secrets + PII) before it is returned, since the active write path
 // does not otherwise scrub and reasoning is the one field we always redact.
 
+import { isValidOffset, numericOffsets, type TranscriptCursor as ThinkingCursor, transcriptOffset, updatedCursor } from "./transcript-cursor.js";
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { redactPii, scrubSecrets } from "../lib/secrets.js";
 
-interface ThinkingCursor {
-	path: string;
-	offset: number;
-	offsets: Record<string, number>;
-}
-
-const MAX_CURSOR_TRANSCRIPTS = 32;
 export const MAX_THINKING_TRANSCRIPT_BYTES = 8 * 1024 * 1024;
-
-function isValidOffset(value: unknown): value is number {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-function numericOffsets(value: unknown): Record<string, number> {
-	if (!isJsonObject(value)) return {};
-	const entries: Array<[string, number]> = [];
-	for (const [path, offset] of Object.entries(value)) {
-		if (isValidOffset(offset)) entries.push([path, offset]);
-	}
-	return Object.fromEntries(entries);
-}
 
 /** Narrow a parsed `thinking-cursor.json` value to a `ThinkingCursor`.
  *  Returns null when the value isn't a JSON object or either field is the
@@ -60,18 +41,6 @@ function readCursor(cursorPath: string): ThinkingCursor {
 		void e; // missing/corrupt cursor → start fresh
 	}
 	return { path: "", offset: 0, offsets: {} };
-}
-
-function updatedCursor(cursor: ThinkingCursor, transcriptPath: string, offset: number): ThinkingCursor {
-	const offsets = { ...cursor.offsets };
-	delete offsets[transcriptPath];
-	offsets[transcriptPath] = offset;
-	const paths = Object.keys(offsets);
-	for (let i = 0; i < paths.length - MAX_CURSOR_TRANSCRIPTS; i++) {
-		const oldest = paths[i];
-		if (oldest !== undefined) delete offsets[oldest];
-	}
-	return { path: transcriptPath, offset, offsets };
 }
 
 function readBytes(filePath: string, start: number, length: number): Buffer {
@@ -136,7 +105,7 @@ function parseAssistantModel(value: unknown): string | null {
 function collectNewThinking(transcriptPath: string, cursorPath: string): string | null {
 	const size = statSync(transcriptPath).size;
 	const cursor = readCursor(cursorPath);
-	let offset = cursor.offsets[transcriptPath] ?? 0;
+	let offset = transcriptOffset(cursor, transcriptPath);
 	if (offset > size) offset = 0;
 	if (offset === size) return null;
 

@@ -929,7 +929,7 @@ describe("removeJsonPath — targeted removal", () => {
 // with the measured counts pinned so silent list growth/shrink is visible.
 describe("installedEventsFor — five-client parity with the adapters", () => {
 	const EXPECTED: Array<[Parameters<typeof installedEventsFor>[0], number]> = [
-		["claude-code", 22],
+		["claude-code", 23],
 		["codex", 12],
 		["cursor", 18],
 		["copilot-cli", 12],

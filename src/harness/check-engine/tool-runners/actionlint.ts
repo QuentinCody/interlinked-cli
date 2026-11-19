@@ -6,8 +6,7 @@
 // Output format: "file:line:col: message [rule-name]"
 
 import { spawnSync } from "node:child_process";
-import { relative } from "node:path";
-import { parseActionlintOutput } from "../output-parsers.js";
+import { parseActionlintOutput, relativeResultPaths } from "../output-parsers.js";
 import { runProcessAsync } from "../spawn-async.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
 
@@ -30,10 +29,7 @@ export function runActionlint(input: ToolRunnerInput): CheckResult[] {
 		const output = (result.stdout || "") + (result.stderr || "");
 		const results = parseActionlintOutput(output);
 
-		return results.map((r) => ({
-			...r,
-			file: r.file.startsWith("/") ? relative(scope.projectRoot, r.file) : r.file,
-		}));
+		return relativeResultPaths(results, scope.projectRoot);
 	} catch {
 		return [];
 	}
@@ -49,8 +45,5 @@ export async function runActionlintAsync(input: ToolRunnerInput): Promise<CheckR
 	});
 	if (result.code === null || result.code === 0) return [];
 	const results = parseActionlintOutput(`${result.stdout}${result.stderr}`);
-	return results.map((r) => ({
-		...r,
-		file: r.file.startsWith("/") ? relative(scope.projectRoot, r.file) : r.file,
-	}));
+	return relativeResultPaths(results, scope.projectRoot);
 }

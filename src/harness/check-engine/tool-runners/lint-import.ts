@@ -26,7 +26,7 @@ export function runImportedLint(): CheckResult[] {
 export async function runImportedLintAsync(input: ToolRunnerInput): Promise<CheckResult[]> {
     const root = policyRoot(input.scope.projectRoot);
     if (root === resolve(input.scope.projectRoot)) return runImportedLintAtRoot(root, input);
-    const deadline = Date.now() + input.timeoutMs;
+    const deadline = input.timeoutMs === 0 ? Infinity : Date.now() + input.timeoutMs;
     const release = input.waitForCapacity
         ? await acquireProjectHeavyProcessLease(root, deadline, currentProcessSignal() ?? new AbortController().signal)
         : tryAcquireProjectHeavyProcessLease(root);
@@ -34,7 +34,7 @@ export async function runImportedLintAsync(input: ToolRunnerInput): Promise<Chec
     try {
         const remaining = deadline - Date.now();
         if (remaining <= 0) throw new Error("Imported lint admission deadline exhausted; no verdict");
-        return await runImportedLintAtRoot(root, { ...input, timeoutMs: remaining });
+        return await runImportedLintAtRoot(root, { ...input, timeoutMs: Number.isFinite(remaining) ? remaining : 0 });
     }
     finally { release(); }
 }
@@ -42,7 +42,9 @@ export async function runImportedLintAsync(input: ToolRunnerInput): Promise<Chec
 async function runImportedLintAtRoot(root: string, input: ToolRunnerInput): Promise<CheckResult[]> {
     const policy = loadLintPolicy(root);
     if (!policy) throw new Error("No imported lint policy found");
-    const measurements = await measureImportedLint(root, policy, { timeoutMs: input.timeoutMs, cadence: input.scope.lintCadence ?? "hook" });
+    const measurements = await measureImportedLint(root, policy, { timeoutMs: input.timeoutMs, cadence: input.scope.lintCadence ?? "hook",
+        ...(input.resourcePolicy ? { resourcePolicy: input.resourcePolicy } : {}),
+    });
     const unavailable = measurements.filter((measurement) => measurement.status === "unavailable");
     if (unavailable.length > 0) {
         throw new Error(unavailable.map((measurement) => `${lintEntryLabel(measurement.entry)}: ${measurement.reason}`).join("; "));

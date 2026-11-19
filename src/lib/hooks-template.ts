@@ -22,6 +22,7 @@ import {
 	DEFAULT_RSS_CEILING_BYTES,
 } from "../harness/memory-ceiling.js";
 import { localRuntimePolicyChunk } from "../harness/runtime-policy.js";
+import { JS_TS_TEST_SUFFIX } from "../harness/checks/shared-test-classification.js";
 import { READ_ONLY_TOOL_NAMES } from "./hook-read-only-tools.js";
 import { COLLECTION_WRITER_CHUNK } from "./hook-template-chunks/collection-writer.js";
 import { EVENT_NORMALIZERS_CHUNK } from "./hook-template-chunks/event-normalizers.js";
@@ -668,13 +669,13 @@ function inlinePostToolFallback(rawInput, event) {
     const toolInput = rawInput.tool_input || event.tool_input || null;
     const filePath = extractFilePath(toolName, toolInput);
     if (!filePath || !existsSync(filePath)) return null;
-    if (!/\\.(?:tsx?|jsx?|mjs|cjs)$/.test(filePath)) return null;
+    if (!/\\.(?:[tj]sx?|[cm][tj]s)$/.test(filePath)) return null;
     // Parity with the daemon's strong_typing exemption (see
     // quality-checks.ts:223–225): tests legitimately use casts to construct
     // partial fixtures of large interface types and to drive edge-case paths.
     // (Note: \\. in this template-literal source emits \\. in the .mjs script,
     // which the runtime parses as \\.\\. So the regex matches a literal dot.)
-    if (/\\.(?:test|spec)\\.(?:tsx?|jsx?|mjs|cjs)$/.test(filePath)) {
+    if (${JS_TS_TEST_SUFFIX}.test(filePath)) {
         return { summary: "inline strong_typing clean" };
     }
     let content = "";
@@ -1279,6 +1280,7 @@ ${PROVIDER_RESPONSES_CHUNK}
 
 		if (!guardDecision && ["Write", "Edit", "MultiEdit", "apply_patch", "write_file", "replace", "replace_string", "create_file"].includes(harnessEvent.tool_name)) {
 			process.stderr.write("[interlinked:function-tokens:not-measured] function-token enforcement requires the running harness daemon and an exact language adapter; this cold-fallback edit was not measured\\n");
+			process.stderr.write("[interlinked:file-size:not-measured] standalone cold fallback did not measure physical file lines or apply configured reporting targets and scopes; native runtime or daemon provides file-size policy feedback\\n");
 			process.stderr.write("[interlinked:guard-prediction] NOT CHECKED: standalone cold fallback has no AST oracle; restore the daemon or use the native interlinked-hook runtime before relying on guard preservation.\\n");
 		}
 

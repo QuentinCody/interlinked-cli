@@ -5,8 +5,7 @@
 // for syntax errors and formatting issues. Errors output on stderr.
 
 import { spawnSync } from "node:child_process";
-import { relative } from "node:path";
-import { parseTaploOutput } from "../output-parsers.js";
+import { parseTaploOutput, relativeResultPaths } from "../output-parsers.js";
 import { runProcessAsync } from "../spawn-async.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
 import { requireFileProcessVerdict } from "./file-process-verdict.js";
@@ -31,10 +30,7 @@ export function runTaplo(input: ToolRunnerInput): CheckResult[] {
 		const output = (result.stdout || "") + (result.stderr || "");
 		const results = parseTaploOutput(output, scope.targetFile);
 
-		return results.map((r) => ({
-			...r,
-			file: r.file.startsWith("/") ? relative(scope.projectRoot, r.file) : r.file,
-		}));
+		return relativeResultPaths(results, scope.projectRoot);
 	} catch {
 		return [];
 	}
@@ -51,8 +47,5 @@ export async function runTaploAsync(input: ToolRunnerInput): Promise<CheckResult
 	const output = `${result.stdout}${result.stderr}`;
 	const results = result.code === 0 ? [] : parseTaploOutput(output, scope.targetFile);
     requireFileProcessVerdict("taplo", result, results.length);
-	return results.map((r) => ({
-		...r,
-		file: r.file.startsWith("/") ? relative(scope.projectRoot, r.file) : r.file,
-	}));
+	return relativeResultPaths(results, scope.projectRoot);
 }

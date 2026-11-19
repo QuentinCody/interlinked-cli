@@ -194,12 +194,18 @@ describe("DEFAULT_ADVISORY_SKIPS", () => {
 			[
 				"assertion_roulette",
 				"boolean_trap",
+				"commander_option_attribute",
+				"omitted_private_parameter",
 				"comment_claims_idempotent_mutates",
 				"comment_claims_limit_no_guard",
 				"comment_claims_null_throws_instead",
 				"comment_claims_throws_doesnt",
 				"comment_claims_validation_missing",
 				"catch_and_log",
+				"json_stringify_error",
+				"jsdoc_param_drift",
+				"numeric_zero_default",
+				"catch_rewrap_loses_cause",
 				"code_clones",
 				"repeated_implementation",
 				"persistent_warning_escalation",
@@ -357,6 +363,8 @@ describe("DEFAULT_ADVISORY_SKIPS", () => {
 				"unjustified_cast",
 				"process_env_outside_config",
 				"top_level_side_effect",
+				// G7 (2026-11-17): judgment of metric file.top_level
+				"top_level_burden",
 				// Type-discipline wave (2026-08-14): ported from dmmulroy/anti-slop,
 				// detection algorithm only (docs/external-pulse/anti-slop.md).
 				"conditional_empty_object_spread",

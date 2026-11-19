@@ -208,7 +208,17 @@ Regenerate the derived numerical summary without inference:
 node --import tsx semantic-relations/summarize-runtime.ts
 ```
 
-`runtime-evaluation.ts` and `runtime-probes.ts` retain the executed recipes. Their
-study destinations are fixed and existing inputs/results must not be overwritten.
-For a new run, copy the recipe and set fresh study and source-capture directories before executing
-prepare → assess → cache → repair → repair-assess → compare, then the two controls.
+The original recipes used this study and a fixed source-capture directory. To
+reproduce them from the repository root, set `RUN_DIR` to a fresh directory.
+For the evaluation, place the engine configuration in `RUN_DIR/engines.json`
+and the independent heap measurements in `RUN_DIR/heap-measurements.json`.
+Build the CLI, then run
+`node --import tsx semantic-relations/runtime-evaluation.ts prepare "${RUN_DIR:?}"`.
+Use the same run directory for assess, cache, repair, repair-assess, compare and
+the controls. Assessment stages can call configured providers. The source capture
+lives in `repo/` and the results live in `study/` inside the run directory.
+
+Run the model-free child-process probes with
+`node --import tsx semantic-relations/runtime-probes.ts before "${RUN_DIR:?}"`.
+Each label writes a separate `study/runtime-probes-LABEL.json`; a repeat needs
+a new label. Pass `--help` to either recipe to inspect the arguments.

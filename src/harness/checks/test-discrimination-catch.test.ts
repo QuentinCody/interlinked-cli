@@ -1,9 +1,32 @@
 import { describe, expect, it } from "vitest";
 import { checkCatchWithoutAssertionGuard } from "./test-discrimination-catch.js";
+import { withForegroundCheckScan } from "./check-scan-policy.js";
 
 function run(content: string, path = "cart.test.ts"): ReturnType<typeof checkCatchWithoutAssertionGuard> {
 	return checkCatchWithoutAssertionGuard(content, path);
 }
+
+describe("checkCatchWithoutAssertionGuard foreground result collection", () => {
+	it("P1 retains twenty test blocks and their tail while ordinary edits keep ten", () => {
+		const content = Array.from({ length: 20 }, (_, index) => `it("case ${index}", () => { try { sut(); } catch (err) { expect(err.message).toBe("bad"); } });`).join("\n");
+		expect(run(content)).toHaveLength(10);
+		expect(withForegroundCheckScan(() => run(content)).map(match => match.line)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+		expect(run(content)).toHaveLength(10);
+	});
+
+	it("P2 retains twenty try/catch statements within a single foreground test", () => {
+		const tries = Array.from({ length: 20 }, () => 'try { sut(); } catch (err) { expect(err.message).toBe("bad"); }').join("\n");
+		const content = `it("many failures", () => {\n${tries}\n});`;
+		expect(run(content)).toHaveLength(10);
+		expect(withForegroundCheckScan(() => run(content)).map(match => match.line)).toEqual(Array.from({ length: 20 }, (_, index) => index + 2));
+		expect(run(content)).toHaveLength(10);
+	});
+
+	it("N1 keeps assertion-count guards and skipped tests exempt in foreground scans", () => {
+		const content = Array.from({ length: 20 }, (_, index) => `it("guard ${index}", () => { expect.assertions(1); try { sut(); } catch (err) { expect(err.message).toBe("bad"); } });\nit.skip("skipped ${index}", () => { try { sut(); } catch (err) { expect(err.message).toBe("bad"); } });`).join("\n");
+		expect(withForegroundCheckScan(() => run(content))).toEqual([]);
+	});
+});
 
 describe("checkCatchWithoutAssertionGuard — positive (must fire)", () => {
 	it("flags a try/catch whose only assertion lives in the catch", () => {

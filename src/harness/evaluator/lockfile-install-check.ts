@@ -38,7 +38,7 @@ import type { HarnessEvent } from "../types.js";
 import { isBash } from "./tool-classifiers.js";
 import { readToolString } from "./tool-input-values.js";
 
-export const LOCKFILE_TRANSITIVE_CHECK_ID = "lockfile_transitive_deps";
+const LOCKFILE_TRANSITIVE_CHECK_ID = "lockfile_transitive_deps";
 
 /** Stash capacity — bounds daemon memory; oldest-first eviction. */
 const MAX_STASH_ENTRIES = 64;

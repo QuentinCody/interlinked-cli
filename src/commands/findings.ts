@@ -121,6 +121,67 @@ export function verifyFindingAnchors(cwd: string, write: boolean): AnchorVerifyS
 	return { rows, counts, reanchored };
 }
 
+function printIngestSummary(report: string, opts: { reviewer: string }): void {
+	const cwd = process.cwd();
+	const summary = ingestReviewReport(report, opts.reviewer, cwd);
+	console.log(
+		`Ingested ${summary.recorded}/${summary.parsed} finding(s) from ${basename(report)} (${summary.anchored} with file anchors) → ${findingsCorpusPath(cwd)}`,
+	);
+	console.log(
+		"Track them with `interlinked findings status`; close with edits (touched) or `interlinked findings ack <id> --reason \"…\"`.",
+	);
+}
+
+function printFindingStatus(opts: { all?: boolean }): void {
+	const cwd = process.cwd();
+	const rows = loadFindings(cwd).filter(isReviewFinding);
+	const recon = loadReconciliation(cwd);
+	const byState = { open: 0, touched: 0, acked: 0 };
+	for (const f of rows) byState[reconciliationStateOf(recon, f.id)]++;
+	console.log(
+		`Review findings: ${rows.length} total — ${byState.open} open, ${byState.touched} touched, ${byState.acked} acked`,
+	);
+	for (const f of rows) {
+		const state = reconciliationStateOf(recon, f.id);
+		if (!opts.all && state !== "open") continue;
+		const anchor = f.file ? ` ${f.file}${f.line ? `:${f.line}` : ""}` : "";
+		console.log(`  [${state}] ${f.id}${anchor} — ${f.message.slice(0, 100)}`);
+	}
+}
+
+function printAnchorVerification(opts: { write?: boolean }): void {
+	const cwd = process.cwd();
+	const summary = verifyFindingAnchors(cwd, opts.write === true);
+	const c = summary.counts;
+	console.log(
+		`Anchors: ${c.live} live, ${c.moved} moved, ${c.drifted} drifted, ${c.gone} gone, ${c.unverified} unverified` +
+			(summary.reanchored > 0 ? ` — re-anchored ${summary.reanchored}` : ""),
+	);
+	for (const row of summary.rows) {
+		if (row.state === "live") continue;
+		const move = row.state === "moved" ? ` → :${row.newLine}` : "";
+		console.log(
+			`  [${row.state}] ${row.finding.id} ${row.finding.file}:${row.finding.line}${move} — ${row.finding.message.slice(0, 80)}`,
+		);
+	}
+	if (c.drifted > 0) {
+		console.log(
+			"Drifted findings need re-review (content changed at the anchor) — they are NOT auto-closed.",
+		);
+	}
+}
+
+function acknowledgeFinding(findingId: string, opts: { reason: string; by: string }): void {
+	appendReconciliationTxn(process.cwd(), {
+		finding_id: findingId,
+		action: "acked",
+		by: opts.by,
+		reason: opts.reason,
+		ts: new Date().toISOString(),
+	});
+	console.log(`Acked ${findingId}: ${opts.reason}`);
+}
+
 export function registerFindingsCommands(program: Command): void {
 	const findings = program
 		.command("findings")
@@ -130,77 +191,24 @@ export function registerFindingsCommands(program: Command): void {
 		.command("ingest <report>")
 		.description("Parse a numbered-findings review report into the corpus")
 		.option("--reviewer <name>", "reviewer attribution", "external-review")
-		.action((report: string, opts: { reviewer: string }) => {
-			const cwd = process.cwd();
-			const summary = ingestReviewReport(report, opts.reviewer, cwd);
-			console.log(
-				`Ingested ${summary.recorded}/${summary.parsed} finding(s) from ${basename(report)} (${summary.anchored} with file anchors) → ${findingsCorpusPath(cwd)}`,
-			);
-			console.log(
-				"Track them with `interlinked findings status`; close with edits (touched) or `interlinked findings ack <id> --reason \"…\"`.",
-			);
-		});
+		.action(printIngestSummary);
 
 	findings
 		.command("status")
 		.description("Reconciliation state of ingested review findings")
 		.option("--all", "include touched/acked findings in the listing")
-		.action((opts: { all?: boolean }) => {
-			const cwd = process.cwd();
-			const rows = loadFindings(cwd).filter(isReviewFinding);
-			const recon = loadReconciliation(cwd);
-			const byState = { open: 0, touched: 0, acked: 0 };
-			for (const f of rows) byState[reconciliationStateOf(recon, f.id)]++;
-			console.log(
-				`Review findings: ${rows.length} total — ${byState.open} open, ${byState.touched} touched, ${byState.acked} acked`,
-			);
-			for (const f of rows) {
-				const state = reconciliationStateOf(recon, f.id);
-				if (!opts.all && state !== "open") continue;
-				const anchor = f.file ? ` ${f.file}${f.line ? `:${f.line}` : ""}` : "";
-				console.log(`  [${state}] ${f.id}${anchor} — ${f.message.slice(0, 100)}`);
-			}
-		});
+		.action(printFindingStatus);
 
 	findings
 		.command("verify")
 		.description("Re-verify finding anchors against the working tree (live/moved/drifted/gone)")
 		.option("--write", "re-anchor moved findings (new corpus row + reanchored txn)")
-		.action((opts: { write?: boolean }) => {
-			const cwd = process.cwd();
-			const summary = verifyFindingAnchors(cwd, opts.write === true);
-			const c = summary.counts;
-			console.log(
-				`Anchors: ${c.live} live, ${c.moved} moved, ${c.drifted} drifted, ${c.gone} gone, ${c.unverified} unverified` +
-					(summary.reanchored > 0 ? ` — re-anchored ${summary.reanchored}` : ""),
-			);
-			for (const row of summary.rows) {
-				if (row.state === "live") continue;
-				const move = row.state === "moved" ? ` → :${row.newLine}` : "";
-				console.log(
-					`  [${row.state}] ${row.finding.id} ${row.finding.file}:${row.finding.line}${move} — ${row.finding.message.slice(0, 80)}`,
-				);
-			}
-			if (c.drifted > 0) {
-				console.log(
-					"Drifted findings need re-review (content changed at the anchor) — they are NOT auto-closed.",
-				);
-			}
-		});
+		.action(printAnchorVerification);
 
 	findings
 		.command("ack <findingId>")
 		.description("Acknowledge a finding as deliberately not addressed")
 		.requiredOption("--reason <text>", "why this finding is not being addressed")
 		.option("--by <name>", "who is acking", process.env.USER ?? "unknown")
-		.action((findingId: string, opts: { reason: string; by: string }) => {
-			appendReconciliationTxn(process.cwd(), {
-				finding_id: findingId,
-				action: "acked",
-				by: opts.by,
-				reason: opts.reason,
-				ts: new Date().toISOString(),
-			});
-			console.log(`Acked ${findingId}: ${opts.reason}`);
-		});
+		.action(acknowledgeFinding);
 }

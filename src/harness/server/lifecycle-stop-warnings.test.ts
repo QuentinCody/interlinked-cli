@@ -462,6 +462,18 @@ describe("buildVerificationStopWarnings", () => {
 		expect(logLines.some((l) => l.includes("verify-suite-not-run") && l.includes("signals=none"))).toBe(true);
 	});
 
+	it("verify-not-run counts no repo scratch file: the suite mirrors CI, and CI never sees scratch/", () => {
+		const ctx = makeCtx({ rules: vscRules({ warn_verify_not_run: true }) });
+		const scratchFiles = ["scratch/probe/measure.mjs", `${ctx.cwd}/scratch/probe/measure.test.mjs`];
+		const session = makeSession({ files_written: new Set([...scratchFiles, "src/a.ts"]) });
+		mCountCodeFilesEdited.mockReturnValue(1);
+		mFormatVerifyNotRunWarning.mockReturnValue("VERIFY-NOT-RUN");
+
+		buildVerificationStopWarnings(ctx, makeEvent(), session);
+
+		expect(mCountCodeFilesEdited.mock.calls.map(([files]) => [...files])).toEqual([["src/a.ts"]]);
+	});
+
 	// --- single-nudge invariant: the two verify-before-stop cadence nudges never co-emit ---
 
 	it("suppresses verify-not-run when unverified-code already fired (no double nudge)", () => {

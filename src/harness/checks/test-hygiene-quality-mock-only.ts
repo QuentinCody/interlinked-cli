@@ -7,6 +7,7 @@
 // registry and every importer stay unchanged. Behavior is byte-identical to the
 // pre-extraction inline definitions.
 
+import { readCaseName } from "./test-structure.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	getExtension,
@@ -17,6 +18,7 @@ import {
 	stripCommentsAndStrings,
 } from "./shared.js";
 import { findCallSpan, IT_TEST_OPEN_RE } from "./test-hygiene-shared.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 // ==========================================================================
 // 8. Mock-only test — every assertion is a call-interaction matcher
@@ -204,14 +206,6 @@ function matcherHasZeroInteractionCount(
 	return /^\s*0(?:\s+as\s+const)?\s*$/.test(firstArg);
 }
 
-/** Read an it()/test() case's name from its first argument's string literal. */
-function readCaseName(content: string, argsStart: number, firstArgEnd: number): string {
-	const nameMatch = content
-		.slice(argsStart, firstArgEnd)
-		.match(/["'`]([^"'`]{0,80})["'`]/);
-	return nameMatch ? `"${nameMatch[1]}" ` : "";
-}
-
 function escapeRegexLiteral(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -273,7 +267,7 @@ export function checkMockOnlyTest(content: string, filePath: string): InlineMatc
 	const stripped = stripCommentsAndStrings(content);
 	const importedAssertHelpers = collectImportedAssertHelpers(content);
 	const matches: InlineMatch[] = [];
-	const MAX_MATCHES = 12;
+	const MAX_MATCHES = checkMatchLimit(12);
 
 	IT_TEST_OPEN_RE.lastIndex = 0;
 	let m: RegExpExecArray | null = IT_TEST_OPEN_RE.exec(stripped);

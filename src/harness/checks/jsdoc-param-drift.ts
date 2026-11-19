@@ -24,33 +24,15 @@
 //
 // Check id: jsdoc_param_drift
 
-import { createRequire } from "node:module";
 import type * as TS from "typescript";
-import { parseTsSourceWith } from "./cyclomatic-ast.js";
+import { parseTsSource } from "./cyclomatic-ast.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import { getExtension, type InlineMatch, JS_TS_ALL_EXTS } from "./shared.js";
 
 type TsModule = typeof TS;
 
-// ─── Optional `typescript` loader (mirrors cyclomatic-ast.ts) ───────────────
 
-let tsCache: TsModule | null | undefined;
-
-/** Resolve `typescript` once, synchronously; absence is a non-error (→ null). */
-function loadTs(): TsModule | null {
-	if (tsCache !== undefined) return tsCache;
-	try {
-		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
-		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
-	} catch {
-		tsCache = null;
-	}
-	return tsCache;
-}
-
-/** Test-only cache reset so a suite can exercise the absent-dep degrade path. */
-export function __resetJsdocParamTsCacheForTesting(): void {
-	tsCache = undefined;
-}
+export { __resetTsCacheForTesting as __resetJsdocParamTsCacheForTesting } from "./cyclomatic-ast.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -200,7 +182,7 @@ function checkFunctionNode(
 	const nameSet = acceptedNameSet(names);
 
 	for (const tag of paramTags) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) return;
 		const tagName = tagDriftName(ts, sf, tag, rawLines, nameSet);
 		if (tagName === null) continue;
 
@@ -232,16 +214,15 @@ export function detectJsdocParamDrift(content: string, filePath: string): Inline
 	// Cheap pre-filter: no @param anywhere → skip the parse entirely.
 	if (!content.includes("@param")) return [];
 
-	const ts = loadTs();
-	if (ts === null) return []; // optional dep absent → degrade silently
-
-	const sf = parseTsSourceWith(ts, content, filePath);
+	const parsed = parseTsSource(content, filePath);
+	if (!parsed) return [];
+	const { ts, sf } = parsed;
 	const overloadKeys = collectOverloadKeys(ts, sf);
 	const rawLines = content.split("\n");
 	const matches: InlineMatch[] = [];
 
 	const visit = (node: TS.Node): void => {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) return;
 		if (isCheckableFunction(ts, node)) {
 			checkFunctionNode(ts, sf, node, overloadKeys, rawLines, matches);
 		}

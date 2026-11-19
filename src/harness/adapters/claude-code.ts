@@ -33,7 +33,9 @@ const NATIVE_EVENTS = installedEventNames(CLAUDE_CODE_CAPABILITIES);
 
 function claudeHookSettings(event: string, command: string): Record<string, unknown> {
 	const timeout = hookTimeoutSecondsFor(event);
-	const matcher = event === "PostToolUse" ? CLAUDE_POST_TOOL_USE_MATCHER : "";
+	// PostToolUseFailure shares PostToolUse's scope: it feeds the same per-file
+	// post-tool pass, and a failed read must not trigger that pass either.
+	const matcher = event === "PostToolUse" || event === "PostToolUseFailure" ? CLAUDE_POST_TOOL_USE_MATCHER : "";
 	return {
 		...(event === "FileChanged" ? {} : { matcher }),
 		hooks: [{ type: "command", command, ...(timeout !== undefined ? { timeout } : {}) }],

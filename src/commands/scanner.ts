@@ -127,17 +127,9 @@ function writeEnabledFlag(cwd: string, enabled: boolean): { previous: boolean } 
 	const path = getLocalRulesPath(cwd);
 	let parsed: JsonObject = {};
 	if (existsSync(path)) {
-		try {
-			const raw = readFileSync(path, "utf-8");
-			const obj: unknown = JSON.parse(raw);
-			if (isPlainObject(obj)) {
-				parsed = obj;
-			}
-		} catch (_err) {
-			process.stderr.write(
-				`[interlinked:scanner] Warning: ${path} was unparseable; overwriting.\n`,
-			);
-		}
+		const obj: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		if (!isPlainObject(obj)) throw new Error(`Invalid local guard rules in ${path}: expected an object.`);
+		parsed = obj;
 	}
 
 	const scannerBlock = isPlainObject(parsed.content_scanner) ? parsed.content_scanner : {};
@@ -375,6 +367,10 @@ export async function scannerReviewCommand(opts: ScannerReviewOptions): Promise<
 	await runCommand(async (o: ScannerReviewOptions) => {
 		const cwd = process.cwd();
 		const mode = getOutputMode(o);
+		if (o.key !== undefined && o.key.trim() === "") {
+			outputError(mode, "--key must be nonempty. Omit it to select the newest pending review.");
+			return;
+		}
 		const reviews = listPendingReviews(cwd);
 
 		if (reviews.length === 0) {

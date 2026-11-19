@@ -160,15 +160,28 @@ describe("recordCorpusScan", () => {
 	});
 
 	it("preserves a prior adjudication across a re-scan", () => {
+		// `detectEval` lives in this test file, so it has no source closure; a
+		// stable injected identity stands in for an unchanged detector module.
+		const stable = () => ({ loaded: "detector-a", current: "detector-a" });
 		write("src/a.ts", "eval(1)");
-		const first = recordCorpusScan(EMPTY_CORPUS, check(), join(root, "src"), root);
+		const first = recordCorpusScan(EMPTY_CORPUS, check(), join(root, "src"), root, stable);
 		const sig = nonNull(first.record.hits[0]);
 		first.store.checks.eval_usage = {
 			...first.record,
 			adjudications: { [sig]: { verdict: "false_positive", note: "in a comment" } },
 		};
-		const second = recordCorpusScan(first.store, check(), join(root, "src"), root);
+		const second = recordCorpusScan(first.store, check(), join(root, "src"), root, stable);
 		expect(second.record.adjudications[sig]?.verdict).toBe("false_positive");
+	});
+
+	it("N6: a detector with no source module gets no binding, so no adjudication is carried", () => {
+		write("src/a.ts", "eval(1)");
+		const first = recordCorpusScan(EMPTY_CORPUS, check(), join(root, "src"), root);
+		expect(first.record.provenance?.detector).toBe("unavailable");
+		const sig = nonNull(first.record.hits[0]);
+		first.store.checks.eval_usage = { ...first.record, adjudications: { [sig]: { verdict: "false_positive" } } };
+		const second = recordCorpusScan(first.store, check(), join(root, "src"), root);
+		expect(second.record.adjudications[sig]).toBeUndefined();
 	});
 
 	it("leaves other checks' records untouched", () => {

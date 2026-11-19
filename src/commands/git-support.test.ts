@@ -113,9 +113,9 @@ describe("formatLinkCheckpointOutput", () => {
 		);
 	});
 
-	it("notes the attached JSON when notes_json is set", () => {
+	it("labels unapplied notes as available JSON", () => {
 		expect(formatLinkCheckpointOutput({ ...base, notes_json: "{}" }, false)).toContain(
-			"(JSON attached)",
+			"(JSON available)",
 		);
 	});
 
@@ -241,14 +241,18 @@ describe("resolveCheckpointId", () => {
 		expect(await resolveCheckpointId("42", never)).toBe(42);
 	});
 
+	it.each(["007", "+7", " 7 "])("preserves complete positive integer representation %j", async (value) => {
+		expect(await resolveCheckpointId(value, never)).toBe(7);
+	});
+
 	it("throws on a non-numeric checkpoint option", async () => {
 		await expect(resolveCheckpointId("abc", never)).rejects.toThrow(
-			"Invalid checkpoint ID: abc. Must be a number.",
+			"Invalid checkpoint ID: abc. Must be a positive safe integer.",
 		);
 	});
 
 	it("throws when the explicit checkpoint parses to zero", async () => {
-		await expect(resolveCheckpointId("0", never)).rejects.toThrow("No checkpoint ID specified");
+		await expect(resolveCheckpointId("0", never)).rejects.toThrow("Invalid checkpoint ID");
 	});
 
 	it("falls back to the server's latest checkpoint", async () => {

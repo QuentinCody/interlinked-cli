@@ -2,7 +2,7 @@
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 
-export const TSC_HISTORY_WINDOW_MS = 60 * 60 * 1000;
+const TSC_HISTORY_WINDOW_MS = 60 * 60 * 1000;
 export const TSC_HISTORY_MAX_BYTES = 8 * 1024 * 1024;
 export type TscOutcome = "finding" | "no_reported_findings" | "skipped" | "timeout" | "resource_failure" | "process_failure" | "unknown";
 export interface TscHistoryRow { session: string; time: number; call: string; outcome: TscOutcome; }

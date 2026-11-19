@@ -62,8 +62,10 @@ function run(cmd: string, cwd: string): string {
 	return execSync(cmd, { cwd, encoding: "utf-8", timeout: 60_000 }).trim();
 }
 
-function runFile(file: string, args: string[], cwd: string, timeout = 120_000): string {
-	return execFileSync(file, args, { cwd, encoding: "utf-8", timeout }).trim();
+const GIT_TIMEOUT_MS = 120_000;
+
+function runGit(args: string[], cwd: string): void {
+	execFileSync("git", args, { cwd, encoding: "utf-8", timeout: GIT_TIMEOUT_MS });
 }
 
 function fail(opts: { json?: boolean }, message: string): never {
@@ -335,7 +337,7 @@ function ensureManagedSourceCheckout(opts: { json?: boolean; force?: boolean }):
 			process.stdout.write("Cloning source... ");
 		}
 		try {
-			runFile("git", ["clone", INTERLINKED_CLI_REPO_URL, repoRoot], parent);
+			runGit(["clone", INTERLINKED_CLI_REPO_URL, repoRoot], parent);
 			if (!opts.json) console.log(c.green("done"));
 		} catch (err) {
 			if (!opts.json) console.log(c.red("failed"));
@@ -352,7 +354,7 @@ function ensureManagedSourceCheckout(opts: { json?: boolean; force?: boolean }):
 	}
 
 	try {
-		runFile("git", ["remote", "set-url", "origin", INTERLINKED_CLI_REPO_URL], repoRoot);
+			runGit(["remote", "set-url", "origin", INTERLINKED_CLI_REPO_URL], repoRoot);
 	} catch {
 		/* non-fatal: pull below will surface any real git problem */
 	}

@@ -20,7 +20,7 @@ import type {
 import { isNonemptyFile } from "./rule-matching-file-predicate.js";
 import { passesExtraExceptions, passesTemporalGating } from "./rule-matching-guards.js";
 import { extractScannableText } from "./spans.js";
-import { classifyToolExternality } from "./tool-classifiers.js";
+import { classifyToolExternality, isBash } from "./tool-classifiers.js";
 import { normalizeCommandWrappers } from "./wrapper-normalization.js";
 
 /** Nested indexable object type for dot-path field traversal in rule pattern matching */
@@ -44,6 +44,9 @@ export function shouldEvaluateRule(
 	if (!rule.enabled) return false;
 	if (rule.trigger !== phase && rule.trigger !== TRIGGER_BOTH) return false;
 	if (rule.tool_match.includes(TOOL_MATCH_ALL)) return true;
+	// Gemini identifies the shell by its native name. Preserve native-name
+	// policies and apply the same Bash-family rules as the other shell runners.
+	if (toolName === "run_shell_command" && rule.tool_match.some(isBash)) return true;
 	return rule.tool_match.some((m) => m.toLowerCase() === toolName.toLowerCase());
 }
 

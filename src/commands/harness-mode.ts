@@ -89,48 +89,48 @@ function runnerMismatchWarning(mode: HarnessMode, runner: RunnerId | undefined):
 	return null;
 }
 
+function showCurrentMode(cwd: string, options: HarnessModeOptions): void {
+	const current = readCurrentMode(cwd);
+	const preset = getModePreset(current);
+	if (options.json) {
+		process.stdout.write(
+			`${JSON.stringify(
+				{
+					mode: current,
+					post_timeout_ms: preset.post_timeout_ms,
+					description: preset.description,
+					available_modes: HARNESS_MODE_NAMES.map((n) => {
+						const p = getModePreset(n);
+						return {
+							name: n,
+							post_timeout_ms: p.post_timeout_ms,
+							description: p.description,
+						};
+					}),
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		return;
+	}
+	process.stdout.write(`Current harness mode: ${current}\n`);
+	process.stdout.write(`  ${preset.description}\n`);
+	process.stdout.write(`\nAvailable modes:\n`);
+	for (const m of HARNESS_MODE_NAMES) {
+		const p = getModePreset(m);
+		process.stdout.write(`  ${m.padEnd(8)} ${p.post_timeout_ms / 1_000} s — ${p.description}\n`);
+	}
+	process.stdout.write(`\nSwitch: interlinked harness mode <name>\n`);
+}
+
 export async function harnessModeCommand(
 	name: string | undefined,
 	options: HarnessModeOptions,
 ): Promise<void> {
 	const cwd = process.cwd();
 
-	// Show current mode
-	if (!name) {
-		const current = readCurrentMode(cwd);
-		const preset = getModePreset(current);
-		if (options.json) {
-			process.stdout.write(
-				`${JSON.stringify(
-					{
-						mode: current,
-						post_timeout_ms: preset.post_timeout_ms,
-						description: preset.description,
-						available_modes: HARNESS_MODE_NAMES.map((n) => {
-							const p = getModePreset(n);
-							return {
-								name: n,
-								post_timeout_ms: p.post_timeout_ms,
-								description: p.description,
-							};
-						}),
-					},
-					null,
-					2,
-				)}\n`,
-			);
-			return;
-		}
-		process.stdout.write(`Current harness mode: ${current}\n`);
-		process.stdout.write(`  ${preset.description}\n`);
-		process.stdout.write(`\nAvailable modes:\n`);
-		for (const m of HARNESS_MODE_NAMES) {
-			const p = getModePreset(m);
-			process.stdout.write(`  ${m.padEnd(8)} ${p.post_timeout_ms / 1_000} s — ${p.description}\n`);
-		}
-		process.stdout.write(`\nSwitch: interlinked harness mode <name>\n`);
-		return;
-	}
+	if (!name) return showCurrentMode(cwd, options);
 
 	// Switch mode — validate first
 	if (!isKnownMode(name)) {

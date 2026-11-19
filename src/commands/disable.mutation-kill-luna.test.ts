@@ -20,6 +20,7 @@ vi.mock("./harness.js", () => ({
 	harnessStopCommand: vi.fn(),
 	isHarnessRunning: vi.fn(),
 }));
+vi.mock("./harness-liveness.js", () => ({ probeHarnessSocket: vi.fn(async () => false) }));
 
 import { getConfigDir, isConfigured, readLocalConfig } from "../lib/config.js";
 import { stripAnsi } from "../lib/formatter.js";
@@ -212,7 +213,7 @@ describe("disable stand-down mutation contracts", () => {
 		const out = outputOf(logSpy);
 		expect(process.exitCode).toBe(1);
 		expect(out).toContain("Not fully stood down.");
-		expect(out).toContain("guarding this project — the live daemon does not read the stand-down marker.");
+		expect(out).toContain("The harness daemon could not be confirmed stopped. Review the stop diagnostic above.");
 		expect(out).toContain("Finish the stand-down by stopping it: interlinked harness stop");
 		expect(out).not.toContain("Stood down — the harness will not guard this project.");
 	});

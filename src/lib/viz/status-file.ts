@@ -37,8 +37,7 @@ export function parseVizStatus(text: string): VizStatus | null {
 	}
 	const url = kv.get("url");
 	const pid = Number(kv.get("pid"));
-	// interlinked-ignore: nan_coercion_guard — Number.isInteger already excludes
-	// NaN and short-circuits before the relational compare, so it cannot fail open.
+	// Number.isInteger excludes NaN and short-circuits before the relational compare, so it cannot fail open.
 	if (!url || !Number.isInteger(pid) || pid <= 0) return null;
 	return { url, pid, root: kv.get("root") ?? "" };
 }

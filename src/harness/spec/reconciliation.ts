@@ -5,6 +5,7 @@
 // this log records what the session DID about it. Deterministic fold, the
 // reservations edge-defined-once discipline: one txn union, one apply.
 
+import { tornTailPrefix } from "../../lib/bounded-file-io.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
@@ -28,19 +29,6 @@ const SIDECAR_REL = join(".interlinked", "findings", "reconciliation.jsonl");
 
 export function reconciliationPath(cwd: string): string {
 	return join(cwd, SIDECAR_REL);
-}
-
-/** "\n" when the file exists and lacks a trailing newline (a torn tail),
- *  else "". Prevents concatenating a new txn onto a malformed last line
- *  (round-2 #10). */
-function tornTailPrefix(path: string): string {
-	if (!existsSync(path)) return "";
-	try {
-		const buf = readFileSync(path);
-		return buf.length > 0 && buf[buf.length - 1] !== 0x0a ? "\n" : "";
-	} catch {
-		return "";
-	}
 }
 
 export function appendReconciliationTxn(cwd: string, txn: ReconciliationTxn): void {

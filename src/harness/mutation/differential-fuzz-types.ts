@@ -46,6 +46,19 @@ export interface FuzzMutantTarget {
 	/** The source text the offset / ordinal refer to. Absent ⇒ the engine reads
 	 *  `absPath` from disk. */
 	source?: string;
+	/** The manifest's recorded `symbolHash` for `symbolId` (identity.ts's
+	 *  normalized-token hash of the enclosing function at measurement time).
+	 *  When present, re-location compares it with the symbol's CURRENT hash:
+	 *  an unchanged hash keeps the ordinal rule; a changed hash together with a
+	 *  changed `measuredSites` count is an ambiguous re-location and is refused
+	 *  (docs/reviews/kill-proof-manifest-route.md §3). Absent ⇒ no comparison. */
+	symbolHash?: string;
+	/** Distinct candidate offsets of `originalLexeme` under `mutator` inside the
+	 *  symbol at measurement time — the population `ordinalWithinSymbol` ranked
+	 *  against. The manifest records no such count; the kill-proof route derives
+	 *  it from the symbol's own ordinals (highest ordinal + 1 over records
+	 *  sharing mutator and lexeme). Only read when `symbolHash` is present. */
+	measuredSites?: number;
 }
 
 /** One parameter's type-derived arbitrary, with provenance for the report. */

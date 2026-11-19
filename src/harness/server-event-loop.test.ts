@@ -290,6 +290,21 @@ describe("processEvent — parse + dispatch (via evaluateEventLine)", () => {
 		expect(mForward).not.toHaveBeenCalled();
 	});
 
+	it("completes one tool call once when Claude reports it as folded PostToolUse AND PostToolUseFailure", async () => {
+		const h = makeHarness();
+		const loop = createEventLoop(h.deps);
+		const ids = { tool_use_id: "toolu_loop_twice", tool_input: { command: "false" } };
+
+		await loop.evaluateEventLine(preEvent({ ...ids, hook_event: "PostToolUse", tool_response: { is_error: true } }), "raw");
+		const second = await loop.evaluateEventLine(preEvent({ ...ids, hook_event: "PostToolUseFailure", error_message: "Exit code 1" }), "framed");
+
+		expect(second).toEqual({ decision: "allow" });
+		expect(h.sessions.recordEvent).toHaveBeenCalledTimes(1);
+		expect(mPostPipeline).toHaveBeenCalledTimes(1);
+		expect(h.deps.writeCollectionRecord).toHaveBeenCalledTimes(1);
+		expect(h.log).toHaveBeenCalledWith(expect.stringContaining("Skipped duplicate PostToolUseFailure for tool_use_id toolu_loop_twice"));
+	});
+
 	it("PostToolUse: fails OPEN (allow) when the post-pipeline throws", async () => {
 		// A thrown PostToolUse check used to propagate into a reason-less block
 		// (surfaced to users as a spurious "harness bug"). The action already
@@ -569,7 +584,9 @@ describe("evaluateEventLine — protocol counter + latency + snapshot durability
 
 		const decision = await loop.evaluateEventLine("[1,2,3]", "raw");
 
-		expect(decision).toEqual({ decision: "allow" });
+		// test-contract: boundary — valid JSON is not a valid hook event; reject before dispatch.
+		expect(decision).toEqual({ decision: "block", reason: "Malformed event — cannot evaluate safety." });
+		expect(h.sessions.recordEvent).not.toHaveBeenCalled();
 		expect(mWriteSnap).not.toHaveBeenCalled();
 		expect(h.sessions.serialize).not.toHaveBeenCalled();
 	});
@@ -1068,9 +1085,9 @@ describe("evaluateEventLine — G2 replay snapshot wiring", () => {
 			),
 		);
 
-		// Not a tool boundary → no NEW row, and the event itself still allows.
+		// A malformed hook discriminator cannot enter dispatch or produce a new replay row.
 		expect(snapshotRows(dir)).toEqual(afterControl);
-		expect(decision).toEqual({ decision: "allow" });
+		expect(decision).toEqual({ decision: "block", reason: "Malformed event — cannot evaluate safety." });
 		expect(h.log).not.toHaveBeenCalledWith(expect.stringContaining("tree snapshot failed"));
 	});
 

@@ -15,7 +15,7 @@ const IGNORE_OVERRIDES = new Set(["--no-ignore", "--no-respect-gitignore", "--no
 
 export interface SourceFileSnapshot { identity: string; digest: string }
 export type LintSourceSnapshot = Map<string, SourceFileSnapshot>;
-interface ReadBudget { deadline: number; bytes: number }
+interface ReadBudget { deadline: number; bytes: number; resourcePolicy?: "foreground-verify" | undefined }
 interface Census extends ReadBudget {
     root: string; files: LintSourceSnapshot; seen: Set<string>; visited: number; ignoreOverride: boolean;
 }
@@ -38,7 +38,7 @@ function checkTime(budget: ReadBudget): void {
 
 function readContent(path: string, before: FileMetadata, budget: ReadBudget, consume?: (chunk: Buffer) => void): string {
     if (!before.stat.isFile()) throw new Error("Lint source is not a regular file: " + path + "; no verdict");
-    if (before.stat.size > BigInt(MAX_TOTAL_BYTES - budget.bytes)) throw new Error("Lint source snapshot byte budget exceeded; no verdict");
+    if (budget.resourcePolicy !== "foreground-verify" && before.stat.size > BigInt(MAX_TOTAL_BYTES - budget.bytes)) throw new Error("Lint source snapshot byte budget exceeded; no verdict");
     const descriptor = openSync(path, "r");
     try {
         const opened = fstatSync(descriptor, { bigint: true });
@@ -51,7 +51,7 @@ function readContent(path: string, before: FileMetadata, budget: ReadBudget, con
             const count = readSync(descriptor, buffer, 0, buffer.length, null);
             if (count === 0) break;
             budget.bytes += count;
-            if (budget.bytes > MAX_TOTAL_BYTES) throw new Error("Lint source snapshot byte budget exceeded; no verdict");
+            if (budget.resourcePolicy !== "foreground-verify" && budget.bytes > MAX_TOTAL_BYTES) throw new Error("Lint source snapshot byte budget exceeded; no verdict");
             bytes += BigInt(count);
             const chunk = buffer.subarray(0, count);
             hash.update(chunk);
@@ -74,7 +74,7 @@ function confinedDirectory(root: string, path: string): string {
 function visitSource(census: Census, path: string): void {
     if (census.seen.has(path)) return;
     census.seen.add(path);
-    if (++census.visited > MAX_ENTRIES) throw new Error("Lint source snapshot census budget exceeded; no verdict");
+    if (++census.visited > MAX_ENTRIES && census.resourcePolicy !== "foreground-verify") throw new Error("Lint source snapshot census budget exceeded; no verdict");
     checkTime(census);
     const before = metadata(path);
     const file = relative(census.root, path).split("\\").join("/");
@@ -108,11 +108,11 @@ function checkExplicitRuntimeTargets(entry: LintImportEntry): void {
 }
 
 /** Stream every regular file in the working scope; no extension/ignore guessing. */
-export function captureLintSourceSnapshot(root: string, entry: LintImportEntry, deadline: number): LintSourceSnapshot {
+export function captureLintSourceSnapshot(root: string, entry: LintImportEntry, deadline: number, resourcePolicy?: "foreground-verify"): LintSourceSnapshot {
     checkExplicitRuntimeTargets(entry);
     const canonicalRoot = realpathSync(root);
     const scope = confinedDirectory(canonicalRoot, join(root, entry.scope));
-    const census: Census = { root: canonicalRoot, files: new Map(), seen: new Set(), visited: 0, bytes: 0, deadline,
+    const census: Census = { root: canonicalRoot, files: new Map(), seen: new Set(), visited: 0, bytes: 0, deadline, resourcePolicy,
         ignoreOverride: (entry.flags ?? []).some((flag) => IGNORE_OVERRIDES.has(flag)) };
     visitSource(census, scope);
     checkTime(census);
@@ -129,7 +129,7 @@ export function checkLintSourceSnapshot(before: LintSourceSnapshot, after: LintS
 }
 
 /** Anchor bytes are from a checked read matching the pre-analysis digest. */
-export function lintSnapshotLine(root: string, file: string, line: number, snapshot: LintSourceSnapshot, deadline: number): string {
+export function lintSnapshotLine(root: string, file: string, line: number, snapshot: LintSourceSnapshot, deadline: number, resourcePolicy?: "foreground-verify"): string {
     const path = join(root, file);
     const canonicalFile = relative(realpathSync(root), realpathSync(path)).split("\\").join("/");
     const expected = snapshot.get(file) ?? snapshot.get(canonicalFile);
@@ -143,12 +143,12 @@ export function lintSnapshotLine(root: string, file: string, line: number, snaps
         for (const part of text.split(/(?<=\n)/)) {
             if (current === line) {
                 anchor += part;
-                if (anchor.length > MAX_ANCHOR_CHARS) throw new Error("Lint diagnostic anchor budget exceeded; no verdict");
+                if (resourcePolicy !== "foreground-verify" && anchor.length > MAX_ANCHOR_CHARS) throw new Error("Lint diagnostic anchor budget exceeded; no verdict");
             }
             if (part.endsWith("\n")) current++;
         }
     }
-    const digest = readContent(path, before, { deadline, bytes: 0 }, (chunk) => consume(decoder.write(chunk)));
+    const digest = readContent(path, before, { deadline, bytes: 0, resourcePolicy }, (chunk) => consume(decoder.write(chunk)));
     consume(decoder.end());
     if (digest !== expected.digest) throw new Error("Lint source changed before anchoring: " + file + "; no verdict");
     if (current < line) throw new Error("Stale lint location: " + file + ":" + line);

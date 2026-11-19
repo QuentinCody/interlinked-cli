@@ -173,6 +173,24 @@ launch TypeScript, Biome, or another external tool.
 - Lint checks — need full project context
 - Results use each provider's model-visible post-tool channel when one exists; Copilot remains stderr-only
 - Capacity or tool unavailability produces an explicit `NOT CHECKED` no-verdict result, never a clean result
+- Failed calls take the same path. Claude Code reports a failed Bash call only as
+  `PostToolUseFailure` (no `PostToolUse`), so the installer subscribes that event with
+  the `PostToolUse` matcher. The daemon reads `exit_code` from the `Exit code N` first
+  line of the error text, and a test, typecheck or lint command gets an
+  `outcome: "fail"` row in `tests.jsonl`. If one call arrives both as a folded
+  `PostToolUse` and as `PostToolUseFailure`, the daemon keeps the first and drops the
+  second before any ledger, check or error-history work (`claimToolCompletion` in
+  `src/harness/event-dedup.ts`)
+- The shell's exit status is a check's verdict only when it belongs to the check
+  (`isOutcomeAttributable` in `src/harness/test-outcome-evidence.ts`). After a pipe or a
+  later command (`vitest run … | tail`, `tsc …; echo done`) it is another command's
+  status. A test run is then decided by the runner's own summary line, and with no
+  summary the result is unknown in both directions. The `tests.jsonl` row
+  (`basis`, `exit_attributable`), the per-file TDD cycle, the red/green state for the
+  Stop `unresolved-red` nudge and the deferred-coverage discharge all use this one
+  rule. `set -o pipefail` before the check makes a piped status count again. A
+  typecheck, build or lint run with a hidden status returns an
+  `[interlinked:check-evidence]` warning
 
 **Why not PreToolUse for type checking?**
 Running `tsc` on PreToolUse would mean:
@@ -328,56 +346,89 @@ The rules are loaded at harness startup and hot-reloaded when files change. Buil
 
 ## File Reference
 
-**Core:**
-| File | Purpose |
-|------|---------|
-| `cli/src/harness/types.ts` | All type definitions: events, decisions, rules, cohort, reservations, config |
-| `cli/src/harness/server.ts` | Node.js Unix socket server — the main entry point (`node:net`) |
-| `cli/src/harness/evaluator.ts` | Guard evaluation — PreToolUse blocking + PostToolUse feedback |
-| `cli/src/harness/rules-loader.ts` | Rule loading: <!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> built-in + team JSON + personal overrides + hot-reload |
-| `cli/src/harness/session-state.ts` | Per-session trajectory tracking (files, commands, tool counts) |
-| `cli/src/harness/cohort.ts` | Agent cohort manager (join/leave/lost detection, file tracking) |
-| `cli/src/harness/reservations.ts` | Auto file reservation (optimistic lock, 30s release, server sync) |
-| `cli/src/harness/quality-checks.ts` | PostToolUse runners: <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> checks across 8+ languages |
-| `cli/src/harness/server-bridge.ts` | Server coordination: reservation sync, guard event reporting |
-| `cli/src/harness/trigram-index.ts` | Trigram search index: build, query, serialize, dirty layer, incremental git update |
-| `cli/src/harness/regex-trigrams.ts` | Regex → trigram decomposition, ripgrep command parsing, shell tokenizer |
-| `cli/src/harness/grep-accelerator.ts` | PreToolUse grep acceleration: intercept search tools, query index, block-and-answer |
+> Moved from CLAUDE.md on 2026-11-05
 
-**Analysis subsystems:**
-| File | Purpose |
-|------|---------|
-| `cli/src/harness/structural-checks.ts` | <!-- gen:structural_check_count -->26<!-- /gen:structural_check_count --> dependency-aware checks (export surface, imports, cycles, blast radius) |
-| `cli/src/harness/generic-checks.ts` | 50+ inline code analysis checks (SQL injection, complexity, async/await, etc.) |
-| `cli/src/harness/project-graph.ts` | Multi-project file dependency graph with caching |
-| `cli/src/harness/impact-analysis.ts` | Cross-file dependency tracking and breaking change detection |
-| `cli/src/harness/change-propagation.ts` | Side-effect tracking across edits |
-| `cli/src/harness/error-history.ts` | Error pattern memory with optional embeddings support |
-| `cli/src/harness/language-profiles.ts` | Language-specific checks for 12+ languages |
-| `cli/src/harness/taint-tracker.ts` | Sensitivity classification and flow tracking |
-| `cli/src/harness/pattern-detector.ts` | Cross-cutting pattern detection |
-| `cli/src/harness/suggestion-scorer.ts` | Weighted finding scoring and ranking |
-| `cli/src/harness/suppressions.ts` | Inline suppression directives |
-| `cli/src/harness/check-metadata.ts` | Structural check metadata for docs generation |
-| `cli/src/harness/check-engine/` | Unified caching/memoization layer for checks |
+Replaces docs/harness.md lines 329-380 (the "## File Reference" section up to the blank line before "## Grep Acceleration"), whose paths use the dead `cli/src/...` prefix (27 occurrences, lines 334-368 plus generated-docs rows).
 
-**CLI commands and config:**
+**Harness source files (core):**
 | File | Purpose |
 |------|---------|
-| `cli/src/commands/harness.ts` | CLI commands: `interlinked harness start/stop/status/test` |
-| `cli/src/commands/index-cmd.ts` | CLI commands: `interlinked index build/update/status/query` |
-| `cli/scripts/generate-docs.ts` | Auto-generates reference docs from source code |
-| `.interlinked/guard-rules.json` | Default team-shared guard rules configuration |
-| `.interlinked/index/trigram.bin` | Binary trigram index (generated by `interlinked index build`) |
-| `.interlinked/index/meta.json` | Index metadata: file count, trigram count, base commit, build time |
+| `src/harness/types.ts` | All type definitions |
+| `src/harness/server.ts` | Node.js Unix socket server (main entry, `node:net`) |
+| `src/harness/evaluator.ts` | Guard evaluation: PreToolUse blocking + PostToolUse feedback |
+| `src/harness/rules-loader.ts` | <!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> built-in rules + JSON config + hot-reload |
+| `src/harness/session-state.ts` | Per-session trajectory tracking |
+| `src/harness/cohort.ts` | Agent cohort manager |
+| `src/harness/reservations.ts` | Auto file reservation with optimistic locking |
+| `src/harness/quality-checks.ts` | PostToolUse: <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> checks across 8+ languages (tsc, biome, cargo, rustfmt, mypy, ruff, etc.) |
+| `src/harness/quality-checks/tsc-scheduler.ts` | E21 tsc scheduler, `quality_checks.typescript.scheduler` (DEFAULT OFF, local only, calibrated on this repo alone): defers a predicted-clean synchronous tsc run; drained at the next kept run, Stop, SubagentStop, SessionEnd and commit (`server/tsc-scheduler-phase.ts`); errors and unavailable checks survive restart; rows carry `scheduler` (`query checks --where scheduler.deferred=true`) |
+| `src/harness/server-bridge.ts` | Server coordination: reservation sync, guard event reporting |
+| `src/harness/trigram-index.ts` | Trigram search index: build, query, serialize, dirty layer |
+| `src/harness/regex-trigrams.ts` | Regex → trigram decomposition, rg command parsing |
+| `src/harness/grep-accelerator.ts` | PreToolUse grep acceleration: index query + block-and-answer |
+| `src/harness/large-file-policy.ts` | Per-file line cap: threshold, `isCappableFile` predicate, baseline loader, ratchet verdict |
+| `src/harness/mutation/` | Per-edit mutation gate (spec `docs/design/per-edit-cloud-mutation-testing.md`): stable mutant identity, `mutation-manifest.json` + receipts, survivor-diff invariant, ChangeSet overlays, cloud runner client. Config `per_edit_mutation` (default off; `budget_ms` caps the runner round-trip). Engine scaffolding: root `stryker.conf.json` (MUST ignore `.interlinked/` — Stryker's tree-copy crashes on the harness socket) + `vitest.stryker.config.ts`. Live engine test: `npm run test:integration -- gate-live`. The older per-file score ratchet (`mutation-gate.ts`, `interlinked mutation check`) is a separate, coarser system. |
+| `src/harness/shadow/protocol/` | Public client contract and local reference implementation for remote shadow execution: strict parsers, byte grammars, overlays, changeset identity, provenance, and binding comparison. Cross-repository fixtures and schema metadata live in `protocol/shadow-v1/`; see its README for the public/private boundary and vendor workflow. After changing contract source or corpus data, regenerate the digest with `npx tsx scripts/gen-shadow-contract-digest.mts`; use `--check` to verify freshness. Regenerate schemas with `npx tsx scripts/gen-shadow-schema.mts` when contract shapes change. |
+| `src/harness/check-inventory.ts` | **Single source of truth for "how many checks."** `getCheckInventory()` derives per-family counts (inline `CHECK_REGISTRY` / sequence / structural / tool-quality / suggestion / behavioral — disjoint) live from each registry; pinned by `check-inventory.test.ts`; surfaced by `interlinked harness checks`. `GENERIC_CHECK_META` is the doc-view of a subset of the inline family, NOT a count — never sum it. Guard rules (`BUILTIN_RULES`) are a separate primitive, pinned by docs-freshness. |
+| `src/harness/evaluator/complexity-pulse.ts` | Ambient per-edit cyclomatic telemetry: the strict gate's observer stashes its already-paid before/after parses at PreToolUse; PostToolUse emits one `[interlinked:cyclomatic]` line per edited code file (ΣCC + max + per-fn Δ; absolutes on stash miss). Same population as the gate (cappable files). Isolated hook test: `npm run build:e2e && npm run test:e2e -- pulse`. |
+| `src/harness/agent-metrics.ts` | Per-subagent cost + activity, summed off the agent's OWN transcript (2026-08-08): tokens (input/output/cache read/creation), models, per-tool call counts, `tool_use_ids`, turn counts, duration, thinking-block counts. The stop payload carries NO usage (0/1507 measured), so this is the only capture point. `tool_use_ids` is the attribution key — a subagent's tool calls reach the guard under the PARENT session id with no agent marker, so joining activity.jsonl rows back to their agent requires this list. |
+| `src/harness/server/agent-event-context.ts` | Label + metrics resolution for one agent event. `SubagentStart` carries `agent_type`, `SubagentStop` usually does not (1439/1507 unlabeled), so the daemon remembers the start label and re-attaches it; `agent_type_source` records payload-vs-remembered. Empty-string labels normalize to null. |
+| `src/harness/background-task-log.ts` | Background-agent roster capture (2026-08-08, found by the census): Stop/SubagentStop carry `background_tasks: [{id,type,status,description,agent_type}]`. A background agent fires NO per-agent hook — its result reaches the parent over a queue notification — so this array is the only report that it exists. One row per observed STATE CHANGE to `.interlinked/background-tasks.jsonl`; honors `dry_run`. |
+| `src/harness/payload-key-census.ts` | **The "are we capturing everything" backstop.** Every hook invocation diffs the raw runner payload's top-level keys against `CONSUMED_PAYLOAD_KEYS` and records the leftovers — with a TYPE + MEMBER-NAME shape, never values — to `.interlinked/payload-keys.json`. The conversion to the harness event copies a fixed whitelist, so a field a runner starts sending is otherwise dropped in silence; this is how the subagent token/label gaps stayed invisible. When you add a reader for a field, add it to `CONSUMED_PAYLOAD_KEYS` in the same change. |
+| `src/harness/server/agent-event-capture.ts` | Subagent/parallel-agent result capture (2026-07): SubagentStart/SubagentStop/TaskCompleted → `agent_event` records in collection.jsonl. The final message comes from the hook payload or a bounded tail-read of the agent's transcript (scrubbed, 64KB cap) — SubagentStop is the ONLY hook carrying a background agent's result (the queue-notification delivery fires no hook). Also one-shot drains the agent's own transcript into timeline.jsonl (`agent_id`-attributed) with a 750ms re-drain covering the runner's post-Stop flush race. Surfaced by `interlinked logs --type subagent_stop`. |
+
+
+**Harness source files (analysis):**
+| File | Purpose |
+|------|---------|
+| `src/harness/structural-checks.ts` | 25 dependency-aware checks (export surface, import resolution, cycles, blast radius) |
+| `src/harness/checks/<family>.ts` | 50+ inline code analysis checks split by family (SQL injection, complexity, async/await, PII, secrets, etc.). New detectors go here. |
+| `src/harness/generic-checks.ts` | Compatibility barrel re-exporting from `checks/<family>.ts`. Do not add new detectors here; import from `checks/<family>.js` directly. |
+| ~~`src/harness/check-registry.ts`~~ | **Removed 2026-08-17** — the flat-file compatibility shim had zero importers. Import from `check-registry/index.js`. |
+
+| `src/harness/project-graph.ts` | Multi-project file dependency graph with caching |
+| `src/harness/impact-analysis.ts` | Cross-file dependency tracking and breaking change detection |
+| `src/harness/change-propagation.ts` | Side-effect tracking across edits |
+| `src/harness/error-history.ts` | Error pattern memory with optional embeddings support |
+| `src/harness/language-profiles.ts` | Language-specific checks for 12+ languages |
+| `src/harness/taint-tracker.ts` | Sensitivity and flow tracking. Step budgets bind the calling actor's own count (`actorStepCount`, `actor_tool_calls`, keyed by `actorKeyOf`), not the sum of sibling calls. Known subagents use the configured limit at their own sensitivity; unknown actors retain the session limit. Per-actor lineage (`taint-lineage.ts`, H3 B3+B5) raises the reader and its ancestors, including for the optional model-backed content scanner. New children inherit their parent's current sensitivity; already-running clean siblings retain theirs. The session level remains the root/max for display. Every network decision uses the acting actor's level. Files written above Public carry their level (`taint-file-lineage.ts`, bounded 2048, snapshot `taint_files`) and ratchet later readers before network checks, including read-and-send commands. Legacy snapshots without `taint_actors` hydrate at the stored session level. `harness taint status` lists actor levels; operator-only `harness taint clear` lowers every actor, or `--actor <key>` one on a live daemon. Exhausted budgets advise handoff, not a commit the guard would block. |
+| `src/harness/pattern-detector.ts` | Cross-cutting pattern detection |
+| `src/harness/suggestion-scorer.ts` | Weighted finding scoring and ranking |
+| `src/harness/registry-parity.ts` | Configurable drift detector for paired registries / exception lists. Reads `.interlinked/registry-parity.json`; runs as part of `interlinked verify` and surfaces drift in both streaming and `--json` output. |
+| `src/harness/suppressions.ts` | Inline suppression directives |
+| `src/harness/check-metadata.ts` | Structural check metadata for docs generation |
+| `src/harness/check-engine/` | Unified caching/memoization layer for checks |
+
+**Harness source files (artifact structure):**
+| File | Purpose |
+|------|---------|
+| `src/harness/structure/types.ts` | All structure type definitions (determinism, provenance, artifact kinds, graph shapes, config schemas) |
+| `src/harness/structure/schema-validator.ts` | Validates `structure.json` and all 9 artifact file schemas (unknown-key rejection) |
+| `src/harness/structure/structure-loader.ts` | Loads `interlinked/structure.json`, resolves mode defaults, loads artifact files |
+| `src/harness/structure/artifact-graph.ts` | ArtifactGraph: node/edge CRUD, companion traversal, incremental refresh, serialization |
+| `src/harness/structure/cache-manager.ts` | Read/write `.interlinked/structure-cache/` files, staleness detection, manifest hashing |
+| `src/harness/structure/structure-checks.ts` | PostToolUse entry point: graph build, incremental refresh, declared artifact layering, rule evaluation |
+| `src/harness/structure/structure-formatter.ts` | Human-readable `[interlinked:structure]` warnings, verify JSON output builder |
+| `src/harness/structure/adoption.ts` | Coverage calculation per category (0.0–1.0) |
+| `src/harness/structure/baseline.ts` | Baseline suppression matching, SHA-256 context hashing |
+| `src/harness/structure/extractors/` | 7 generic extractors: module, package, env, config, test, docs, examples |
+| `src/harness/structure/rules/` | 7 built-in rule families: public symbol companions, public symbol test-case, env/config key companions, layer/package boundaries, glossary residue |
+
+
+**Stop-event reflection helpers** (formatters returning `string | null`, called from the `server.ts` Stop / SessionEnd branch; never block — all stderr warnings only):
+| File | Purpose |
+|------|---------|
+| `src/harness/commit-cadence.ts` | Stop nudge when too many uncommitted code-file edits this session + mid-session backstop. Escalates wording by session token band. Says "Don't push." |
+| `src/harness/verification-stop-checks.ts` | Three nudges: unverified code (no tsc/test/lint/build), UI not interacted (no dev-server / browser MCP), stubs introduced (TODO/FIXME/disabled-test/throw-not-impl). Signal capture lives in `session-state.ts` (trajectory signals) and `evaluator/post-tool.ts` (content scan). See `docs/design/stop-event-checks.md` for the Tier 2 / 3 backlog. |
+
 
 **Auto-generated reference docs** (run `npm run docs` to regenerate):
 | File | Contents |
 |------|----------|
-| `cli/docs/generated/guard-rules.md` | All <!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> built-in guard rules by category |
-| `cli/docs/generated/quality-checks.md` | All <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> PostToolUse quality checks |
-| `cli/docs/generated/structural-checks.md` | All <!-- gen:structural_check_count -->26<!-- /gen:structural_check_count --> structural checks by tier |
-| `cli/docs/generated/configuration.md` | Default config: diff-aware filtering + structural check settings |
+| `docs/generated/guard-rules.md` | All <!-- gen:builtin_rule_count -->124<!-- /gen:builtin_rule_count --> built-in guard rules by category |
+| `docs/generated/quality-checks.md` | All <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> PostToolUse quality checks |
+| `docs/generated/structural-checks.md` | All <!-- gen:structural_check_count -->26<!-- /gen:structural_check_count --> structural checks by tier |
+| `docs/generated/configuration.md` | Default config: diff-aware filtering + structural check settings |
 
 ## Grep Acceleration — Trigram Search Index
 
@@ -924,3 +975,85 @@ Simulated `harness test` events (`dry_run`) make no call and write no row.
 - **Auto-checkpointing** — harness triggers git checkpoints before destructive operations or after N tool calls
 - **Server-pushed team rules** — workspace owners configure rules via dashboard, harness pulls them
 - **Agent loop enforcement** — detect when agent hasn't called `wait_for_work` in 5+ minutes, alert human
+
+> Moved from CLAUDE.md on 2026-11-05
+
+Append to docs/harness.md. Editor note: docs/harness.md:396 ("On every Grep/rg call ...") describes interception as unconditional and never says the index is opt-in; the paragraph below (since 2026-09-10) says it is OPT-IN and `interlinked enable` no longer builds it. Reconcile when applying.
+
+## Testing and guard flow
+
+## Testing
+
+```bash
+npx vitest run                                          # Full suite (~20k tests; count drifts — don't pin it here)
+npx vitest run src/harness/__tests__/evaluator.test.ts  # Harness guard tests
+npx vitest run src/commands/__tests__/cli-bugs.test.ts  # CLI regression tests
+```
+
+Test files:
+- `src/harness/__tests__/evaluator.test.ts` — destructive command blocking, sleep detection, protected files, curl-to-MCP, auto-reservations, safe command allowlist
+- `src/harness/__tests__/trigram-index.test.ts` — trigram index, regex decomposition, grep accelerator
+- `src/harness/__tests__/structural-checks-extended.test.ts` — structural check validation
+- `src/harness/__tests__/generic-checks-extended.test.ts` — generic code analysis checks
+- `src/harness/__tests__/impact-analysis.test.ts` — cross-file impact analysis
+- `src/harness/__tests__/project-graph.test.ts` — project dependency graph
+- `src/harness/__tests__/taint-tracker.test.ts` — sensitivity classification
+- `src/harness/__tests__/diff-aware-checks.integration.test.ts` — diff-aware filtering
+- `src/harness/__tests__/command-guard-parity.test.ts` — guard rule parity with inline fallback
+- `src/harness/__tests__/docs-freshness.test.ts` — validates generated docs match source
+- `src/harness/__tests__/hook-conflicts.test.ts` — hook installation conflict detection
+- `src/commands/__tests__/cli-bugs.test.ts` — regression tests for numbered bugs (Bug 4, 5, 10, 14, 18, 21, 23, 24, 26)
+- `src/commands/__tests__/activity-workspace-regressions.test.ts` — activity feed API contract and workspace switch tests
+
+Tests heavily mock the file system and network. The test infrastructure uses vitest with `vi.mock()` for module-level mocking.
+
+Manual harness testing via Unix socket:
+```bash
+node dist/harness/server.js --verbose &
+echo '{"hook_event":"PreToolUse","session_id":"t","agent_source":"claude","tool_name":"Bash","tool_input":{"command":"rm -rf /"},"timestamp":"2026-03-17T00:00:00Z"}' | nc -U .interlinked/harness.sock
+# Expected: {"decision":"block","reason":"BLOCKED: Recursive deletion..."}
+```
+
+
+**How guard evaluation works:**
+1. Hook script connects to `/.interlinked/harness.sock` on PreToolUse
+2. Harness evaluates event against rules + reservations + trajectory state
+3. For Grep/Bash-grep calls: queries trigram index for candidate files, runs rg on candidates
+4. Returns `{decision: "block"|"allow", reason?, warnings?}`
+5. If blocked: hook outputs decision to stdout, agent sees reason
+6. If warnings: hook writes to stderr, agent sees on next turn
+7. If harness unavailable: inline fallback patterns (sleep, rm -rf, force push, DROP)
+
+
+**Grep acceleration (OPT-IN, off unless an index exists — 2026-09-10):**
+- Build index: `interlinked index build` (0.1-10s depending on repo size).
+  `interlinked enable` no longer builds it: the in-process build walks every
+  tracked file and ran a 50k-file prose corpus out of heap mid-enable, leaving
+  hooks installed but no daemon. Nothing on the hook path needs the index.
+- Harness loads an existing index on startup, refreshes incrementally on each SessionStart
+- Intercepts Grep tool calls AND Bash rg/grep commands (including from subagents)
+- Queries index in ~10-50μs, narrows to candidate files, runs rg on candidates only
+- Agent sees results via block-and-answer pattern (formatted like normal grep output)
+- Dirty layer tracks file edits in-memory so agent's own writes are immediately searchable
+
+
+## Project root resolution
+
+(Bullet from CLAUDE.md "Important patterns".)
+
+- The hook finds its project by walking up from the TOOL CALL's cwd (`lib/interlinked-root.ts findRepoRoot`) to the
+  nearest `.interlinked/` that holds a project marker (`config.json`, `guard-rules.json`, `harness.pid`) or a
+  socket; a folder holding only hook-written files (payload census, receipts, prediction state) is passed. Before
+  2026-10-22 the nearest `.interlinked/` won, and the payload census wrote `<cwd>/.interlinked/` for any folder
+  the session had `cd`-ed into — so every later call from below that folder found no socket and was cold-allowed
+  without the daemon (one session: 135 of 734 calls, 47 of them edits; the transcript says "daemon socket not
+  found; evaluator skipped"). The census now writes only under the project root, and `guard-prediction.ts` keys
+  its state, receipts and file keys to the same root (keyed to the cwd, it also skipped every edit outside the
+  session's current folder as "outside the project"). Scale on 2026-10-22: 663 of the tree's 730 `.interlinked/`
+  folders were such strays (618 under `scratch/`, 17 under `src/` — `.gitignore` `src/**/.interlinked/` had
+  hidden them), and their own receipts show 21,283 cold hook calls since 2026-09-24 (5,917 PreToolUse).
+  `interlinked verify` run from a subfolder still writes `<cwd>/.interlinked/verify-runs.jsonl` (harmless for
+  the guard now; the CLI's data paths are cwd-relative by convention). `interlinked harness calls [--since 7d]
+  [--session id] [--strict]` (`harness/call-coverage.ts`) joins the transcript timeline to the collection log by
+  `[session, tool_use_id]` and lists observed calls without a matching daemon judgment,
+  by tool and working folder. Missing or rotated capture remains a measurement gap.

@@ -22,6 +22,7 @@ import { SessionTracker } from "../harness/session-state.js";
 import type { HarnessEvent, SessionTrajectory } from "../harness/types.js";
 import { isJsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
+import { outputError } from "../lib/output.js";
 import { isReplayEvent } from "./trajectory-event.js";
 
 interface CommonOpts {
@@ -46,12 +47,6 @@ interface ListedSnapshot {
 	path: string;
 	modified_at: string;
 	bytes: number;
-}
-
-interface SnapshotShape {
-	session_id?: string;
-	agent_name?: string;
-	[k: string]: unknown;
 }
 
 function snapshotsDir(cwd: string): string {
@@ -131,7 +126,7 @@ function resolveSnapshot(
 
 /** Print every snapshot field except the two already shown in the header,
  *  skipping empty values and values with no one-line summary. */
-function printSnapshotFields(parsed: SnapshotShape): void {
+function printSnapshotFields(parsed: Record<string, unknown>): void {
 	for (const [k, v] of Object.entries(parsed)) {
 		if (k === "session_id" || k === "agent_name") continue;
 		if (v === null || v === undefined) continue;
@@ -142,24 +137,22 @@ function printSnapshotFields(parsed: SnapshotShape): void {
 }
 
 export async function trajectoryShowCommand(opts: ShowOpts = {}): Promise<void> {
-	const cwd = opts.cwd ?? process.cwd();
-	const target = resolveSnapshot(listSnapshots(cwd), opts.session);
-	const raw = readFileSync(target.path, "utf-8");
-	if (opts.json) {
-		console.log(raw);
-		return;
-	}
-	let parsed: SnapshotShape;
 	try {
-		parsed = JSON.parse(raw);
-	} catch (err) {
-		throw new Error(`trajectory snapshot ${target.path} is malformed`, {
-			cause: err,
-		});
+		const cwd = opts.cwd ?? process.cwd();
+		const target = resolveSnapshot(listSnapshots(cwd), opts.session);
+		const raw = readFileSync(target.path, "utf-8");
+		let parsed: unknown;
+		try { parsed = JSON.parse(raw); }
+		catch (error) { throw new Error(`trajectory snapshot ${target.path} is malformed`, { cause: error }); }
+		if (opts.json) { console.log(raw); return; }
+		if (!isJsonObject(parsed)) throw new Error(`trajectory snapshot ${target.path} must contain a JSON object`);
+		console.log(`session_id: ${parsed.session_id ?? target.session_id}`);
+		console.log(`agent_name: ${parsed.agent_name ?? "—"}`);
+		printSnapshotFields(parsed);
+	} catch (error) {
+		if (!opts.json) throw error;
+		outputError("json", error instanceof Error ? error.message : String(error));
 	}
-	console.log(`session_id: ${parsed.session_id ?? target.session_id}`);
-	console.log(`agent_name: ${parsed.agent_name ?? "—"}`);
-	printSnapshotFields(parsed);
 }
 
 /** Exported for direct unit coverage of the fallback branch below: real

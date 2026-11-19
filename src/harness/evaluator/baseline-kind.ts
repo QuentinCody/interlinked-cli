@@ -1,6 +1,6 @@
 import { type WaterLineStem, waterLineStem } from "./water-line-files.js";
 
-export type BaselineKind = "coverage" | "coverage-e2e" | "coverage-edit" | "mutation" | "large-files" | "untested-files" | "metric-caps" | "mutation-manifest" | "skipped-tests" | "check-evidence" | "function-complexity" | "lint";
+export type BaselineKind = "coverage" | "coverage-e2e" | "coverage-edit" | "mutation" | "large-files" | "untested-files" | "metric-caps" | "mutation-manifest" | "skipped-tests" | "check-evidence" | "function-complexity" | "lint" | "instruction-packets" | "saturation";
 
 const KIND_MAP: Record<WaterLineStem, BaselineKind> = {
     "coverage-baseline": "coverage",
@@ -15,6 +15,8 @@ const KIND_MAP: Record<WaterLineStem, BaselineKind> = {
     "check-evidence-baseline": "check-evidence",
     "function-complexity-baseline": "function-complexity",
     "lint-baseline": "lint",
+    "instruction-packets": "instruction-packets",
+    "saturation-baseline": "saturation",
 };
 
 export function baselineKind(filePath: string): BaselineKind | null {

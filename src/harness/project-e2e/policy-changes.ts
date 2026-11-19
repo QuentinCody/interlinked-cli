@@ -7,6 +7,7 @@
 // only for those two digests, so a later edit needs a new review. Append-only
 // JSONL; a malformed row is skipped and reported, never repaired.
 
+import { isJsonObject as isRecord } from "../../lib/json-types.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { E2eSourceRef } from "./policy.js";
@@ -23,7 +24,6 @@ export interface PolicyChangeRecord {
 }
 export interface PolicyChangeLedger { records: PolicyChangeRecord[]; issues: string[]; }
 
-function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function isHex(value: unknown): value is string { return typeof value === "string" && HEX.test(value); }
 function isId(value: unknown): value is string { return typeof value === "string" && ID.test(value); }
 function parseSource(value: unknown): E2eSourceRef | null {

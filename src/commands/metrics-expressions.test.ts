@@ -1,8 +1,8 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { collectExpressionReport } from "./metrics-expressions.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { collectExpressionReport, metricsExpressionsCommand } from "./metrics-expressions.js";
 
 const roots: string[] = [];
 function fixture(): string {
@@ -30,5 +30,20 @@ describe("expression measurement command", () => {
         expect(collectExpressionReport("broken.ts", root)).toMatchObject({ complete: false, files: [{ status: "unavailable" }] });
         writeFileSync(join(root, "other.py"), "x = 1");
         expect(collectExpressionReport("other.py", root)).toMatchObject({ complete: false, files: [{ status: "unsupported" }] });
+    });
+
+    it("keeps default source bounds while the public foreground command measures expressions after 2 MB", () => {
+        const root = mkdtempSync(join(process.cwd(), "scratch", "expressions-full-")); roots.push(root);
+        writeFileSync(join(root, "source.ts"), `/* ${"padding".repeat(300_000)} */\nconst answer = a + b + c;`);
+        expect(collectExpressionReport("source.ts", root)).toMatchObject({ complete: false, files: [{ status: "unavailable", reason: expect.stringContaining("2 MB") }] });
+        const log = vi.spyOn(console, "log").mockImplementation(() => {});
+        const beforeExitCode = process.exitCode;
+        try {
+            metricsExpressionsCommand("source.ts", { cwd: root, json: true });
+            const report = JSON.parse(String(log.mock.calls[0]?.[0]));
+            expect(report).toMatchObject({ complete: true, files: [{ status: "measured" }] });
+            expect(report.files[0].expressions.length).toBeGreaterThan(0);
+            expect(process.exitCode).toBe(beforeExitCode);
+        } finally { log.mockRestore(); process.exitCode = beforeExitCode; }
     });
 });

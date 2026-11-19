@@ -30,7 +30,7 @@ describe("renderJitRank", () => {
 	});
 	it("N1: with no ruler the percentile prints as unranked, never as 0", () => {
 		const r = renderJitRank({ ...rank, percentile: null, population: 0 });
-		expect(r.short()).toBe("jit HEAD: score 1.23 · unranked (no history)");
+		expect(r.short()).toBe("jit HEAD: score 1.23 · unranked (no comparison commits)");
 		expect(r.json()).toMatchObject({ percentile: null, population: 0 });
 	});
 });

@@ -12,6 +12,8 @@ import type { JsonObject } from "../lib/json-types.js";
 export interface StructuralCheckResult {
 	name: string;
 	files: Set<string>;
+	/** Extra keys written beside `count` and `files` in `--json` output (the Python scan's evidence). */
+	details?: JsonObject;
 }
 
 // Builds + writes the combined JSON payload (structural counts + engine
@@ -22,7 +24,7 @@ export function emitJsonOutput(
 ): void {
 	const jsonData: JsonObject = {};
 	for (const r of results) {
-		jsonData[r.name] = { count: r.files.size, files: [...r.files].sort() };
+		jsonData[r.name] = { count: r.files.size, files: [...r.files].sort(), ...(r.details ?? {}) };
 	}
 	if (engineReport) {
 		for (const tool of engineReport.toolsRun) {

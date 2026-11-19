@@ -421,6 +421,24 @@ describe("telemetryShowCommand — follow mode", () => {
 		expect(text).not.toContain("init-0");
 	});
 
+	it("keeps initial and appended JSON follow records machine-readable", async () => {
+		readAllImpl = () => [ev({ session_id: "initial-json" })];
+		await startFollow({ follow: true, limit: "1", json: true });
+		watchCb?.({ size: 50 });
+		createdInterfaces.at(-1)?.emitLine(JSON.stringify(ev({ session_id: "appended-json" })));
+		const rows = captured().trim().split("\n").map((line) => JSON.parse(line));
+		expect(rows.map((row) => row.session_id)).toEqual(["initial-json", "appended-json"]);
+	});
+
+	it("restarts at byte zero when the watched spool shrinks", async () => {
+		statSize = 200;
+		await startFollow({ follow: true });
+		watchCb?.({ size: 50 });
+		expect(createdStreams.at(-1)?.start).toBe(0);
+		watchCb?.({ size: 75 });
+		expect(createdStreams.at(-1)?.start).toBe(50);
+	});
+
 	it("with --limit but a non-positive value, the initial print uses the full list (limit null arm)", async () => {
 		readAllImpl = () => Array.from({ length: 3 }, (_, i) => ev({ session_id: `f-${i}` }));
 		await startFollow({ follow: true, limit: "0" });

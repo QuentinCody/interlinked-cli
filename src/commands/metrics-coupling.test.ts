@@ -550,6 +550,8 @@ describe("metricsCouplingCommand — JSON output", () => {
 			since: nextYear,
 			commits_scanned: 0,
 			pairs: [],
+			data_pairs: [],
+			set_aside: { files: 0, by_reason: [], pairs: 0 },
 		});
 	}, 60_000);
 });

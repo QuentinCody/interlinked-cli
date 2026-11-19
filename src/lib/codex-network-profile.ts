@@ -45,7 +45,7 @@ export function installCodexNetworkProfile(name: string, endpoints: string[], co
         if (lstatSync(path).isFile() && readFileSync(path, "utf8") === profile.text) {
             return { ...profile, path, changed: false };
         }
-        throw new Error(`Profile already exists with different content or is not a regular file: ${path}. Choose another name or review it manually.`);
+        throw new Error(`Profile already exists with different content or is not a regular file: ${path}. Choose another name or review it manually.`, { cause: error });
     }
     try {
         writeFileSync(fd, profile.text);

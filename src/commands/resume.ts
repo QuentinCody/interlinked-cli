@@ -26,6 +26,74 @@ function checkpointFilesChangedLines(filesChanged: string[]): string[] {
 	return lines;
 }
 
+async function readServerContext(agent: string): Promise<unknown> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const { getClient } = await import("../lib/api-client.js");
+		const client = getClient();
+		if (!client.isAuthenticated()) return null;
+		const request = client.callTool("get_work_context", { agent_name: agent });
+		return await Promise.race([request, new Promise<null>(resolve => {
+			timer = setTimeout(() => resolve(null), SERVER_CONTEXT_TIMEOUT_MS);
+		})]);
+	} catch {
+		return null;
+	} finally {
+		if (timer !== undefined) clearTimeout(timer);
+	}
+}
+
+interface ResumeSummary {
+	checkpoint: NonNullable<ReturnType<typeof getCheckpoint>>;
+	rewindResult: ReturnType<typeof rewindToCheckpoint> | null;
+	session: ReturnType<typeof readLocalSessions>[number] | undefined;
+	serverContext: unknown;
+}
+
+function renderResumeSummary({ checkpoint, rewindResult, session, serverContext }: ResumeSummary): string {
+	const lines: string[] = [];
+	lines.push(header(`Resume from ${checkpoint.id}`));
+	lines.push(kvLine("Agent", checkpoint.agent));
+	lines.push(kvLine("Message", checkpoint.message));
+	lines.push(kvLine("Trigger", checkpoint.trigger));
+	lines.push(kvLine("Created", checkpoint.timestamp));
+	lines.push(kvLine("Base commit", checkpoint.base_commit.slice(0, 8)));
+
+	if (rewindResult) {
+		lines.push(
+			kvLine(
+				"Rewind",
+				rewindResult.success
+					? c.green("restored")
+					: c.yellow("skipped (uncommitted changes)"),
+			),
+		);
+	} else if (checkpoint.restorable) {
+		lines.push(kvLine("Rewind", c.yellow("skipped (uncommitted changes)")));
+	} else {
+		lines.push(kvLine("Rewind", c.dim("not available (archived)")));
+	}
+
+	if (session) {
+		lines.push("");
+		lines.push(c.bold("Session Context:"));
+		lines.push(kvLine("Tools used", String(session.tool_count)));
+		if (session.files_touched.length > 0) {
+			lines.push(kvLine("Files", session.files_touched.slice(0, 5).join(", ")));
+		}
+	}
+
+	lines.push(...checkpointFilesChangedLines(checkpoint.files_changed));
+
+	if (serverContext) {
+		lines.push("");
+		lines.push(c.bold("Server Context:"));
+		lines.push(c.dim(`  ${JSON.stringify(serverContext).slice(0, 200)}`));
+	}
+
+	return lines.join("\n");
+}
+
 export async function resumeCommand(
 	checkpointId?: string,
 	opts?: { agent?: string; json?: boolean },
@@ -71,24 +139,7 @@ export async function resumeCommand(
 			}
 		}
 
-		// Try to fetch server context
-		let serverContext = null;
-		try {
-			const { getClient } = await import("../lib/api-client.js");
-			const client = getClient();
-			if (client.isAuthenticated()) {
-				serverContext = await Promise.race([
-					client.callTool("get_work_context", {
-						agent_name: checkpoint.agent,
-					}),
-					new Promise((_, reject) =>
-						setTimeout(() => reject(new Error("timeout")), SERVER_CONTEXT_TIMEOUT_MS),
-					),
-				]).catch(() => null);
-			}
-		} catch (_) {
-			/* intentional: server unreachable, continue with local context only */
-		}
+		const serverContext = await readServerContext(checkpoint.agent);
 
 		const data = {
 			checkpoint,
@@ -99,49 +150,7 @@ export async function resumeCommand(
 
 		output(mode, data, {
 			json: () => data,
-			normal: () => {
-				const lines: string[] = [];
-				lines.push(header(`Resume from ${checkpoint.id}`));
-				lines.push(kvLine("Agent", checkpoint.agent));
-				lines.push(kvLine("Message", checkpoint.message));
-				lines.push(kvLine("Trigger", checkpoint.trigger));
-				lines.push(kvLine("Created", checkpoint.timestamp));
-				lines.push(kvLine("Base commit", checkpoint.base_commit.slice(0, 8)));
-
-				if (rewindResult) {
-					lines.push(
-						kvLine(
-							"Rewind",
-							rewindResult.success
-								? c.green("restored")
-								: c.yellow("skipped (uncommitted changes)"),
-						),
-					);
-				} else if (checkpoint.restorable) {
-					lines.push(kvLine("Rewind", c.yellow("skipped (uncommitted changes)")));
-				} else {
-					lines.push(kvLine("Rewind", c.dim("not available (archived)")));
-				}
-
-				if (session) {
-					lines.push("");
-					lines.push(c.bold("Session Context:"));
-					lines.push(kvLine("Tools used", String(session.tool_count)));
-					if (session.files_touched.length > 0) {
-						lines.push(kvLine("Files", session.files_touched.slice(0, 5).join(", ")));
-					}
-				}
-
-				lines.push(...checkpointFilesChangedLines(checkpoint.files_changed));
-
-				if (serverContext) {
-					lines.push("");
-					lines.push(c.bold("Server Context:"));
-					lines.push(c.dim(`  ${JSON.stringify(serverContext).slice(0, 200)}`));
-				}
-
-				return lines.join("\n");
-			},
+			normal: () => renderResumeSummary(data),
 		});
 	} catch (err) {
 		outputError(mode, err instanceof Error ? err.message : String(err));

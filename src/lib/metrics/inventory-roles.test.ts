@@ -14,6 +14,18 @@ describe("dependency lockfile roles", () => {
     });
 });
 
+describe("portable root and language test conventions", () => {
+	it.each(["test.js", "tests.mjs", "index.test-d.ts", "pkg/test_widget.py", "pkg/widget_test.go", "pkg/widget_test.py", "pkg/tests.py", "app/test.py", "conftest.py", "pkg/sub/conftest.py"])("classifies %s as test evidence", path => {
+		expect(sourceRole(path)).toBe("test");
+	});
+	it.each(["benchmark.js", "bench.ts", "packages/a/benchmark.mjs"])("classifies %s as a benchmark fixture", path => {
+		expect(sourceRole(path)).toBe("fixture");
+	});
+	it.each(["testament.ts", "test-helper.ts", "benchmark-service.ts", "lib/tester.py"])("preserves product file %s", path => {
+		expect(sourceRole(path)).toBe("product");
+	});
+});
+
 describe("test files under fixture directories (roles v3)", () => {
     // test-contract: invariant — a test FILE the runner discovers is a test wherever it lives, so the coverage index's inventory holds every executed test; everything else a fixture directory holds stays a fixture, and scratch/evals never enter the inventory
     it.each(["src/harness/checks/__fixtures__/weak-hash.fixtures.test.ts", "src/harness/structure/__tests__/fixtures/fixture-declared/test/client.test.ts", "fixtures/app/index.spec.tsx"])("classifies %s as a test", path => {

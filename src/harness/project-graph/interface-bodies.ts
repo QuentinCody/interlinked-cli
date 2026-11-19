@@ -26,8 +26,8 @@ export function extractInterfaceBodies(content: string): Map<string, string> {
 
 		if (!currentName) {
 			// Look for interface/type start
-			const ifaceMatch = trimmed.match(/^export\s+interface\s+(\w+)/);
-			const typeMatch = trimmed.match(/^export\s+type\s+(\w+)\s*=\s*\{/);
+			const ifaceMatch = trimmed.match(/^export\s+interface\s+([\w$]+)/);
+			const typeMatch = trimmed.match(/^export\s+type\s+([\w$]+)\s*=\s*\{/);
 
 			if (ifaceMatch) {
 				currentName = nonNull(ifaceMatch[1]);

@@ -386,12 +386,12 @@ describe("checkProjectSetup", () => {
 	});
 
 	// test-contract: public-api — node protocol imports require a directly declared runtime or development @types/node package
-	it("does not treat a peer-only @types/node declaration as a direct install", () => {
+	it("reports missing direct Node types when the peer is marked optional", () => {
 		writeFileSync(join(tmp, "src.ts"), 'import { readFileSync } from "node:fs";\n');
 		writeFileSync(join(tmp, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true } }));
 		writeFileSync(
 			join(tmp, "package.json"),
-			JSON.stringify({ name: "x", peerDependencies: { "@types/node": "^20.0.0" } }),
+			JSON.stringify({ name: "x", peerDependencies: { "@types/node": "^20.0.0" }, peerDependenciesMeta: { "@types/node": { optional: true } } }),
 		);
 
 		const issues = checkProjectSetup(tmp);

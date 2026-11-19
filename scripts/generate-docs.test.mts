@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { STRUCTURAL_CHECK_META } from "../src/harness/check-metadata.js";
 import { getBuiltinRules, getDefaultConfig } from "../src/harness/rules-loader.js";
 
-// `scripts/generate-docs.ts` is a one-shot code-generation script run via
+// `scripts/generate-docs.ts` is a code-generation script run via
 // `npm run docs`. It reads live data from the harness registry
 // (getBuiltinRules, STRUCTURAL_CHECK_META, getDefaultConfig) and writes
 // markdown under `docs/generated/`. These tests pin the shape of the data
@@ -23,10 +23,16 @@ describe("scripts/generate-docs — input-shape invariants", () => {
 
 	it("getDefaultConfig has quality_checks + structural_checks + diff_aware sections", () => {
 		const cfg = getDefaultConfig();
-		expect(cfg).toBeTruthy();
-		expect(cfg.quality_checks).toBeTruthy();
-		expect(cfg.structural_checks).toBeTruthy();
-		expect(Object.keys(cfg.quality_checks).length).toBeGreaterThan(0);
+		expect(cfg.quality_checks.typescript).toMatchObject({
+			severity: "error",
+			file_types: expect.arrayContaining([".ts", ".tsx"]),
+		});
+		expect(cfg.structural_checks.export_surface).toBe(true);
+		expect(cfg.diff_aware).toMatchObject({
+			complexity: "edit_region",
+			no_test_file: "new_files_only",
+			undefined_env_vars: "edit_content",
+		});
 	});
 
 	it("STRUCTURAL_CHECK_META entries have name+description+tier", () => {

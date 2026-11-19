@@ -51,12 +51,12 @@ vi.mock("node:fs", () => ({
 	existsSync: (p: unknown) => m.existsSync(p),
 }));
 vi.mock("./verify/file-discovery.js", () => ({ discoverFiles: m.discoverFiles }));
-vi.mock("../harness/checks/cyclomatic-ast.js", () => ({
-	computeCyclomaticAst: m.computeCyclomaticAst,
-	astComplexityAvailable: m.astComplexityAvailable,
-	// Water-line modules on the import path parse with it; null = TypeScript unavailable.
-	parseTsSource: () => null,
-}));
+vi.mock("../harness/checks/cyclomatic-ast.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../harness/checks/cyclomatic-ast.js")>();
+	return { ...actual, computeCyclomaticAst: m.computeCyclomaticAst,
+		astComplexityAvailable: m.astComplexityAvailable,
+		parseTsSource: (content: string, path: string) => m.astComplexityAvailable() ? actual.parseTsSource(content, path) : null };
+});
 vi.mock("../harness/checks/cyclomatic.js", () => ({
 	computeCyclomaticComplexity: m.computeCyclomaticComplexity,
 }));
@@ -314,13 +314,13 @@ function lcovFile(path: string): CanonicalCoverage {
 }
 
 describe("metricsCommand — file selection (isAnalyzableSource)", () => {
-	it("keeps analyzable source languages under src/ and drops every excluded shape", async () => {
+	it("keeps analyzable product sources independently of directory and coverage", async () => {
 		m.discoverFiles.mockReturnValue([
 			abs("src/keep.ts"),
 			abs("src/keep.tsx"),
 			abs("src/keep.js"), // JS is analyzable
 			abs("src/keep.py"), // Python is analyzable
-			abs("lib/outside.ts"), // not under src/, not covered → dropped
+			abs("lib/outside.ts"), // root/library layouts are eligible without coverage
 			abs("src/notes.md"), // not a source language
 			abs("src/types.d.ts"), // declaration
 			abs("src/a.test.ts"), // test
@@ -331,12 +331,13 @@ describe("metricsCommand — file selection (isAnalyzableSource)", () => {
 		await metricsCommand({ cwd: CWD, json: true });
 		const r = lastJson();
 		expect(r.files.map((f) => f.file)).toEqual([
+			"lib/outside.ts",
 			"src/keep.js",
 			"src/keep.py",
 			"src/keep.ts",
 			"src/keep.tsx",
 		]);
-		expect(r.scope.files).toBe(4);
+		expect(r.scope.files).toBe(5);
 	});
 
 	it("includes a non-src file that appears in the coverage report (F4 multi-language)", async () => {
@@ -345,8 +346,8 @@ describe("metricsCommand — file selection (isAnalyzableSource)", () => {
 		m.discoverFiles.mockReturnValue([abs("pkg/calc.py"), abs("scripts/build.ts")]);
 		await metricsCommand({ cwd: CWD, json: true });
 		const r = lastJson();
-		// calc.py admitted via the coverage fileSet; build.ts (not src/, not covered) dropped.
-		expect(r.files.map((f) => f.file)).toEqual(["pkg/calc.py"]);
+		// Coverage is evidence about a source, not a prerequisite to discover it.
+		expect(r.files.map((f) => f.file)).toEqual(["pkg/calc.py", "scripts/build.ts"]);
 		expect(r.scope.coverageSource).toBe("lcov");
 	});
 
@@ -373,6 +374,13 @@ describe("metricsCommand — file selection (isAnalyzableSource)", () => {
 });
 
 describe("metricsCommand — canonical function-token metrics", () => {
+	it("can render a short report for 150,001 measured functions", async () => {
+		const rows = Array.from({ length: 150_001 }, (_, i) => ({ name: "f", line: i + 1, tokens: 501 }));
+		m.buildFunctionTokenMetricsReport.mockReturnValue(tokenReport(rows));
+		await metricsCommand({ cwd: CWD, short: true });
+		expect(logged).toContain("150001");
+	});
+
 	it("reports exact stable buckets and hotspots independently of complexity inventory", async () => {
 		m.discoverFiles.mockReturnValue([abs("src/a.ts")]);
 		m.computeCyclomaticAst.mockReturnValue([]);
@@ -644,12 +652,12 @@ describe("metricsCommand — output modes", () => {
 		m.existsSync.mockReturnValue(false); // both missing companions
 	});
 
-	it("normal mode renders the header, gates, distribution, and missing list (no coverage)", async () => {
+	it("normal mode renders the header, threshold observations, distribution, and missing list (no coverage)", async () => {
 		await metricsCommand({ cwd: CWD });
 		expect(logged).toContain("Test-Quality Metrics");
 		expect(logged).toContain("Source files");
 		expect(logged).toContain("absent (CRAP/coverage unavailable");
-		expect(logged).toContain("Gates");
+		expect(logged).toContain("Threshold observations (enforcement depends on project policy)");
 		expect(logged).toContain("CRAP ≥ 30");
 		expect(logged).toContain("cyclomatic > 25");
 		expect(logged).toContain("CRAP distribution");
@@ -752,7 +760,7 @@ describe("metricsCommand — missing-companion truncation", () => {
 	});
 });
 
-describe("metricsCommand — topN clamping", () => {
+describe("metricsCommand — hotspot limit", () => {
 	function manyHot(count: number): void {
 		m.discoverFiles.mockReturnValue([abs("src/a.ts")]);
 		m.loadCoverageFinal.mockReturnValue(new Map([["src/a.ts", perFile("src/a.ts")]]));
@@ -776,28 +784,19 @@ describe("metricsCommand — topN clamping", () => {
 	});
 
 	it("defaults to 25 when --top is omitted", async () => {
-		manyHot(10);
+		manyHot(30);
 		await metricsCommand({ cwd: CWD, json: true });
-		expect(lastJson().hotspots).toHaveLength(10); // all 10, under the 25 default
+		expect(lastJson().hotspots).toHaveLength(25);
 	});
 
-	it("falls back to 25 when --top is non-numeric", async () => {
-		manyHot(10);
-		await metricsCommand({ cwd: CWD, json: true, top: "abc" });
-		expect(lastJson().hotspots).toHaveLength(10);
+	it.each(["-5", "0", "", "abc", "3x", "2.5", "1e2", "201", "999"])("rejects --top %j before scanning", async (top) => {
+		await expect(metricsCommand({ cwd: CWD, json: true, top })).rejects.toThrow("--top");
+		expect(m.discoverFiles).not.toHaveBeenCalled();
 	});
 
-	it("clamps a negative --top up to 1", async () => {
-		// parseInt("-5") is truthy → bypasses the `|| 25` default and exercises
-		// the Math.max(1, …) lower clamp.
-		manyHot(10);
-		await metricsCommand({ cwd: CWD, json: true, top: "-5" });
-		expect(lastJson().hotspots).toHaveLength(1);
-	});
-
-	it("clamps --top above 200 down to 200", async () => {
+	it("accepts the inclusive upper limit of 200", async () => {
 		manyHot(250);
-		await metricsCommand({ cwd: CWD, json: true, top: "999" });
+		await metricsCommand({ cwd: CWD, json: true, top: "200" });
 		expect(lastJson().hotspots).toHaveLength(200);
 	});
 });
@@ -805,7 +804,7 @@ describe("metricsCommand — topN clamping", () => {
 describe("metricsCommand — cwd resolution default", () => {
 	it("uses process.cwd() when no cwd is supplied", async () => {
 		await metricsCommand({ json: true });
-		expect(m.discoverFiles).toHaveBeenCalledWith(process.cwd());
+		expect(m.discoverFiles).toHaveBeenCalledWith(process.cwd(), { onUnavailable: expect.any(Function) });
 		expect(lastJson().scope.files).toBe(0);
 	});
 });
@@ -875,16 +874,17 @@ describe("metricsCommand — LCOV coverage source (F4)", () => {
 		expect(r.files.some((f: { file: string }) => f.file === "src/a.ts")).toBe(true);
 	});
 
-	it("surfaces the regex-fallback warning when the AST pass is unavailable", async () => {
+	it("surfaces missing exact JS/TS complexity when the AST parser is unavailable", async () => {
 		m.astComplexityAvailable.mockReturnValue(false);
 		m.discoverFiles.mockReturnValue([abs("src/a.ts")]);
 		m.computeCyclomaticAst.mockReturnValue(null);
 		m.computeCyclomaticComplexity.mockReturnValue([comp()]);
 		await metricsCommand({ cwd: CWD });
-		expect(logged).toContain("regex fallback");
+		expect(logged).toContain("JS/TS complexity unavailable");
 		logged = "";
 		await metricsCommand({ cwd: CWD, json: true });
 		expect(lastJson().scope.astComplexityAvailable).toBe(false);
+		expect(lastJson().scope.files).toBe(0);
 	});
 });
 

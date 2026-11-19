@@ -5,8 +5,7 @@
 import * as path from "node:path";
 import { makeEdgeId, makeGlobalRef } from "../artifact-graph.js";
 import type { ArtifactEdge, ArtifactNode, ExtractorMetadata, ExtractorResult } from "../types.js";
-import { createWalkBudget, type WalkBudget } from "./bounded-walk.js";
-import { walkAndClassify } from "./walk-classify.js";
+import { createPathExtractor } from "./walk-classify.js";
 
 const TEST_PATTERNS = [
 	/\.test\.[tj]sx?$/,
@@ -96,6 +95,4 @@ export function classifyFile(_repoRoot: string, relPath: string): ExtractorResul
 	return { nodes, edges };
 }
 
-export function extract(repoRoot: string, budget: WalkBudget = createWalkBudget()): ExtractorResult {
-	return walkAndClassify(repoRoot, { classify: classifyFile, budget, extractorName: metadata.name });
-}
+export const extract = createPathExtractor(metadata.name, classifyFile);

@@ -1,4 +1,5 @@
 import type { Command, OptionValues } from "commander";
+import { registerMetricsPolicyCommands } from "./metrics-policies.js";
 
 function options(opts: OptionValues, command: Command): OptionValues { return { ...(command.parent?.parent?.opts() ?? {}), ...(command.parent?.opts() ?? {}), ...opts }; }
 function common(command: Command): Command { return command.option("--cwd <path>", "Repository root").option("--json", "Machine-readable result").option("--short", "Compact summary"); }
@@ -43,10 +44,10 @@ function evidenceCommands(metrics: Command): void {
 
 function diagnosticCommands(metrics: Command): void {
     const diagnostics = common(metrics.command("diagnostics").description("Explained verbosity and erosion census; advisory evidence, no quality verdict"))
-        .option("--profile <name>", "js-ts (default) or python; separate counting contracts")
+        .option("--profile <name>", "auto (default: by product-file languages: js-ts, python, or one report per language for a mixed tree), js-ts, or python; separate counting contracts")
         .action(async (opts: OptionValues, command: Command) => {
             const { metricsDiagnosticsCommand } = await import("../commands/metrics-diagnostics.js");
-            metricsDiagnosticsCommand(options(opts, command));
+            await metricsDiagnosticsCommand(options(opts, command));
         });
     common(diagnostics.command("compare <before> <after>").description("Compare saved diagnostic reports with scope and identity checks"))
         .action(async (before: string, after: string, opts: OptionValues, command: Command) => {
@@ -56,6 +57,7 @@ function diagnosticCommands(metrics: Command): void {
 }
 
 export function registerMetricsAnalysisCommands(metrics: Command): void {
+	registerMetricsPolicyCommands(metrics);
     common(metrics.command("expressions [target]").description("Measure JS/TS expression tokens, callbacks and presentation; advisory findings"))
         .action(async (target: string | undefined, opts: OptionValues, command: Command) => {
             const { metricsExpressionsCommand } = await import("../commands/metrics-expressions.js");

@@ -24,9 +24,12 @@ import type { HarnessEvent } from "./types.js";
  *  Tail-kept because test runners print their summary LAST. */
 const EVIDENCE_TAIL_BYTES = 8_192;
 
-function tailString(v: unknown): string | undefined {
-	if (typeof v !== "string") return undefined;
+function tail(v: string): string {
 	return v.length > EVIDENCE_TAIL_BYTES ? v.slice(-EVIDENCE_TAIL_BYTES) : v;
+}
+
+function tailString(v: unknown): string | undefined {
+	return typeof v === "string" ? tail(v) : undefined;
 }
 
 /**
@@ -39,6 +42,10 @@ function tailString(v: unknown): string | undefined {
  * left exactly as before (`observedOutput` reads them directly).
  */
 export function liftOutcomeEvidence(event: HarnessEvent): void {
+	if (isBareFailureEvent(event)) {
+		liftBareFailure(event);
+		return;
+	}
 	const fields = liftableResponseFields(event);
 	if (fields === undefined) return;
 
@@ -63,6 +70,34 @@ function liftableResponseFields(event: HarnessEvent): Record<string, unknown> | 
 	// SAFETY: narrowed to a non-null, non-array object; every read below
 	// re-checks its own field's type before use.
 	return resp as Record<string, unknown>;
+}
+
+/** Claude Code's PostToolUseFailure carries no tool_response at all — only an
+ *  `error` text (carried as `error_message`) whose first line is `Exit code N`
+ *  for a failed Bash call. Verified 2026-11-16 under Claude Code 2.1.325: that
+ *  event is the ONLY delivery for a failed Bash call. */
+function isBareFailureEvent(event: HarnessEvent): boolean {
+	return (
+		event.hook_event === "PostToolUseFailure" &&
+		event.tool_outcome === undefined &&
+		(event.tool_response === undefined || event.tool_response === null)
+	);
+}
+
+function liftBareFailure(event: HarnessEvent): void {
+	event.tool_outcome = "error";
+	const text = event.error_message;
+	if (text === undefined) return;
+	const code = exitCodeFromErrorText(text);
+	if (code !== undefined && event.exit_code === undefined) event.exit_code = code;
+	if (event.stderr === undefined) event.stderr = tail(text);
+}
+
+/** The exit code a failure text states on its FIRST line (`Exit code 3`), or
+ *  undefined when the first line is anything else. */
+export function exitCodeFromErrorText(text: string): number | undefined {
+	const match = /^Exit code (-?\d+)[ \t]*(?:\r?\n|$)/.exec(text);
+	return match ? Number(match[1]) : undefined;
 }
 
 /** Copy stdout/stderr tails onto the event, never overwriting existing values. */

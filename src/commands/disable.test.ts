@@ -42,6 +42,7 @@ vi.mock("./harness.js", () => ({
 	harnessStopCommand: vi.fn(),
 	isHarnessRunning: vi.fn(),
 }));
+vi.mock("./harness-liveness.js", () => ({ probeHarnessSocket: vi.fn(async () => false) }));
 
 import { getConfigDir, isConfigured, readLocalConfig } from "../lib/config.js";
 import { stripAnsi } from "../lib/formatter.js";
@@ -50,6 +51,7 @@ import { deleteConfigDir, deleteHookScript, uninstallAllHooks } from "../lib/hoo
 import { uninstallSkills } from "../lib/skill-installers.js";
 import { disableCommand } from "./disable.js";
 import { harnessStopCommand, isHarnessRunning } from "./harness.js";
+import { probeHarnessSocket } from "./harness-liveness.js";
 
 // --- helpers --------------------------------------------------------------
 
@@ -87,6 +89,7 @@ beforeEach(() => {
 		source: "local",
 	});
 	vi.mocked(harnessStopCommand).mockResolvedValue(undefined);
+	vi.mocked(probeHarnessSocket).mockReset().mockResolvedValue(false);
 	// Default: the daemon stopped cleanly, so a stand-down is fully in effect.
 	vi.mocked(isHarnessRunning).mockReturnValue({ running: false });
 });
@@ -201,6 +204,26 @@ describe("disableCommand — stand down (default)", () => {
 });
 
 describe("disableCommand — uninstall", () => {
+	it("stops the daemon before removing hook and config ownership", async () => {
+		await disableCommand({ uninstall: true });
+		expect(harnessStopCommand).toHaveBeenCalledOnce();
+		expect(vi.mocked(harnessStopCommand).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(uninstallAllHooks).mock.invocationCallOrder[0] ?? 0);
+	});
+
+	it.each(["pid", "socket", "stop-failure"])("preserves ownership when shutdown cannot be confirmed through %s", async (failure) => {
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: failure === "pid", pid: 456 });
+		vi.mocked(probeHarnessSocket).mockResolvedValueOnce(failure === "socket");
+		if (failure === "stop-failure") vi.mocked(harnessStopCommand).mockImplementationOnce(async () => { process.exitCode = 1; });
+
+		await disableCommand({ uninstall: true });
+
+		expect(process.exitCode).toBe(1);
+		expect(uninstallAllHooks).not.toHaveBeenCalled();
+		expect(uninstallSkills).not.toHaveBeenCalled();
+		expect(deleteHookScript).not.toHaveBeenCalled();
+		expect(deleteConfigDir).not.toHaveBeenCalled();
+	});
+
 	it("prints the uninstall banner and tears down hooks for every client", async () => {
 		await disableCommand({ uninstall: true });
 

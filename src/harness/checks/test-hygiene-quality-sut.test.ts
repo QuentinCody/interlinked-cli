@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
+import { withForegroundCheckScan } from "./check-scan-policy.js";
 import {
 	checkMockingTheSutSelf,
 	checkTestMissingSutImport,
@@ -10,6 +11,13 @@ const TEST = "src/lib/foo.test.ts";
 const SRC = "src/lib/foo.ts";
 
 describe("checkTestMissingSutImport", () => {
+	it.each(["mts", "cts"])("checks the companion import and mock for a .%s suite", ext => {
+		const file = `src/foo.test.${ext}`;
+		expect(checkTestMissingSutImport('it("returns a result", () => expect(1).toBe(1));', file)).toHaveLength(1);
+		expect(checkTestMissingSutImport(`import { foo } from "./foo.${ext}";`, file)).toEqual([]);
+		expect(checkMockingTheSutSelf(`vi.mock("./foo.${ext}");`, file)).toHaveLength(1);
+		expect(checkMockingTheSutSelf(`vi.mock("../other/foo.${ext}");`, file)).toEqual([]);
+	});
 	it("flags a test file that imports no SUT and no other project source", () => {
 		const code = `import { describe, it, expect } from "vitest";\nit("does a thing", () => { expect(1).toBe(1); });\n`;
 		const matches = checkTestMissingSutImport(code, TEST);
@@ -250,6 +258,20 @@ describe("checkTestMissingSutImport scratch/ probe dir — positive (must fire)"
 });
 
 describe("checkMockingTheSutSelf", () => {
+	it("P1 retains every foreground mock and its tail while ordinary edits keep their three-result limit", () => {
+		const content = [...Array.from({ length: 20 }, () => 'vi.mock("./foo.js");'), 'vi.mock("../commands/foo.js");'].join("\n");
+		const scan = () => checkMockingTheSutSelf(content, TEST);
+		expect(scan()).toHaveLength(3);
+		expect(withForegroundCheckScan(scan).map(match => match.line)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+		expect(scan()).toHaveLength(3);
+	});
+
+	it("N1 keeps unrelated-module and non-test exceptions in foreground scans", () => {
+		const content = Array.from({ length: 20 }, () => 'vi.mock("../commands/foo.js"); jest.mock("./bar.js");').join("\n");
+		expect(withForegroundCheckScan(() => checkMockingTheSutSelf(content, TEST))).toEqual([]);
+		expect(withForegroundCheckScan(() => checkMockingTheSutSelf('vi.mock("./foo.js");', SRC))).toEqual([]);
+	});
+
 	it("flags vi.mock of the same-directory SUT", () => {
 		const code = `vi.mock("./foo");\nit("x", () => { expect(1).toBe(1); });\n`;
 		const matches = checkMockingTheSutSelf(code, TEST);

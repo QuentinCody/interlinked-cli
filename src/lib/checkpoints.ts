@@ -7,8 +7,17 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+	type CheckpointSnapshotPlan,
+	checkpointStateExclusions,
+	checkpointStatePaths,
+	findCheckpointSnapshot,
+	isGitObjectId,
+	prepareCheckpointSnapshot,
+	restoreCheckpointSnapshot,
+} from "./checkpoints-restoration.js";
 import { getDataDir } from "./config.js";
-import { gitShell } from "./git-shell.js";
+import { gitArgs, gitArgsRaw, gitShell } from "./git-shell.js";
 import { isJsonObject, type JsonObject } from "./json-types.js";
 import { wireAbsentOptional, wireArray, wireBoolean, wireLiteral, wireObject, wireOptional, wireString } from "./value-validation.js";
 
@@ -109,6 +118,12 @@ function writeCheckpointsFile(checkpoints: Checkpoint[], cwd: string): void {
 	writeFileSync(path, `${JSON.stringify(checkpoints, null, 2)}\n`);
 }
 
+function validateBaseCommit(checkpoint: Checkpoint): void {
+	if (!isGitObjectId(checkpoint.base_commit)) {
+		throw new Error(`Invalid checkpoint base commit for ${checkpoint.id}; expected a full SHA-1 or SHA-256 object ID`);
+	}
+}
+
 // ===========================================
 // Core Functions
 // ===========================================
@@ -130,17 +145,12 @@ export function createCheckpoint(opts: CreateCheckpointOpts): Checkpoint {
 	const baseCommit = gitShell("rev-parse HEAD", cwd);
 
 	// Get files with uncommitted changes
-	let filesChanged: string[] = [];
-	try {
-		const diffOutput = gitShell("diff --name-only HEAD", cwd);
-		const untrackedOutput = gitShell("ls-files --others --exclude-standard", cwd);
-		filesChanged = [
-			...diffOutput.split("\n").filter(Boolean),
-			...untrackedOutput.split("\n").filter(Boolean),
-		];
-	} catch (_err) {
-		/* intentional: empty repo or no changes — filesChanged stays empty */
-	}
+	const diffOutput = gitArgsRaw(["diff", "--name-only", "-z", "HEAD"], cwd);
+	const untrackedOutput = gitArgsRaw(["ls-files", "--others", "--exclude-standard", "-z"], cwd);
+	const statePaths = checkpointStatePaths(cwd);
+	const filesChanged = [...diffOutput.split("\0"), ...untrackedOutput.split("\0")].filter((file) =>
+		file.length > 0 && !statePaths.some((path) => file === path || file.startsWith(`${path}/`)),
+	);
 
 	// Create the stash with a structured message
 	const stashMeta = JSON.stringify({
@@ -152,16 +162,15 @@ export function createCheckpoint(opts: CreateCheckpointOpts): Checkpoint {
 	const stashMessage = `interlinked:checkpoint:${id}:${stashMeta}`;
 
 	let stashRef: string | undefined;
-	try {
+	if (filesChanged.length > 0) {
 		// Include untracked files in the stash
-		gitShell(`stash push --include-untracked -m "${stashMessage}"`, cwd);
-		// Get the stash ref
-		stashRef = gitShell("stash list -1 --format=%H", cwd);
-		// Immediately pop the stash to restore working tree
-		// (we want to capture state, not remove it)
-		gitShell("stash pop", cwd);
-	} catch (_err) {
-		/* intentional: stash failed (usually no changes) — record the checkpoint as metadata-only */
+		gitArgs(["stash", "push", "--include-untracked", "-m", stashMessage, "--", ".", ...checkpointStateExclusions(cwd)], cwd);
+		stashRef = findCheckpointSnapshot(cwd, id);
+		if (!stashRef) throw new Error(`Checkpoint snapshot unavailable for ${id}`);
+		gitArgs(["update-ref", `refs/interlinked/checkpoints/${id}`, stashRef], cwd);
+		// Keep the captured object and restore its index/worktree without popping
+		// whichever stash another actor may have pushed in the meantime.
+		restoreCheckpointSnapshot(cwd, prepareCheckpointSnapshot(cwd, stashRef, baseCommit));
 	}
 
 	const checkpoint: Checkpoint = {
@@ -227,30 +236,19 @@ export function getCheckpoint(id: string, cwd?: string): Checkpoint | null {
 	return checkpoints.find((c) => c.id === id) || null;
 }
 
-/**
- * Find the stash matching this checkpoint id and apply it.
- * Returns true if a matching stash was found and applied.
- */
-function applyMatchingStash(cwd: string, id: string): boolean {
+function resolveCheckpointSnapshot(cwd: string, checkpoint: Checkpoint): CheckpointSnapshotPlan {
 	try {
-		const stashList = gitShell("stash list --format=%gd:%s", cwd);
-		const stashLines = stashList.split("\n").filter(Boolean);
-		for (const line of stashLines) {
-			if (line.includes(`interlinked:checkpoint:${id}:`)) {
-				const stashRef = line.split(":")[0];
-				gitShell(`stash apply ${stashRef}`, cwd);
-				return true;
-			}
-		}
-	} catch (_err) {
-		/* intentional: stash may have been dropped or list failed — applied stays false, warning reported to caller */
+		const snapshot = checkpoint.stash_ref ?? findCheckpointSnapshot(cwd, checkpoint.id);
+		if (snapshot === undefined) throw new Error("Missing snapshot object ID");
+		return prepareCheckpointSnapshot(cwd, snapshot, checkpoint.base_commit);
+	} catch (cause) {
+		throw new Error(`Checkpoint snapshot unavailable for ${checkpoint.id}; working tree was preserved`, { cause });
 	}
-	return false;
 }
 
 /**
  * Rewind working tree to a checkpoint state.
- * Finds the stash matching the checkpoint and applies it.
+ * Applies a preflighted snapshot while preserving Interlinked-owned state.
  */
 export function rewindToCheckpoint(
 	id: string,
@@ -268,53 +266,38 @@ export function rewindToCheckpoint(
 			`Checkpoint ${id} is not restorable (archived or no changes were stashed).`,
 		);
 	}
+	validateBaseCommit(checkpoint);
 
 	if (!isGitRepo(cwd)) {
 		throw new Error("Not a git repository.");
 	}
+	gitArgs(["rev-parse", "--verify", "--end-of-options", `${checkpoint.base_commit}^{commit}`], cwd);
 
 	// Check for uncommitted changes
-	let hasChanges = false;
-	try {
-		const status = gitShell("status --porcelain", cwd);
-		hasChanges = status.length > 0;
-	} catch (_err) {
-		/* intentional: status failed — proceed as if tree is clean */
-	}
+	const hasChanges = gitShell("status --porcelain", cwd).length > 0;
 
 	if (hasChanges && !opts?.force) {
 		throw new Error(
 			"Working tree has uncommitted changes. Use --force to discard them, or commit first.",
 		);
 	}
+	const snapshot = resolveCheckpointSnapshot(cwd, checkpoint);
 
-	// If force, reset working tree
-	if (hasChanges && opts?.force) {
-		gitShell("checkout -- .", cwd);
-		gitShell("clean -fd", cwd);
-	}
-
-	// Reset to the base commit of the checkpoint
+	// Detach HEAD without checking out or resetting owned state.
 	const currentHead = gitShell("rev-parse HEAD", cwd);
 	if (currentHead !== checkpoint.base_commit) {
-		try {
-			gitShell(`checkout ${checkpoint.base_commit}`, cwd);
-		} catch (_err) {
-			/* intentional: checkout failed — continue to stash apply below with current HEAD */
-		}
+		gitArgs(["update-ref", "--no-deref", "HEAD", checkpoint.base_commit, currentHead], cwd);
 	}
-
-	// Find and apply the stash matching this checkpoint
-	const applied = applyMatchingStash(cwd, id);
-
-	const warning = applied
-		? undefined
-		: "Stash not found — restored to base commit only. File changes may be missing.";
+	if ((hasChanges && opts?.force) || currentHead !== checkpoint.base_commit) {
+		gitArgs(["restore", "--source", checkpoint.base_commit, "--staged", "--worktree", "--", ".", ...checkpointStateExclusions(cwd)], cwd);
+	}
+	if (hasChanges && opts?.force) gitArgs(["clean", "-fd", "--", ".", ...checkpointStateExclusions(cwd)], cwd);
+	restoreCheckpointSnapshot(cwd, snapshot);
 
 	return {
 		success: true,
 		files_restored: checkpoint.files_changed,
-		warning,
+		warning: undefined,
 	};
 }
 
@@ -328,6 +311,8 @@ export function compareCheckpoints(fromId: string, toId: string, cwd?: string): 
 
 	if (!from) throw new Error(`Checkpoint not found: ${fromId}`);
 	if (!to) throw new Error(`Checkpoint not found: ${toId}`);
+	validateBaseCommit(from);
+	validateBaseCommit(to);
 
 	const fromFiles = new Set(from.files_changed);
 	const toFiles = new Set(to.files_changed);
@@ -338,7 +323,7 @@ export function compareCheckpoints(fromId: string, toId: string, cwd?: string): 
 
 	let diffSummary = "";
 	try {
-		diffSummary = gitShell(`diff --stat ${from.base_commit}..${to.base_commit}`, resolvedCwd);
+		diffSummary = gitArgs(["diff", "--stat", `${from.base_commit}..${to.base_commit}`, "--"], resolvedCwd);
 	} catch (_err) {
 		/* intentional: git diff unavailable — fall back to computed file counts */
 		diffSummary = `${added.length} added, ${modified.length} modified, ${deleted.length} deleted`;
@@ -400,9 +385,9 @@ export function archiveCheckpoints(opts?: {
 	const checkpoints = readCheckpointsFile(cwd);
 	let archived = 0;
 
-	// Sort newest first to count active stashes
+	// Retire the oldest active checkpoints first when capacity is exceeded.
 	const sorted = [...checkpoints].sort(
-		(a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+		(a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
 	);
 
 	let activeStashCount = sorted.filter((c) => c.restorable).length;

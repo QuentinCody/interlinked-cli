@@ -13,6 +13,11 @@ describe("PROJECTION_ROWS — positive (must hold)", () => {
 	});
 
 	it("P2: no row lists the same path as both touched and omitted", () => {
+		expect(PROJECTION_ROWS).toContainEqual(expect.objectContaining({
+			id: "apply-patch-move-destination-omitted-rejects",
+			omits: ["src/renamed.ts"],
+			touches: ["src/keep.ts"],
+		}));
 		for (const item of PROJECTION_ROWS) {
 			expect(item.omits.filter((path) => item.touches.includes(path))).toEqual([]);
 		}

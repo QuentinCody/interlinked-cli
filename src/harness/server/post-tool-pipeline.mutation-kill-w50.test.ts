@@ -75,6 +75,11 @@ vi.mock("./post-tool-pipeline-tracking.js", () => ({
 	dischargeCoverageOnGreenRun: vi.fn(),
 	pushWarnings: mocks.pushWarnings,
 	trackTestRun: mocks.trackTestRun,
+	// The pipeline calls the combined tracker; it forwards the test tracker's warning.
+	trackRunEvidence: vi.fn((...args: Parameters<typeof mocks.trackTestRun>) => {
+		const warning = mocks.trackTestRun(...args);
+		return warning ? [warning] : [];
+	}),
 	trackVerificationOutcome: vi.fn(),
 	updateTrigramDirtyLayer: vi.fn(),
 }));

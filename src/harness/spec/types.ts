@@ -19,6 +19,8 @@ export interface NamespaceId {
 	 * cells, and mid-sentence mentions inside a list item are references.
 	 */
 	defSites: number[];
+	/** Registry shape of each `defSites` entry, same order; absent on entries built before shapes were recorded. */
+	defShapes?: Array<"heading" | "table" | "named" | "item">;
 	/** Distinct written forms merged into this entry ("FG-INV-1", "FG-INV-01"). */
 	spellings: string[];
 }

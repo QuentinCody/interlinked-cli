@@ -64,7 +64,7 @@ export async function uninstallHooksCommand(options: UninstallHooksOptions): Pro
 }
 
 function parseRunners(raw: string | undefined): RunnerId[] {
-	if (!raw || raw === "all") return [];
+	if (raw === undefined || raw === "all") return [];
 	const parts = raw.split(",").map((s) => s.trim());
 	const out: RunnerId[] = [];
 	for (const part of parts) {

@@ -9,6 +9,11 @@ Cowork uses an uploaded plugin, separately from Claude Code settings. Ordinary D
 
 ## Native evidence and limitations
 
+To check the hook's malformed-input response from the CLI source checkout, run
+`node --import tsx src/cowork-hook.ts --event PreToolUse` from the repository
+root and send EOF on empty stdin. Stdout should contain a JSON verdict with
+`permissionDecision` equal to `deny`. The native installation has its own probe below.
+
 Run `interlinked cowork capabilities --json`. Dated native evidence is distinct from the current installation, which remains unmeasured until probed. On Desktop 1.49585.0 cloud mode, native deny, ask, input rewrite, and post-tool context were observed. Hook crashes and provider timeouts allowed synthetic writes. The guard launcher converts child failures, missing Node, and a 12-second internal deadline to explicit denial before the 15-second native deadline. If the provider never launches or kills the entire hook, this wrapper cannot enforce anything.
 
 The ordinary plugin installs six lifecycle/tool hooks. A separate `--probe` package registers the larger Claude Code event catalog, including failure/subagent events, to measure availability; registration does not establish emission or enforcement. Keep fault injection confined to synthetic tasks, then disable the probe plugin. Do not retry denied actions through another tool.

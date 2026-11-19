@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	collectDeclaredDeps,
@@ -81,32 +81,37 @@ describe("collectDeclaredDeps", () => {
 });
 
 describe("findCrossPackageBoundary", () => {
-	it("reports the boundary directory when a sibling package is crossed", () => {
+	it("N1: a subdirectory and its package root share the same owner", () => {
 		const fileDir = join(root, "libs", "ui", "src");
-		const found = findCrossPackageBoundary(join(fileDir, "a.ts"), fileDir, "../other.ts");
-		expect(found).toBe(join(root, "libs", "ui"));
+		expect(findCrossPackageBoundary(fileDir, dirname(fileDir))).toBeNull();
 	});
 
 	it("returns null when the only package.json crossed is the project root", () => {
 		const fileDir = join(root, "pkgless", "src");
-		const found = findCrossPackageBoundary(join(fileDir, "a.ts"), fileDir, "../../x.ts");
+		const found = findCrossPackageBoundary(fileDir, root);
 		expect(found).toBeNull();
 	});
 
-	it("stops at the first non-root package.json rather than the project root", () => {
+	it("P1: a child package imports from its enclosing workspace package", () => {
 		const fileDir = join(root, "app", "src", "deep");
-		const found = findCrossPackageBoundary(join(fileDir, "a.ts"), fileDir, "../../../../x.ts");
+		const found = findCrossPackageBoundary(fileDir, root);
 		expect(found).toBe(join(root, "app"));
 	});
 
-	it("returns null when the specifier has no parent segments", () => {
+	it("N2: directories below the same package both resolve to that package", () => {
 		const fileDir = join(root, "libs", "ui", "src");
-		expect(findCrossPackageBoundary(join(fileDir, "a.ts"), fileDir, "./sibling.ts")).toBeNull();
+		expect(findCrossPackageBoundary(fileDir, join(fileDir, "nested"))).toBeNull();
 	});
 
-	it("skips the importing file's own directory package.json", () => {
-		const fileDir = join(root, "libs", "ui", "src");
-		const filePath = join(root, "libs", "ui", "a.ts");
-		expect(findCrossPackageBoundary(filePath, fileDir, "../x.ts")).toBeNull();
+	it("P2: a workspace root enters a nested package even without a parent path segment", () => {
+		const target = join(root, "libs", "ui");
+		expect(findCrossPackageBoundary(root, join(target, "src"))).toBe(target);
+	});
+
+	it("P3: distinct private workspace packages retain separate owners", () => {
+		const privateDir = join(root, "private");
+		mkdirSync(privateDir);
+		writeFileSync(join(privateDir, "package.json"), JSON.stringify({ private: true }));
+		expect(findCrossPackageBoundary(join(root, "libs", "ui", "src"), privateDir)).toBe(privateDir);
 	});
 });

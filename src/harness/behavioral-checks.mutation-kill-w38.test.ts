@@ -84,6 +84,19 @@ describe("checkRepeatedEditWithoutTest — mutant kills", () => {
 		expect(result).toBeNull();
 	});
 
+	// test-contract: bug — 2026-11-17: twelve edits to a markdown memory file outside the repo warned "edited 10 times without running tests"; a document has no test to run
+	it("returns null for a file that is not source code, inside or outside the project", () => {
+		const paths = ["docs/design/notes.md", "/Users/me/.claude/projects/p/memory/MEMORY.md", "package.json"];
+		const session = makeSession({ file_edit_counts: new Map(paths.map((path) => [path, 12])) });
+		for (const path of paths) expect(checkRepeatedEditWithoutTest(session, path), path).toBeNull();
+	});
+
+	// test-contract: invariant — the source-extension gate must not exempt code: a scratch probe is source and keeps the warning
+	it("still warns for a source file edited three times with no test run, in scratch/ too", () => {
+		const session = makeSession({ file_edit_counts: new Map([["scratch/probe/measure.mjs", 3]]) });
+		expect(checkRepeatedEditWithoutTest(session, "scratch/probe/measure.mjs")?.name).toBe("repeated_edit_without_test");
+	});
+
 	// test-contract: public-api — source tag must be "structural"
 	it("9acbecdb: source is exactly 'structural'", () => {
 		const edits = new Map([["src/utils/parser.ts", 3]]);

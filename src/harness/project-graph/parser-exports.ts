@@ -7,6 +7,14 @@
 
 import { nonNull } from "../../lib/non-null.js";
 import type { ExportedSymbol } from "../types.js";
+import { maskCommentsAndTemplates } from "./mask-templates.js";
+import {
+	bracketDepth,
+	destructuredExports,
+	matchDestructuredOrConstEnumExport,
+	startsDestructuredExport,
+} from "./parser-exports-destructure.js";
+import { matchNamespaceOrDeclareExport, trailingExportList } from "./parser-exports-forms.js";
 
 /**
  * Public API — consumed by ProjectGraph.indexFile and structural-checks.
@@ -17,7 +25,7 @@ import type { ExportedSymbol } from "../types.js";
  */
 export function parseExports(content: string): ExportedSymbol[] {
 	const exports: ExportedSymbol[] = [];
-	const lines = content.split("\n");
+	const lines = (content.includes("`") ? maskCommentsAndTemplates(content) : content).split("\n");
 
 	let inBlockComment = false;
 	let exportBuffer = "";
@@ -26,12 +34,13 @@ export function parseExports(content: string): ExportedSymbol[] {
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
 		if (line === undefined) continue;
-		const trimmed = line.trim();
 
-		// Track block / line comments (mutates inBlockComment via the verdict).
-		const comment = commentSkipVerdict(trimmed, inBlockComment);
+		// Drop leading comments; code after a comment that closes on this line
+		// (`*/ export function f(`) stays. Mutates inBlockComment via the verdict.
+		const comment = stripLeadingComments(line.trim(), inBlockComment);
 		inBlockComment = comment.nextInBlock;
-		if (comment.skip) continue;
+		const trimmed = comment.code;
+		if (trimmed === "") continue;
 
 		// Handle multiline export { ... } statements
 		if (exportBuffer) {
@@ -44,11 +53,14 @@ export function parseExports(content: string): ExportedSymbol[] {
 			continue;
 		}
 
-		// Skip lines that don't start with "export"
-		if (!trimmed.startsWith("export")) continue;
+		// A minified bundle ends with `;export{...}` on a line of other code.
+		if (!trimmed.startsWith("export")) {
+			exports.push(...matchTrailingExportList(trimmed, i + 1));
+			continue;
+		}
 
 		// Detect start of multiline export { ... } (opening brace but no closing)
-		if (/^export\s+(?:type\s+)?\{/.test(trimmed) && !trimmed.includes("}")) {
+		if (opensMultilineExport(trimmed)) {
 			exportBuffer = trimmed;
 			exportBufferStartLine = i + 1;
 			continue;
@@ -66,6 +78,21 @@ export function parseExports(content: string): ExportedSymbol[] {
 	return exports;
 }
 
+/** The names of an `export{...}` that ends a line of other code (minified bundles). */
+function matchTrailingExportList(trimmed: string, lineNum: number): ExportedSymbol[] {
+	const trailing = trailingExportList(trimmed);
+	return (trailing === null ? null : matchReExportOrStar(trailing, lineNum)) ?? [];
+}
+
+/**
+ * True when `trimmed` starts an export statement that closes on a later line:
+ * `export { ...` with no `}` yet, or a destructured export whose pattern is open.
+ */
+function opensMultilineExport(trimmed: string): boolean {
+	if (/^export\s*(?:type\s*)?\{/.test(trimmed)) return !trimmed.includes("}");
+	return startsDestructuredExport(trimmed) && bracketDepth(trimmed) > 0;
+}
+
 /**
  * Accumulate one more line of an in-progress multiline `export { ... }`.
  *
@@ -81,7 +108,8 @@ function continueMultilineExport(
 	exports: ExportedSymbol[],
 ): string {
 	const next = `${buffer} ${trimmed}`;
-	if (!trimmed.includes("}")) return next;
+	const stillOpen = startsDestructuredExport(buffer) ? bracketDepth(next) > 0 : !trimmed.includes("}");
+	if (stillOpen) return next;
 	// Multiline export complete — process the accumulated buffer
 	processExportStatement(next, startLine, exports);
 	return "";
@@ -97,33 +125,42 @@ function continueMultilineExport(
 function matchSingleLineExport(trimmed: string, lineNum: number): ExportedSymbol[] | null {
 	const reExport = matchReExportOrStar(trimmed, lineNum);
 	if (reExport) return reExport;
-	return matchExportDeclaration(trimmed, lineNum);
+	return (
+		matchExportDeclaration(trimmed, lineNum) ??
+		matchNamespaceOrDeclareExport(trimmed, lineNum, matchExportDeclaration)
+	);
 }
 
 /**
- * Comment-skip decision for one trimmed source line.
+ * The code that remains on one trimmed source line once the comments in front
+ * of it are dropped.
  *
  * Internal helper for {@link parseExports}. The mutable `inBlockComment` flag
- * stays in the orchestrator's loop; this returns whether to skip the line and
- * what the flag should be on the next iteration. Returns `skip: true` for any
- * comment line (in-block continuation, block start, or `//` line comment).
+ * stays in the orchestrator's loop; this returns the remaining code (`""` for a
+ * line that is all comment) and the flag for the next line. A block comment
+ * that closes on the line leaves the text after its closing marker as code, so
+ * an `export` that follows the close of a doc comment is read. A line comment
+ * ends the line.
  */
-function commentSkipVerdict(
+function stripLeadingComments(
 	trimmed: string,
 	inBlockComment: boolean,
-): { skip: boolean; nextInBlock: boolean } {
-	if (inBlockComment) {
-		// Inside a block comment — skip; exit the block on the closing `*/`.
-		return { skip: true, nextInBlock: !trimmed.includes("*/") };
+): { code: string; nextInBlock: boolean } {
+	let rest = trimmed;
+	let inBlock = inBlockComment;
+	for (;;) {
+		if (inBlock) {
+			const close = rest.indexOf("*/");
+			if (close === -1) return { code: "", nextInBlock: true };
+			rest = rest.slice(close + 2).trim();
+			inBlock = false;
+		} else if (rest.startsWith("/*")) {
+			rest = rest.slice(2);
+			inBlock = true;
+		} else {
+			return { code: rest.startsWith("//") ? "" : rest, nextInBlock: false };
+		}
 	}
-	if (trimmed.startsWith("/*")) {
-		// Block-comment start — skip; enter block only if it doesn't close inline.
-		return { skip: true, nextInBlock: !trimmed.includes("*/") };
-	}
-	if (trimmed.startsWith("//")) {
-		return { skip: true, nextInBlock: false };
-	}
-	return { skip: false, nextInBlock: false };
 }
 
 /**
@@ -135,7 +172,7 @@ function commentSkipVerdict(
  */
 function matchReExportOrStar(trimmed: string, lineNum: number): ExportedSymbol[] | null {
 	// export type { Foo, Bar } from '...' or export type { Foo, Bar }
-	const typeReExport = trimmed.match(/^export\s+type\s+\{([^}]+)\}/);
+	const typeReExport = trimmed.match(/^export\s+type\s*\{([^}]+)\}/);
 	if (typeReExport?.[1] !== undefined) {
 		const names = typeReExport[1]
 			.split(",")
@@ -154,9 +191,9 @@ function matchReExportOrStar(trimmed: string, lineNum: number): ExportedSymbol[]
 	// An inline `type` specifier (`export { type Foo }`) is a TYPE-ONLY export
 	// of that one name — record it as such, per-entry, so type surfaces are not
 	// misread as value exports (mixed clauses keep each entry's own flag).
-	const namedReExport = trimmed.match(/^export\s+\{([^}]+)\}/);
+	const namedReExport = trimmed.match(/^export\s*\{([^}]+)\}/);
 	if (namedReExport?.[1] !== undefined) {
-		const isReExport = /from\s+['"]/.test(trimmed);
+		const isReExport = /from\s*['"]/.test(trimmed);
 		const entries = namedReExport[1]
 			.split(",")
 			.map((raw) => {
@@ -182,9 +219,9 @@ function matchReExportOrStar(trimmed: string, lineNum: number): ExportedSymbol[]
 		}));
 	}
 
-	// export * from '...' or export * as ns from '...'
-	if (/^export\s+\*\s/.test(trimmed)) {
-		const nsMatch = trimmed.match(/^export\s+\*\s+as\s+(\w+)/);
+	// export * from '...', export * as ns from '...', and the TS 5 `export type *` forms
+	if (/^export\s+(?:type\s+)?\*\s/.test(trimmed)) {
+		const nsMatch = trimmed.match(/^export\s+(?:type\s+)?\*\s+as\s+([\w$]+)/);
 		return [{ name: nsMatch?.[1] ?? "*", kind: "namespace", isTypeOnly: false, line: lineNum }];
 	}
 
@@ -205,8 +242,13 @@ function variableKind(capture: string | undefined): "const" | "let" | "var" {
 }
 
 function matchExportDeclaration(trimmed: string, lineNum: number): ExportedSymbol[] | null {
+	// export const { a, b: c } = x;  /  export const [a, b] = y;  /  export const enum E
+	// (before the const/let/var form, which would read "enum" as the name)
+	const extra = matchDestructuredOrConstEnumExport(trimmed, lineNum);
+	if (extra) return extra;
+
 	// export default class/function Name
-	const defaultClassFn = trimmed.match(/^export\s+default\s+(class|function)\s*(\w*)/);
+	const defaultClassFn = trimmed.match(/^export\s+default\s+(class|function)\s*([\w$]*)/);
 	if (defaultClassFn) {
 		const out: ExportedSymbol[] = [
 			{ name: "default", kind: "default", isTypeOnly: false, line: lineNum },
@@ -228,20 +270,14 @@ function matchExportDeclaration(trimmed: string, lineNum: number): ExportedSymbo
 		return [{ name: "default", kind: "default", isTypeOnly: false, line: lineNum }];
 	}
 
-	// export async function name(
-	const asyncFn = trimmed.match(/^export\s+async\s+function\s+(\w+)/);
-	if (asyncFn?.[1] !== undefined) {
-		return [{ name: asyncFn[1], kind: "function", isTypeOnly: false, line: lineNum }];
-	}
-
-	// export function name(
-	const fn = trimmed.match(/^export\s+function\s+(\w+)/);
+	// export function name( / export async function name( / export function* name(
+	const fn = trimmed.match(/^export\s+(?:async\s+)?function\s*\*?\s*([\w$]+)/);
 	if (fn?.[1] !== undefined) {
 		return [{ name: fn[1], kind: "function", isTypeOnly: false, line: lineNum }];
 	}
 
 	// export const/let/var name
-	const variable = trimmed.match(/^export\s+(const|let|var)\s+(\w+)/);
+	const variable = trimmed.match(/^export\s+(const|let|var)\s+([\w$]+)/);
 	if (variable?.[2] !== undefined) {
 		return [
 			{
@@ -254,31 +290,32 @@ function matchExportDeclaration(trimmed: string, lineNum: number): ExportedSymbo
 	}
 
 	// export class Name
-	const cls = trimmed.match(/^export\s+class\s+(\w+)/);
+	const cls = trimmed.match(/^export\s+class\s+([\w$]+)/);
 	if (cls) {
 		return [{ name: nonNull(cls[1]), kind: "class", isTypeOnly: false, line: lineNum }];
 	}
 
 	// export interface Name
-	const iface = trimmed.match(/^export\s+interface\s+(\w+)/);
+	const iface = trimmed.match(/^export\s+interface\s+([\w$]+)/);
 	if (iface) {
 		return [{ name: nonNull(iface[1]), kind: "interface", isTypeOnly: true, line: lineNum }];
 	}
 
 	// export type Name =
-	const typeAlias = trimmed.match(/^export\s+type\s+(\w+)\s*[=<]/);
+	// (the `=` may sit on the next line, so a bare end of line also qualifies)
+	const typeAlias = trimmed.match(/^export\s+type\s+([\w$]+)\s*(?:[=<]|$)/);
 	if (typeAlias) {
 		return [{ name: nonNull(typeAlias[1]), kind: "type", isTypeOnly: true, line: lineNum }];
 	}
 
 	// export enum Name
-	const enm = trimmed.match(/^export\s+enum\s+(\w+)/);
+	const enm = trimmed.match(/^export\s+enum\s+([\w$]+)/);
 	if (enm) {
 		return [{ name: nonNull(enm[1]), kind: "enum", isTypeOnly: false, line: lineNum }];
 	}
 
 	// export abstract class Name
-	const abstractCls = trimmed.match(/^export\s+abstract\s+class\s+(\w+)/);
+	const abstractCls = trimmed.match(/^export\s+abstract\s+class\s+([\w$]+)/);
 	if (abstractCls) {
 		return [{ name: nonNull(abstractCls[1]), kind: "class", isTypeOnly: false, line: lineNum }];
 	}
@@ -297,6 +334,10 @@ function processExportStatement(
 	lineNum: number,
 	exports: ExportedSymbol[],
 ): void {
+	if (startsDestructuredExport(statement)) {
+		exports.push(...destructuredExports(statement, lineNum));
+		return;
+	}
 	const isTypeExport = /^export\s+type\s+\{/.test(statement);
 	const match = statement.match(/\{([^}]+)\}/);
 	if (!match) return;

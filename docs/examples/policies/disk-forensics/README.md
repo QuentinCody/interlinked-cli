@@ -55,5 +55,5 @@ session); Sondera's vanilla schema can't express it, so it lives in the
 (P5 — refuse tampering, refuse unauthorized device access) have no concrete
 regex; they live in `policy.md` only and are evaluated by the LLM Tier 2 gate.
 
-See `../../../skills/enforce/SKILL.md` §15 for the routing logic and
+See `../../../skills/enforce/references/companion-artifacts.md` §15 for the routing logic and
 `docs/design/interlinked-cedar-extensions.cedarschema` for the schema delta.

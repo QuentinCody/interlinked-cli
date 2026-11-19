@@ -42,8 +42,7 @@ import { hasSourceChecks, prepareSourceChecks } from "./post-tool-source-scope.j
 import {
 	dischargeCoverageOnGreenRun,
 	pushWarnings,
-	trackTestRun,
-	trackVerificationOutcome,
+	trackRunEvidence,
 	updateTrigramDirtyLayer,
 } from "./post-tool-pipeline-tracking.js";
 import type { ServerRuntime } from "./runtime-context.js";
@@ -57,6 +56,7 @@ import {
 	attachTailResults,
 	emitAllCleanSummary,
 } from "./post-tool-pipeline-tail.js";
+import { appendPacketWarnings } from "./packets-phase.js";
 
 export { POST_TOOL_PIPELINE_FAILURE_WARNING } from "./post-tool-pipeline-spool.js";
 
@@ -267,15 +267,12 @@ async function runPostToolPipelineInner(
 	const decisionPreimages = captureDecisionPreimages(CWD, event.change_set?.files ?? [], file => ctx.fileContentCache.get(file));
 	updateTrigramDirtyLayer(ctx, event);
 
-	// --- Test run tracking: detect test runner commands and record pass/fail ---
-	// Returns a warning when the run produced no usable evidence (B3) — an
-	// uncounted run is invisible to the TDD gate, and staying silent about it
-	// is what let repeated green runs fail to clear a wedged cycle.
-	const testEvidenceWarning = trackTestRun(event, session, CWD);
-
-	// --- Observed-check outcome tracking: tsc/build/lint red/green for the
-	// Stop unresolved-red nudge (non-test analogue of trackTestRun). ---
-	trackVerificationOutcome(event, session);
+	// --- Run-evidence tracking: record test pass/fail (TDD cycle) and
+	// tsc/build/lint red/green (Stop unresolved-red nudge). Returns a warning
+	// for each run that produced no usable evidence (B3) — an uncounted run is
+	// invisible to the gates, and staying silent about it is what let repeated
+	// green runs fail to clear a wedged cycle. ---
+	const evidenceWarnings = trackRunEvidence(event, session, CWD);
 
 	// --- Deferred-coverage discharge: a coverage-suite run observed GREEN
 	// discharges the session's open obligations its fresh report measured —
@@ -286,7 +283,7 @@ async function runPostToolPipelineInner(
 
 	const postDecision = evaluatePostToolUse(event, rules, session, ctx.reservations, ctx.cohort);
 
-	if (testEvidenceWarning) pushWarnings(postDecision, testEvidenceWarning);
+	pushWarnings(postDecision, ...evidenceWarnings);
 
 	// --- Phase 1 Failure-Recovery Channels (Channels 1, 2, 3, 5, 6) ---
 	// Both delivery shapes converge in the helper — folded failures
@@ -296,6 +293,10 @@ async function runPostToolPipelineInner(
 	// per-provider normalizers populate `tool_outcome` consistently. Output
 	// flows into postDecision.warnings, surfaced by the .mjs per existing wiring.
 	appendFailureChannelWarnings(ctx, event, session, postDecision);
+	// --- Instruction packets (stage 2, opt-in `packets.enabled` + `jev.enabled`):
+	// a packet at warn/cosign delivers `[interlinked:packet]` on an allow; shadow
+	// packets run fire-and-forget. Never changes the decision (packets-phase.ts).
+	await appendPacketWarnings(event, rules, postDecision);
 
 	// --- Content Scanner: scan Read/Grep results, ratchet session sensitivity on PII ---
 	await appendContentScanWarnings(ctx, event, session, postDecision);

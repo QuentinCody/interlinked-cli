@@ -6,7 +6,7 @@
 // byte offsets used by sync cursors and compaction manifests.
 
 import { createHash } from "node:crypto";
-import { openSync, readSync, statSync } from "node:fs";
+import { fstatSync, openSync, readSync, statSync } from "node:fs";
 import {
 	closeFileQuietly,
 	FILE_IO_CHUNK_BYTES,
@@ -24,6 +24,23 @@ export { copyFileRange, gzipFileRange } from "./bounded-file-transfer.js";
 
 const NEWLINE = 0x0a;
 
+/** Separate the next JSONL record from an unterminated tail using one byte of input. */
+export function tornTailPrefix(path: string): string {
+	let fd: number | undefined;
+	try {
+		fd = openSync(path, "r");
+		const size = fstatSync(fd).size;
+		if (size === 0) return "";
+		const byte = Buffer.alloc(1);
+		return readSync(fd, byte, 0, 1, size - 1) === 1 && byte[0] !== NEWLINE ? "\n" : "";
+	} catch {
+		// A missing or unreadable history must not prevent the subsequent append.
+		return "";
+	} finally {
+		if (fd !== undefined) closeFileQuietly(fd);
+	}
+}
+
 /** SHA-256 a file with fixed-size reads. Compaction uses this to prove that a
  * final-named segment left by an interrupted publication is byte-for-byte the
  * segment described by its durable rotation claim before adopting it. */
@@ -32,10 +49,10 @@ export function sha256File(
 	chunkBytes: number = FILE_IO_CHUNK_BYTES,
 ): string {
 	const fileSize = statSync(path).size;
-	const fd = openSync(path, "r");
 	const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(chunkBytes, Math.max(1, fileSize))));
 	const hash = createHash("sha256");
 	let position = 0;
+	const fd = openSync(path, "r");
 	try {
 		while (position < fileSize) {
 			const requested = Math.min(buffer.length, fileSize - position);
@@ -175,11 +192,11 @@ export function scanFileLines(
 		0,
 		Math.floor(options.maxCapturedLineBytes ?? MAX_CAPTURED_JSONL_LINE_BYTES),
 	);
-	const fd = openSync(path, "r");
 	const buffer = Buffer.allocUnsafe(Math.min(chunkBytes, endExclusive - startOffset));
 	const accumulator = new LineAccumulator(startOffset, captureLimit);
 	let position = startOffset;
 	let keepGoing = true;
+	const fd = openSync(path, "r");
 	try {
 		while (position < endExclusive && keepGoing) {
 			const requested = Math.min(buffer.length, endExclusive - position);
@@ -310,10 +327,10 @@ export function findTailStartForLines(
 	if (maxLines <= 0) return statSync(path).size;
 	const fileSize = statSync(path).size;
 	if (fileSize <= 0) return 0;
-	const fd = openSync(path, "r");
 	const buffer = Buffer.allocUnsafe(Math.min(Math.max(1, chunkBytes), fileSize));
 	let position = fileSize;
 	const state: TailScanState = { nonEmpty: false, found: 0 };
+	const fd = openSync(path, "r");
 	try {
 		while (position > 0) {
 			const requested = Math.min(buffer.length, position);

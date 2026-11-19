@@ -1174,6 +1174,13 @@ describe("read file-size warning", () => {
 	afterEach(() => {
 		rmSync(dir, { recursive: true, force: true });
 	});
+	it.each(["report", "warn", "off"])("honors %s targets through the read entrypoint", mode => {
+		mkdirSync(join(dir, ".interlinked"));
+		writeFileSync(join(dir, ".interlinked/check-policy.json"), JSON.stringify({ metrics: { "file.lines": { mode, threshold: 5 } } }));
+		writeFileSync(join(dir, "source.ts"), Array.from({ length: 12 }, (_, i) => `export const value${i} = ${i};`).join("\n"));
+		const warnings = warningsOf(makeEvent({ tool_name: "Read", tool_input: { file_path: "source.ts" }, cwd: dir }));
+		expect(warnings.some(warning => warning.includes("reporting target 5"))).toBe(mode === "warn");
+	});
 
 	it("nudges when reading an oversized code file", () => {
 		const big = Array.from({ length: 850 }, (_, i) => `export const r${i} = ${i};`).join("\n");

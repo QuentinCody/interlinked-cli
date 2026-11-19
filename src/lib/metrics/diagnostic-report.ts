@@ -6,6 +6,8 @@ import { analyzeRepository, type AnalyzedFile, type RepositoryAnalysis } from ".
 import { collectSourceLines, linesInSpan, lineUnionCounts, type SourceLines } from "./diagnostic-lines.js";
 import { DIAGNOSTIC_LIMITATIONS, DIAGNOSTIC_PROFILE, diagnosticRatio, type PYTHON_DIAGNOSTIC_PROFILE } from "./diagnostic-profile.js";
 import { collectRepositoryInventory, hashBytes } from "./inventory.js";
+import { refineInventory } from "./inventory-refine.js";
+import { type PopulationSummary, summarizeInventoryPopulation } from "./role-population.js";
 import type { QualityFinding, RepositoryInventory } from "./measurement-types.js";
 
 export interface DiagnosticFunction {
@@ -95,13 +97,15 @@ export interface DiagnosticReport {
     erosion: ReturnType<typeof aggregateDiagnostics>["erosion"];
     files: DiagnosticFile[]; functions: DiagnosticFunction[]; clones: ReturnType<typeof cloneEvidence>;
     findings: QualityFinding[]; limitations: string[];
+    /** Source roles: files per role and the files set aside with the reason, in the same shape every analysis command reports. */
+    population?: PopulationSummary;
 }
 
 /** Offline census. No composite weights, hook delivery or ratchet baselines are changed. */
 export function measureDiagnosticInventory(inventory: RepositoryInventory): DiagnosticReport {
     const productInventory = { ...inventory, files: inventory.files.filter(file => file.role === "product"),
         gaps: inventory.gaps.filter(gap => gap.role === "product") };
-    const analysis = analyzeRepository(productInventory);
+    const analysis = analyzeRepository(productInventory, { python: false });
     analysis.files.sort((a, b) => a.input.path.localeCompare(b.input.path));
     const measured = new Map(analysis.files.map(file => [file.input.path, measureFile(file)]));
     const clones = cloneEvidence(analysis, measured);
@@ -112,9 +116,11 @@ export function measureDiagnosticInventory(inventory: RepositoryInventory): Diag
         measurementIdentity: hashBytes(JSON.stringify([DIAGNOSTIC_PROFILE, inventory.version, parsers])), parsers,
         scope: measurementScope(inventory, analysis), ...aggregateDiagnostics(files, functions),
         files, functions, clones, findings: [...measured.values()].flatMap(file => file.findings), limitations: DIAGNOSTIC_LIMITATIONS,
+        population: summarizeInventoryPopulation(inventory),
     };
 }
 
+/** Measured with the same source roles (v5) as `metrics score`: generated, vendored and minified files are set aside and counted. */
 export function collectDiagnosticReport(root: string): DiagnosticReport {
-    return measureDiagnosticInventory(collectRepositoryInventory(root));
+    return measureDiagnosticInventory(refineInventory(collectRepositoryInventory(root, { resourcePolicy: "foreground-survey" })));
 }

@@ -12,7 +12,7 @@ function candidate(report: DiagnosticReport, input: { path: string; start: numbe
         estimatedLoc: null, relatedPaths: input.related };
 }
 
-export function diagnosticSimplificationEvidence(report: DiagnosticReport): SimplificationDetectorResult {
+function diagnosticSimplificationEvidence(report: DiagnosticReport): SimplificationDetectorResult {
     const drafts = report.findings.map(finding => candidate(report, { path: finding.file, start: finding.line, end: finding.endLine,
         key: finding.id, metric: finding.metric, summary: finding.message, hash: finding.sourceSha256, related: finding.related }));
     for (const group of report.clones) for (const member of group.members) {

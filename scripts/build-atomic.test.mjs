@@ -399,17 +399,21 @@ describe("runtime-preserving distribution build", () => {
         await entered;
         const second = buildAtomically({
             root,
-            leaseOptions,
+            leaseOptions: {
+                ...leaseOptions,
+                async sleep() {
+                    // The second builder reached the occupied lease.
+                    resumeFirst();
+                    await first;
+                },
+            },
             populateStage: (_projectRoot, stage) => {
                 populateCalls += 1;
                 writeNested(stage, "hook-entry.js", `${NODE_SHEBANG}\n// duplicate compiler\n`, 0o755);
             },
             validateStage: () => {},
         });
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
-        resumeFirst();
-
-        const [firstResult, secondResult] = await Promise.all([first, second]);
+        const [firstResult, secondResult] = await Promise.all([first, second.finally(resumeFirst)]);
         expect(firstResult).toEqual({ coalesced: false });
         expect(secondResult).toEqual({ coalesced: true });
         expect(populateCalls).toBe(1);

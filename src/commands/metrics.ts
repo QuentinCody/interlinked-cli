@@ -21,7 +21,8 @@ import { readFileSync, statSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { computeCrapForFile } from "../harness/checks/crap.js";
 import { computeCyclomaticComplexity, type FunctionComplexityEntry } from "../harness/checks/cyclomatic.js";
-import { astComplexityAvailable, computeCyclomaticAst } from "../harness/checks/cyclomatic-ast.js";
+import { astComplexityAvailable, computeCyclomaticAst, parseTsSource } from "../harness/checks/cyclomatic-ast.js";
+import { hasExactSyntax } from "../harness/function-tokens/ast-tokens.js";
 import type { PerFileCoverage } from "../harness/coverage-final-reader.js";
 import {
 	isTddExemptPath,
@@ -30,7 +31,9 @@ import { hasCompanionTest } from "../harness/evaluator/companion-test.js";
 import { minCoverageFor } from "../harness/tested-file-policy.js";
 import { crapThresholdFor, maxCyclomaticFor } from "../harness/metric-caps.js";
 import { getOutputMode, output } from "../lib/output.js";
-import { discoverMetricSourceFiles, loadMetricsCoverage } from "./metrics-coverage.js";
+import { hashBytes } from "../lib/metrics/inventory.js";
+import { metricActions } from "./metrics-actions.js";
+import { discoverMetricSourceInventory, loadMetricsCoverage } from "./metrics-coverage.js";
 import {
 	type FileMetric,
 	type FnMetric,
@@ -132,53 +135,56 @@ function fileFunctionMetrics(args: {
 	});
 }
 
-function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsReport {
-	// Resolve the gate caps ONCE per scan from `.interlinked/metric-caps.json`
-	// (else the shipped defaults) — these are the SAME numbers the write/commit
-	// gates enforce, so the report's labels + counts can never drift from them.
-	const crapGate = crapThresholdFor(cwd);
-	const cyclomaticBad = maxCyclomaticFor(cwd);
-	const tokenContext = functionTokenMetricsContext({ cwd, topN, includeTests });
-	const functionTokenCap = tokenContext.cap;
-	const functionTokenMetrics = tokenContext.report;
-	const tokenCounts = tokenContext.countsByFile;
-	const tokenFiles = tokenContext.filesByPath;
-	const cov = loadMetricsCoverage(cwd);
-	// discoverFiles returns absolute paths — normalize to repo-relative for
-	// coverage lookup, companion paths, and display.
-	const sourceFiles = discoverMetricSourceFiles(cwd, cov);
+function readMetricSource(abs: string): { content: string; fileMtime: number } | { reason: string } {
+	let content: string;
+	let fileMtime: number;
+	try {
+		content = readFileSync(abs, "utf-8");
+		fileMtime = statSync(abs).mtimeMs;
+	} catch {
+		return { reason: "Source could not be read or stat'ed" };
+	}
+	if (JS_TS_METRIC_EXTS.has(extname(abs).toLowerCase())) {
+		const parsed = parseTsSource(content, abs);
+		if (!parsed) return { reason: "TypeScript parser unavailable; exact complexity is unavailable" };
+		if (!hasExactSyntax(parsed)) return { reason: "Source requires parser recovery; complexity is unavailable" };
+	}
+	return { content, fileMtime };
+}
 
+function measureFiles(args: {
+	cwd: string;
+	crapGate: number;
+	cov: ReturnType<typeof loadMetricsCoverage>;
+	sourceInventory: ReturnType<typeof discoverMetricSourceInventory>;
+	tokenContext: ReturnType<typeof functionTokenMetricsContext>;
+}) {
+	const { cwd, crapGate, cov, sourceInventory, tokenContext } = args;
 	const fns: FnMetric[] = [];
-	const tokenFns: FnMetric[] = [];
 	const files: FileMetric[] = [];
 	const missingCompanion: string[] = [];
 	let filesNoCoverage = 0;
 
-	for (const rel of sourceFiles) {
+	for (const rel of sourceInventory.files) {
 		const abs = join(cwd, rel);
-		let content: string;
-		try {
-			content = readFileSync(abs, "utf-8");
-		} catch {
+		const source = readMetricSource(abs);
+		if ("reason" in source) {
+			sourceInventory.notMeasured.push({ file: rel, reason: source.reason });
 			continue;
 		}
-		// Measure complexity on EVERY source file. The AST pass has no test-file
-		// exemption — that exemption (in computeCyclomaticComplexity) is for
-		// content-quality scans, not measurement, and would hide the harness's
-		// own checks/ tree. Fall back to the guarded walker only sans typescript.
-		const fileMtime = statSync(abs).mtimeMs;
+		const { content, fileMtime } = source;
 		const comps = cyclomaticForMetrics(content, abs);
 		const perFile = cov.perFile(rel, comps, fileMtime);
 		if (cov.available && !perFile) filesNoCoverage++;
 
 		const fileFns = fileFunctionMetrics({
 			comps,
-			tokenCounts: tokenCounts.get(rel) ?? new Map(),
+			tokenCounts: tokenContext.countsByFile.get(rel) ?? new Map(),
 			perFile,
 			rel,
 			fileMtime,
 		});
-		fns.push(...fileFns);
+		for (const fn of fileFns) fns.push(fn);
 
 		const companionExpected = !isTddExemptPath(rel);
 		// hasCompanionTest (not the raw candidate list): recognizes qualified
@@ -190,18 +196,23 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 
 		files.push({
 			file: rel,
+			sourceSha256: hashBytes(content),
 			functions: fileFns.length,
 			linePct: cov.linePct(rel),
 			maxCyclomatic: fileFns.reduce((m, f) => Math.max(m, f.cyclomatic), 0),
 			maxCrap: perFile ? fileFns.reduce((m, f) => Math.max(m, f.crap ?? 0), 0) : null,
 			companion,
 			overGate: fileFns.filter((f) => (f.crap ?? 0) >= crapGate).length,
-			maxFunctionTokens: tokenFiles.get(rel)?.maxFunctionTokens ?? null,
+			maxFunctionTokens: tokenContext.filesByPath.get(rel)?.maxFunctionTokens ?? null,
 		});
 	}
 
+	return { fns, files, missingCompanion, filesNoCoverage };
+}
+
+function rankedTokenHotspots(rows: ReturnType<typeof functionTokenMetricsContext>["report"]["functions"], fns: FnMetric[], topN: number): FnMetric[] {
 	const complexityByLocation = uniqueMetricComplexities(fns);
-	tokenFns.push(...functionTokenMetrics.functions.map((row) => ({
+	const tokens = rows.map((row) => ({
 		file: row.file,
 		name: row.qualifiedName,
 		line: row.line,
@@ -209,8 +220,21 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 		coveragePct: null,
 		crap: null,
 		canonicalTokens: row.canonicalTokens,
-	})));
+	}));
+	return tokens.sort((a, b) => b.canonicalTokens - a.canonicalTokens
+		|| compareMetricText(a.file, b.file)
+		|| a.line - b.line
+		|| compareMetricText(a.name, b.name)).slice(0, topN);
+}
 
+function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsReport {
+	const crapGate = crapThresholdFor(cwd);
+	const cyclomaticBad = maxCyclomaticFor(cwd);
+	const cov = loadMetricsCoverage(cwd);
+	const sourceInventory = discoverMetricSourceInventory(cwd, includeTests);
+	const tokenContext = functionTokenMetricsContext({ cwd, topN, includeTests, sourceFiles: sourceInventory.files.map(file => join(cwd, file)) });
+	const functionTokenMetrics = tokenContext.report;
+	const { fns, files, missingCompanion, filesNoCoverage } = measureFiles({ cwd, crapGate, cov, sourceInventory, tokenContext });
 	const cycSorted = fns.map((f) => f.cyclomatic).sort((a, b) => a - b);
 	const crapVals = fns
 		.map((f) => f.crap)
@@ -220,13 +244,6 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 		.filter((f) => f.crap !== null)
 		.sort((a, b) => (b.crap ?? 0) - (a.crap ?? 0))
 		.slice(0, topN);
-	const tokenHotspots = [...tokenFns]
-		.sort((a, b) => (b.canonicalTokens ?? 0) - (a.canonicalTokens ?? 0)
-			|| compareMetricText(a.file, b.file)
-			|| a.line - b.line
-			|| compareMetricText(a.name, b.name))
-		.slice(0, topN);
-
 	return {
 		scope: {
 			files: files.length,
@@ -240,7 +257,7 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 			cyclomatic: cyclomaticBad,
 			cyclomaticReview: CYCLOMATIC_REVIEW,
 			minCoveragePct: minCoverageFor(cwd),
-			functionTokens: functionTokenCap,
+			functionTokens: tokenContext.cap,
 		},
 		gates: {
 			functionsOverCrap: crapVals.filter((x) => x >= crapGate).length,
@@ -258,10 +275,12 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 			functionTokens: functionTokenMetrics.distributions.functions,
 		},
 		hotspots,
-		tokenHotspots,
+		tokenHotspots: rankedTokenHotspots(functionTokenMetrics.functions, fns, topN),
 		functionTokenMetrics,
 		missingCompanion,
 		files,
+		functions: fns,
+		sourceInventory,
 	};
 }
 
@@ -277,11 +296,22 @@ function bucketize(sorted: number[], bounds: number[]): Record<string, number> {
 	return out;
 }
 
+function hotspotLimit(raw: string | undefined): number {
+	if (raw === undefined) return 25;
+	const value = Number(raw);
+	if (!/^[0-9]+$/.test(raw) || !Number.isSafeInteger(value) || value < 1 || value > 200) {
+		throw new Error("--top must be an integer from 1 to 200");
+	}
+	return value;
+}
+
 export async function metricsCommand(opts: MetricsOptions): Promise<void> {
 	const mode = getOutputMode(opts);
 	const cwd = resolve(opts.cwd || process.cwd());
-	const topN = Math.max(1, Math.min(200, Number.parseInt(opts.top ?? "25", 10) || 25));
+	const topN = hotspotLimit(opts.top);
 	const report = buildReport(cwd, topN, opts.includeTests ?? false);
+	if (report.sourceInventory) report.population = report.sourceInventory.population;
+	report.actions = metricActions({ functions: report.functions ?? [], files: report.files, caps: report.caps, notMeasured: report.sourceInventory?.notMeasured ?? [] });
 
 	output(mode, report, {
 		json: () => report,

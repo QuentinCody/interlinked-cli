@@ -163,6 +163,11 @@ const RECOVERY_SUGGESTIONS: Record<string, RecoverySuggestion> = {
 			`Rate-limited. Wait at least 30s before retrying, or use a different provider/key. ` +
 			`Repeated retries make this worse.`,
 	},
+	"transient/own-timeout": {
+		template: () =>
+			`The command stopped at its own time limit, so no verdict exists. This is not a result. ` +
+			`Run it again with a larger limit or a narrower scope.`,
+	},
 	"transient/user-interrupt": {
 		template: () =>
 			`The user interrupted the call. Don't retry automatically — wait for the user's ` +

@@ -303,6 +303,9 @@ export function mergeLocalOverrides(
 	// Jev edit shadow (default OFF) — a per-dev opt-in that needs a personal
 	// API key, so it is local-only by construction (experiment E7).
 	mergeOptionalSection(config, local, "jev");
+	// Instruction packets (default OFF) — needs the personal Jev key and a
+	// per-dev evidence consent, so it is local-only like `jev`.
+	mergeOptionalSection(config, local, "packets");
 	// E18 false-positive filter (default OFF) — calibrated on one repository,
 	// so it is a per-dev opt-in and local-only (fp-filter.ts).
 	mergeOptionalSection(config, local, "fp_filter");

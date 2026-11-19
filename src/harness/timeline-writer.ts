@@ -13,6 +13,7 @@
 // re-runs, so backfilling twice — or backfilling a session the live path
 // already captured — reproduces the same file rather than duplicating rows.
 
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 import {
 	appendFileSync,
 	mkdirSync,
@@ -133,7 +134,7 @@ function timelineSize(path: string): number | null {
 	try {
 		return statSync(path).size;
 	} catch (error) {
-		if (isMissingFileError(error)) return null;
+		if (hasErrorCode(error, "ENOENT")) return null;
 		throw new TimelineScanError(`cannot inspect timeline: ${path}`, { cause: error });
 	}
 }
@@ -279,13 +280,4 @@ export function recentTimelineKeys(
 		void err;
 	}
 	return keys;
-}
-
-function isMissingFileError(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"code" in error &&
-		error.code === "ENOENT"
-	);
 }

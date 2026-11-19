@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __resetCoverageFinalCache } from "../../harness/coverage-final-reader.js";
-import { discoverMetricSourceFiles, loadMetricsCoverage } from "../metrics-coverage.js";
+import { discoverMetricSourceFiles, discoverMetricSourceInventory, loadMetricsCoverage } from "../metrics-coverage.js";
 
 let tmp: string;
 
@@ -243,6 +243,13 @@ describe("loadMetricsCoverage — unambiguous summary keys (finding 2026-06)", (
 });
 
 describe("discoverMetricSourceFiles — scope resolution", () => {
+	it("reports unsupported languages and exclusions separately from measured scope", () => {
+		for (const file of ["index.ts", "Main.java", "test.js", "types.d.ts"]) writeFileSync(join(tmp, file), "// source\n");
+		const inventory = discoverMetricSourceInventory(tmp);
+		expect(inventory.files).toEqual(["index.ts"]);
+		expect(inventory.notMeasured).toEqual([{ file: "Main.java", reason: "No complexity adapter for java" }]);
+		expect(inventory.excluded.map(row => row.file)).toEqual(["test.js", "types.d.ts"]);
+	});
 	it("includes an src/ source file and excludes its companion test", () => {
 		// test-contract: public-api — discoverMetricSourceFiles is the source
 		// enumeration `interlinked metrics` scans; src/ inclusion + test
@@ -256,13 +263,12 @@ describe("discoverMetricSourceFiles — scope resolution", () => {
 		expect(files).not.toContain("src/widget.test.ts");
 	});
 
-	it("includes a non-src/ file only when the coverage report knows it (polyglot case)", () => {
-		// test-contract: public-api — a file outside src/ is in scope only via
-		// coverage.fileSet, per isAnalyzableSource's non-`src/` branch.
+	it("includes a non-src/ file independently of coverage (polyglot case)", () => {
+		// test-contract: public-api — coverage availability must not change the source denominator.
 		mkdirSync(join(tmp, "pkg"), { recursive: true });
 		writeFileSync(join(tmp, "pkg", "outside.py"), "def f():\n    pass\n");
 		const covAbsent = loadMetricsCoverage(tmp);
-		expect(discoverMetricSourceFiles(tmp, covAbsent)).not.toContain("pkg/outside.py");
+		expect(discoverMetricSourceFiles(tmp, covAbsent)).toContain("pkg/outside.py");
 
 		writeFileSync(
 			join(tmp, "coverage", "coverage-final.json"),
@@ -270,5 +276,23 @@ describe("discoverMetricSourceFiles — scope resolution", () => {
 		);
 		const covPresent = loadMetricsCoverage(tmp);
 		expect(discoverMetricSourceFiles(tmp, covPresent)).toContain("pkg/outside.py");
+	});
+
+	it("measures root libraries, module extensions and workspace sources without coverage", () => {
+		const included = ["index.js", "main.mts", "compat.cts", "packages/a/lib/module.ts", "service/main.go", "lib.rs"];
+		const excluded = ["index.d.ts", "main.d.mts", "compat.d.cts", "test.js", "index.test-d.ts", "benchmark.js", "test_widget.py", "widget_test.go", "packages/a/test/module.ts"];
+		for (const file of [...included, ...excluded]) {
+			mkdirSync(join(tmp, file, ".."), { recursive: true });
+			writeFileSync(join(tmp, file), "// source\n");
+		}
+		expect(discoverMetricSourceFiles(tmp, loadMetricsCoverage(tmp))).toEqual(included.sort());
+	});
+
+	it("includes test sources only when requested, never declarations or fixtures", () => {
+		for (const file of ["index.ts", "index.test.ts", "index.d.ts", "fixtures/example.ts"]) {
+			mkdirSync(join(tmp, file, ".."), { recursive: true });
+			writeFileSync(join(tmp, file), "// source\n");
+		}
+		expect(discoverMetricSourceFiles(tmp, loadMetricsCoverage(tmp), true)).toEqual(["index.test.ts", "index.ts"]);
 	});
 });

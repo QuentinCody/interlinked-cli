@@ -43,6 +43,7 @@ import {
 	formatSessionReworkNudge,
 	sessionReworkSummary,
 } from "../trajectory/session-rework.js";
+import { recordObservedOnly } from "../observed-files.js";
 import { buildTurnEndSummary, formatTurnEndWarnings } from "../turn-end.js";
 import type { HarnessDecision, HarnessEvent, SessionTrajectory } from "../types.js";
 import {
@@ -77,6 +78,8 @@ import { readHeavyReports } from "./session-start-heavy-reports.js";
 import { recoverProjectE2eOrphans } from "../project-e2e/hooks.js";
 import { suppressRepeatedNudges } from "./stop-nudge-throttle.js";
 import { peekTrajectoryState } from "./trajectory-shadow.js";
+import { drainWindowWarningsForStart, scheduleWindowEvaluation } from "../packets/trajectory-ledger.js";
+import { startFallbackLines } from "../packets/fallback-start.js";
 
 // Re-exported so `import { resolveParentSessionId } from "./lifecycle-events.js"`
 // keeps working for existing consumers/tests after the helper move.
@@ -193,8 +196,17 @@ async function handleSessionStart(
 	// published + reconciled becomes an explicit `unavailable` attempt, once.
 	heavyWarnings.push(...recoverProjectE2eOrphans(ctx.cwd));
 	const stripDecision = autoStripSessionStartPermissions(ctx, log, heavyWarnings);
-	if (stripDecision) return stripDecision;
-	return heavyWarnings.length > 0 ? { decision: "allow", warnings: heavyWarnings } : null;
+	// Instruction packets, trajectory layer: SESSION-window findings of an ended session reach the
+	// session that starts next here (a Stop/SessionEnd warning reaches no agent).
+	const windowFindings = event.dry_run === true || ctx.rules.packets?.enabled !== true ? [] : drainWindowWarningsForStart(ctx.cwd);
+	// Released instruction text (§9): a packet whose words left the instruction file but which is NOT live for
+	// this session (Jev off, no key, stale sources, demoted, other runner, known outage …) hands the words back
+	// here — on EVERY SessionStart, since start/resume/clear/compact all begin a fresh context. Computed before
+	// the permission-strip early return, which used to drop it (audit B, finding 4).
+	const releasedText = event.dry_run === true ? [] : startFallbackLines(ctx.cwd, ctx.rules, event.agent_source);
+	if (stripDecision) return { ...stripDecision, warnings: [...(stripDecision.warnings ?? []), ...windowFindings, ...releasedText] };
+	const startWarnings = [...heavyWarnings, ...windowFindings, ...releasedText];
+	return startWarnings.length > 0 ? { decision: "allow", warnings: startWarnings } : null;
 }
 
 /** SessionEnd narrow body — defensive cleanup only.
@@ -221,6 +233,8 @@ function handleSessionEnd(ctx: ServerRuntime, event: HarnessEvent): HarnessDecis
 	// Archive the session scratchpad before the OS purges it (scratchpad-
 	// governance Phase 1). Never-throw by contract; bounded by config caps.
 	runSessionEndScratchpadArchive({ cwd: ctx.cwd, sessionId: event.session_id, rules: ctx.rules, log: ctx.log });
+	// Instruction packets, trajectory layer: the SESSION window (opt-in; fire and forget).
+	if (event.dry_run !== true) scheduleWindowEvaluation({ cwd: ctx.cwd, sessionId: event.session_id, kind: "session", runnerSource: event.agent_source, rules: ctx.rules });
 	// Good-citizen resource plan + fire-and-forget background jobs (job 4: recurrence
 	// scan). Computed BEFORE state removal so the cohort count is accurate.
 	const resourcePlan = runSessionEndResourcePlan(ctx, event);
@@ -252,7 +266,9 @@ function reconcileStopWorkspaceEffects(
 	// event.cwd may be a subdirectory, so using it here would compare unrelated
 	// relative-path namespaces and manufacture create/delete residue.
 	const residue = consumeWorkspaceResidue(event.session_id, ctx.cwd);
-	for (const effect of residue?.files ?? []) session.files_written.add(effect.path);
+	// Rescan them (backstop for a missed PostToolUse), but as writer unknown:
+	// no tool call of this session declared these paths.
+	recordObservedOnly(session, (residue?.files ?? []).map((effect) => effect.path), ctx.cwd);
 	const warning = residue ? formatWorkspaceResidueWarning(residue) : null;
 	return warning ? [warning] : [];
 }
@@ -278,6 +294,9 @@ async function handleStop(
 	session: SessionTrajectory,
 ): Promise<HarnessDecision> {
 	const { log } = ctx;
+	// Instruction packets, trajectory layer (opt-in `packets.enabled` + `jev.enabled`): judge
+	// the TURN window from the two local logs; eligible warnings ride the next PostToolUse.
+	if (event.dry_run !== true) scheduleWindowEvaluation({ cwd: ctx.cwd, sessionId: event.session_id, kind: "turn", runnerSource: event.agent_source, rules: ctx.rules });
 	const residueWarnings = reconcileStopWorkspaceEffects(ctx, event, session);
 	const turnSummary = buildTurnEndSummary(session, 0, 0);
 	const turnWarnings = formatTurnEndWarnings(turnSummary);

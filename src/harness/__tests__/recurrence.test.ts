@@ -221,6 +221,21 @@ describe("aggregateRecurrences", () => {
 		expect(nonNull(rows[0]).sample_files.length).toBeLessThanOrEqual(10);
 	});
 
+	it("keeps first-seen tie order at the sample boundary when an older file becomes recent", () => {
+		const eventFor = (file: string, ts: string) => ev({ kind: "harness_missed", signature: "shared", file, ts });
+		const tied = "2026-05-10T00:00:00Z";
+		const events = [
+			eventFor("updated.ts", "invalid"),
+			...Array.from({ length: 12 }, (_, index) => eventFor("f" + index + ".ts", tied)),
+			eventFor("updated.ts", tied),
+			eventFor("f11.ts", "2026-05-11T00:00:00Z"),
+			eventFor("f11.ts", "invalid"),
+		];
+		const [row] = aggregateRecurrences(events);
+		expect(row?.distinct_files).toBe(13);
+		expect(row?.sample_files).toEqual(["f11.ts", "updated.ts", "f0.ts", "f1.ts", "f2.ts", "f3.ts", "f4.ts", "f5.ts", "f6.ts", "f7.ts"]);
+	});
+
 	it("keeps distinct_files exact via per-file dedup, sample_files bounded (round-19/20 sol)", () => {
 		const events = Array.from({ length: 1005 }, (_, i) =>
 			ev({ kind: "harness_missed", signature: "s", file: `f${i}.ts`, ts: "2026-05-01T00:00:00.000Z" }),

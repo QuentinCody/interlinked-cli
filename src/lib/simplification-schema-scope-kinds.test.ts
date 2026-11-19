@@ -6,6 +6,13 @@ import {
 	SOURCE_STATUSES,
 	VALIDATION_STATUSES,
 	finiteNumberOrNull,
+	exactKeys,
+	fixturePath,
+	fixtureText,
+	manifestText,
+	sortedFixtureStrings,
+	sortedManifestStrings,
+	isoTimestamp,
 	isMember,
 	isSimplificationRepositoryPath,
 	nonNegativeInteger,
@@ -16,6 +23,23 @@ import {
 	stringList,
 	uniqueCanonicalStrings,
 } from "./simplification-schema-scope-kinds.js";
+
+it("keeps the fixture and manifest field bounds and object-key boundaries distinct", () => {
+	expect(exactKeys({ "a|b": 1 }, ["a", "b"])).toBe(false);
+	expect(exactKeys({ b: 2, a: 1 }, ["a", "b"])).toBe(true);
+	const long = "a".repeat(4097);
+	expect(manifestText(long)).toBe(false);
+	expect(fixtureText(long)).toBe(true);
+	expect(fixtureText("a".repeat(32769))).toBe(false);
+	expect(fixturePath("../src/file.ts")).toBe(false);
+	expect(fixturePath("src/file.ts")).toBe(true);
+	expect(sortedFixtureStrings([long])).toBe(true);
+	expect(sortedManifestStrings([long])).toBe(false);
+	expect(sortedFixtureStrings(["b", "a"])).toBe(false);
+	expect(sortedManifestStrings(["a", "a"])).toBe(false);
+	expect(isoTimestamp("2026-01-01T00:00:00.000Z")).toBe(true);
+	expect(isoTimestamp("2026-01-01")).toBe(false);
+});
 
 describe("simplification-schema-scope-kinds — vocabularies", () => {
 	it("fixes the enumerated members used across the report schema", () => {

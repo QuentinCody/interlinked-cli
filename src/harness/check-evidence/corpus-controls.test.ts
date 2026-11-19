@@ -15,10 +15,12 @@ for (const id of Object.keys(CORPUS_CONTROLS)) {
         expect(qualifyCorpusControls({ ...check, fn: () => [{ line: 1, text: "always" }] }).qualified).toBe(false);
     });
 }
-it("retains integer-guard false positives as failed qualification controls, with valid and broken counterparts", () => {
+// Retained as a failing control until 2026-11-06, when nan_coercion_guard learned that Number.isInteger /
+// Number.isSafeInteger are NaN guards: the broken counterparts still fire, the guarded ones no longer do.
+it("qualifies the integer-guard controls: each broken counterpart fires, each guarded one is silent", () => {
     const check = CHECK_REGISTRY.find(row => row.id === "nan_coercion_guard");
     if (!check) throw new Error("missing calibration detector");
     const result = qualifyCorpusControls(check, NAN_COERCION_CALIBRATION);
-    expect(result).toMatchObject({ qualified: false, positive: 2, negative: 0 });
-    expect(result.failures).toHaveLength(2);
+    expect(result).toMatchObject({ qualified: true, positive: 2, negative: 2 });
+    expect(result.failures).toEqual([]);
 });

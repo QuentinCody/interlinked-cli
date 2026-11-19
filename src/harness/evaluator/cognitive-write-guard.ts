@@ -27,6 +27,7 @@ import { type CognitiveComplexityEntry, computeCognitiveAst } from "../checks/co
 import { cognitiveFlatteningMessage } from "../cognitive-plan-message.js";
 import { makeGrandfatherResolver } from "../function-complexity-baseline.js";
 import { maxCognitiveFor, metricDef } from "../metric-caps.js";
+import type { ResolvedMetricPolicy } from "../metric-policy.js";
 import { checkPerFunctionMetricWrite, type MetricGateSpec } from "./per-function-metric-gate.js";
 
 const ANON_FN = "(callback)";
@@ -159,6 +160,7 @@ const COGNITIVE_SPEC: MetricGateSpec<CognitiveComplexityEntry> = {
 export function checkCognitiveComplexityWrite(
 	toolInput: JsonObject,
 	cwd: string,
+	policy?: ResolvedMetricPolicy,
 ): CognitiveWriteBlock | null {
-	return checkPerFunctionMetricWrite(COGNITIVE_SPEC, toolInput, cwd);
+	return checkPerFunctionMetricWrite(COGNITIVE_SPEC, toolInput, cwd, undefined, policy);
 }

@@ -20,6 +20,8 @@ import { execFileSync } from "node:child_process";
 import { percentileRanks } from "../harness/percentile-rank.js";
 import { getOutputMode, output } from "../lib/output.js";
 import { nonNull } from "../lib/non-null.js";
+import { type HistoryVerdict, historyKind, resolveVerdicts } from "../lib/metrics/history-noise.js";
+import { createReworkLedger, type ReworkLedgerSummary } from "./metrics-rework-ledger.js";
 
 export interface FileHunks {
 	/** OLD path (blame runs against the parent commit). */
@@ -27,7 +29,7 @@ export interface FileHunks {
 	ranges: Array<{ start: number; lines: number }>;
 }
 
-const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@/;
+const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
 
 /** `--- ` line → the FileHunks it starts (null for /dev/null), or undefined if not a header line. */
 function parseFileHeaderLine(line: string): FileHunks | null | undefined {
@@ -36,19 +38,27 @@ function parseFileHeaderLine(line: string): FileHunks | null | undefined {
 	return old === "/dev/null" ? null : { file: old.replace(/^a\//, ""), ranges: [] };
 }
 
-/** `@@ -start,lines +… @@` line → its old-side range, or null when absent/empty. */
-function parseHunkRange(line: string): { start: number; lines: number } | null {
+/** `@@ -start,lines +start,lines @@` line → its old-side range (null when absent or empty) and how many body lines follow. */
+function parseHunkRange(line: string): { range: { start: number; lines: number } | null; oldLeft: number; newLeft: number } | null {
 	const m = HUNK_RE.exec(line);
 	if (!m?.[1]) return null;
-	const lines = m[2] === undefined ? 1 : Number(m[2]);
-	return lines > 0 ? { start: Number(m[1]), lines } : null;
+	const oldLeft = m[2] === undefined ? 1 : Number(m[2]), newLeft = m[3] === undefined ? 1 : Number(m[3]);
+	return { range: oldLeft > 0 ? { start: Number(m[1]), lines: oldLeft } : null, oldLeft, newLeft };
 }
 
-/** Old-side ranges per file from `git diff -U0` text; new files are skipped. */
+/**
+ * Old-side ranges per file from `git diff -U0` text; new files are skipped.
+ * A body line that git prints with a leading `--` (a deleted SQL comment, `-- 7. Add cohort_id`, appears as `--- 7. Add cohort_id`)
+ * looks like a file header. The hunk header says how many old and new lines follow, so a `--- ` line is a header only
+ * after that many body lines were read.
+ */
 export function parseUnifiedZeroHunks(diffText: string): FileHunks[] {
 	const out: FileHunks[] = [];
 	let cur: FileHunks | null = null;
+	let oldLeft = 0, newLeft = 0;
 	for (const line of diffText.split("\n")) {
+		if (oldLeft > 0 && line.startsWith("-")) { oldLeft--; continue; }
+		if (newLeft > 0 && line.startsWith("+")) { newLeft--; continue; }
 		const header = parseFileHeaderLine(line);
 		if (header !== undefined) {
 			cur = header;
@@ -56,8 +66,10 @@ export function parseUnifiedZeroHunks(diffText: string): FileHunks[] {
 			continue;
 		}
 		if (!cur) continue;
-		const range = parseHunkRange(line);
-		if (range) cur.ranges.push(range);
+		const hunk = parseHunkRange(line);
+		if (hunk === null) continue;
+		if (hunk.range) cur.ranges.push(hunk.range);
+		({ oldLeft, newLeft } = hunk);
 	}
 	return out.filter((f) => f.ranges.length > 0);
 }
@@ -157,8 +169,10 @@ function blameTimesFor(
 }
 
 interface ReworkAccumulator {
-	overall: ReworkCount;
+	ledger: ReturnType<typeof createReworkLedger>;
+	/** Kept (not set aside) files only; the ranked list never carries a lockfile or a bundle. */
 	byFile: Map<string, ReworkCount>;
+	verdicts: Map<string, HistoryVerdict>;
 	skippedBulk: number;
 	skippedBlame: number;
 }
@@ -186,6 +200,7 @@ function processCommitForRework(
 		acc.skippedBulk++;
 		return;
 	}
+	resolveVerdicts(cwd, hunks.map((fh) => ({ path: fh.file, rev: `${commit.sha}^` })), acc.verdicts);
 	for (const fh of hunks) {
 		const times = blameTimesFor(cwd, commit.sha, fh);
 		if (times === null) {
@@ -193,8 +208,9 @@ function processCommitForRework(
 			continue;
 		}
 		const c = classifyRework(commit.timestamp, times, windowDays * DAY_SECS);
-		acc.overall.rework += c.rework;
-		acc.overall.total += c.total;
+		const verdict = acc.verdicts.get(fh.file) ?? { kind: historyKind(fh.file) };
+		acc.ledger.add(fh.file, verdict, c);
+		if (verdict.kind === "set-aside") continue;
 		const agg = acc.byFile.get(fh.file) ?? { rework: 0, total: 0 };
 		agg.rework += c.rework;
 		agg.total += c.total;
@@ -221,6 +237,7 @@ interface ReworkTotals {
 	pct: number;
 	skippedBulk: number;
 	skippedBlame: number;
+	ledger: ReworkLedgerSummary;
 }
 
 /** Walk every commit, folding old-side blame ages into overall + per-file totals. */
@@ -231,20 +248,35 @@ function computeReworkTotals(
 	windowDays: number,
 ): ReworkTotals {
 	const acc: ReworkAccumulator = {
-		overall: { rework: 0, total: 0 },
+		ledger: createReworkLedger(),
 		byFile: new Map(),
+		verdicts: new Map(),
 		skippedBulk: 0,
 		skippedBlame: 0,
 	};
 	for (const commit of commits) {
 		processCommitForRework(cwd, commit, maxCommitFiles, windowDays, acc);
 	}
-	const pct = acc.overall.total === 0 ? 0 : (acc.overall.rework / acc.overall.total) * 100;
+	const ledger = acc.ledger.summary(), overall = ledger.kept;
+	const pct = overall.total === 0 ? 0 : (overall.rework / overall.total) * 100;
 	const top = [...rankReworkShares(acc.byFile).entries()]
 		.filter(([, c]) => c.rework > 0)
 		.sort((a, b) => b[1].rework - a[1].rework)
 		.slice(0, 10);
-	return { commits, overall: acc.overall, top, pct, skippedBulk: acc.skippedBulk, skippedBlame: acc.skippedBlame };
+	return { commits, overall, top, pct, skippedBulk: acc.skippedBulk, skippedBlame: acc.skippedBlame, ledger };
+}
+
+/** A count with its share in percent, one decimal; 0 when there are no lines. */
+function withPct(count: ReworkCount): ReworkCount & { pct: number } {
+	return { ...count, pct: count.total === 0 ? 0 : Math.round((count.rework / count.total) * 1000) / 10 };
+}
+
+/** The sentence that names what was set aside, or nothing when no file was. */
+function renderSetAside(ledger: ReworkLedgerSummary): string[] {
+	const aside = ledger.setAside;
+	if (aside.files === 0) return [];
+	const reasons = aside.byReason.map((row) => `${row.reason} ${row.files}`).join(", ");
+	return [`Set aside ${aside.files} files (${aside.total} of ${ledger.withSetAside.total} changed lines): ${reasons}`];
 }
 
 /** Build the `output()` handler map for a computed rework result. */
@@ -253,7 +285,7 @@ function buildReworkOutputHandlers(
 	days: number,
 	windowDays: number,
 ) {
-	const { commits, overall, top, pct, skippedBulk, skippedBlame } = totals;
+	const { commits, overall, top, pct, skippedBulk, skippedBlame, ledger } = totals;
 	return {
 		json: () => ({
 			days,
@@ -261,7 +293,10 @@ function buildReworkOutputHandlers(
 			commits_scanned: commits.length,
 			skipped_bulk_commits: skippedBulk,
 			skipped_blame_files: skippedBlame,
-			overall: { ...overall, pct: Math.round(pct * 10) / 10 },
+			overall: withPct(overall),
+			by_kind: { code: withPct(ledger.byKind.code), data: withPct(ledger.byKind.data) },
+			set_aside: { files: ledger.setAside.files, ...withPct(ledger.setAside), by_reason: ledger.setAside.byReason, top: ledger.setAside.top },
+			with_set_aside: withPct(ledger.withSetAside),
 			top_files: top.map(([file, c]) => ({ file, ...c })),
 		}),
 		short: () => `rework ${pct.toFixed(1)}% of ${overall.total} changed lines (${days}d, window ${windowDays}d)`,
@@ -269,6 +304,7 @@ function buildReworkOutputHandlers(
 			const lines = [
 				`Rework — ${pct.toFixed(1)}% of ${overall.total} changed old-side lines were <${windowDays}d old`,
 				`(${commits.length} commits over ${days}d; ${skippedBulk} bulk commits + ${skippedBlame} unblameable files skipped)`,
+				...renderSetAside(ledger),
 				"",
 			];
 			for (const [file, c] of top) {
@@ -282,13 +318,18 @@ function buildReworkOutputHandlers(
 	};
 }
 
-/** Public API — wired by `interlinked metrics rework` in registrars/quality.ts. */
+function positiveOption(raw: string | undefined, fallback: number, valid = Number.isFinite): number {
+	const value = Number(raw);
+	return value > 0 && valid(value) ? value : fallback;
+}
+
+/** Public API — wired by `interlinked metrics rework` in registrars/metrics.ts. */
 export async function metricsReworkCommand(opts: MetricsReworkOpts): Promise<void> {
 	const cwd = opts.cwd || process.cwd();
-	const days = Number(opts.days ?? "") || 30;
-	const windowDays = Number(opts.window ?? "") || 14;
-	const maxCommits = Number(opts.maxCommits ?? "") || 100;
-	const maxCommitFiles = Number(opts.maxCommitFiles ?? "") || 30;
+	const days = positiveOption(opts.days, 30);
+	const windowDays = positiveOption(opts.window, 14);
+	const maxCommits = positiveOption(opts.maxCommits, 100, Number.isSafeInteger);
+	const maxCommitFiles = positiveOption(opts.maxCommitFiles, 30, Number.isSafeInteger);
 	const mode = getOutputMode(opts);
 
 	let commits: CommitHeader[];

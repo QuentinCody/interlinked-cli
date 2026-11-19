@@ -29,7 +29,7 @@ function observedEffectPaths(event: HarnessEvent): string[] {
  *  silently miss every Codex / Copilot patch event delivered under one of
  *  the alternate names. Keep this helper as the single source of truth so
  *  the two sides can't drift. */
-function extractApplyPatchRaw(toolInput: HarnessEvent["tool_input"]): string {
+export function extractApplyPatchRaw(toolInput: HarnessEvent["tool_input"]): string {
 	if (!toolInput) return "";
 	return String(
 		toolInput.command ||

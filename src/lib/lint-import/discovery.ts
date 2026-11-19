@@ -8,7 +8,8 @@ import type { LintInventory, LintSource } from "./types.js";
 
 const SKIP_DIRS = new Set([".git", ".interlinked", ".claude", ".codex", ".agents", ".stryker-tmp", ".wrangler", ".cache", "scratch", "node_modules", ".venv", "venv", "vendor", "target", "dist", "build", "coverage", "__pycache__", ".next", ".gradle"]);
 const MAX_ENTRIES = 100_000;
-const MAX_BYTES = 1_000_000;
+export const LINT_INPUT_MAX_BYTES = 1_000_000;
+const MAX_BYTES = LINT_INPUT_MAX_BYTES;
 const MAX_DECLARATIONS = 100;
 const MAX_DECLARATION_CHARS = 400;
 const MANIFESTS = new Set(LINT_DETECTORS.flatMap((detector) => Object.keys(detector.manifests ?? {})));

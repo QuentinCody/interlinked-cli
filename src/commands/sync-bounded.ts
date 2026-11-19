@@ -132,7 +132,7 @@ export type BatchSendOutcome =
 	| ({ kind: "done" } & BatchSendDelta)
 	| { kind: "auth_failed" };
 
-interface SyncProgress {
+export interface SyncProgress {
 	accepted: number;
 	skipped: number;
 	errors: number;
@@ -289,7 +289,7 @@ interface SyncPreviewArgs {
 	basis: ActivitySyncBasis;
 }
 
-interface SyncPreview {
+export interface SyncPreview {
 	events: number;
 	newOffset: number;
 }

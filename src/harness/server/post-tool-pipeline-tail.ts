@@ -27,7 +27,11 @@ export function attachObservedChangeSet(event: HarnessEvent, cwd: string): void 
 		sessionId: event.session_id,
 		subagentId: event.subagent_id,
 		root: cwd,
-		call: { toolName: event.tool_name, declaredTargets: declaredTouchTargets(event, cwd) },
+		call: {
+			toolName: event.tool_name,
+			declaredTargets: declaredTouchTargets(event, cwd),
+			command: typeof event.tool_input?.command === "string" ? event.tool_input.command : undefined,
+		},
 	});
 	if (!observed) return;
 	event.change_set = observed;

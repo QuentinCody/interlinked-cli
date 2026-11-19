@@ -8,8 +8,8 @@
 // Rather than thread 30 parameters, server.ts builds ONE `ServerRuntime`
 // object at startup and passes it to each pipeline. Fields that server.ts
 // reassigns at runtime (`rules` on hot-reload, `trigramIndex` after the
-// background load, `compiledAllowlist` on rules-reload, the three
-// `structure*`/`filePriorityMap` caches) are MUTABLE on this object — the
+// background load, `compiledAllowlist` on rules-reload, `filePriorityMap`)
+// are MUTABLE on this object — the
 // watcher/SIGHUP handlers write `ctx.rules = …` and the pipelines read the
 // current value, so live state can't drift from what the handlers see.
 //
@@ -35,10 +35,9 @@ import type { ReservationManager } from "../reservations.js";
 import type { RouteMap } from "../route-map.js";
 import type { ServerBridge } from "../server-bridge.js";
 import type { SessionTracker } from "../session-state.js";
-import type { ArtifactGraph } from "../structure/artifact-graph.js";
-import type { StructureConfig } from "../structure/types.js";
 import type { TrigramIndex } from "../trigram-index.js";
 import type { GuardRulesConfig, PreEditBaseline } from "../types.js";
+import type { StructureRootCache } from "./structure-root-cache.js";
 
 /** All daemon-scoped mutable state, bundled so extracted pipelines can
  *  receive a single `ctx` parameter instead of ~30 closures. */
@@ -84,9 +83,9 @@ export interface ServerRuntime {
 	trigramIndex: TrigramIndex | null;
 	readonly fileContentCache: FileContentCache;
 
-	/** Cached artifact graph — persists across PostToolUse calls. */
-	structureGraph: ArtifactGraph | null;
-	structureConfigCache: StructureConfig | null;
+	/** Structure config + artifact graph per project root — persists across
+	 *  PostToolUse calls. Keyed by root so one root never judges another. */
+	readonly structureCache: StructureRootCache;
 	/** Cross-file spec fact ledger — lazily built on the first markdown edit,
 	 *  then kept fresh per edit (docs/design/spec-audit-runtime-checks.md §3.2). */
 	specLedger?: import("../spec/ledger.js").SpecLedger | null;

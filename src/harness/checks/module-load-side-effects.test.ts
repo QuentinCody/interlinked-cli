@@ -1,9 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { findTopLevelSideEffects } from "./module-load-side-effects.js";
+import { executesAtModuleLoad, findTopLevelSideEffects } from "./module-load-side-effects.js";
+import { parseTsSource } from "./cyclomatic-ast.js";
+import type * as TS from "typescript";
 
 const n = (s: string, f = "src/commands/foo.ts") => findTopLevelSideEffects(s, f).length;
 
 describe("findTopLevelSideEffects", () => {
+	it("shares execution ancestry for an explicitly entered callback scope", () => {
+		const parsed = parseTsSource("const callback = () => { fetch(url); const deferred = () => fetch(later); };", "scope.ts");
+		if (!parsed) throw new Error("TypeScript fixture parser unavailable");
+		const calls: TS.CallExpression[] = [], callbacks: TS.Node[] = [];
+		const visit = (node: TS.Node): void => {
+			if (parsed.ts.isCallExpression(node)) calls.push(node);
+			if (parsed.ts.isArrowFunction(node)) callbacks.push(node);
+			parsed.ts.forEachChild(node, visit);
+		};
+		visit(parsed.sf);
+		const direct = calls[0], deferred = calls[1], scope = callbacks[0];
+		if (!direct || !deferred || !scope) throw new Error("Execution fixture nodes unavailable");
+		expect(executesAtModuleLoad(direct, parsed)).toBe(false);
+		expect(executesAtModuleLoad(direct, parsed, scope)).toBe(true);
+		expect(executesAtModuleLoad(deferred, parsed, scope)).toBe(false);
+	});
+	it("P1: follows an immediately invoked function through parentheses", () => {
+		expect(n("const request = (() => fetch(url))();")).toBe(1);
+		expect(n("  if (enabled) {\n    readFileSync(path);\n  }")).toBe(1);
+	});
+	it("P2: recognizes class static initialization but not instance initialization", () => {
+		expect(n("class Service { static config = readFileSync(path); config = readFileSync(path); }")).toBe(1);
+	});
+	it("N2: interface methods and deferred callback bodies do not execute", () => {
+		expect(n("export interface Worker { fetch(request: Request): Promise<Response>; }")).toBe(0);
+		expect(n("const worker = { fetch() { return fetch(url); } };\nconst load = () => fetch(url);")).toBe(0);
+	});
 	// ── positives: I/O executed at module-load (top level) ───────────────────
 	it("flags a top-level readFileSync", () => {
 		expect(n('const data = readFileSync("./config.json", "utf8");')).toBeGreaterThanOrEqual(1);

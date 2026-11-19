@@ -307,6 +307,55 @@ describe("checkSpecNumbering", () => {
 		expect(checkSpecNumbering(doc, MD)).toEqual([]);
 	});
 
+	// Measured FP (2026-11-06, a campaign run-book): a status table defines U1/E1, and the log below it
+	// starts bullets with the same ids ("- E1 DONE: …"). A bullet under a table/heading registry
+	// elaborates that id; only a bullet registry can be redefined by another bullet.
+	it("N3: bullets that start with ids a table already defines are status notes, not redefinitions", () => {
+		const doc = [
+			"| # | Unit | Status |",
+			"|---|---|---|",
+			"| U1 | build the module | done |",
+			"| U2 | build the command | done |",
+			"| U3 | build the report | done |",
+			"",
+			"## Log",
+			"- U1 DONE: module + test (10/10).",
+			"- U1 fix: skipped files are lost.",
+			"- U2 DONE: command + test.",
+			"- U3 DONE: report.",
+		].join("\n");
+		expect(checkSpecNumbering(doc, MD)).toEqual([]);
+	});
+
+	it("P3: a bullet registry still fires when a later bullet reuses an id", () => {
+		const doc = ["- W1 first rule", "- W2 second rule", "- W3 third rule", "- W2 renumbered residue"].join("\n");
+		expect(checkSpecNumbering(doc, MD)).toEqual([
+			expect.objectContaining({ line: 4, text: expect.stringContaining("W2 defined again (first definition at line 2)") }),
+		]);
+	});
+
+	// Adjudicated TP (2026-11-06): docs/design/git-native-multiplayer-review-history.md defines S1/S2 as
+	// review findings in a table, then a spike section declares "- **S1 native-isolated**: …" — a second entry.
+	it("P5: a bullet that NAMES the id in bold declares a new entry, even under a table registry", () => {
+		const doc = [
+			"| S1 | refs lose a revert | fix |",
+			"| S2 | worktrees clobber refs | fix |",
+			"| S3 | refs lag a batch | fix |",
+			"",
+			"## Spike",
+			"- **S1 native-isolated**: copy bytes into a private worktree.",
+			"- **S2 plumbing**: hash-object plus update-index.",
+		].join("\n");
+		expect(checkSpecNumbering(doc, MD).map(f => f.line)).toEqual([6, 7]);
+	});
+
+	it("P4: a table row reused by a later table row still fires after status bullets", () => {
+		const doc = ["| U1 | a |", "| U2 | b |", "| U3 | c |", "- U1 DONE: a", "| U1 | duplicate row |"].join("\n");
+		expect(checkSpecNumbering(doc, MD)).toEqual([
+			expect.objectContaining({ line: 5, text: expect.stringContaining("U1 defined again (first definition at line 1)") }),
+		]);
+	});
+
 	it("caps duplicate-id findings at MAX_MATCHES (20)", () => {
 		const rows: string[] = [];
 		for (let i = 1; i <= 25; i++) rows.push(`| FG-INV-${i} | row ${i} |`);

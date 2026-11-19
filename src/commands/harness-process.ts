@@ -295,7 +295,7 @@ export function ensureDistFresh(options: DistFreshnessOptions = {}): void {
 		runBuild(repoRoot);
 	} catch (err) {
 		const detail = err instanceof Error && err.message ? `: ${err.message}` : "";
-		throw new Error(`Build failed; refusing to start the harness with stale code${detail}`);
+		throw new Error(`Build failed; refusing to start the harness with stale code${detail}`, { cause: err });
 	}
 
 	const after = readStaleness(repoRoot);

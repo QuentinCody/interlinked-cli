@@ -69,6 +69,38 @@ describe("resolveEditedPaths — negative (generated output must not be analyzed
 		}
 	});
 
+	// A shadow effect is a change that the attribution rule assigned to another
+	// writer (another agent, or a change during a read-only command). Checking it
+	// here reports another session's file to this session.
+	it("N0b: a shadow effect in the observed ChangeSet runs no per-file check for this call", () => {
+		const event = bash("rg -n 'x' src | head -5");
+		event.change_set = {
+			source: "filesystem-observation",
+			complete: true,
+			before_captured_at: "2026-08-13T00:00:00.000Z",
+			after_captured_at: "2026-08-13T00:00:01.000Z",
+			files: [
+				{ path: "src/somebody-elses.ts", kind: "modified", before_sha256: "a", after_sha256: "b", attribution: "shadow", shadow_reason: "read-only-command" },
+			],
+		};
+		expect(resolveEditedPaths(event)).toMatchObject({ editedFilePath: "", editedFilePaths: [], shouldRunChecks: false });
+	});
+
+	it("P0b: an effect attributed to this call's window is still checked beside a shadow", () => {
+		const event = bash("node opaque-generator.js");
+		event.change_set = {
+			source: "filesystem-observation",
+			complete: true,
+			before_captured_at: "2026-08-13T00:00:00.000Z",
+			after_captured_at: "2026-08-13T00:00:01.000Z",
+			files: [
+				{ path: "src/mine.ts", kind: "modified", before_sha256: "a", after_sha256: "b", attribution: "observed-in-window" },
+				{ path: "src/theirs.ts", kind: "modified", before_sha256: "c", after_sha256: "d", attribution: "shadow", shadow_reason: "attributed-to-other-actor" },
+			],
+		};
+		expect(resolveEditedPaths(event).editedFilePaths).toEqual(["src/mine.ts"]);
+	});
+
 	it("P0: a real in-place shell edit still enters the post-edit check pipeline", () => {
 		expect(resolveEditedPaths(bash("sed -i '' 's/a/b/' src/app.ts"))).toMatchObject({
 			editedFilePath: "src/app.ts",

@@ -227,6 +227,18 @@ describe("globMatch", () => {
 		expect(globMatch("src/a/b.ts", "src/*")).toBe(false);
 	});
 
+	it("matches **/dir/** anywhere in the tree, not the trailing ** literally (kill-proof review M1)", () => {
+		// test-contract: bug — the `**/` branch compared `endsWith("/dir/**")`, so every `**/dir/**` rule was inert
+		expect(globMatch("/repo/.interlinked/test-runs/kill-proofs/0123456789abcdef.json", "**/.interlinked/test-runs/kill-proofs/**")).toBe(true);
+		expect(globMatch(".interlinked/test-runs/kill-proofs/0123456789abcdef.json", "**/.interlinked/test-runs/kill-proofs/**")).toBe(true);
+		expect(globMatch("a/b/migrations/001.sql", "**/migrations/**")).toBe(true);
+		expect(globMatch("migrations/001.sql", "**/migrations/**")).toBe(true);
+		expect(globMatch("src/migrations", "**/migrations/**")).toBe(true);
+		expect(globMatch("src/not-migrations/001.sql", "**/migrations/**")).toBe(false);
+		expect(globMatch("src/migrationsx/001.sql", "**/migrations/**")).toBe(false);
+		expect(globMatch(".interlinked/test-runs/other/x.json", "**/.interlinked/test-runs/kill-proofs/**")).toBe(false);
+	});
+
 	it("matches dir/** against the dir path itself (filePath === prefix)", () => {
 		expect(globMatch("src", "src/**")).toBe(true);
 		expect(globMatch("other", "src/**")).toBe(false);

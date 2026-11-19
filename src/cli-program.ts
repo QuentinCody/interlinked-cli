@@ -32,6 +32,7 @@ import { registerMcpCommands } from "./registrars/mcp.js";
 import { registerObservabilityLogCommands } from "./registrars/observability-logs.js";
 import { registerQualityCommands } from "./registrars/quality.js";
 import { registerReplayCommands } from "./registrars/replay.js";
+import { registerPacketsCommands } from "./registrars/packets.js";
 import { registerScratchCommands } from "./registrars/scratch.js";
 import { registerSemanticCommands } from "./registrars/semantic.js";
 import { registerSemanticGraphCommands } from "./registrars/semantic-graph.js";
@@ -72,6 +73,7 @@ function registerDomainCommands(program: Command): void {
 	registerQualityCommands(program);
 	registerCapsCommands(program);
 	registerScratchCommands(program);
+	registerPacketsCommands(program);
 	registerSemanticCommands(program);
 	registerSemanticGraphCommands(program);
 	registerSimplifyCommands(program);

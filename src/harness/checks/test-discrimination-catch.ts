@@ -11,50 +11,19 @@
 // HOW TO EXTEND: change AST guard classification with P/N counterexamples;
 // retain skipped-test handling. Census: scripts/scan-test-discrimination.ts.
 
-import { createRequire } from "node:module";
+import { testCallInfo } from "./test-structure.js";
 import type * as TS from "typescript";
-import { parseTsSourceWith } from "./cyclomatic-ast.js";
+import { parseTsSource } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isTestFile, JS_TS_EXTS } from "./shared.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 type TsModule = typeof TS;
 
-// Self-contained `typescript` loader (optionalDependency; a `--omit=optional`
-// install has no AST, so the check no-ops rather than throws). A fresh module
-// instance (vitest `resetModules` + dynamic import) starts with an empty
-// cache, matching the sibling checks' test convention.
-let tsCache: TsModule | null | undefined;
-function loadTs(): TsModule | null {
-	if (tsCache !== undefined) return tsCache;
-	try {
-		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
-		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
-	} catch {
-		tsCache = null;
-	}
-	return tsCache;
-}
 
-const TEST_FN_NAMES = new Set(["it", "test", "specify"]);
-// Modifiers that mean "don't actually run this body" — skip the block entirely.
-const SKIP_MODIFIERS = new Set(["skip", "todo", "failing", "skipIf", "runIf"]);
 const MAX_MATCHES = 10;
 
 interface TestBlock {
 	body: TS.Node;
-}
-
-/** Unwrap the base callee of an it()/test() call, tracking skip modifiers. */
-function testCallInfo(ts: TsModule, call: TS.CallExpression): { skipped: boolean } | null {
-	let expr: TS.Expression = call.expression;
-	let skipped = false;
-	// `it.each(table)('n', fn)` — callee is itself a call; descend to it.each.
-	while (ts.isCallExpression(expr)) expr = expr.expression;
-	while (ts.isPropertyAccessExpression(expr)) {
-		if (SKIP_MODIFIERS.has(expr.name.text)) skipped = true;
-		expr = expr.expression;
-	}
-	if (ts.isIdentifier(expr) && TEST_FN_NAMES.has(expr.text)) return { skipped };
-	return null;
 }
 
 /** Find every (non-skipped) it()/test()/specify() block with a function body. */
@@ -235,17 +204,17 @@ export function checkCatchWithoutAssertionGuard(content: string, filePath: strin
 	if (!isTestFile(filePath)) return [];
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 
-	const ts = loadTs();
-	if (!ts) return [];
-
-	const sf = parseTsSourceWith(ts, content, filePath);
+	const parsed = parseTsSource(content, filePath);
+	if (!parsed) return [];
+	const { ts, sf } = parsed;
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(MAX_MATCHES);
 
 	for (const block of findTestBlocks(ts, sf)) {
-		if (matches.length >= MAX_MATCHES) break;
+		if (matches.length >= maxMatches) break;
 		if (hasAssertionsCountGuard(ts, block.body) || hasToThrowGuard(ts, block.body)) continue;
 		for (const tryStmt of collectTryStatements(ts, block.body).filter((statement) => unguardedCatch(ts, statement))) {
-			if (matches.length >= MAX_MATCHES) break;
+			if (matches.length >= maxMatches) break;
 			matches.push(buildMatch(sf, tryStmt, content));
 		}
 	}

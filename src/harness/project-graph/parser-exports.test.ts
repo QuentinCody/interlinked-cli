@@ -642,3 +642,58 @@ describe("parseExports — lines that start with 'export' but match no known for
 		expect(parseExports("const reexportLike = 1;")).toEqual([]);
 	});
 });
+
+describe("parseExports — TS 5 star types, destructuring, const enum", () => {
+	const names = (code: string): string[] => parseExports(code).map((e) => e.name);
+
+	describe("A3 positive: exports that were missed", () => {
+		it("P1: `export type * from` records a star re-export", () => {
+			expect(parseExports(`export type * from './types.js';`)).toEqual([
+				{ name: "*", kind: "namespace", isTypeOnly: false, line: 1 },
+			]);
+		});
+
+		it("P2: `export type * as ns from` and `export * as ns from` record the namespace name", () => {
+			expect(names(`export type * as shapes from './shapes.js';`)).toEqual(["shapes"]);
+			expect(names(`export * as ns from './x.js';`)).toEqual(["ns"]);
+		});
+
+		it("P3: an object-destructured const export records each binding", () => {
+			expect(names(`export const { forceLogout } = authSlice.actions;`)).toEqual(["forceLogout"]);
+			expect(names(`export const { a, b: renamed, c = 1, ...rest } = obj;`)).toEqual(["a", "renamed", "c", "rest"]);
+		});
+
+		it("P4: an array-destructured export records each binding", () => {
+			expect(names(`export const [first, , second] = pair;`)).toEqual(["first", "second"]);
+		});
+
+		it("P5: a multi-line destructured export records each binding", () => {
+			const code = ["export const {", "\tone,", "\ttwo: { deep },", "} = source;", "export const after = 1;"].join("\n");
+			expect(names(code)).toEqual(["one", "deep", "after"]);
+		});
+
+		it("P6: `export type Name` with the `=` on the next line records the type", () => {
+			expect(names(["export type LayoutMode", "\t= 'a' | 'b';"].join("\n"))).toEqual(["LayoutMode"]);
+		});
+
+		it("P7: `export const enum` records the enum, not the word 'enum'", () => {
+			expect(parseExports(`export const enum Mode { A }`)).toEqual([
+				{ name: "Mode", kind: "enum", isTypeOnly: false, line: 1 },
+			]);
+		});
+
+		it("P8: a generator function export records its name", () => {
+			expect(names(`export function* gen() {}`)).toEqual(["gen"]);
+		});
+	});
+
+	describe("A3 negative: no invented export", () => {
+		it("N1: a commented-out destructured export records nothing", () => {
+			expect(names(`// export const { gone } = x;`)).toEqual([]);
+		});
+
+		it("N2: a plain `export const x = {` object literal records only x", () => {
+			expect(names(["export const x = {", "\ty: 1,", "};"].join("\n"))).toEqual(["x"]);
+		});
+	});
+});

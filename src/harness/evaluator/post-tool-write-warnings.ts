@@ -10,10 +10,14 @@
 
 import { readToolString } from "./tool-input-values.js";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import { checkPhantomDependencies, checkTyposquatDependencies } from "../generic-checks.js";
-import { countLines, isCappableFile, maxLinesFor } from "../large-file-policy.js";
+import { countLines, isCappableFile } from "../large-file-policy.js";
+import { collectObservedFileLineAdvice } from "../file-line-policy.js";
 import type { HarnessEvent } from "../types.js";
+import { collectEditProtectionWriteWarning } from "./post-tool-edit-protection.js";
+import { collectKillProofWriteWarning } from "./post-tool-kill-proof.js";
 import { isFileWrite } from "./tool-classifiers.js";
 
 /** File-level quality feedback after writes: size, JSON validity, supply-chain
@@ -36,6 +40,8 @@ export function collectPostWriteFileWarnings(event: HarnessEvent): string[] {
 	}
 	if (ext === ".yaml" || ext === ".yml") warnings.push(...collectYamlValidityWarning(filePath));
 	warnings.push(...collectSuppressionFileWarnings(filePath));
+	warnings.push(...collectKillProofWriteWarning(event));
+	warnings.push(...collectEditProtectionWriteWarning(event));
 	return warnings;
 }
 
@@ -43,15 +49,10 @@ export function collectPostWriteFileWarnings(event: HarnessEvent): string[] {
 function collectFileSizeWriteWarning(event: HarnessEvent, filePath: string): string[] {
 	try {
 		const root = event.cwd || process.cwd();
-		const content = readFileSync(filePath, "utf-8");
+		const content = readFileSync(resolve(root, filePath), "utf-8");
 		if (!isCappableFile({ filePath, content, root })) return [];
 		const lineCount = countLines(content);
-		const cap = maxLinesFor(root);
-		if (lineCount > cap) {
-			return [
-				`[interlinked:file-size] advisory: ${filePath} is ${lineCount} lines — over the ${cap}-line review preference. Review responsibilities; do not compress formatting to reduce this count.`,
-			];
-		}
+		return collectObservedFileLineAdvice(event, filePath, lineCount);
 	} catch (_err) {
 		/* best-effort — skip when unreadable */
 	}

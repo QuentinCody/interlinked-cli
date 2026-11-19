@@ -1,4 +1,4 @@
-import { wireAbsentOptional, wireArray, wireBoolean, wireLiteral, wireNumber, wireObject, wireRecord, wireString } from "../lib/value-validation.js";
+import { wireAbsentOptional, wireArray, wireBoolean, wireLiteral, wireNumber, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import type { CheckCondition, CheckPolicyDefaults, CheckPolicyEntry, CheckPolicyFile, CoverageRatchetConfig, MutationGateConfig } from "./check-policy.js";
 import { COVERAGE_METRICS } from "./coverage-metric-names.js";
 
@@ -36,6 +36,7 @@ const isMutation = wireObject<Partial<MutationGateConfig>>({
 });
 
 export const isCheckPolicyFile = wireObject<CheckPolicyFile>({
+	metrics: wireAbsentOptional(wireUnknown),
 	version: wireAbsentOptional(wireNumber),
 	mode: wireAbsentOptional(wireString),
 	defaults: wireAbsentOptional(isDefaults),

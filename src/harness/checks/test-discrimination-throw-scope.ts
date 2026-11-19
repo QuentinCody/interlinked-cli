@@ -6,7 +6,7 @@
 // bounds throw-site collection to its own body (plus one same-file helper
 // hop).
 
-import { collectThrowSites, extractBalancedArgs, type ThrowSite } from "./test-discrimination-throw-shared.js";
+import { collectThrowSites, extractBalancedArgs, type ParenScanState, stepParenScan, type ThrowSite } from "./test-discrimination-throw-shared.js";
 
 const CALL_IDENTIFIER_RE = /([A-Za-z_$][\w$]*)\s*\(/g;
 const IDENT_CHAR_RE = /[\w$]/;
@@ -22,29 +22,9 @@ function identifierBeforeParen(text: string, openIdx: number): string | null {
 	return start === end ? null : text.slice(start, end);
 }
 
-interface DepthScanState {
-	depth: number;
-	inStr: string | null;
-}
-
-/** Advance a depth/string scanner by one step, mutating `state`. Returns the
- *  index to resume from. */
-function stepDepthScan(text: string, i: number, state: DepthScanState): number {
-	const ch = text[i];
-	if (state.inStr) {
-		if (ch === "\\") return i + 2;
-		if (ch === state.inStr) state.inStr = null;
-		return i + 1;
-	}
-	if (ch === '"' || ch === "'" || ch === "`") state.inStr = ch;
-	else if (ch === "(") state.depth++;
-	else if (ch === ")") state.depth--;
-	return i + 1;
-}
-
 /** The identifier before `(` at `i`, but only when `state.depth` is 0 (a
  *  top-level call, not one nested inside another call's arguments). */
-function topLevelCallIdentifierAt(wrapped: string, i: number, state: DepthScanState): string | null {
+function topLevelCallIdentifierAt(wrapped: string, i: number, state: ParenScanState): string | null {
 	if (wrapped[i] !== "(" || state.depth !== 0) return null;
 	return identifierBeforeParen(wrapped, i);
 }
@@ -60,12 +40,12 @@ function topLevelCallIdentifierAt(wrapped: string, i: number, state: DepthScanSt
  * `aggregateFunctionVectors([Float32Array.from(...)], ...)`).
  */
 function rightmostCallIdentifier(wrapped: string): string | null {
-	const state: DepthScanState = { depth: 0, inStr: null };
+	const state: ParenScanState = { depth: 0, inStr: null };
 	let last: string | null = null;
 	let i = 0;
 	while (i < wrapped.length) {
 		last = topLevelCallIdentifierAt(wrapped, i, state) ?? last;
-		i = stepDepthScan(wrapped, i, state);
+		i = stepParenScan(wrapped, i, state);
 	}
 	return last;
 }

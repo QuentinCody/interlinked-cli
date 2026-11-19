@@ -12,8 +12,8 @@ import { type RefreshReport, refreshSemanticGraph } from "../harness/semantic-gr
 const EXIT_OK = 0;
 const EXIT_ERROR = 1;
 const EXIT_UNAVAILABLE = 2;
-export const DEFAULT_BUILD_MAX_USD = 0.25;
-export const DEFAULT_CONFIRM_MAX_CALLS = 20;
+const DEFAULT_BUILD_MAX_USD = 0.25;
+const DEFAULT_CONFIRM_MAX_CALLS = 20;
 /** Packets carry up to twelve candidate texts; the client default (5 s) is sized for one-paragraph asks. */
 const BUILD_TIMEOUT_MS = 20_000;
 

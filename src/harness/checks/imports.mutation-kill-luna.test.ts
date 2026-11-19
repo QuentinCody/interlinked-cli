@@ -6,7 +6,7 @@ import { _resetPackageNameCacheForTests, checkImportFromOwnBarrel } from "./impo
 let sandbox = "";
 
 beforeEach(() => {
-	sandbox = mkdtempSync(join("/tmp", "imports-check-"));
+	sandbox = mkdtempSync(join(process.cwd(), "scratch", "imports-check-"));
 	_resetPackageNameCacheForTests();
 });
 
@@ -18,6 +18,10 @@ afterEach(() => {
 function sourcePath(...parts: string[]): string {
 	const dir = join(sandbox, ...parts.slice(0, -1));
 	mkdirSync(dir, { recursive: true });
+	const file = parts.at(-1) ?? "widget.ts";
+	for (const extension of ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"]) {
+		writeFileSync(join(dir, `index.${extension}`), `export * from "./${file.replace(/\.[^.]+$/, ".js")}";`);
+	}
 	return join(sandbox, ...parts);
 }
 
@@ -65,10 +69,8 @@ describe("checkImportFromOwnBarrel package resolution", () => {
 		}
 	});
 
-	it("uses the cached nearest name until the explicit reset hook is called", () => {
-		// test-contract: invariant — package-name lookup is cached by directory, and the exported reset hook is the public way to observe changed package metadata.
-		// The first call resolves and caches "before-name" (and correctly fires on it); the second call still
-		// sees the cached name, so the rewritten "after-name" stays invisible until the reset hook runs.
+	it("observes package identity changes in the next invocation", () => {
+		// test-contract: invariant — package identity changes cannot leave stale own-package claims.
 		const dir = join(sandbox, "cached");
 		packageAt(dir, "before-name");
 		const file = sourcePath("cached", "widget.ts");
@@ -77,7 +79,7 @@ describe("checkImportFromOwnBarrel package resolution", () => {
 		]);
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "after-name" }));
-		expect(checkImportFromOwnBarrel('import value from "after-name";', file)).toEqual([]);
+		expect(checkImportFromOwnBarrel('import value from "before-name";', file)).toEqual([]);
 		_resetPackageNameCacheForTests();
 		expect(checkImportFromOwnBarrel('import value from "after-name";', file)).toEqual([
 			finding(1, `imports from own package 'after-name' — use a deep submodule path instead: import value from "after-name";`),
@@ -125,8 +127,8 @@ describe("checkImportFromOwnBarrel public spellings and findings", () => {
 		]);
 	});
 
-	it("ignores comments, strings, and multiline continuations while scanning real source lines", () => {
-		// test-contract: security — barrel-looking text inside comments/strings and a from-clause on a continuation line must not be interpreted as executable imports.
+	it("ignores comments and strings while recognizing the actual multiline declaration", () => {
+		// test-contract: security — only the actual declaration supplies the forward edge.
 		const file = sourcePath("noise.ts");
 		const content = [
 			"const comment = 'import x from \\\"./index\\\"';",
@@ -137,7 +139,7 @@ describe("checkImportFromOwnBarrel public spellings and findings", () => {
 			"} from './index';",
 			"import y from './sibling';",
 		].join("\n");
-		expect(checkImportFromOwnBarrel(content, file)).toEqual([]);
+		expect(checkImportFromOwnBarrel(content, file)).toEqual([expect.objectContaining({ line: 4 })]);
 	});
 });
 

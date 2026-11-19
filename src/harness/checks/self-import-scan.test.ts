@@ -385,6 +385,22 @@ describe("scanSelfImports — NOT MEASURED, disclosed rather than guessed", () =
 		expect(warning).toContain(join(root, "tsconfig.json"));
 	});
 
+	// The repo `scratch/` directory is the sanctioned home for probe scripts and no
+	// tsconfig includes it by design, so "list the file in its project" is a wrong remedy there.
+	it("N33: a repo scratch probe outside every project gets a short notice with no tsconfig remedy", () => {
+		const root = project({ "tsconfig.json": '{ "include": ["src"] }', "src/widget.ts": "", "scratch/probe/measure.mjs": "" });
+		const warning = selfImportNotMeasuredWarning(join(root, "scratch/probe/measure.mjs"));
+		expect(warning).toContain("NOT MEASURED");
+		expect(warning).toContain("scratch probe");
+		expect(warning).not.toContain("List the file in its project");
+	});
+
+	it("N34: a product file outside every project keeps the tsconfig remedy", () => {
+		const root = project({ "tsconfig.json": '{ "include": ["src"] }', "src/widget.ts": "", "tools/gen.ts": "" });
+		const warning = selfImportNotMeasuredWarning(join(root, "tools/gen.ts"));
+		expect(warning).toContain("List the file in its project's `files`/`include`");
+	});
+
 	it("N31: returns null for a file whose directory is not on disk — no tree to resolve in", () => {
 		expect(scanSelfImports(SELF_IMPORT, "no/such/dir/widget.ts")).toBeNull();
 	});

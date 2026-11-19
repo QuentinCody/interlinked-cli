@@ -19,7 +19,7 @@ export function residentPolicy(resident: string[], target: string, managed: stri
     return resident.filter((model) => model !== target);
 }
 
-export async function ollamaJson(
+async function ollamaJson(
     config: DecisionConfig,
     route: string,
     deadline: number,

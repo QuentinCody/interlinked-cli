@@ -67,11 +67,10 @@ describe("GhCliFetcher.listRuns — args + parsing (positive/negative)", () => {
 		expect(args).not.toContain("--branch");
 	});
 
-	it("N2: non-array JSON response yields empty result", () => {
+	it("N2: non-array JSON response reports unavailable collection", () => {
 		execFileSyncMock.mockReturnValue(JSON.stringify({ not: "an array" }));
 		const fetcher = new GhCliFetcher();
-		const result = fetcher.listRuns({ limit: 5, branch: undefined });
-		expect(result).toEqual([]);
+		expect(() => fetcher.listRuns({ limit: 5, branch: undefined })).toThrow("expected an array");
 	});
 
 	it("P3: array of valid rows parses through", () => {

@@ -3,7 +3,7 @@ import { parseTsSource } from "./cyclomatic-ast.js";
 import type { InlineMatch } from "./shared.js";
 
 /** A grouping node ends an optional chain; a call's argument parentheses do not. */
-export function scanBrokenOptionalGrouping(content: string, filePath: string): InlineMatch[] {
+export function scanBrokenOptionalGrouping(content: string, filePath: string, maxMatches = 10): InlineMatch[] {
 	if (!content.includes("?.")) return [];
 	const parsed = parseTsSource(content, filePath);
 	if (!parsed) return []; // No syntax evidence: never use the ambiguous regex as a block.
@@ -15,7 +15,7 @@ export function scanBrokenOptionalGrouping(content: string, filePath: string): I
 		(group.flags & ts.NodeFlags.JavaScriptFile) !== 0 &&
 		(ts.getJSDocTypeTag(group) !== undefined || ts.getJSDocSatisfiesTag(group) !== undefined);
 	const visit = (node: TS.Node): void => {
-		if (lines.size >= 10) return;
+		if (lines.size >= maxMatches) return;
 		if (ts.isPropertyAccessExpression(node) && !node.questionDotToken && ts.isParenthesizedExpression(node.expression)) {
 			let group: TS.ParenthesizedExpression = node.expression;
 			let cast = isJsDocCast(group);

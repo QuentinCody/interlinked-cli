@@ -202,11 +202,14 @@ describe("doctestCommand", () => {
 		expect(JSON.parse(nonNull(logs[0]))).toEqual({ total: 1, failed: 0, failures: [] });
 	});
 
-	it("treats a nonexistent path as zero files found (statSync throws -> catch -> [])", () => {
+	it("reports a nonexistent target as unavailable", () => {
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		doctestCommand({ path: join(cwd, "does-not-exist"), json: true });
 
-		expect(JSON.parse(nonNull(logs[0]))).toEqual({ total: 0, failed: 0, failures: [] });
-		expect(process.exitCode).toBeUndefined();
+		expect(logs).toEqual([]);
+		expect(JSON.parse(String(errorSpy.mock.calls[0]?.[0])).error).toContain("does-not-exist");
+		expect(process.exitCode).toBe(1);
+		errorSpy.mockRestore();
 	});
 });
 

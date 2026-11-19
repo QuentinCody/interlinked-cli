@@ -9,6 +9,7 @@
 // through here. Split from output-parsers.ts for the file line cap.
 
 import { isJsonObject } from "../../lib/json-types.js";
+import { PartialToolReportError } from "./tool-errors.js";
 import type { CheckResult } from "./types.js";
 
 /** One per-file result entry: `{ filePath, messages }`. */
@@ -46,6 +47,21 @@ function processParsed(parsed: unknown[], tool: CheckResult["tool"]): CheckResul
 		if (!entry) continue;
 		results.push(...collectEntryResults(entry, tool));
 	}
+	return results;
+}
+
+/** An incomplete selected report can retain findings without granting a clean verdict. */
+export function parseCompleteEslintJson(output: string, tool: CheckResult["tool"]): CheckResult[] {
+	let parsed: unknown;
+	try { parsed = JSON.parse(output.trim()); }
+	catch (error) { throw new PartialToolReportError("ESLint returned malformed JSON", [], { cause: error }); }
+	if (!Array.isArray(parsed)) throw new PartialToolReportError("ESLint report must be an array", []);
+	const results = processParsed(parsed, tool);
+	const incomplete = parsed.some(raw => {
+		const entry = fileEntry(raw);
+		return !entry || entry.messages.some(message => !isJsonObject(message) || typeof message.message !== "string");
+	});
+	if (incomplete) throw new PartialToolReportError("ESLint report contains invalid rows", results);
 	return results;
 }
 

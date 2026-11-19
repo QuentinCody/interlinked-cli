@@ -562,6 +562,13 @@ describe("coldPackageInstallBlockReason", () => {
 // coldLargeFileWarning
 // ===========================================================================
 describe("coldLargeFileWarning", () => {
+	it.each(["report", "warn", "off"])("honors native cold %s line policy and positive scope", mode => {
+		mkdirSync(join(cwd, ".interlinked"));
+		writeFileSync(join(cwd, ".interlinked/check-policy.json"), JSON.stringify({ metrics: { "file.lines": { mode, threshold: 5, scope: { paths: ["src/**"], roles: ["product"] } } } }));
+		const content = Array.from({ length: 12 }, (_, i) => `export const value${i} = ${i};`).join("\n");
+		const event = makeToolCallEvent({ tool_name: "Write", tool_input: { file_path: join(cwd, "src/a.ts"), content } });
+		expect(coldLargeFileWarning(event)?.includes("reporting target 5") ?? false).toBe(mode === "warn");
+	});
 	it("returns null outside the pre-tool phase", () => {
 		const event = makeToolCallEvent({
 			phase: "post-tool",

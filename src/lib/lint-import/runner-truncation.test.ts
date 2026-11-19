@@ -53,4 +53,8 @@ process.exitCode = 1;
         timeoutMs: 10_000,
     })).rejects.toThrow("Analyzer stdout report was truncated; no verdict");
     expect(readFileSync(baselinePath, "utf8")).toBe(baselineBefore);
+    const foreground = await measureImportedLint(root, policy, { timeoutMs: 0, resourcePolicy: "foreground-verify" });
+    expect(foreground[0]?.status).toBe("measured");
+    expect(foreground[0]?.findings.map(({ file }) => file)).toEqual(["a.py", "b.py"]);
+    expect(readFileSync(baselinePath, "utf8")).toBe(baselineBefore);
 }, 20_000);

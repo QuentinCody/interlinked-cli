@@ -1,5 +1,7 @@
 // Bounded, concurrent-safe whole-file timeline reconstruction.
 
+import { unlinkIfPresent } from "../lib/file-suffix-replacement.js";
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 import { randomUUID } from "node:crypto";
 import {
 	chmodSync,
@@ -8,7 +10,6 @@ import {
 	openSync,
 	renameSync,
 	statSync,
-	unlinkSync,
 	writeSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -51,15 +52,6 @@ export class TimelineRewriteConflictError extends Error {
 	}
 }
 
-function isMissingFileError(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"code" in error &&
-		error.code === "ENOENT"
-	);
-}
-
 export function captureTimelineBasis(path: string): TimelineRewriteBasis {
 	try {
 		const stat = statSync(path);
@@ -69,7 +61,7 @@ export function captureTimelineBasis(path: string): TimelineRewriteBasis {
 			mode: stat.mode,
 		};
 	} catch (error) {
-		if (isMissingFileError(error)) return { identity: null, eof: 0, mode: null };
+		if (hasErrorCode(error, "ENOENT")) return { identity: null, eof: 0, mode: null };
 		throw error;
 	}
 }
@@ -195,14 +187,6 @@ function writePreparedTimeline(
 		closeSync(fd);
 	}
 	if (mode !== null) chmodSync(temporaryPath, mode & 0o7777);
-}
-
-function unlinkIfPresent(path: string): void {
-	try {
-		unlinkSync(path);
-	} catch (error) {
-		if (!isMissingFileError(error)) throw error;
-	}
 }
 
 interface TimelineCatchup {

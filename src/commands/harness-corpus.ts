@@ -14,8 +14,9 @@ export function corpusStatus(cwd: string, ids?: readonly string[]) {
     const store = loadCorpusStore(cwd);
     const enforced = new Set(loadCheckEvidenceBaseline(cwd).corpus_cohort ?? []);
     return Object.entries(store.checks).filter(([id]) => !ids || ids.includes(id)).map(([id, record]) => {
-        const current = record.provenance ? currentCorpusBinding(record, cwd, id) : undefined;
         const check = CHECK_REGISTRY.find(check => check.id === id);
+        // A record whose check is no longer registered has no detector to bind.
+        const current = record.provenance && check ? currentCorpusBinding(record, cwd, check) : undefined;
         const controls = check ? qualifyCorpusControls(check) : null;
         return { id, enforced: enforced.has(id), historical: !record.provenance,
             qualified: corpusSatisfied(record, current) && controls?.qualified === true,

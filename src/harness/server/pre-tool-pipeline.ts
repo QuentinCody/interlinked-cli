@@ -70,6 +70,7 @@ import {
 } from "./pre-tool-pipeline-integrations.js";
 import { appendShellSandboxAdvisory } from "./shell-sandbox-policy.js";
 import { localAgentToolDecision } from "../runtime-policy.js";
+import { applyPacketAsk } from "./packets-ask-phase.js";
 
 // ---------------------------------------------------------------------------
 // Phase helpers (internal — not exported)
@@ -392,5 +393,7 @@ export async function runPreToolPipeline(
 	// --- Structure context injection (non-blocking) ---
 	injectStructureContext(ctx, event, session, preDecision, filePath);
 
-	return preDecision;
+	// --- Instruction packets, stage 4 cosign (opt-in; only when a packet is at cosign): an eligible
+	// judgment raises THIS allow to ask; block/ask above were returned already and are never touched.
+	return applyPacketAsk(event, rules, preDecision);
 }

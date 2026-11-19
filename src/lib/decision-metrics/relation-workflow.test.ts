@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { hash } from "../../harness/semantic-graph/relation-core.js";
-import { parseRelationPlan, parseRelationRun } from "../../harness/semantic-graph/relation-codec.js";
+import { parseEngine, parseRelationPlan, parseRelationRun } from "../../harness/semantic-graph/relation-codec.js";
 import { prepareRelations, sealPlan } from "../../harness/semantic-graph/relation-plan.js";
 import { comparePairedRun, pairedRelationPlan } from "../../harness/semantic-graph/relation-compare.js";
 import { freezeRelations, implementationSources, loadRelationArtifact, planFromArtifact } from "../../harness/semantic-graph/relation-freeze.js";
@@ -17,6 +17,11 @@ import { haikuArgs, haikuEnvironment, validateHaikuIsolation } from "./relation-
 
 const engine: EngineSpec = { id: "J", backend: "typesafe", model: "fixture-model", identity: "fixture-model", command: null, endpoint: null, effort: null, maxCalls: 100, maxUsd: 1, timeoutMs: 1000, band: [.2,.8] };
 const dirs: string[] = [];
+test("backend and effort are literal engine settings in stored plans", () => {
+    expect(parseEngine(engine)).toEqual(engine);
+    expect(() => parseEngine({ ...engine, backend: ["haiku"] })).toThrow("backend");
+    expect(() => parseEngine({ ...engine, effort: "surprise" })).toThrow("effort");
+});
 const temp = () => { const root = mkdtempSync(join(tmpdir(), "relation-workflow-")); dirs.push(root); return root; };
 afterEach(() => { for (const path of dirs.splice(0)) rmSync(path, { recursive: true, force: true }); });
 const backend: RelationBackend = async (engine, packet) => {

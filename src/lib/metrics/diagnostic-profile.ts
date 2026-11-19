@@ -39,5 +39,5 @@ export const DIAGNOSTIC_LIMITATIONS = [
     "Function masses are not additive code size: two functions can own different tokens on the same source line.",
     "CC > 10 creates a discontinuity. Extraction or unrelated simple code can lower the ratio without reducing absolute burden.",
     "Ratios describe the measured subset only; missing files and discovery issues prevent a complete-repository claim.",
-    "Python and other languages are unsupported in this profile. No target code, tests, models or external checkers are executed.",
+    "Only JavaScript and TypeScript are measured in this profile; Python has its own profile and other languages are unsupported. No target code, tests, models or external checkers are executed.",
 ];

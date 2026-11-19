@@ -14,10 +14,10 @@ import type { JevChoiceAnswer, JevChoiceQuestion, JevEntry } from "../jev/types.
 import type { Edge, Unit } from "./types.js";
 
 /** The option id Jev picks when no candidate fits; always present in `question.criteria`. */
-export const NONE_OPTION = "none";
+const NONE_OPTION = "none";
 /** The question id under which the Choice is sent and read back. */
-export const PICK_QUESTION_ID = "pick";
-export const DEFAULT_JUDGE_CONCURRENCY = 4;
+const PICK_QUESTION_ID = "pick";
+const DEFAULT_JUDGE_CONCURRENCY = 4;
 
 export interface JudgePacket {
 	state: JevEntry;

@@ -122,13 +122,30 @@ describe("Claude Code renderSettingsFragment", () => {
 	it("uses array-append for hook merge", () => {
 		expect(frag.mergeStrategy).toBe("array-append");
 	});
-	// Pin the SHIPPED fragment, not the event list. The omission was pinned on
-	// the legacy installer's `CLAUDE_HOOK_EVENTS`, which no longer performs the
-	// install — so the adapter re-registered the event and every live settings
-	// file got "2 PostToolUse hooks ran" while the test stayed green.
-	it("N: does NOT register PostToolUseFailure (Claude counts it as a second PostToolUse)", () => {
+	// Pin the SHIPPED fragment, not the event list: the legacy installer's
+	// `CLAUDE_HOOK_EVENTS` no longer performs the install. Verified 2026-11-16
+	// under Claude Code 2.1.325: a failed Bash call delivers PostToolUseFailure
+	// and NO PostToolUse, so the event must be registered, scoped like PostToolUse.
+	it("P: registers PostToolUseFailure with the PostToolUse matcher", () => {
 		const fragment = nestedHookSettings(frag.fragment);
-		expect(Object.keys(fragment.hooks)).not.toContain("PostToolUseFailure");
+		const failure = nonNull(nonNull(fragment.hooks.PostToolUseFailure)[0]);
+		expect(failure.matcher).toBe(CLAUDE_POST_TOOL_USE_MATCHER);
+		expect(nonNull(failure.hooks[0]).command).toContain("--event 'PostToolUseFailure'");
+		expect(adapter.nativeEventNames).toContain("PostToolUseFailure");
+	});
+
+	it("encodes PostToolUseFailure warnings as context echoing the native event", () => {
+		const event = adapter.parseHookInput(
+			{ session_id: "s", cwd: "/repo", tool_name: "Bash", tool_input: { command: "false" }, error: "Exit code 1" },
+			"PostToolUseFailure",
+		);
+		const quiet = adapter.encodeDecision({ decision: "allow" }, event);
+		expect(quiet).toEqual({ exit_code: 0 });
+		const output = adapter.encodeDecision({ decision: "allow", warnings: ["retry advice"] }, event);
+		expect(output.exit_code).toBe(0);
+		expect(JSON.parse(nonNull(output.stdout))).toEqual({
+			hookSpecificOutput: { hookEventName: "PostToolUseFailure", additionalContext: "retry advice" },
+		});
 	});
 
 	it("registers PermissionRequest now that its native response contract is implemented", () => {
@@ -180,9 +197,7 @@ describe("Claude Code renderSettingsFragment", () => {
 		expect(parsed.action).toMatchObject({ kind: "other", subkind: "WorktreeCreate" });
 	});
 
-	it("P: still PARSES a PostToolUseFailure payload it did not register", () => {
-		// Handling and registering are separate decisions: another runner (or a
-		// future Claude version) can still deliver the event.
+	it("P: PARSES a PostToolUseFailure payload", () => {
 		const parsed = adapter.parseHookInput(
 			{ session_id: "s", cwd: "/repo", tool_name: "Bash", tool_input: { command: "ls" } },
 			"PostToolUseFailure",
@@ -233,10 +248,10 @@ describe("Claude Code renderSettingsFragment", () => {
 		expect(nonNull(nonNull(fragment.hooks.PreToolUse)[0]).matcher).toBe("");
 	});
 
-	it("omits FileChanged's static matcher and scopes only PostToolUse", () => {
+	it("omits FileChanged's static matcher and scopes only PostToolUse and PostToolUseFailure", () => {
 		const fragment = nestedHookSettings(frag.fragment);
 		for (const eventName of Object.keys(fragment.hooks)) {
-			if (eventName === "PostToolUse") continue;
+			if (eventName === "PostToolUse" || eventName === "PostToolUseFailure") continue;
 			if (eventName === "FileChanged") {
 				expect(nonNull(nonNull(fragment.hooks[eventName])[0])).not.toHaveProperty("matcher");
 				continue;

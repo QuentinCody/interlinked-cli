@@ -57,8 +57,8 @@ export const GUARD_BLOCK_QUESTION: JevNoulQuestion = {
  */
 export const GUARD_BLOCK_HOLD_THRESHOLD = 0.1476;
 /** E20 caps (build_pools.py CMD_CAP / HEAD_CAP). */
-export const GUARD_BLOCK_COMMAND_CAP = 2_000;
-export const GUARD_BLOCK_HEAD_CAP = 200;
+const GUARD_BLOCK_COMMAND_CAP = 2_000;
+const GUARD_BLOCK_HEAD_CAP = 200;
 const PREVIOUS_CALLS = 3;
 /** Bound on remembered actors; the oldest is dropped first. */
 const ACTOR_CAP = 256;
@@ -153,7 +153,7 @@ export function buildGuardBlockState(event: HarnessEvent, previous: readonly Pre
 }
 
 /** Ask and log for one blocked shell call. Never rejects. */
-export async function runGuardBlockShadow(
+async function runGuardBlockShadow(
 	event: HarnessEvent,
 	decision: HarnessDecision,
 	previous: readonly PreviousCall[],

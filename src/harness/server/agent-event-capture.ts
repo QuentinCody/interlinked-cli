@@ -21,7 +21,6 @@
 // Best-effort / fail-open everywhere (feedback_safety_continuity): capture
 // must never break the guard pipeline.
 
-import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import type {
 	AgentEventName,
 	AgentEventRecord,
@@ -32,6 +31,7 @@ import { appendCollection } from "../../lib/collection/writer.js";
 import { isJsonObject } from "../../lib/json-types.js";
 import type { JsonObject } from "../../lib/json-types.js";
 import { redactPii, scrubSecrets } from "../../lib/secrets.js";
+import { readTranscriptTail } from "../agent-io/transcript.js";
 import { captureAgentTranscript } from "../timeline-capture.js";
 import type { HarnessEvent } from "../types.js";
 import {
@@ -76,27 +76,6 @@ const PROVIDER_BY_SOURCE: Partial<Record<string, string>> = {
 	pi: "pi",
 	"factory-droid": "factory-droid", windsurf: "windsurf", antigravity: "antigravity", crush: "crush",
 };
-
-/** Read the last `tailBytes` of a file as utf-8, dropping a partial first
- *  line when the read starts mid-file. Null on any failure. */
-function readTranscriptTail(path: string, tailBytes: number): string | null {
-	try {
-		if (!existsSync(path)) return null;
-		const size = statSync(path).size;
-		if (size === 0) return null;
-		const offset = Math.max(0, size - tailBytes);
-		const fd = openSync(path, "r");
-		const buf = Buffer.alloc(size - offset);
-		readSync(fd, buf, 0, buf.length, offset);
-		closeSync(fd);
-		let text = buf.toString("utf-8");
-		if (offset > 0) text = text.slice(text.indexOf("\n") + 1);
-		return text;
-	} catch (err) {
-		void err; // unreadable transcript — capture degrades to payload-only
-		return null;
-	}
-}
 
 /** The text of the LAST text block of one assistant transcript entry, or null. */
 function assistantEntryText(entry: JsonObject): string | null {

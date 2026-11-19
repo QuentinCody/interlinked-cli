@@ -10,6 +10,7 @@
 // The main file re-exports these so existing importers keep working.
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -37,10 +38,10 @@ export function checkDoubleCastUnknown(content: string, filePath: string): Inlin
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
-	const MAX_MATCHES = 5;
+	const maxMatches = checkMatchLimit(5);
 
 	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= MAX_MATCHES) break;
+		if (matches.length >= maxMatches) break;
 		const m = DOUBLE_CAST_RE.exec(nonNull(strippedLines[i]));
 		if (!m) continue;
 		const target = nonNull(m[1]).trim().slice(0, 30);

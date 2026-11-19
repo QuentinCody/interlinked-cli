@@ -136,7 +136,7 @@ export async function envCommand(options: EnvOptions): Promise<void> {
 			})),
 		short: () => {
 			if (setVars.length === 0) return "No Interlinked env vars set.";
-			return setVars.map((v) => `${v.name}=${v.currentValue}`).join(", ");
+			return setVars.map((v) => `${v.name}=${displayValueFor(v.name, v.currentValue ?? "")}`).join(", ");
 		},
 		normal: () => {
 			const lines: string[] = [];

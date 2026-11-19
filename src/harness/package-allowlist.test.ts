@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,7 +11,9 @@ import {
 	isPackageAllowed,
 	loadAllowlist,
 	matchSnapshot,
+	matchSnapshotAt,
 	saveAllowlist,
+	snapshotKey,
 } from "./package-allowlist.js";
 import type { PackageSpec } from "./package-install-parser.js";
 
@@ -514,5 +516,53 @@ describe("hashLockfile + matchSnapshot", () => {
 		const dirPath = join(workspace, "a-directory");
 		mkdirSync(dirPath, { recursive: true });
 		expect(hashLockfile(dirPath)).toBeNull();
+	});
+});
+
+describe("snapshotKey + matchSnapshotAt", () => {
+	const emptyPackages = { npm: {}, pypi: {}, cargo: {}, rubygems: {}, go: {}, composer: {}, maven: {}, gradle: {}, nuget: {} };
+	const grantFor = (key: string, sha256: string): Allowlist => ({
+		version: 1,
+		packages: emptyPackages,
+		lockfile_snapshots: { [key]: { sha256, approved_at: "2026-11-13", approved_by: "x" } },
+	});
+
+	it("keys a root file by its bare name and a nested file by its relative path", () => {
+		mkdirSync(join(workspace, "packages/app"), { recursive: true });
+		expect(snapshotKey(workspace, join(workspace, "Cargo.lock"))).toBe("Cargo.lock");
+		expect(snapshotKey(workspace, join(workspace, "packages/app/Cargo.lock"))).toBe("packages/app/Cargo.lock");
+	});
+
+	it("gives a directory outside the root its own key, not the root's bare name", () => {
+		const outside = mkdtempSync(join(tmpdir(), "allowlist-outside-"));
+		try {
+			const key = snapshotKey(workspace, join(outside, "Cargo.lock"));
+			expect(key.startsWith("../")).toBe(true);
+			expect(key.endsWith("/Cargo.lock")).toBe(true);
+		} finally {
+			rmSync(outside, { recursive: true, force: true });
+		}
+	});
+
+	it("derives one key from a symlinked and a real spelling of the same directory", () => {
+		const real = join(workspace, "real");
+		mkdirSync(real);
+		symlinkSync(real, join(workspace, "link"));
+		expect(snapshotKey(workspace, join(workspace, "link/Cargo.lock"))).toBe("real/Cargo.lock");
+	});
+
+	it("falls back to the path as written when a directory does not exist", () => {
+		expect(snapshotKey(join(workspace, "gone"), join(workspace, "gone/sub/Cargo.lock"))).toBe("sub/Cargo.lock");
+	});
+
+	it("matches the path-keyed grant, then the legacy name-keyed grant, and nothing else", () => {
+		mkdirSync(join(workspace, "sub"));
+		const file = join(workspace, "sub/Cargo.lock");
+		writeFileSync(file, "lock");
+		const sha = nonNull(hashLockfile(file));
+		expect(matchSnapshotAt(grantFor("sub/Cargo.lock", sha), workspace, "Cargo.lock", file)).toBe(true);
+		expect(matchSnapshotAt(grantFor("Cargo.lock", sha), workspace, "Cargo.lock", file)).toBe(true);
+		expect(matchSnapshotAt(grantFor("other/Cargo.lock", sha), workspace, "Cargo.lock", file)).toBe(false);
+		expect(matchSnapshotAt(grantFor("sub/Cargo.lock", "0".repeat(64)), workspace, "Cargo.lock", file)).toBe(false);
 	});
 });

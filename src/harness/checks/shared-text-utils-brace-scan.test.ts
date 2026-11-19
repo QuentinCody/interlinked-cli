@@ -4,6 +4,13 @@
 // See strip-brace-balance.test.ts for the invariant-level (brace-balance) tests.
 import { describe, expect, it } from "vitest";
 import { stripForBraceScan } from "./shared-text-utils.js";
+import { rawBraceDelta } from "./shared-text-utils-brace-scan.js";
+
+it("counts raw text as supplied and allows negative and positive net depths", () => {
+	expect(rawBraceDelta("}}{")).toBe(-1);
+	expect(rawBraceDelta('"{": /* { */')).toBe(2);
+	expect(rawBraceDelta("no braces")).toBe(0);
+});
 
 describe("stripForBraceScan — unterminated string literal (real newline bails)", () => {
 	it("a double-quoted string containing a raw newline is abandoned at the newline", () => {

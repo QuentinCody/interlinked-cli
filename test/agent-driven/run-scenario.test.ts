@@ -1,10 +1,13 @@
 import type { SpawnSyncReturns } from "node:child_process";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	spawnSync: vi.fn<(binary: string, args: string[], options: { cwd: string }) => SpawnSyncReturns<string>>(),
 	existsSync: vi.fn<typeof import("node:fs").existsSync>(),
 	mkdirSync: vi.fn<typeof import("node:fs").mkdirSync>(),
+	mkdtempSync: vi.fn((prefix: string) => prefix + "fixture"),
 	rmSync: vi.fn<typeof import("node:fs").rmSync>(),
 	writeFileSync: vi.fn<typeof import("node:fs").writeFileSync>(),
 }));
@@ -13,6 +16,7 @@ vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }));
 vi.mock("node:fs", () => ({
 	existsSync: mocks.existsSync,
 	mkdirSync: mocks.mkdirSync,
+	mkdtempSync: mocks.mkdtempSync,
 	rmSync: mocks.rmSync,
 	writeFileSync: mocks.writeFileSync,
 }));
@@ -59,8 +63,12 @@ function runCommand(command: string, cwd: string): SpawnSyncReturns<string> {
 	return response();
 }
 
+function reportWrites() {
+	return mocks.writeFileSync.mock.calls.filter(([path]) => basename(dirname(String(path))) === "reports");
+}
+
 function recordedReport(): unknown {
-	const write = mocks.writeFileSync.mock.calls.find(([path]) => String(path).includes("/reports/"));
+	const [write] = reportWrites();
 	const body = write?.[1];
 	if (typeof body !== "string") throw new Error("scenario did not write its JSON report");
 	return JSON.parse(body);
@@ -85,6 +93,20 @@ afterEach(() => {
 });
 
 describe("agent-driven scenario reporting", () => {
+	it("isolates same-tick runs in separate workspaces and report files", async () => {
+		vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+		const first = join(tmpdir(), "interlinked-agent-test-first");
+		const second = join(tmpdir(), "interlinked-agent-test-second");
+		mocks.mkdtempSync.mockReturnValueOnce(first).mockReturnValueOnce(second);
+		await import("./run-scenario.js");
+		vi.resetModules();
+		installCount = 0;
+		await import("./run-scenario.js");
+		expect(mocks.rmSync.mock.calls.map(([path]) => path)).toEqual([first, second]);
+		const reports = reportWrites().map(([path]) => path);
+		expect(reports).toHaveLength(2);
+		expect(new Set(reports).size).toBe(2);
+	});
 	it("reports every offline scenario check passing for valid CLI responses", async () => {
 		await import("./run-scenario.js");
 		expect(recordedReport()).toMatchObject({

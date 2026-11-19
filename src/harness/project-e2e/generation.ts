@@ -195,7 +195,7 @@ export function scenarioInputs(root: string, policy: E2ePolicy, project: E2eProj
     return inputs;
 }
 /** The commit a proof revision resolves to NOW in the project's repository (review D3): the comparison's immutable identity, or null when the ref does not resolve. */
-export function resolveProofRevision(projectRoot: string, revision: string): string | null {
+function resolveProofRevision(projectRoot: string, revision: string): string | null {
     try {
         const sha = execFileSync("git", ["rev-parse", "--verify", "--quiet", `${revision}^{commit}`], { cwd: projectRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
         return /^[a-f0-9]{40}$/.test(sha) ? sha : null;

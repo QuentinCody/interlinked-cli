@@ -47,11 +47,10 @@
 // no dogfood FP history yet beyond this file's own corpus scan; see
 // DEFAULT_ADVISORY_SKIPS for rationale.
 
-import { createRequire } from "node:module";
+import { excerptAt, lineOf, parseSourceFile, requireTypescriptFrom } from "./check-typescript.js";
 import { join } from "node:path";
 import type * as TS from "typescript";
 import { checkRoot, reportNotMeasured } from "./check-root.js";
-import { parseTsSourceWith } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isTestFile, JS_TS_ALL_EXTS } from "./shared.js";
 
 type TsModule = typeof TS;
@@ -69,16 +68,6 @@ const CHECK_ID = "conditional_empty_object_spread";
 let harnessTs: TsModule | null | undefined;
 const projectTs = new Map<string, TsModule | null>();
 
-/** `typescript` resolved from `base` (a file URL or path), or null. */
-function requireTypescriptFrom(base: string): TsModule | null {
-	try {
-		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
-		return createRequire(base)("typescript") as TsModule;
-	} catch {
-		return null;
-	}
-}
-
 /** The harness's own `typescript`, else the scanned project's copy, else null. */
 function loadTs(): TsModule | null {
 	if (harnessTs === undefined) harnessTs = requireTypescriptFrom(import.meta.url);
@@ -92,22 +81,6 @@ function loadTs(): TsModule | null {
 		projectTs.set(root, fromProject);
 	}
 	return fromProject;
-}
-
-function parseSourceFile(ts: TsModule, content: string, filePath: string): TS.SourceFile | null {
-	try {
-		return parseTsSourceWith(ts, content, filePath);
-	} catch {
-		return null;
-	}
-}
-
-function lineOf(ts: TsModule, sourceFile: TS.SourceFile, pos: number): number {
-	return ts.getLineAndCharacterOfPosition(sourceFile, pos).line + 1;
-}
-
-function excerptAt(lines: string[], line: number): string {
-	return (lines[line - 1] ?? "").trim().slice(0, 100);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

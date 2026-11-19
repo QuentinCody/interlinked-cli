@@ -17,11 +17,12 @@ function evidence(over: Partial<CheckEvidence> = {}): CheckEvidence {
 		cases: [],
 		positive_count: 3,
 		negative_count: 3,
+		attributed_positive_count: 3,
+		attributed_negative_count: 3,
 		corpus_satisfied: true,
 		unadjudicated_hits: 0,
 		detector_cyclomatic: 4,
 		derived_case_floor: 4,
-		mutation_score: 0.9,
 		adversarial_gap: null,
 		gaps: [],
 		...over,
@@ -82,7 +83,13 @@ describe("OBLIGATION_TIERS ordering", () => {
 			const cur = OBLIGATION_TIERS[order[i]!]!;
 			expect(cur.min_positive).toBeGreaterThanOrEqual(prev.min_positive);
 			expect(cur.min_negative).toBeGreaterThanOrEqual(prev.min_negative);
-			expect(cur.min_branch_coverage).toBeGreaterThanOrEqual(prev.min_branch_coverage);
+		}
+	});
+
+	it("declares no obligation that nothing measures (branch coverage, mutation)", () => {
+		for (const tier of Object.values(OBLIGATION_TIERS)) {
+			expect(Object.keys(tier)).not.toContain("min_branch_coverage");
+			expect(Object.keys(tier)).not.toContain("requires_mutation");
 		}
 	});
 
@@ -137,10 +144,14 @@ describe("evaluateEvidence", () => {
 	});
 
 	it("does not enforce later-phase obligations yet", () => {
-		// corpus / mutation / adversarial are recorded on the tier but must not
-		// appear as shortfalls until their phases land.
-		const v = judge(evidence(), OBLIGATION_TIERS.pre_block, false);
-		expect(v.shortfalls.join(" ")).not.toMatch(/corpus|mutation|adversarial/i);
+		// attributed cases / corpus / adversarial are measured but must not
+		// appear as shortfalls until their dimension is enforced.
+		const v = judge(
+			evidence({ attributed_positive_count: 0, corpus_satisfied: false, adversarial_gap: "missing" }),
+			OBLIGATION_TIERS.pre_block,
+			false,
+		);
+		expect(v.shortfalls.join(" ")).not.toMatch(/corpus|adversarial|that name/i);
 	});
 
 	it("carries the grandfathered flag through without changing satisfaction", () => {
@@ -242,14 +253,14 @@ describe("evaluateEvidence — adversarial dimension", () => {
 		expect(v.shortfalls[0]).toMatch(/only adversary/);
 	});
 
-	it("P2: fails a pass whose source has since changed", () => {
-		const v = judge(evidence({ adversarial_gap: "stale_source" }), OBLIGATION_TIERS.pre_block, false, ADV);
-		expect(v.shortfalls[0]).toMatch(/older version/);
+	it("P2: fails a suite that never names the detector", () => {
+		const v = judge(evidence({ adversarial_gap: "detector_not_named" }), OBLIGATION_TIERS.pre_block, false, ADV);
+		expect(v.shortfalls[0]).toMatch(/does not exercise this detector/);
 	});
 
-	it("P3: fails a self-review", () => {
-		const v = judge(evidence({ adversarial_gap: "self_review" }), OBLIGATION_TIERS.pre_block, false, ADV);
-		expect(v.shortfalls[0]).toMatch(/independent/);
+	it("P3: fails a suite without a pinned false positive", () => {
+		const v = judge(evidence({ adversarial_gap: "no_negative_cases" }), OBLIGATION_TIERS.pre_block, false, ADV);
+		expect(v.shortfalls[0]).toMatch(/MUST-NOT-FIRE/);
 	});
 
 	it("N1: passes when the gap is null", () => {
@@ -267,33 +278,28 @@ describe("evaluateEvidence — adversarial dimension", () => {
 	});
 });
 
-describe("evaluateEvidence — mutation dimension", () => {
-	const MUT: readonly EvidenceDimension[] = ["mutation"];
+describe("evaluateEvidence — attributed_cases dimension", () => {
+	const ATTR: readonly EvidenceDimension[] = ["attributed_cases"];
 
-	it("P1: fails a detector with no recorded mutation score", () => {
-		const ev = evidence({ mutation_score: null });
-		const v = judge(ev, OBLIGATION_TIERS.pre_block, false, MUT);
+	it("P1: fails a check whose counted cases belong to another detector", () => {
+		const ev = evidence({ positive_count: 9, negative_count: 9, attributed_positive_count: 0, attributed_negative_count: 3 });
+		const v = judge(ev, OBLIGATION_TIERS.pre_block, false, ATTR);
 		expect(v.satisfied).toBe(false);
-		expect(v.shortfalls[0]).toMatch(/no mutation score/);
+		expect(v.shortfalls).toEqual(["needs ≥3 labeled MUST-FIRE case(s) that name `checkExample`, found 0"]);
 	});
 
-	it("P2: fails a score below the floor and names the surviving-mutant risk", () => {
-		const ev = evidence({ mutation_score: 0.4 });
-		const v = judge(ev, OBLIGATION_TIERS.pre_block, false, MUT);
-		expect(v.shortfalls[0]).toMatch(/0\.40 is below the 0\.80 floor/);
-		expect(v.shortfalls[0]).toMatch(/false negatives/);
+	it("P2: reports both directions when both are short", () => {
+		const ev = evidence({ attributed_positive_count: 1, attributed_negative_count: 1 });
+		expect(judge(ev, OBLIGATION_TIERS.post_default, false, ATTR).shortfalls).toHaveLength(2);
 	});
 
-	it("N1: passes a score at or above the floor", () => {
-		expect(judge(evidence({ mutation_score: 0.8 }), OBLIGATION_TIERS.pre_block, false, MUT).satisfied).toBe(true);
+	it("N1: passes when the attributed cases meet the tier floors", () => {
+		const ev = evidence({ attributed_positive_count: 1, attributed_negative_count: 1 });
+		expect(judge(ev, OBLIGATION_TIERS.post_advisory, false, ATTR).satisfied).toBe(true);
 	});
 
-	it("N2: tiers that do not require mutation are unaffected by a missing score", () => {
-		const ev = evidence({ mutation_score: null });
-		expect(judge(ev, OBLIGATION_TIERS.post_default, false, MUT).satisfied).toBe(true);
-	});
-
-	it("N3: unenforced, a missing score never fails", () => {
-		expect(judge(evidence({ mutation_score: null }), OBLIGATION_TIERS.pre_block, false, ["cases"]).satisfied).toBe(true);
+	it("N2: unenforced (the committed baseline's state), it never fails", () => {
+		const ev = evidence({ attributed_positive_count: 0, attributed_negative_count: 0 });
+		expect(judge(ev, OBLIGATION_TIERS.pre_block, false, ["cases"]).satisfied).toBe(true);
 	});
 });

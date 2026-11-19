@@ -12,14 +12,34 @@ function detectedClients(cwd: string): ClientName[] {
         .map((client) => client.name);
 }
 
-function staleSkillResult(
-    clients: readonly ClientName[],
-    issues: readonly string[],
-): CheckResult {
+type SkillInspection = ReturnType<typeof inspectInstalledSkills>;
+
+const FIX_COMMAND = "'interlinked doctor --fix'";
+const MAX_LISTED = 5;
+
+function listed(items: readonly string[]): string {
+    const shown = items.slice(0, MAX_LISTED).join(", ");
+    return items.length > MAX_LISTED ? `${shown}, +${items.length - MAX_LISTED} more` : shown;
+}
+
+/** The repair route. A refresh replaces only copies it owns, so files it would
+ * refuse are named with the manual step that must come first. */
+function repairAdvice(blockedFiles: readonly string[]): string {
+    if (blockedFiles.length === 0) return ` -- run ${FIX_COMMAND}`;
+    return (
+        `; ${FIX_COMMAND} will not replace ${blockedFiles.length} file(s) it does not own or that were edited: ` +
+        `${listed(blockedFiles)} -- move each aside if it is an old Interlinked copy, then run ${FIX_COMMAND}`
+    );
+}
+
+function staleSkillResult(clients: readonly ClientName[], inspection: SkillInspection): CheckResult {
+    const skills = inspection.staleSkills.length > 0 ? ` (skills: ${listed(inspection.staleSkills)})` : "";
     return {
         name: "Agent skills",
         status: "warn",
-        message: `${issues.length} deployed skill file(s) missing or stale for ${clients.join(", ")} -- run 'interlinked doctor --fix'`,
+        message:
+            `${inspection.issues.length} deployed skill file(s) missing or stale against the bundled skills for ` +
+            `${clients.join(", ")}${skills}${repairAdvice(inspection.blockedFiles)}`,
         fixable: true,
         fixAction: "refresh-skills",
     };
@@ -50,7 +70,7 @@ export function skillInstallationChecks(cwd: string, fix: boolean): CheckResult[
             },
         ];
     }
-    if (!fix) return [staleSkillResult(clients, before.issues)];
+    if (!fix) return [staleSkillResult(clients, before)];
 
     const installResults = installSkills(cwd, clients);
     const after = inspectInstalledSkills(cwd, clients);
@@ -70,8 +90,10 @@ export function skillInstallationChecks(cwd: string, fix: boolean): CheckResult[
     const detail = errors[0] ?? after.issues[0] ?? "unknown install error";
     return [
         {
-            ...staleSkillResult(clients, after.issues),
-            message: `Could not safely refresh all deployed skills: ${detail}`,
+            ...staleSkillResult(clients, after),
+            message:
+                `Could not safely refresh all deployed skills: ${detail}` +
+                (after.blockedFiles.length > 0 ? repairAdvice(after.blockedFiles) : ""),
         },
     ];
 }

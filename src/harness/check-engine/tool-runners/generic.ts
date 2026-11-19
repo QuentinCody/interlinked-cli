@@ -3,7 +3,8 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
-import { hasErrorCode } from "../tool-errors.js";
+import { typedEslintArgs } from "../../../lib/lint-import/builtin-profiles.js";
+import { hasErrorCode, PartialToolReportError } from "../tool-errors.js";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { hasOsvScanner } from "../../quality-checks/dependency-audit.js";
@@ -16,11 +17,13 @@ import {
 	parseOxlintJson,
 	parseSemgrepJson,
 } from "../output-parsers.js";
-import { parseEslintJson } from "../output-parsers-eslint-json.js";
+import { parseCompleteEslintJson, parseEslintJson } from "../output-parsers-eslint-json.js";
 import { interlinkedSemgrepConfigArgs } from "../semgrep-rules.js";
 import { runProcessAsync } from "../spawn-async.js";
 import { readResourceBudget } from "../../resource-budget.js";
 import type { AuditResult, CheckResult, ToolRunnerInput } from "../types.js";
+import { parseCompleteGitleaksReport, parseCompleteSemgrepReport, readGenericProcessReport, requireGenericProcessVerdict } from "./generic-process-verdict.js";
+import { runGitleaksForeground } from "./gitleaks-foreground.js";
 
 // -------------------------------------------
 // ESLint
@@ -213,7 +216,7 @@ export function runGitleaks(input: ToolRunnerInput): CheckResult[] {
 			"--report-format",
 			"json",
 			"--report-path",
-			"/dev/stdout",
+			"-",
 			"--source",
 			".",
 		];
@@ -255,6 +258,11 @@ export function runGitleaks(input: ToolRunnerInput): CheckResult[] {
 // differs — `runProcessAsync` doesn't block the event loop, letting the
 // limiter actually run subprocesses concurrently.
 
+export async function runTypedEslintForeground({ scope, timeoutMs }: ToolRunnerInput): Promise<CheckResult[]> {
+	const result = await runProcessAsync("npx", typedEslintArgs(), { cwd: scope.projectRoot, timeout: timeoutMs, maxBufferBytes: null });
+	return readGenericProcessReport("tseslint-types", result, stdout => parseCompleteEslintJson(stdout, "tseslint-types"));
+}
+
 export async function runEslintAsync(input: ToolRunnerInput): Promise<CheckResult[]> {
 	const { scope, timeoutMs } = input;
 	if (!findEslintConfig(scope.projectRoot)) return [];
@@ -264,8 +272,9 @@ export async function runEslintAsync(input: ToolRunnerInput): Promise<CheckResul
 		["eslint", "--no-error-on-unmatched-pattern", "--format", "json", target],
 		{ cwd: scope.projectRoot, timeout: timeoutMs },
 	);
-	if (result.code === 0) return [];
-	return parseEslintJson(`${result.stdout}${result.stderr}`);
+	const results = parseEslintJson(result.stdout || result.stderr);
+	requireGenericProcessVerdict("eslint", result, results);
+	return results;
 }
 
 export async function runOxlintAsync(input: ToolRunnerInput): Promise<CheckResult[]> {
@@ -275,11 +284,9 @@ export async function runOxlintAsync(input: ToolRunnerInput): Promise<CheckResul
 		cwd: scope.projectRoot,
 		timeout: timeoutMs,
 	});
-	if (result.code === null) return []; // ENOENT etc.
-	if (result.code === 0) return []; // clean
-	const output = result.stdout.trim();
-	if (!output) return [];
-	return parseOxlintJson(output);
+	const results = parseOxlintJson(result.stdout.trim());
+	requireGenericProcessVerdict("oxlint", result, results);
+	return results;
 }
 
 export async function runKnipAsync(input: ToolRunnerInput): Promise<CheckResult[]> {
@@ -289,11 +296,9 @@ export async function runKnipAsync(input: ToolRunnerInput): Promise<CheckResult[
 		["knip", "--no-progress", "--reporter", "json"],
 		{ cwd: scope.projectRoot, timeout: timeoutMs },
 	);
-	if (result.code === null) return [];
-	if (result.code === 0 || result.code === 2) return [];
 	const output = result.stdout.trim();
-	if (!output) return [];
 	const results = parseKnipJson(output);
+	requireGenericProcessVerdict("knip", result, results);
 	if (scope.mode === "file" && scope.targetFile && scope.filterToFile) {
 		return filterResultsToFile(results, scope.targetFile);
 	}
@@ -308,22 +313,19 @@ export async function runSemgrepAsync(input: ToolRunnerInput): Promise<CheckResu
 		[
 			"scan",
 			"--quiet",
-			"--no-git-ignore",
+			...(input.resourcePolicy === "foreground-verify" && scope.mode === "project" ? [] : ["--no-git-ignore"]),
 			"--metrics",
 			"off",
 			"--config",
 			"p/default",
 			...interlinkedSemgrepConfigArgs(),
 			"--json",
+			...(input.resourcePolicy === "foreground-verify" ? ["--timeout", "0", "--timeout-threshold", "0", "--max-target-bytes", "0"] : []),
 			target,
 		],
 		{ cwd: scope.projectRoot, timeout: timeoutMs },
 	);
-	if (result.code === null) return [];
-	if (result.code === 2) return [];
-	const output = result.stdout.trim();
-	if (!output) return [];
-	return parseSemgrepJson(output, scope.projectRoot);
+	return readGenericProcessReport("semgrep", result, stdout => parseCompleteSemgrepReport(stdout, scope.projectRoot));
 }
 
 export async function runGitleaksAsync(input: ToolRunnerInput): Promise<CheckResult[]> {
@@ -331,6 +333,7 @@ export async function runGitleaksAsync(input: ToolRunnerInput): Promise<CheckRes
 	// Skip gitleaks on the per-edit hot path; project sweeps run from
 	// `interlinked verify` are the secrets-detection signal we care about.
 	if (scope.mode !== "project") return [];
+	if (input.resourcePolicy === "foreground-verify") return runGitleaksForeground(scope.projectRoot, timeoutMs, input.onInputScope, input.gitleaksScope);
 	const args = [
 		"detect",
 		"--no-git",
@@ -339,30 +342,23 @@ export async function runGitleaksAsync(input: ToolRunnerInput): Promise<CheckRes
 		"--report-format",
 		"json",
 		"--report-path",
-		"/dev/stdout",
+		"-",
 		"--source",
 		".",
 	];
-	const resourceBudget = readResourceBudget("light");
-	if (!resourceBudget) throw new Error("Gitleaks scan lacks memory headroom; no complete security verdict");
+	const resourceBudget = input.resourcePolicy === "foreground-verify" ? undefined : readResourceBudget("light");
+	if (resourceBudget === null) throw new Error("Gitleaks scan lacks memory headroom; no complete security verdict");
 	const result = await runProcessAsync("gitleaks", args, {
 		cwd: scope.projectRoot,
 		env: gitleaksEnvironment(),
 		timeout: timeoutMs,
-		resourceBudget,
+		...(resourceBudget ? { resourceBudget } : {}),
 	});
 	// An interrupted scan provides no security verdict. Throw so the engine
 	// records an unavailable check and recovery can avoid repeating the failure.
-	if (result.timedOut || result.killed || result.stdoutTruncated || result.stderrTruncated) {
-		throw new Error("Gitleaks scan interrupted or report truncated; no complete security verdict");
-	}
-	if (result.code === null) return [];
-	if (result.code !== 1) return [];
-	const combined = result.stderr + result.stdout;
-	if (combined.includes("FTL") || combined.includes("no such file")) return [];
-	const output = result.stdout.trim();
-	if (!output) return [];
-	return parseGitleaksJson(output);
+	const results = readGenericProcessReport("gitleaks", result, parseCompleteGitleaksReport);
+	if (/\bFTL\b|no such file/i.test(result.stderr)) throw new PartialToolReportError("Gitleaks failed-scope diagnostic; no complete security verdict", results);
+	return results;
 }
 
 // -------------------------------------------

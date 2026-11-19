@@ -5682,7 +5682,7 @@
         {
           "name": "PostToolUseFailure",
           "phase": "post-tool",
-          "install": false
+          "install": true
         },
         {
           "name": "PermissionRequest",

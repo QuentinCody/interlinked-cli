@@ -11,6 +11,8 @@
 import { nonNull } from "../../lib/non-null.js";
 import { isRepoScratchPath } from "../large-file-policy.js";
 import { MUTATION_DIRECTED_SUFFIX } from "./test-legitimacy.js";
+import { sutBaseFromPath } from "./shared-test-classification.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -41,17 +43,15 @@ export function checkTestMissingSutImport(content: string, filePath: string): In
 	// an external tool's spec (Bombadil, Playwright) that names no companion
 	// module — 3/3 false positives in the 2026-10-03 trial.
 	if (isRepoScratchPath(norm, process.cwd())) return [];
-	const fileName = norm.split("/").pop() || "";
-	const stripped = fileName.replace(/\.(test|spec)\.(tsx?|jsx?|mjs|cjs)$/, "");
-	const sutBase = stripped.replace(MUTATION_DIRECTED_SUFFIX, "");
-	if (!sutBase || stripped === fileName || sutBase === "index") return [];
+	const sutBase = sutBaseFromPath(norm).replace(MUTATION_DIRECTED_SUFFIX, "");
+	if (!sutBase || sutBase === "index") return [];
 	if (norm.includes("__fixtures__/") || norm.includes("/__mocks__/")) return [];
 
 	// Build a pattern that looks for the SUT in any relative import — quote
 	// kind, optional ./ ../, optional path prefix, basename, optional .js.
 	const escaped = sutBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	const importPattern = new RegExp(
-		`(?:from|require|import)\\s*\\(?\\s*["']\\.{1,2}\\/(?:[^"']*\\/)?${escaped}(?:\\.(?:js|ts|tsx|mjs|cjs))?["']`,
+		`(?:from|require|import)\\s*\\(?\\s*["']\\.{1,2}\\/(?:[^"']*\\/)?${escaped}(?:\\.(?:[tj]sx?|[cm][tj]s))?["']`,
 	);
 	if (importPattern.test(content)) return [];
 	if (hasAnyProjectSourceImport(content)) return [];
@@ -88,7 +88,7 @@ const SUT_MOCK_RE = /\b(?:vi|jest)\s*\.\s*mock\s*\(\s*["']([^"']+)["']/g;
 function mockTargetIsSut(target: string, sutBase: string): boolean {
 	const rel = target.replace(/^\.\//, "");
 	if (rel.includes("/")) return false; // not a same-directory sibling
-	return rel.replace(/\.(js|ts|tsx|jsx|mjs|cjs)$/, "") === sutBase;
+	return rel.replace(/\.(?:[tj]sx?|[cm][tj]s)$/, "") === sutBase;
 }
 
 /** Public API — flags mocks of the SUT inside its own test file. */
@@ -96,13 +96,11 @@ export function checkMockingTheSutSelf(content: string, filePath: string): Inlin
 	if (!isStrictTestFile(filePath)) return [];
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 
-	const norm = filePath.replace(/\\/g, "/");
-	const fileName = norm.split("/").pop() || "";
-	const sutBase = fileName.replace(/\.(test|spec)\.(tsx?|jsx?|mjs|cjs)$/, "");
-	if (!sutBase || sutBase === fileName) return [];
+	const sutBase = sutBaseFromPath(filePath);
+	if (!sutBase) return [];
 
 	const matches: InlineMatch[] = [];
-	const MAX_MATCHES = 3;
+	const MAX_MATCHES = checkMatchLimit(3);
 
 	SUT_MOCK_RE.lastIndex = 0;
 	let m: RegExpExecArray | null = SUT_MOCK_RE.exec(content);

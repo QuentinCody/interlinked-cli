@@ -18,6 +18,7 @@
 
 import { createRequire } from "node:module";
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import { parseTsSourceWith } from "./cyclomatic-ast.js";
 import { defaultBranchAssertsNever } from "./exhaustiveness-assert-never.js";
 import {
@@ -82,7 +83,7 @@ export function checkDiscriminatedUnionExhaustiveness(
 	};
 
 	const visit = (node: import("typescript").Node): void => {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) return;
 		if (ts.isSwitchStatement(node)) {
 			const finding = analyzeSwitch(ts, node, sourceFile, lines, ctx);
 			if (finding) matches.push(finding);

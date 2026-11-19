@@ -24,6 +24,7 @@ import {
 	resolveSinceCutoff,
 } from "../harness/recurrence.js";
 import { scanCodebaseForRecurrences } from "../harness/recurrence-scanner.js";
+import { outputError } from "../lib/output.js";
 
 interface CommonOpts {
 	cwd?: string;
@@ -220,7 +221,7 @@ export async function recurrenceProposeCommand(
 	const rows = aggregateRecurrences(events);
 	const row = rows.find((r: Recurrence) => r.signature === signature);
 	if (!row) {
-		console.error(`No recurrence row found for signature: ${signature}`);
+		outputError(opts.json ? "json" : "normal", `No recurrence row found for signature: ${signature}`);
 		return;
 	}
 	const action = proposeAction(row);

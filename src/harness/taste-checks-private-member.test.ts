@@ -4,8 +4,24 @@
 
 import { describe, expect, it } from "vitest";
 import { checkPrivateMemberTestAccess } from "./taste-checks-private-member.js";
+import { withForegroundCheckScan } from "./checks/check-scan-policy.js";
 
 const TEST = "/repo/src/widget.test.ts";
+
+describe("checkPrivateMemberTestAccess foreground result collection", () => {
+	it("P1 retains twenty private accesses and their tail while ordinary edits keep ten", () => {
+		const content = Array.from({ length: 20 }, () => "(svc as any)._cache.clear();").join("\n");
+		const scan = () => checkPrivateMemberTestAccess(content, TEST);
+		expect(scan()).toHaveLength(10);
+		expect(withForegroundCheckScan(scan).map(match => match.line)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+		expect(scan()).toHaveLength(10);
+	});
+
+	it("N1 retains public mock APIs and host-global stubs in foreground scans", () => {
+		const content = Array.from({ length: 20 }, () => "(fetchMock as any).mock.calls;\n(globalThis as any).fetch = vi.fn();\nwindow.__DEVTOOLS__ = stub;").join("\n");
+		expect(withForegroundCheckScan(() => checkPrivateMemberTestAccess(content, TEST))).toEqual([]);
+	});
+});
 
 describe("checkPrivateMemberTestAccess — positive (must fire)", () => {
 	it("P1: a chained read of an ordinary-named member through `as any`", () => {

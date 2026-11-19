@@ -16,8 +16,8 @@ import {
 } from "./types.js";
 
 /** Candidates per source unit: the contract's 2..12 bound. */
-export const K_MIN = 2;
-export const K_MAX = 12;
+const K_MIN = 2;
+const K_MAX = 12;
 
 const UNIT_KINDS: readonly UnitKind[] = ["function", "doc_comment", "test", "doc_section"];
 const CANDIDATE_RULES: readonly CandidateRule[] = [

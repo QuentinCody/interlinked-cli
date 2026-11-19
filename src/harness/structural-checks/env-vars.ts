@@ -6,50 +6,64 @@
 
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type * as TS from "typescript";
 import { nonNull } from "../../lib/non-null.js";
+import { parseTsSource, type TsModule } from "../checks/cyclomatic-ast.js";
 import type { HarnessEvent, StructuralCheckResult } from "../types.js";
 import { readEnvExampleFromDir } from "./env-loader.js";
 
-/**
- * Scan `text` for all `process.env.VAR_NAME` references. Shared by the
- * whole-file scan and the diff-aware edit-slice scan below — same pattern,
- * different input string.
- */
-function collectEnvVarRefs(text: string): Set<string> {
-	const pattern = /\bprocess\.env\.([A-Z_][A-Z0-9_]*)\b/g;
-	const vars = new Set<string>();
-	let match = pattern.exec(text);
-	while (match !== null) {
-		vars.add(nonNull(match[1]));
-		match = pattern.exec(text);
+function isWriteOnly(ts: TsModule, node: TS.Node): boolean {
+	while (ts.isParenthesizedExpression(node.parent) || ts.isNonNullExpression(node.parent)) {
+		node = node.parent;
 	}
+	const parent = node.parent;
+	return ts.isDeleteExpression(parent) ||
+		(ts.isBinaryExpression(parent) && parent.left === node && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken);
+}
+
+function readEnvKey(ts: TsModule, node: TS.Node): string | undefined {
+	if (!ts.isPropertyAccessExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
+	const owner = node.expression;
+	if (owner.name.text !== "env" || !ts.isIdentifier(owner.expression) || owner.expression.text !== "process") return;
+	return /^[A-Z_][A-Z0-9_]*$/.test(node.name.text) && !isWriteOnly(ts, node) ? node.name.text : undefined;
+}
+
+/** Direct reads of Node's process.env.KEY in the selected source range. */
+function collectEnvVarRefs(text: string, filePath: string, start = 0, end = text.length): Set<string> {
+	const vars = new Set<string>();
+	if (!text.includes("process")) return vars;
+	const parsed = parseTsSource(text, filePath);
+	if (!parsed) {
+		// Minimal installations without the optional compiler retain the lexical scan.
+		for (const match of text.slice(start, end).matchAll(/\bprocess\.env\.([A-Z_][A-Z0-9_]*)\b/g)) vars.add(nonNull(match[1]));
+		return vars;
+	}
+	const { ts, sf } = parsed;
+	function visit(node: TS.Node): void {
+		const key = readEnvKey(ts, node);
+		if (key && node.getStart(sf) >= start && node.end <= end) vars.add(key);
+		ts.forEachChild(node, visit);
+	}
+	visit(sf);
 	return vars;
 }
 
 /**
- * Diff-aware narrowing: when the event carries edit content (new_string, or
- * content as a fallback), restrict `usedVars` down to only the keys that
- * edit slice itself introduces — mutated in place. Returns `null` to signal
- * "nothing to report" (either the edit introduces no env vars at all, or
- * narrowing empties the set); returns `usedVars` unchanged when there's no
- * edit content to narrow against (whole-file check applies).
+ * A unique edit range keeps its surrounding JS syntax. If its position is
+ * ambiguous or the snapshot has changed, intersect the edit's and file's reads.
  */
-function narrowToEditedVars(
-	usedVars: Set<string>,
-	event: HarnessEvent | undefined,
-): Set<string> | null {
+function envReadsForEdit(content: string, filePath: string, event: HarnessEvent | undefined): Set<string> {
 	const editContent =
-		(typeof event?.tool_input?.new_string === "string" ? event?.tool_input?.new_string : "") || (typeof event?.tool_input?.content === "string" ? event?.tool_input?.content : "") || "";
-	if (!editContent) return usedVars;
-
-	const editVars = collectEnvVarRefs(editContent);
-	if (editVars.size === 0) return null;
-
-	// Snapshot the keys before deleting so we never mutate the Set mid-iteration.
-	for (const v of [...usedVars]) {
-		if (!editVars.has(v)) usedVars.delete(v);
+		(typeof event?.tool_input?.new_string === "string" && event.tool_input.new_string) ||
+		(typeof event?.tool_input?.content === "string" && event.tool_input.content);
+	if (!editContent) return collectEnvVarRefs(content, filePath);
+	if (!editContent.includes("process")) return new Set();
+	const at = content.indexOf(editContent);
+	if (at >= 0 && at === content.lastIndexOf(editContent)) {
+		return collectEnvVarRefs(content, filePath, at, at + editContent.length);
 	}
-	return usedVars.size === 0 ? null : usedVars;
+	const editVars = collectEnvVarRefs(editContent, filePath);
+	return new Set([...collectEnvVarRefs(content, filePath)].filter((key) => editVars.has(key)));
 }
 
 /**
@@ -87,11 +101,8 @@ export function checkUndefinedEnvVars(
 		return [];
 	}
 
-	const usedVars = collectEnvVarRefs(content);
+	const usedVars = envReadsForEdit(content, filePath, event);
 	if (usedVars.size === 0) return [];
-
-	// Diff-aware: only report env vars introduced by this edit
-	if (narrowToEditedVars(usedVars, event) === null) return [];
 
 	const envExampleVars = findEnvExampleVars(dirname(filePath));
 	if (!envExampleVars) return []; // No .env.example found

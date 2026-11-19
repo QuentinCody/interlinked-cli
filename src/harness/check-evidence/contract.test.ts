@@ -20,13 +20,13 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ADVISORY_SKIPS } from "../../commands/verify/advisory.js";
 import { CHECK_REGISTRY } from "../check-registry/index.js";
-import { loadAdversarialStore } from "./adversarial.js";
+import { loadAdversarialSuites } from "./adversarial.js";
 import { enforcedDimensions, exemptSet, loadCheckEvidenceBaseline } from "./baseline.js";
 import { loadCorpusStore } from "./corpus-scan.js";
 import { qualifyCurrentCorpus } from "./corpus-current.js";
 import { qualifyCorpusControls } from "./corpus-controls.js";
 import { failingVerdicts, staleExemptions, sweepEvidence } from "./extract.js";
-import { loadMutationScores } from "./recall.js";
+import { evaluateEvidence, tierFor } from "./obligations.js";
 import { buildDetectorIndex } from "./resolve.js";
 
 const REPO_ROOT = resolve(import.meta.dirname, "../../..");
@@ -69,8 +69,7 @@ const sweep = sweepEvidence(
 		enforced: enforcedDimensions(baseline),
 		corpus, corpusCohort, corpusBindings,
 		detectorSource: loadDetectorSources(),
-		mutationScores: loadMutationScores(REPO_ROOT),
-		adversarial: loadAdversarialStore(REPO_ROOT).checks,
+		adversarial: loadAdversarialSuites(REPO_ROOT),
 	},
 	exempt,
 );
@@ -164,6 +163,29 @@ describe("Check Evidence Contract — recall", () => {
 	it("the derived floor is never weaker than the tier floor", () => {
 		const weaker = sweep.evidence.filter((e) => e.derived_case_floor < 2);
 		expect(weaker.map((e) => e.check_id)).toEqual([]);
+	});
+
+	it("attribution never credits a case the generous count did not", () => {
+		// `attributed_cases` is a SUBSET view of `cases`: a larger attributed
+		// count would mean the attribution rules invented evidence.
+		const over = sweep.evidence.filter(
+			(e) => e.attributed_positive_count > e.positive_count || e.attributed_negative_count > e.negative_count,
+		);
+		expect(over.map((e) => e.check_id)).toEqual([]);
+	});
+
+	it("reports how far the attributed-case dimension is from enforceable", () => {
+		// Measured only (not in the baseline's `enforced`). This records the
+		// backlog of checks that meet `cases` only through other detectors'
+		// cases, so adding `attributed_cases` to `enforced` is a measured step.
+		const byId = new Map(CHECK_REGISTRY.map((c) => [c.id, c]));
+		const short = sweep.evidence.filter((e) => {
+			const check = byId.get(e.check_id);
+			if (!check) return false;
+			const tier = tierFor(check.phase, check.id, DEFAULT_ADVISORY_SKIPS);
+			return !evaluateEvidence({ evidence: e, tier, grandfathered: false, enforced: ["attributed_cases"] }).satisfied;
+		});
+		expect(short.length).toBeLessThanOrEqual(CHECK_REGISTRY.length);
 	});
 
 	it("reports how far the derived-case dimension is from enforceable", () => {

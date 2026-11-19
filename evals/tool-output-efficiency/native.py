@@ -2,7 +2,7 @@
 import collections, json, re
 from classify import category
 from tokens import digest, serialize, text_of
-def records(item, audit):
+def _records(item, audit):
     with open(item["path"], "rb") as handle:
         remaining = item["bytes"]
         while remaining:
@@ -13,7 +13,7 @@ def records(item, audit):
             try: value = json.loads(raw)
             except (ValueError, UnicodeError): audit["malformed"] += 1; continue
             if isinstance(value, dict): yield value
-class NativeEventReader:
+class _NativeEventReader:
     def __init__(self):
         self.audit = collections.Counter(); self.seen = set(); self.calls = {}; self.cells = {}; self.procs = {}
         self.usage = {}; self.fallback = {}; self.epoch = 0; self.model = "unknown"
@@ -101,8 +101,8 @@ class NativeEventReader:
         return {"kind":"end", "usage":dict(totals), "peak_input":peak, "audit":dict(self.audit), "compactions":self.epoch}
 
 def events(item):
-    reader = NativeEventReader()
-    for line_number, row in enumerate(records(item, reader.audit), 1):
+    reader = _NativeEventReader()
+    for line_number, row in enumerate(_records(item, reader.audit), 1):
         emitted = reader.codex_row(row, line_number) if item["provider"] == "codex" else reader.claude_row(row)
         for event in emitted:
             yield {**event, "epoch":reader.epoch, "timestamp":row.get("timestamp", ""), "line":line_number}

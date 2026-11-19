@@ -35,6 +35,8 @@ export interface HookCheckReceipt {
     /** Nonempty means partial evidence: completed checks are retained, the version stays pending.
      * These receipts are historical execution evidence, not a reusable input-closure cache. */
     unavailable?: string[];
+    /** Advisory recognizer gaps are historical coverage, with no required retry. */
+    advisoryGaps?: Array<{ check: string; file: string; reason: string }>;
     scopes?: BatchCheckScope[];
     checkedAt: string;
     kind: "automated_check";
@@ -44,6 +46,7 @@ export const isHookCheckReceipt = wireObject<HookCheckReceipt>({
     id: wireString, path: wireString, identity: wireString, policyDigest: wireString, policyGeneration: wireNumber,
     checks: wireArray(wireString), findings: wireArray(wireString), checkedAt: wireString,
     unavailable: wireAbsentOptional(wireArray(wireString)),
+    advisoryGaps: wireAbsentOptional(wireArray(wireObject({ check: wireString, file: wireString, reason: wireString }))),
     scopes: wireAbsentOptional(wireArray(isBatchCheckScope)),
     kind: wireLiteral("automated_check"),
 });

@@ -10,6 +10,7 @@
 // refactor would fail the low-FP bar.
 
 import {
+	nudge,
 	commandFamily,
 	commandHeads,
 	isPostEdit,
@@ -21,16 +22,7 @@ import type {
 	EditRecord,
 	ShaEntry,
 	TrajectoryRule,
-	Verdict,
 } from "./types.js";
-
-function verdict(
-	ruleId: string,
-	severity: Verdict["severity"],
-	reason: string,
-): Verdict {
-	return { ruleId, action: "nudge", severity, reason };
-}
 
 // ============================================================
 // churn_sha_cycle_revisit (N/M)
@@ -101,7 +93,7 @@ export const churnShaCycleRevisit: TrajectoryRule = (state, event) => {
 	const failingIntervened = failingCheckIntervened(log, sincePrior, cur.atStep);
 	if (!twoDistinctRevisits && !failingIntervened) return null;
 
-	return verdict(
+	return nudge(
 		"churn_sha_cycle_revisit",
 		"medium",
 		`Edit to ${file} returned its content to an earlier state this session ` +
@@ -128,7 +120,7 @@ export const churnLiteralEditRevert: TrajectoryRule = (state, event) => {
 		const p = log[i];
 		if (!p) continue;
 		if (e.old === p.new && e.new === p.old) {
-			return verdict(
+			return nudge(
 				"churn_literal_edit_revert",
 				"medium",
 				`Edit to ${file} is an exact undo of an earlier edit this session (the new text ` +
@@ -178,7 +170,7 @@ export const churnUndoWarValueToggle: TrajectoryRule = (state, event) => {
 		if (!key.startsWith(`${file} `)) continue;
 		const reason = anchorToggleWarReason(file, seq, state.stepCount);
 		if (!reason) continue;
-		return verdict("churn_undo_war_value_toggle", "high", reason);
+		return nudge("churn_undo_war_value_toggle", "high", reason);
 	}
 	return null;
 };
@@ -194,7 +186,7 @@ export const churnEditsWithoutGreen: TrajectoryRule = (state, event) => {
 	if (!file || !isSourceCodeFile(file)) return null; // exempt config/docs/data/type-only
 	const count = state.editsSinceGreen.get(file) ?? 0;
 	if (!EDITS_WITHOUT_GREEN_THRESHOLDS.has(count)) return null;
-	return verdict(
+	return nudge(
 		"churn_edits_without_green",
 		count >= 12 ? "high" : "medium",
 		`${file} has had ${count} consecutive edits without reaching a clean state (no edit ` +
@@ -223,7 +215,7 @@ export const churnRepeatedFailingBash: TrajectoryRule = (state, event) => {
 	if (!cmd || isFlakyCommand(cmd)) return null;
 	const entry = state.commandFailures.get(normalizeCommand(cmd));
 	if (!entry || entry.count < 3) return null;
-	return verdict(
+	return nudge(
 		"churn_repeated_failing_bash",
 		"medium",
 		`The same Bash command has now failed ${entry.count} times this session with no ` +
@@ -246,7 +238,7 @@ export const churnRerunFailingTestNoSourceChange: TrajectoryRule = (state, event
 	if (fam !== "test" && fam !== "build") return null;
 	const entry = state.familyReruns.get(fam);
 	if (!entry || entry.failingNoEditCount < 3) return null;
-	return verdict(
+	return nudge(
 		"churn_rerun_failing_test_no_source_change",
 		"medium",
 		`The ${fam} suite has been re-run ${entry.failingNoEditCount} times while still failing, ` +

@@ -9,6 +9,7 @@
 
 import { join } from "node:path";
 import {
+	CODEX_ADDITIONAL_CONTEXT_LIMIT,
 	CODEX_CAPABILITIES,
 	eventCapability,
 	installedEventNames,
@@ -76,7 +77,7 @@ function codexHookOptions(eventName: string): {
 		...(eventName === "SessionEnd" ? { timeout: 3 } : {}),
 		...(capability?.background ? { async: true } : {}),
 		statusMessage: codexStatusMessage(eventName),
-		additionalContextLimit: capability?.controls?.includes("context") ? 2_500 : null,
+		additionalContextLimit: capability?.controls?.includes("context") ? CODEX_ADDITIONAL_CONTEXT_LIMIT : null,
 	};
 }
 

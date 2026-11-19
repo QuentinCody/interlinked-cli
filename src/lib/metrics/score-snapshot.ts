@@ -6,6 +6,8 @@ export interface ScoreSnapshot {
     schemaVersion: 2; profile: { id: string; hash: string }; registryHash: string; languages: string[];
     rankingEligible: boolean; slopScore: number | null; observedScore: number | null; sourceHash: string;
     metrics: SnapshotMetric[]; evidencePolicies: string[];
+    /** Role classification the score was made with; null for a report that predates it. Scores with different versions measure different populations. */
+    rolesVersion: string | null;
 }
 function nullableNumber(value: unknown): number | null {
     if (value === null) return null;
@@ -40,5 +42,6 @@ export function parseScoreSnapshot(value: unknown): ScoreSnapshot {
     const evidencePolicies = selectedPolicies(row.metrics, row.evidence);
     return { schemaVersion: 2, profile: { id: textField(profile.id, "profile id"), hash: textField(profile.hash, "profile hash") },
         registryHash: textField(row.registryHash, "registry hash"), languages: stringList(row.languages, "languages").sort(), rankingEligible: row.rankingEligible,
-        slopScore: nullableNumber(row.slopScore), observedScore: nullableNumber(row.observedScore), sourceHash: textField(row.sourceHash, "source hash"), metrics, evidencePolicies };
+        slopScore: nullableNumber(row.slopScore), observedScore: nullableNumber(row.observedScore), sourceHash: textField(row.sourceHash, "source hash"), metrics, evidencePolicies,
+        rolesVersion: typeof row.rolesVersion === "string" && row.rolesVersion !== "" ? row.rolesVersion : null };
 }

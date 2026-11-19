@@ -233,6 +233,12 @@ run_gate() {
     elif (cd "$gate_dir" && node -e 'process.exit((require("./package.json").scripts||{}).build?0:1)'); then
         (cd "$gate_dir" && bounded npm run build) || return 1
     fi
+    if [ -f "$gate_dir/test/test_opf_sidecar.py" ]; then
+        (cd "$gate_dir" && python3 -B -m unittest discover -s test -p 'test_*.py') || {
+            report_gate_failure "Python sidecar protocol"
+            return 1
+        }
+    fi
     cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | LC_ALL=C sort -u | paste -sd, - || true)"
     if [ -z "$cov_files" ]; then
         (cd "$gate_dir" && CI=1 bounded npm test -- --maxWorkers="$test_workers") || {

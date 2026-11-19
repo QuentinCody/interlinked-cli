@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { extractHeadings } from "./extract-refs.js";
 import { maskCodeSpans } from "./extract-refs-masking.js";
+import type { HeadingInfo } from "./types.js";
 
 export const SENTENCE_GRAMMAR = "spec-sentences.v1";
 export type SentenceClass = "requirement" | "rationale" | "example" | "note";
@@ -65,58 +66,101 @@ function definitionIds(text: string): string[] {
     return id ? [id] : [];
 }
 
-export function parseSpecSentences(doc: string, text: string): SpecSentence[] {
+type SentenceLine =
+    | { kind: "heading"; heading: HeadingInfo }
+    | { kind: "boundary" }
+    | { kind: "anchor"; anchor: string }
+    | { kind: "text"; line: string; number: number; code: boolean; startsBlock: boolean };
+
+function classifySentenceText(line: string, number: number, code: boolean): SentenceLine {
+    if (code) return { kind: "text", line, number, code, startsBlock: false };
+    const anchor = /^\s*<a\s+(?:id|name)=["']([\w.-]+)["'][^>]*>\s*(?:<\/a>)?\s*$/.exec(line)?.[1];
+    if (anchor) return { kind: "anchor", anchor };
+    if (!line.trim() || /^\s*(?:\|?[\s:|-]+\||[-*_]{3,})\s*$/.test(line)) return { kind: "boundary" };
+    const startsBlock = /^\s*(?:[-*+]\s|\d+[.)]\s|\|)/.test(line);
+    return { kind: "text", line, number, code, startsBlock };
+}
+
+function* sentenceLines(text: string): Generator<SentenceLine> {
     const lines = text.split(/\r?\n/), codeLines = new Set<number>();
     const { headings, headingLines } = classifyMarkdownLines(lines, codeLines);
+    const headingAt = new Map(headings.map(heading => [heading.line, heading]));
+    let comment = false;
+    for (const [index, line] of lines.entries()) {
+        const number = index + 1, heading = headingAt.get(number);
+        if (heading) yield { kind: "heading", heading };
+        if (headingLines.has(number)) continue;
+        const code = codeLines.has(number);
+        if (!code && (comment || /^\s*<!--/.test(line))) {
+            comment = !line.includes("-->");
+            yield { kind: "boundary" };
+            continue;
+        }
+        yield classifySentenceText(line, number, code);
+    }
+}
+
+export function parseSpecSentences(doc: string, text: string): SpecSentence[] {
     const rows: SpecSentence[] = [], counts = new Map<string, number>();
-    const stack: typeof headings = [];
-    let block: string[] = [], startLine = 0, isCode = false, pendingAnchor: string | undefined, comment = false;
+    const stack: HeadingInfo[] = [];
+    let block: string[] = [], startLine = 0, isCode = false, pendingAnchor: string | undefined;
     const flush = (): void => {
         if (!block.length) return;
         rows.push(...sentenceBlockRows(doc, { lines: block, line: startLine, code: isCode, anchor: pendingAnchor }, stack, counts));
         block = []; pendingAnchor = undefined;
     };
-    const headingAt = new Map(headings.map(heading => [heading.line, heading]));
-    for (const [index, line] of lines.entries()) {
-        const number = index + 1, heading = headingAt.get(number);
-        if (heading) {
+    for (const entry of sentenceLines(text)) {
+        if (entry.kind !== "text") {
             flush();
-            while (stack.length && stack[stack.length - 1]!.level >= heading.level) stack.pop();
-            stack.push(heading);
+            if (entry.kind === "heading") {
+                while (stack.length && stack[stack.length - 1]!.level >= entry.heading.level) stack.pop();
+                stack.push(entry.heading);
+            } else if (entry.kind === "anchor") {
+                pendingAnchor = entry.anchor;
+            }
+            continue;
         }
-        if (headingLines.has(number)) continue;
-        const code = codeLines.has(number);
-        if (!code && (comment || /^\s*<!--/.test(line))) {
-            flush(); comment = !line.includes("-->"); continue;
-        }
-        const anchor = !code && /^\s*<a\s+(?:id|name)=["']([\w.-]+)["'][^>]*>\s*(?:<\/a>)?\s*$/.exec(line)?.[1];
-        if (anchor) { flush(); pendingAnchor = anchor; continue; }
-        if (!code && (!line.trim() || /^\s*(?:\|?[\s:|-]+\||[-*_]{3,})\s*$/.test(line))) { flush(); continue; }
-        if (block.length && (code !== isCode || !code && /^\s*(?:[-*+]\s|\d+[.)]\s|\|)/.test(line))) flush();
-        if (!block.length) { startLine = number; isCode = code; }
-        block.push(line);
+        if (block.length && (entry.code !== isCode || entry.startsBlock)) flush();
+        if (!block.length) { startLine = entry.number; isCode = entry.code; }
+        block.push(entry.line);
     }
     flush();
     return rows;
 }
 
-function classifyMarkdownLines(lines: string[], codeLines: Set<number>) {
+function nextMarkdownFence(fence: string | undefined, delimiter: string, line: string): string | undefined {
+    if (!fence) return delimiter;
+    const closes = delimiter[0] === fence[0] && delimiter.length >= fence.length && /^ {0,3}(?:`+|~+)\s*$/.test(line);
+    return closes ? undefined : fence;
+}
+
+function markMarkdownCode(lines: string[], codeLines: Set<number>) {
     let fence: string | undefined, listIndent: number | undefined;
     let paragraph = false;
     for (const [index, line] of lines.entries()) {
         const delimiter = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
         if (fence || delimiter) codeLines.add(index + 1);
-        if (delimiter && !fence) fence = delimiter;
-        else if (delimiter && fence && delimiter[0] === fence[0] && delimiter.length >= fence.length && /^ {0,3}(?:`+|~+)\s*$/.test(line)) fence = undefined;
-        const indent = /^\s*/.exec(line)?.[0].replaceAll("\t", "    ").length ?? 0;
-        const list = /^(\s*)(?:[-*+]|\d+[.)])\s+/.exec(line);
-        if (list && !codeLines.has(index + 1)) listIndent = list[0].length;
-        else if (line.trim() && listIndent !== undefined && indent < listIndent) listIndent = undefined;
+        if (delimiter) fence = nextMarkdownFence(fence, delimiter, line);
+        const indentation = markdownListIndentation(line, listIndent, codeLines.has(index + 1));
+        listIndent = indentation.listIndent;
         // CommonMark indented code cannot interrupt an existing paragraph.
         // An indented continuation of a list item is still prose, not a fence.
-        if (!list && !paragraph && line.trim() && indent >= (listIndent ?? 0) + 4) codeLines.add(index + 1);
+        if (!paragraph && indentation.indentedCode) codeLines.add(index + 1);
         paragraph = !!line.trim() && !codeLines.has(index + 1) && !/^ {0,3}#/.test(line);
     }
+}
+
+function markdownListIndentation(line: string, listIndent: number | undefined, fenced: boolean) {
+    const indent = /^\s*/.exec(line)?.[0].replaceAll("\t", "    ").length ?? 0;
+    const list = /^(\s*)(?:[-*+]|\d+[.)])\s+/.exec(line);
+    if (list && !fenced) listIndent = list[0].length;
+    else if (line.trim() && listIndent !== undefined && indent < listIndent) listIndent = undefined;
+    const indentedCode = !list && Boolean(line.trim()) && indent >= (listIndent ?? 0) + 4;
+    return { listIndent, indentedCode };
+}
+
+function classifyMarkdownLines(lines: string[], codeLines: Set<number>) {
+    markMarkdownCode(lines, codeLines);
     const headings = extractHeadings(lines, codeLines), headingLines = new Set<number>();
     for (const heading of headings) {
         headingLines.add(heading.line);

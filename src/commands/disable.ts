@@ -19,6 +19,7 @@ import { deleteConfigDir, deleteHookScript, uninstallAllHooks } from "../lib/hoo
 import type { ClientName } from "../lib/settings.js";
 import { uninstallSkills } from "../lib/skill-installers.js";
 import { harnessStopCommand, isHarnessRunning } from "./harness.js";
+import { probeHarnessSocket } from "./harness-liveness.js";
 
 interface DisableOptions {
 	/** Destructive teardown (remove hooks + delete config) instead of a stand-down. */
@@ -51,6 +52,12 @@ export async function disableCommand(options: DisableOptions): Promise<void> {
 		return;
 	}
 	await standDown(process.cwd(), options);
+}
+
+async function stopHarness(cwd: string): Promise<boolean> {
+	await harnessStopCommand({});
+	const failed = process.exitCode !== undefined && process.exitCode !== 0;
+	return !failed && !isHarnessRunning(cwd).running && !(await probeHarnessSocket(cwd));
 }
 
 // ── Soft stand-down (default) ────────────────────────────────────────────────
@@ -103,13 +110,12 @@ async function standDown(cwd: string, options: DisableOptions): Promise<void> {
 	// claim success while it survives (finding 2026-06, round 8): a daemon that
 	// ignored SIGTERM keeps guarding despite the recorded disable, and the
 	// non-zero exit lets scripts detect the incomplete stand-down.
-	await harnessStopCommand({});
-	const stillGuarding = isHarnessRunning(cwd).running;
-	process.exitCode = stillGuarding ? 1 : 0;
+	const stopped = await stopHarness(cwd);
+	process.exitCode = stopped ? 0 : 1;
 	console.log(
-		stillGuarding
-			? `\n${c.red("Not fully stood down.")} The harness daemon is still running and will keep ` +
-					"guarding this project — the live daemon does not read the stand-down marker.\n" +
+		!stopped
+			? `\n${c.red("Not fully stood down.")} The harness daemon could not be confirmed stopped. ` +
+					"Review the stop diagnostic above.\n" +
 					`  ${c.dim("Finish the stand-down by stopping it:")} ${c.cyan("interlinked harness stop")}`
 			: `\n${c.green("Stood down")} — the harness will not guard this project.\n` +
 					`${c.dim("Re-arm with")} ${c.cyan("interlinked enable")}${c.dim(".")}`,
@@ -155,6 +161,11 @@ function reportHookRemovalResults(results: ReturnType<typeof uninstallAllHooks>)
 async function uninstallEverything(cwd: string, options: DisableOptions): Promise<void> {
 	console.log(c.bold("Interlinked CLI — Disable (uninstall)"));
 	console.log(c.dim("─".repeat(40)));
+	if (!(await stopHarness(cwd))) {
+		process.exitCode = 1;
+		console.log(c.red("Uninstall incomplete. The harness could not be confirmed stopped. Stop it and retry disable --uninstall."));
+		return;
+	}
 
 	if (!isConfigured(cwd)) {
 		console.log(`\n${c.dim("Not enabled.")} No .interlinked/ config found.`);

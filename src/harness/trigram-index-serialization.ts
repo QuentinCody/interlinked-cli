@@ -75,31 +75,47 @@ export function saveIndex(
 	const indexDir = join(dir, INDEX_DIR_NAME);
 	if (!existsSync(indexDir)) mkdirSync(indexDir, { recursive: true });
 
-	// Sort trigrams by FNV-1a hash for lookup table
-	const sortedEntries: Array<{
-		packed: number;
-		hash: number;
-		posting: PostingList;
-	}> = [];
-	for (const [packed, posting] of postings) {
-		sortedEntries.push({ packed, hash: fnv1a(packed), posting });
-	}
-	sortedEntries.sort((a, b) => {
-		if (a.hash < b.hash) return -1;
-		if (a.hash > b.hash) return 1;
-		return 0;
-	});
+	const { postingsBuf, lookupData, totalPostings } = packPostings(postings);
+	writeFileSync(join(indexDir, POSTINGS_FILE_NAME), postingsBuf);
+	const lookupBuf = encodeLookup(files, lookupData, stopTrigrams, baseCommit, builtAt);
+	writeFileSync(join(indexDir, LOOKUP_FILE_NAME), lookupBuf);
 
-	// --- Build postings file ---
+	const meta: IndexStats = {
+		fileCount: files.length,
+		trigramCount: postings.size,
+		stopTrigramCount: stopTrigrams.size,
+		baseCommit,
+		builtAt,
+		indexSizeBytes: lookupBuf.length + postingsBuf.length,
+		lookupSizeBytes: lookupBuf.length,
+		postingsSizeBytes: postingsBuf.length,
+		...maskAverages(postings, totalPostings),
+	};
+	writeFileSync(join(indexDir, META_FILE_NAME), JSON.stringify(meta, null, 2));
+
+	// A legacy v1 file is no longer needed after both v2 files have been saved.
+	try {
+		const legacyPath = join(indexDir, LEGACY_INDEX_FILE_NAME);
+		if (existsSync(legacyPath)) unlinkSync(legacyPath);
+	} catch (err) {
+		void err; /* intentional: legacy file cleanup is non-fatal */
+	}
+}
+
+interface LookupEntry {
+	hash: number;
+	packed: number;
+	offset: number;
+	count: number;
+}
+
+function packPostings(postings: Map<number, PostingList>) {
+	const sortedEntries = Array.from(postings, ([packed, posting]) => ({ packed, hash: fnv1a(packed), posting }))
+		.sort((a, b) => a.hash - b.hash);
 	const postingsChunks: Buffer[] = [];
 	let totalPostings = 0;
 	let currentOffset = 0;
-	const lookupData: Array<{
-		hash: number;
-		packed: number;
-		offset: number;
-		count: number;
-	}> = [];
+	const lookupData: LookupEntry[] = [];
 
 	for (const entry of sortedEntries) {
 		const count = entry.posting.fileIds.length;
@@ -116,10 +132,10 @@ export function saveIndex(
 		totalPostings += count;
 	}
 
-	const postingsBuf = Buffer.concat(postingsChunks);
-	writeFileSync(join(indexDir, POSTINGS_FILE_NAME), postingsBuf);
+	return { postingsBuf: Buffer.concat(postingsChunks), lookupData, totalPostings };
+}
 
-	// --- Build lookup file ---
+function encodeLookup(files: string[], lookupData: LookupEntry[], stopTrigrams: Set<number>, baseCommit: string, builtAt: string): Buffer {
 	const lookupChunks: Buffer[] = [];
 
 	// Header (28 bytes)
@@ -128,7 +144,7 @@ export function saveIndex(
 	header.writeUInt32LE(VERSION, 4);
 	header.writeUInt32LE(FLAG_LOWERCASE | FLAG_MASKS, 8);
 	header.writeUInt32LE(files.length, 12);
-	header.writeUInt32LE(postings.size, 16);
+	header.writeUInt32LE(lookupData.length, 16);
 	header.writeUInt32LE(stopTrigrams.size, 20);
 	header.writeUInt32LE(0, 24); // reserved
 	lookupChunks.push(header);
@@ -170,11 +186,10 @@ export function saveIndex(
 	}
 	lookupChunks.push(lookupTableBuf);
 
-	const lookupBuf = Buffer.concat(lookupChunks);
-	writeFileSync(join(indexDir, LOOKUP_FILE_NAME), lookupBuf);
+	return Buffer.concat(lookupChunks);
+}
 
-	// --- Metadata JSON ---
-	// Compute average mask saturation
+function maskAverages(postings: Map<number, PostingList>, totalPostings: number) {
 	let totalLocBits = 0;
 	let totalNextBits = 0;
 	for (const posting of postings.values()) {
@@ -184,29 +199,10 @@ export function saveIndex(
 		}
 	}
 
-	const meta: IndexStats = {
-		fileCount: files.length,
-		trigramCount: postings.size,
-		stopTrigramCount: stopTrigrams.size,
-		baseCommit: baseCommit,
-		indexSizeBytes: lookupBuf.length + postingsBuf.length,
-		builtAt: builtAt,
-		lookupSizeBytes: lookupBuf.length,
-		postingsSizeBytes: postingsBuf.length,
+	return {
 		avgLocMaskBits: totalPostings > 0 ? totalLocBits / totalPostings : 0,
 		avgNextMaskBits: totalPostings > 0 ? totalNextBits / totalPostings : 0,
 	};
-	writeFileSync(join(indexDir, META_FILE_NAME), JSON.stringify(meta, null, 2));
-
-	// Clean up legacy v1 file
-	try {
-		const legacyPath = join(indexDir, LEGACY_INDEX_FILE_NAME);
-		if (existsSync(legacyPath)) {
-			unlinkSync(legacyPath);
-		}
-	} catch (err) {
-		void err; /* intentional: legacy file cleanup is non-fatal */
-	}
 }
 
 /**

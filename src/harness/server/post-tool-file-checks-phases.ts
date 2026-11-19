@@ -24,7 +24,7 @@ import { createChangeSetExternalBatch } from "../quality-checks/change-set-exter
 import { acknowledgeChecks, isAcknowledged } from "../session-state.js";
 import { runStructureChecks } from "../structure/structure-checks.js";
 import { formatStructureWarnings } from "../structure/structure-formatter.js";
-import { loadStructureConfig } from "../structure/structure-loader.js";
+import { getImplicitConfig, loadStructureConfig, structureConfigPath } from "../structure/structure-loader.js";
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent, SessionTrajectory } from "../types.js";
 import { deriveEditedLineNumbers } from "./edit-line-derivation.js";
 import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
@@ -38,6 +38,18 @@ import {
 import type { ServerRuntime } from "./runtime-context.js";
 import { queueBatchCompiler } from "./compiler-batch.js";
 import { externalAndScheduledResults, scheduleTypescript } from "./tsc-scheduler-phase.js";
+import type { CommanderOptionEvidence } from "../checks/commander-option-evidence.js";
+
+/** Query the graph already maintained by the structural phase. Its reverse
+ * regex index supplies candidates and cannot establish universal absence. */
+function existingImporterQueries(ctx: ServerRuntime, file: string): CommanderOptionEvidence {
+	const root = findProjectRoot(file, ctx.cwd) || ctx.cwd;
+	return { root, importers: target => {
+		const graph = ctx.graphCache.get(root);
+		return { files: graph?.getImporters(target).map(edge => edge.fromFile) ?? [], complete: false,
+			reason: graph?.isInitialized ? "existing regex importer graph has partial discovery semantics" : "reverse importer graph is unavailable or uninitialized" };
+	} };
+}
 
 // Re-export the scored-suggestions phase so the orchestrator keeps importing
 // it from this module entry (it now lives in the -quality sibling).
@@ -136,6 +148,8 @@ export async function runQualityPhase(
 	markPhase("structural_checks");
 	const perFileQualityResults = await runQualityChecksWithCoverage({ watcher: ctx.hookCoverage, event: checkEvent, checks: qualityChecks, cwd: CWD, externalBatch: acc.externalCheckBatch, options: {
 		...qualityOpts,
+		commanderEvidence: existingImporterQueries(ctx, editedFilePath),
+		numericZeroEvidence: existingImporterQueries(ctx, editedFilePath),
 		...(currentBaseline !== undefined ? { baseline: currentBaseline } : {}),
 		...(rules.diff_aware !== undefined ? { diffAware: rules.diff_aware } : {}),
 		outToolMetrics: postToolMetrics,
@@ -258,8 +272,11 @@ function recordStructureResults(
 
 /**
  * Builds/refreshes the artifact graph rooted at the edited file's project and
- * records the run's findings. Structure checks are guidance only, so any
- * failure is logged and swallowed rather than surfaced to the agent.
+ * records the run's findings. Config and graph come from that root's own
+ * `ctx.structureCache` entry, never another root's; a root without a
+ * `structure.json` caches that negative answer too. Structure checks are
+ * guidance only, so any failure is logged and swallowed rather than surfaced
+ * to the agent.
  */
 function runStructureChecksForFile(
 	ctx: ServerRuntime,
@@ -268,24 +285,28 @@ function runStructureChecksForFile(
 	decision: HarnessDecision,
 	acc: PerFileCheckCtx,
 ): void {
-	const CWD = ctx.cwd;
-	const log = ctx.log;
 	try {
-		const structRepoRoot = findProjectRoot(editedFilePath, CWD) || CWD;
+		const editedAbsPath = resolve(ctx.cwd, editedFilePath);
+		const root = resolve(findProjectRoot(editedAbsPath, ctx.cwd) || ctx.cwd);
+		// An edit to the root's own structure config drops its entry, so the
+		// new config (and a graph layered from it) take effect.
+		if (editedAbsPath === structureConfigPath(root)) ctx.structureCache.delete(root);
+		const cached = ctx.structureCache.get(root);
+		// A cached graph makes the run fast (<100ms). A cold build (~5-10s for
+		// 20K+ nodes) is skipped once earlier checks spent most of the window.
+		if (!cached?.graph && Date.now() - acc.postStartMs >= STRUCT_TIME_BUDGET_MS) return;
+		const entry = cached ?? ctx.structureCache.create(root, loadStructureConfig(root).config);
 		const structResult = runStructureChecks(
 			editedFilePath,
-			structRepoRoot,
-			ctx.structureGraph,
-			ctx.structureConfigCache,
+			root,
+			entry.graph,
+			entry.config ?? getImplicitConfig(),
 			session.files_written,
 		);
-		ctx.structureGraph = structResult.graph;
-		if (!ctx.structureConfigCache) {
-			ctx.structureConfigCache = loadStructureConfig(structRepoRoot).config;
-		}
+		entry.graph = structResult.graph;
 		recordStructureResults(structResult, session, decision, acc);
 	} catch (structErr) {
-		log(
+		ctx.log(
 			`Structure check error: ${structErr instanceof Error ? structErr.message : String(structErr)}`,
 		);
 	}
@@ -294,7 +315,7 @@ function runStructureChecksForFile(
 /**
  * Structure checks phase (non-blocking guidance) + the `scored_suggestions`
  * phase mark that closes out the scored-suggestions/structure window. Mutates
- * `ctx.structureGraph` / `ctx.structureConfigCache` caches in place.
+ * the edited root's `ctx.structureCache` entry in place.
  */
 export function runStructureChecksPhase(
 	ctx: ServerRuntime,
@@ -307,22 +328,15 @@ export function runStructureChecksPhase(
 	const { markPhase } = acc;
 
 	// --- Structure checks phase (non-blocking guidance) ---
-	// Skip cold graph build if existing checks already consumed most of the time budget.
-	// The 15s PostToolUse timeout is shared with tsc/biome/etc. On large repos, a cold
-	// graph build (~5-10s for 20K+ nodes) can push past the limit. The cached graph
-	// (from a previous call) makes subsequent edits fast (<100ms).
+	// The 15s PostToolUse timeout is shared with tsc/biome/etc., so the
+	// per-root helper skips a cold graph build once existing checks consumed
+	// most of the time budget; the edited root's cached graph still runs.
 	// Skipped for out-of-tree edits: runStructureChecks builds/refreshes
 	// the artifact graph rooted at the file's project. For a file
 	// outside CWD that root falls back to CWD, so this would build
 	// THIS repo's graph for a foreign file — wrong, and the tree walk
 	// is the 11-19s cost the out-of-tree guard exists to remove.
-	const structElapsed = Date.now() - acc.postStartMs;
-	const hasCachedGraph = ctx.structureGraph !== null;
-	if (
-		editedFilePath &&
-		editedFileInRepo &&
-		(hasCachedGraph || structElapsed < STRUCT_TIME_BUDGET_MS)
-	) {
+	if (editedFilePath && editedFileInRepo) {
 		runStructureChecksForFile(ctx, editedFilePath, session, decision, acc);
 	}
 	// Phase mark — everything between project_wide_sweep and here was

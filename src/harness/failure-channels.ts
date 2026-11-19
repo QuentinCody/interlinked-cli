@@ -57,6 +57,53 @@ const FILE_EDIT_TOOLS = new Set([
 	"str_replace",
 ]);
 
+/** Commands whose exit status 1 is an answer ("no match", "differs", "false"), not a fault. */
+const EXIT_ONE_ANSWER_COMMANDS: ReadonlySet<string> = new Set([
+	"rg", "grep", "egrep", "fgrep", "ag", "diff", "cmp", "test", "[",
+]);
+
+const PIPELINE_SPLIT_RE = /"[^"]*"|'[^']*'|\|\||&&|[|;\n]/g;
+const EXIT_ONE_LINE_RE = /^(?:Error:\s*)?Exit code 1$/i;
+
+/** First word of the LAST pipeline segment of `command`, skipping env assignments. */
+function lastSegmentCommandWord(command: string): string {
+	const segments: string[] = [];
+	let start = 0;
+	for (const m of command.matchAll(PIPELINE_SPLIT_RE)) {
+		if (m[0][0] === '"' || m[0][0] === "'") continue;
+		segments.push(command.slice(start, m.index));
+		start = m.index + m[0].length;
+	}
+	segments.push(command.slice(start));
+	const last = segments.filter((seg) => seg.trim() !== "").pop() ?? "";
+	return last.trim().split(/\s+/).find((word) => !/^[A-Za-z_]\w*=/.test(word)) ?? "";
+}
+
+/**
+ * True when a failed Bash call is an expected non-zero exit: exit code exactly 1,
+ * the last pipeline segment is a search/compare/test command, and the call
+ * produced no text beyond an "Exit code 1" line. An `rg` with no match is an
+ * answer, not a fault the agent can act on. Needs `event.exit_code`; without
+ * it the call is not classified as expected.
+ */
+export function isExpectedNonzeroExit(event: HarnessEvent): boolean {
+	if (event.tool_name !== "Bash" || event.exit_code !== 1) return false;
+	const command = event.tool_input?.command;
+	if (typeof command !== "string") return false;
+	if (!EXIT_ONE_ANSWER_COMMANDS.has(lastSegmentCommandWord(command))) return false;
+	return [event.error_message, event.stderr, event.stdout].every((text) => {
+		const trimmed = (text ?? "").trim();
+		return trimmed === "" || EXIT_ONE_LINE_RE.test(trimmed);
+	});
+}
+
+const EXPECTED_NONZERO_TRIAGE: TriageResult = {
+	label: "unknown",
+	category: "expected-nonzero",
+	confidence: 1,
+	source: "local-heuristic",
+};
+
 interface FailureChannelOutput {
 	failure_id: string;
 	signature: string;
@@ -81,7 +128,8 @@ export function runFailureChannels(opts: {
 	if (!toolName) return null;
 
 	const failureEvent = toFailureEvent(event);
-	const triage = safeRun(() => classifyFailure(failureEvent), {
+	const expected = isExpectedNonzeroExit(event);
+	const triage = expected ? EXPECTED_NONZERO_TRIAGE : safeRun(() => classifyFailure(failureEvent), {
 		label: "unknown",
 		category: "classifier-crashed",
 		confidence: 0,
@@ -102,15 +150,15 @@ export function runFailureChannels(opts: {
 		cwd,
 	});
 
-	const triageLine = formatTriageLine(triage);
+	const triageLine = expected ? null : formatTriageLine(triage);
 	if (triageLine) warnings.push(triageLine);
 
 	// Channel 3 — recovery suggestion.
-	const recovery = safeRun(() => suggestRecovery(failureEvent, triage), null);
+	const recovery = expected ? null : safeRun(() => suggestRecovery(failureEvent, triage), null);
 	if (recovery) warnings.push(`[interlinked:recovery] ${recovery}`);
 
 	// Channel 6 — failure-cause explanation.
-	const explanation = safeRun(() => explainFailure(failureEvent, triage), null);
+	const explanation = expected ? null : safeRun(() => explainFailure(failureEvent, triage), null);
 	if (explanation) warnings.push(`[interlinked:explain] ${explanation}`);
 
 	// Channel 5 — rollback feasibility (only file-edit tools, only with
@@ -134,7 +182,7 @@ export function runFailureChannels(opts: {
 		explanation,
 		rollback,
 	});
-	const recordPath = persistFailureRecord(record, cwd, failureId, warnings);
+	const recordPath = persistFailureRecord(record, cwd, failureId, warnings, expected);
 
 	return {
 		failure_id: failureId,
@@ -207,10 +255,11 @@ function persistFailureRecord(
 	cwd: string,
 	failureId: string,
 	warnings: string[],
+	quiet: boolean,
 ): string {
 	try {
 		writeFailureRecord(record, cwd);
-		warnings.push(`[interlinked:failure] full record: ${failureRecordRelPath(failureId)}`);
+		if (!quiet) warnings.push(`[interlinked:failure] full record: ${failureRecordRelPath(failureId)}`);
 		return join(cwd, failureRecordRelPath(failureId));
 	} catch {
 		return "";

@@ -42,6 +42,10 @@ const runChecksMock = vi.fn<(scope: unknown, opts: unknown) => { results: ToolRe
 	results: [],
 }));
 const runDepAuditMock = vi.fn<() => unknown>(() => ({ kind: "audit" }));
+vi.mock("./verify/dependency-audit.js", async original => {
+	const actual = await original<typeof import("./verify/dependency-audit.js")>();
+	return { ...actual, runBatchDependencyAudit: async (_report: unknown, _root: string, only: string | undefined, skip: ReadonlySet<string>) => actual.dependencyAuditRequested(only, skip) ? runDepAuditMock() : null };
+});
 class FakeCheckEngine {
 	constructor(public root: string) {}
 	discoverTools = discoverToolsMock;
@@ -60,8 +64,12 @@ const releaseHeavyProcessMock = vi.fn<() => void>();
 const tryAcquireProjectHeavyProcessLeaseMock = vi.fn<() => (() => void) | null>(
 	() => releaseHeavyProcessMock,
 );
+const acquireProjectHeavyProcessLeaseMock = vi.fn<(cwd: string, deadline: number, signal: AbortSignal) => Promise<(() => void) | null>>(
+	async () => releaseHeavyProcessMock,
+);
 vi.mock("../harness/project-heavy-process-lock.js", () => ({
 	tryAcquireProjectHeavyProcessLease: tryAcquireProjectHeavyProcessLeaseMock,
+	acquireProjectHeavyProcessLease: acquireProjectHeavyProcessLeaseMock,
 }));
 
 // --- harness/quality-checks --------------------------------------------------
@@ -103,10 +111,8 @@ vi.mock("../harness/suppressions.js", () => ({
 }));
 
 // --- verify/advisory -----------------------------------------------------------
-// NOTE: TOOL_IDS deliberately contains an underscore-form id ("alpha_beta") so
-// the `t !== only` vs `t !== only.replace("_","-")` distinction in
-// runVerifyBatchJson's onlySkipTools filter is actually observable (with a
-// pure dash-form TOOL_IDS list the two clauses collapse to the same value).
+// Legacy exports remain available to consumers. Focused tool selection now uses
+// the actual catalog and keeps explicit exclusions separate from that selection.
 vi.mock("./verify/advisory.js", () => ({
 	DEFAULT_ADVISORY_SKIPS: new Set<string>(),
 	TOOL_IDS: ["alpha_beta", "gamma"] as const,
@@ -175,6 +181,13 @@ vi.mock("./verify/project-e2e-section.js", () => ({
 	streamTailSections: vi.fn(async (cwd: string, opts: { structure?: boolean }) => {
 		if (opts.structure) await runStructureVerifyMock(cwd, opts);
 	}),
+}));
+
+// --- verify/kill-proofs-section -------------------------------------------------
+const absentKillProofs = { present: false, failed: false, rows: [], findings: [], lines: [], json: undefined };
+vi.mock("./verify/kill-proofs-section.js", () => ({
+	killProofsSection: vi.fn(() => absentKillProofs),
+	streamKillProofsSection: vi.fn(() => false),
 }));
 
 // --- verify/tool-results -----------------------------------------------------
@@ -246,6 +259,7 @@ beforeEach(() => {
 	runDepAuditMock.mockReturnValue({ kind: "audit" });
 	formatToolReportMock.mockReturnValue("TOOL-REPORT");
 	tryAcquireProjectHeavyProcessLeaseMock.mockReturnValue(releaseHeavyProcessMock);
+	acquireProjectHeavyProcessLeaseMock.mockResolvedValue(releaseHeavyProcessMock);
 	detectDecisionSurfaceMock.mockReturnValue({ ds: true });
 	detectLockfileMultiplicityMock.mockReturnValue({ lm: true });
 	computeDecisionSurfaceRatchetMock.mockReturnValue({ dsr: true });
@@ -507,11 +521,16 @@ describe("runVerifyBatchJson literals", () => {
 		expect(lastJsonArg().registryDrift).toEqual([{ id: "drift-1" }]);
 	});
 
-	it("excludes an --only id that matches exactly, even though TOOL_IDS has an underscore form", async () => {
+	it("selects an underscore-form catalog alias and retains only explicit exclusions", async () => {
 		const { verifyCommand } = await importVerify();
-		await verifyCommand({ cwd: "/repo", json: true, only: "alpha_beta" });
-		const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ "skipTools": wireArray(wireString) }), "test JSON value");
-		expect(checkOpts.skipTools).not.toContain("alpha_beta");
-		expect(checkOpts.skipTools).toContain("gamma");
+		getSkipToolsMock.mockReturnValue(["semgrep"]);
+		try {
+			await verifyCommand({ cwd: "/repo", json: true, only: "cargo_clippy", skip: "semgrep" });
+			const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ tools: wireArray(wireString), skipTools: wireArray(wireString) }), "test JSON value");
+			expect(checkOpts.tools).toEqual(["cargo-clippy"]);
+			expect(checkOpts.skipTools).toEqual(["semgrep", "dep-audit"]);
+		} finally {
+			getSkipToolsMock.mockReturnValue([]);
+		}
 	});
 });

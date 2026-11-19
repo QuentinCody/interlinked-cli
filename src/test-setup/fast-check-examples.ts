@@ -117,7 +117,7 @@ export function readExampleStore(file: string): ExampleStore {
 }
 
 /** Atomic publication; mutation callers hold the cross-process lock around read/merge/write. */
-export function writeExampleStore(file: string, store: ExampleStore): void {
+function writeExampleStore(file: string, store: ExampleStore): void {
 	mkdirSync(dirname(file), { recursive: true });
 	const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
 	writeFileSync(tmp, `${JSON.stringify(store, null, "\t")}\n`);

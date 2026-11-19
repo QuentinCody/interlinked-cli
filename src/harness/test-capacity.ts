@@ -21,10 +21,10 @@ export function foregroundWantsCapacity(): boolean {
     return false;
 }
 
-export function tryAcquireForegroundCapacity(): CrossProcessCompilerLease | null {
+export function tryAcquireForegroundCapacity(options: { allowAncestor?: boolean } = {}): CrossProcessCompilerLease | null {
     const priority = tryAcquireCrossProcessCompilerLease(PRIORITY());
     if (!priority) return null;
-    try { return tryAcquireCrossProcessCompilerLease(HOST()); }
+    try { return tryAcquireCrossProcessCompilerLease(HOST(), options); }
     finally { priority.release(); }
 }
 

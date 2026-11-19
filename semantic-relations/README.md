@@ -101,8 +101,14 @@ truth. No learned threshold, deployment qualification or automatic alert is impl
 
 ## Reproduce the exploratory study
 
-From a source checkout, run `node --import tsx semantic-relations/run-experiments.ts
-prepare <new-study-directory>`, then `assess <study-directory> fixtures|A|B`.
+From the repository root, set `STUDY_DIR` to a new directory for this run, then
+run `node --import tsx semantic-relations/run-experiments.ts prepare "${STUDY_DIR:?}"`.
+Use the same directory for `assess <study-directory> fixtures|A|B`.
+Preparation reads the decision-metrics `ollamaUrl` and records it in the frozen
+engine configuration. It resolves the `claude` executable through `PATH` and
+records its reported version in the engine identity.
+Finishing preparation also requires the original canary, model listing and two
+preflight JSON files under `scratch/semantic-relations-implementation/`.
 The script freezes 16 executed mechanism fixtures and 200 cases each for A and B,
 with named backends and bounded spend. The local study retains the frozen inputs,
 blind Astra references, actual backend outputs, candidate coverage and failure records.
@@ -120,11 +126,20 @@ Source is always read from the pinned revision; `--exploratory` only changes pol
 loading. The runtime study captures dirty source in a separate Git repository without
 committing or staging the developer's working tree.
 
-The completed study also includes `run-haiku-arm.ts`, `run-targeted-coupling.ts`,
-`run-comparison-controls.ts`, `run-haiku-comparison.ts` and `run-neutral-controls.ts`.
+The supplemental drivers below read earlier stages from the same study directory.
+They can call the configured model providers. Run each only when its prerequisites
+are present in your own study and its inference budget is available.
+
+| Driver, run from the repository root | Required inputs and purpose |
+|---|---|
+| `node --import tsx semantic-relations/run-targeted-coupling.ts "${STUDY_DIR:?}"` | Reads `A-plan.json` and the independently prepared `B-targeted-cases.json` to freeze and assess the targeted cohort. |
+| `node --import tsx semantic-relations/run-haiku-arm.ts "${STUDY_DIR:?}" A` | Reads the frozen input and labels for one cohort. Choose `A`, `B`, `fixtures` or `B-targeted`. |
+| `node --import tsx semantic-relations/run-comparison-controls.ts "${STUDY_DIR:?}"` | Requires completed A and B runs and the fixture plan. Records paired controls and repeat observations. |
+| `node --import tsx semantic-relations/run-haiku-comparison.ts "${STUDY_DIR:?}"` | Requires both Haiku arm results, the comparison protocol and paired inputs. Writes the Haiku comparison and repeats. |
+| `node --import tsx semantic-relations/run-neutral-controls.ts "${STUDY_DIR:?}" fixtures` | Runs the neutral-ID fixture arm. The alternative `C` mode consumes existing Haiku and comparison inputs. |
+
 The neutral control preserves source/scenario bytes while removing descriptive fixture
-IDs from model-visible metadata; original cue-exposed results remain separate. Supplemental runs preserve
-their own input freezes and protocol amendments. Regenerate the numerical tables
+IDs from model-visible metadata. Regenerate the numerical tables
 without making model calls with `node --import tsx semantic-relations/summarize-experiments.ts`.
 Do not rerun a study into an existing immutable input/result directory; use a new
 destination and preserve failed attempts alongside any full-cohort retry.

@@ -6,10 +6,10 @@ import { withCheckRoot } from "../checks/check-root.js";
 import { parseSpecSentences, SENTENCE_GRAMMAR, type SentenceClass, type SpecSentence } from "./sentences.js";
 
 export const SPEC_FILE_BYTES = 1024 * 1024;
-export const SPEC_CITATION_FILES = 25_000;
+const SPEC_CITATION_FILES = 25_000;
 const SKIP = new Set(["node_modules", "dist", "build", "coverage", "generated", "@codegen-data", "fixtures", "__fixtures__"]);
 export interface SentenceScanIssue { file: string; reason: string; }
-export function defaultSentenceDocs(root: string): string[] {
+function defaultSentenceDocs(root: string): string[] {
     let plans: string[] = [];
     try { plans = readdirSync(join(root, "docs/plans")).filter(name => name.endsWith(".md")).sort().map(name => `docs/plans/${name}`); }
     catch { plans = []; /* Missing standard docs are reported when read below. */ }
@@ -26,6 +26,32 @@ function safeFile(root: string, file: string): string {
     if (!stat.isFile() || stat.size > SPEC_FILE_BYTES) throw new Error("not a regular file or exceeds 1 MiB cap");
     return path;
 }
+function* citationChildren(path: string, file: string, issues: SentenceScanIssue[]): Generator<string> {
+    let names: string[];
+    try {
+        names = readdirSync(path).sort();
+    } catch {
+        issues.push({ file, reason: "directory unreadable" });
+        return;
+    }
+    for (const name of names) {
+        const child = `${file}/${name}`;
+        if (name.startsWith(".") || SKIP.has(name)) {
+            issues.push({ file: child, reason: "excluded directory or dotfile" });
+            continue;
+        }
+        yield child;
+    }
+}
+
+function* readCitationSource(root: string, file: string, issues: SentenceScanIssue[]): Generator<CitationSource> {
+    try {
+        yield { file, content: readFileSync(safeFile(root, file), "utf8") };
+    } catch (error) {
+        issues.push({ file, reason: error instanceof Error ? error.message : "unreadable source" });
+    }
+}
+
 function* sources(root: string, issues: SentenceScanIssue[]): Generator<CitationSource> {
     let count = 0;
     function* walk(file: string): Generator<CitationSource> {
@@ -35,21 +61,15 @@ function* sources(root: string, issues: SentenceScanIssue[]): Generator<Citation
         try { stat = lstatSync(path); } catch { return; }
         if (stat.isSymbolicLink()) { issues.push({ file, reason: "symlink excluded" }); return; }
         if (stat.isDirectory()) {
-            let names: string[];
-            try { names = readdirSync(path).sort(); } catch { issues.push({ file, reason: "directory unreadable" }); return; }
-            for (const name of names) {
-                if (name.startsWith(".") || SKIP.has(name)) { issues.push({ file: `${file}/${name}`, reason: "excluded directory or dotfile" }); continue; }
-                yield* walk(`${file}/${name}`);
-            }
+            for (const child of citationChildren(path, file, issues)) yield* walk(child);
         } else if (/\.(?:[cm]?[jt]sx?|md)$/.test(file)) {
             count++;
-            try { yield { file, content: readFileSync(safeFile(root, file), "utf8") }; }
-            catch (error) { issues.push({ file, reason: error instanceof Error ? error.message : "unreadable source" }); }
+            yield* readCitationSource(root, file, issues);
         }
     }
     for (const dir of ["src", "test", "tests", "docs", "README.md", "CLAUDE.md"]) yield* walk(dir);
 }
-export function summarizeSentences(rows: SpecSentence[]) {
+function summarizeSentences(rows: SpecSentence[]) {
     const counts: Record<SentenceClass, number> = { requirement: 0, rationale: 0, example: 0, note: 0 };
     for (const row of rows) counts[row.class]++;
     const requirements = rows.filter(row => row.class === "requirement");

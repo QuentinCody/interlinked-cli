@@ -2,6 +2,7 @@
 // Append-safe suffix replacement
 // ===========================================
 
+import { hasErrorCode } from "../harness/check-engine/tool-errors.js";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, chmodSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -55,20 +56,11 @@ function temporarySuffixPath(path: string): string {
 	return join(dirname(path), `.${basename(path)}.rotate-${process.pid}-${randomUUID()}.tmp`);
 }
 
-function isMissingFileError(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"code" in error &&
-		error.code === "ENOENT"
-	);
-}
-
-function unlinkIfPresent(path: string): void {
+export function unlinkIfPresent(path: string): void {
 	try {
 		unlinkSync(path);
 	} catch (error) {
-		if (!isMissingFileError(error)) throw error;
+		if (!hasErrorCode(error, "ENOENT")) throw error;
 	}
 }
 

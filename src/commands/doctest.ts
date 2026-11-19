@@ -12,6 +12,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
 import { type DoctestExec, extractDoctestBlocks, runDocExamples } from "../harness/doctest.js";
+import { getOutputMode, outputError } from "../lib/output.js";
 
 /** Reads directory entries, or null if `dir` can't be read (missing/permission). */
 function safeReadNames(dir: string): string[] | null {
@@ -99,8 +100,9 @@ export function doctestCommand(opts: { path?: string; json?: boolean }): void {
 	let files: string[];
 	try {
 		files = statSync(root).isDirectory() ? findMarkdownFiles(root) : [root];
-	} catch {
-		files = [];
+	} catch (err) {
+		outputError(getOutputMode(opts), `Cannot inspect doctest target ${root}: ${err instanceof Error ? err.message : String(err)}`);
+		return;
 	}
 	const result = runDoctestSuite(files, (p) => readFileSync(p, "utf-8"), bashExec);
 	if (opts.json) {

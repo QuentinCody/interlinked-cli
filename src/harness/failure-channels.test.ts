@@ -48,7 +48,7 @@ import {
 	assessRollbackFeasibility,
 	formatRollbackLine,
 } from "./checks/rollback-feasibility.js";
-import { runFailureChannels } from "./failure-channels.js";
+import { isExpectedNonzeroExit, runFailureChannels } from "./failure-channels.js";
 import {
 	failureRecordRelPath,
 	mintFailureId,
@@ -636,5 +636,75 @@ describe("toFailureEvent construction", () => {
 			cwd: "/repo",
 		});
 		expect(nonNull(recordToolFailureMock.mock.calls[0])[0].message).toBeUndefined();
+	});
+});
+
+// --- Expected non-zero exits ---------------------------------------------
+
+function bashFailure(command: string, over: Partial<HarnessEvent> = {}): HarnessEvent {
+	return makeEvent(
+		{ tool_name: "Bash", tool_input: { command }, exit_code: 1, error_message: "Exit code 1", stderr: "", stdout: "", ...over },
+		[],
+	);
+}
+
+describe("expected non-zero exits", () => {
+	it("isExpectedNonzeroExit is true for a no-match rg with empty output", () => {
+		expect(isExpectedNonzeroExit(bashFailure("rg foo src"))).toBe(true);
+		expect(isExpectedNonzeroExit(bashFailure("diff a b"))).toBe(true);
+		expect(isExpectedNonzeroExit(bashFailure("[ -f x ]"))).toBe(true);
+		expect(isExpectedNonzeroExit(bashFailure("test -f x"))).toBe(true);
+		expect(isExpectedNonzeroExit(bashFailure("cat a | rg b"))).toBe(true);
+		expect(isExpectedNonzeroExit(bashFailure("cd x && grep -q y z"))).toBe(true);
+	});
+
+	it("isExpectedNonzeroExit is false for other tools, codes, commands, or output text", () => {
+		expect(isExpectedNonzeroExit(bashFailure("rg foo src", { tool_name: "Edit" }))).toBe(false);
+		expect(isExpectedNonzeroExit(bashFailure("rg foo src", { exit_code: 2 }))).toBe(false);
+		const noCode = bashFailure("rg foo src");
+		delete noCode.exit_code;
+		expect(isExpectedNonzeroExit(noCode)).toBe(false);
+		expect(isExpectedNonzeroExit(bashFailure("npm test"))).toBe(false);
+		expect(isExpectedNonzeroExit(bashFailure("rg b a; npm test"))).toBe(false);
+		expect(isExpectedNonzeroExit(bashFailure("rg foo src", { stderr: "rg: src: No such file" }))).toBe(false);
+		expect(isExpectedNonzeroExit(bashFailure("diff a b", { stdout: "1c1\n< a\n> b" }))).toBe(false);
+	});
+
+	it("emits no warnings but still persists a record with category expected-nonzero", () => {
+		const out = nonNull(runFailureChannels({ event: bashFailure("rg foo src"), session: SESSION, cwd: "/repo" }));
+		expect(out.warnings).toEqual([]);
+		expect(out.triage.category).toBe("expected-nonzero");
+		expect(writeFailureRecordMock).toHaveBeenCalledTimes(1);
+		expect(writeFailureRecordMock).toHaveBeenCalledWith(
+			expect.objectContaining({ triage: expect.objectContaining({ category: "expected-nonzero" }) }),
+			"/repo",
+		);
+		expect(suggestRecoveryMock).not.toHaveBeenCalled();
+		expect(explainFailureMock).not.toHaveBeenCalled();
+	});
+
+	it("treats a cat-piped rg with empty output as expected", () => {
+		const out = nonNull(runFailureChannels({ event: bashFailure("cat a | rg b"), cwd: "/repo" }));
+		expect(out.warnings).toEqual([]);
+	});
+
+	it("still warns for rg exit 2 with stderr text", () => {
+		const out = nonNull(
+			runFailureChannels({
+				event: bashFailure("rg foo src", { exit_code: 2, stderr: "rg: bad regex", error_message: "Exit code 2" }),
+				cwd: "/repo",
+			}),
+		);
+		expect(out.warnings.some((w) => w.startsWith("[interlinked:triage]"))).toBe(true);
+	});
+
+	it("still warns for npm test exit 1", () => {
+		const out = nonNull(runFailureChannels({ event: bashFailure("npm test"), cwd: "/repo" }));
+		expect(out.warnings.some((w) => w.startsWith("[interlinked:triage]"))).toBe(true);
+	});
+
+	it("still warns when the last pipeline segment is npm", () => {
+		const out = nonNull(runFailureChannels({ event: bashFailure("rg b a; npm test"), cwd: "/repo" }));
+		expect(out.warnings.some((w) => w.startsWith("[interlinked:triage]"))).toBe(true);
 	});
 });

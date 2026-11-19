@@ -167,10 +167,7 @@ async function execute(
                 version: 1,
                 calibration: "unvalidated",
                 contracts: Object.values(CATALOG),
-                questionSet: questionSet(
-                    config.metrics.map((id) => CATALOG[id]!),
-                    config.band,
-                ),
+                questionSet: questionSet(config.metrics.map((id) => CATALOG[id]!)),
             };
         case "prepare":
             return prepareChange(root, options);

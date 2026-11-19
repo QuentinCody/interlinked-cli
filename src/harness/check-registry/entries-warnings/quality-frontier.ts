@@ -166,13 +166,13 @@ export const QUALITY_FRONTIER_ENTRIES: CheckRegistration[] = [
 		phase: "post",
 		name: "Resource Handle Leak",
 		description:
-			"Detects an fs.openSync fd or fs.createWriteStream binding that is never closed/ended/destroyed and never handed off (return/yield/pipe/pipeline/finished/alias/store/resolve/push) anywhere downstream — the handle leaks on every path. Narrow zero-noise slice per docs/design/effect-ts-harness-additions.md §2.5.",
+			"Flags a resource binding without recognized cleanup or handoff, or a potentially throwing call between descriptor acquisition and its later finally region. Visible local and relative-import release helpers count as cleanup evidence. These are ownership candidates, not proof of a leak on every path.",
 		tier: 1,
 		determinism: "heuristic",
 		severity: "warning",
 		pipeline: "agent_safety",
 		fix_instruction:
-			"Release the handle in a finally block (fs.closeSync(fd) / stream.end()) or declare it with `using`/`await using` so every exit path closes it.",
+			"Inspect ownership and failure paths. Protect each acquisition immediately with appropriate finally cleanup, move fallible setup before acquisition, or use `using`/`await using` where supported. Establish any transfer of ownership explicitly.",
 		fn: detectResourceHandleLeak,
 		resultsPropName: "resourceHandleLeak",
 		content_keywords: ["openSync", "createWriteStream"],

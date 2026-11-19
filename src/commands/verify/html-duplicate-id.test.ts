@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { buildAgentSafetyChecks } from "../../harness/check-registry/builders.js";
 import { getEffectiveSkipChecks } from "./advisory-skips.js";
@@ -16,6 +17,7 @@ describe("duplicate HTML ID pipeline", () => {
         expect(r.htmlDuplicateId).toEqual([{
             check: "html_duplicate_id", file: "index.html", line: 4,
             message: 'Duplicate HTML id "panel"; first used on line 2.',
+            sourceHash: createHash("sha256").update(content).digest("hex"),
         }]);
         const oldContent = content.replace('<p id="panel"></p>', '<p id="other"></p>');
         const post = buildAgentSafetyChecks(content, "/tmp/index.html", "post", oldContent)

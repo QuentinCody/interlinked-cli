@@ -27,6 +27,7 @@ const uninstallHooksCommand = vi.fn();
 const modeCommand = vi.fn();
 const resolveAuthToken = vi.fn();
 const ensureRemoteOnboarding = vi.fn();
+const resolveConfig = vi.fn();
 
 vi.mock("../commands/clean.js", () => ({ cleanCommand: (...a: unknown[]) => cleanCommand(...a) }));
 vi.mock("../commands/disable.js", () => ({
@@ -56,6 +57,7 @@ vi.mock("../lib/auth.js", () => ({ resolveAuthToken: (...a: unknown[]) => resolv
 vi.mock("../lib/onboarding.js", () => ({
 	ensureRemoteOnboarding: (...a: unknown[]) => ensureRemoteOnboarding(...a),
 }));
+vi.mock("../lib/config.js", () => ({ resolveConfig: (...args: unknown[]) => resolveConfig(...args) }));
 // formatter.c is pure (ANSI/dim helpers); keep the real module — only assert
 // console.log call counts in the setup-action branches, never exact ANSI bytes.
 
@@ -70,6 +72,7 @@ let logSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	resolveConfig.mockReturnValue({ server_url: "https://s" });
 	process.exitCode = undefined;
 	logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 });
@@ -233,7 +236,7 @@ describe("lazy-import action wrappers", () => {
 	it("completions passes the shell positional", async () => {
 		const program = build();
 		await program.parseAsync(["completions", "zsh"], { from: "user" });
-		expect(completionsCommand).toHaveBeenCalledWith("zsh");
+		expect(completionsCommand).toHaveBeenCalledWith("zsh", expect.any(Command));
 	});
 
 	it("context passes view opts", async () => {
@@ -343,6 +346,38 @@ describe("lazy-import action wrappers", () => {
 // fall-through.
 // ---------------------------------------------------------------------------
 describe("setup action — branches", () => {
+	it.each(["", "   "])("rejects explicit empty token %j before enable", async (token) => {
+		await expect(build().parseAsync(["setup", "--token", token], { from: "user" })).rejects.toThrow("--token cannot be empty");
+		expect(enableCommand).not.toHaveBeenCalled();
+		expect(loginCommand).not.toHaveBeenCalled();
+	});
+
+	it.each(["http://localhost:8787", "http://127.0.0.1:8787", "http://[::1]:8787"])("skips remote authentication for local server %s", async (server) => {
+		const program = build();
+		await program.parseAsync(["setup", "--server", server], { from: "user" });
+		expect(enableCommand).toHaveBeenCalledOnce();
+		expect(loginCommand).not.toHaveBeenCalled();
+		expect(resolveAuthToken).not.toHaveBeenCalled();
+		expect(ensureRemoteOnboarding).not.toHaveBeenCalled();
+	});
+
+	it("uses the resolved local server when no server flag is supplied", async () => {
+		resolveConfig.mockReturnValue({ server_url: "http://localhost:8787" });
+		await build().parseAsync(["setup"], { from: "user" });
+		expect(loginCommand).not.toHaveBeenCalled();
+	});
+
+	it("retains explicit token login for a local server", async () => {
+		await build().parseAsync(["setup", "--server", "http://localhost:8787", "--token", "tok"], { from: "user" });
+		expect(loginCommand).toHaveBeenCalledWith({ server: "http://localhost:8787", token: "tok" });
+	});
+
+	it("authenticates remote hosts whose path contains localhost", async () => {
+		resolveAuthToken.mockReturnValue(null);
+		await build().parseAsync(["setup", "--server", "https://remote.example/localhost"], { from: "user" });
+		expect(loginCommand).toHaveBeenCalledWith({ server: "https://remote.example/localhost" });
+	});
+
 	it("stops before auth and onboarding when enable rejects its inputs", async () => {
 		enableCommand.mockImplementationOnce(() => {
 			process.exitCode = 1;

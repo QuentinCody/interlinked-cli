@@ -78,3 +78,29 @@ describe("findCyclesThroughGraph — negative (must not fire)", () => {
 		expect(findCyclesThroughGraph("/r/a.ts", graph)).toEqual([]);
 	});
 });
+
+describe("findCyclesThroughGraph — lazy dynamic import() edges", () => {
+	function dyn(from: string, to: string): ImportEdge {
+		return { ...edge(from, to), isDynamic: true };
+	}
+
+	it("P3: a two-file STATIC runtime cycle is still reported beside a dynamic edge elsewhere", () => {
+		const graph = graphOf([
+			edge("/r/a.ts", "/r/b.ts"),
+			edge("/r/b.ts", "/r/a.ts"),
+			dyn("/r/a.ts", "/r/c.ts"),
+		]);
+		expect(findCyclesThroughGraph("/r/a.ts", graph)).toEqual([["/r/a.ts", "/r/b.ts", "/r/a.ts"]]);
+	});
+
+	it("N5: a cycle that needs one dynamic import() edge is not a load-time cycle", () => {
+		const graph = graphOf([edge("/r/a.ts", "/r/b.ts"), dyn("/r/b.ts", "/r/a.ts")]);
+		expect(findCyclesThroughGraph("/r/a.ts", graph)).toEqual([]);
+		expect(findCyclesThroughGraph("/r/b.ts", graph)).toEqual([]);
+	});
+
+	it("N6: a dynamic edge out of the start file does not close a cycle", () => {
+		const graph = graphOf([dyn("/r/a.ts", "/r/b.ts"), edge("/r/b.ts", "/r/a.ts")]);
+		expect(findCyclesThroughGraph("/r/a.ts", graph)).toEqual([]);
+	});
+});

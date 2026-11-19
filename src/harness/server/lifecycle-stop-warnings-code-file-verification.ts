@@ -14,6 +14,7 @@ import { formatProjectE2eStopWarning, hasProjectE2ePolicy } from "../project-e2e
 import { checkDeadOnArrival } from "../dead-on-arrival.js";
 import { formatDebtEvasionStopLine } from "../debt-evasion.js";
 import { checkFixtureLeaks } from "../fixture-leak.js";
+import { isRepoScratchPath } from "../large-file-policy.js";
 import { checkMutationKillEvidence } from "../mutation-kill-evidence-stop-check.js";
 import { checkSlowTests } from "../slow-test-stop-check.js";
 import {
@@ -193,9 +194,13 @@ export function checkVerifyNotRun(
 	session: SessionTrajectory,
 	verificationObserved: Set<string>,
 ): string | null {
+	// `interlinked verify` mirrors CI, and CI never sees the gitignored repo
+	// `scratch/` probes. A scratch-only session must not be told to run a
+	// project-wide suite that cannot judge the files it wrote.
+	const productFiles = new Set([...session.files_written].filter((path) => !isRepoScratchPath(path.replace(/\\/g, "/"), ctx.cwd)));
 	return checkCodeFileVerification({
 		ctx,
-		session,
+		session: { ...session, files_written: productFiles },
 		verificationObserved,
 		formatter: formatVerifyNotRunWarning,
 		logTag: "verify-suite-not-run",

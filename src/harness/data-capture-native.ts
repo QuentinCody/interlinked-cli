@@ -1,7 +1,8 @@
 import { appendCapturedData } from "../lib/data/capture.js";
 import { isJsonObject } from "../lib/json-types.js";
+import { isOutcomeAttributable, observedOutput, parseTestSummary } from "./test-outcome-evidence.js";
 import type { HarnessEvent } from "./types.js";
-import { classifyVerificationCommand } from "./verification-stop-checks-predicates.js";
+import { classifyVerificationCommand, type VerificationSignal } from "./verification-stop-checks-predicates.js";
 
 function eventIdentity(event: HarnessEvent): object {
     return { ts: event.timestamp, session_id: event.session_id, agent: event.agent_name ?? null,
@@ -9,14 +10,39 @@ function eventIdentity(event: HarnessEvent): object {
         parent_agent: event.parent_agent ?? null, tool_use_id: event.tool_use_id ?? null,
         event_id: event.event_id ?? null, seq: event.seq ?? null, tool: event.tool_name ?? null };
 }
-function verificationOutcome(event: HarnessEvent): { outcome: string; basis: string; exit_code: number | null } {
+type VerificationOutcome = { outcome: string; basis: string; exit_code: number | null; exit_attributable: boolean };
+
+/** `exit_code` is always the SHELL's status. It is the check's verdict only when
+ *  `exit_attributable` is true: `vitest … | tail` exits with tail's status, so
+ *  there the runner's own summary decides, and with no summary the outcome is
+ *  unknown, in both directions (a hidden 0 is no pass, a hidden 1 is no fail). */
+function verificationOutcome(event: HarnessEvent, kind: VerificationSignal, command: string): VerificationOutcome {
+    const exit_attributable = isOutcomeAttributable(command, kind);
+    if (event.tool_outcome === "interrupted") return { outcome: "interrupted", basis: "provider", exit_code: null, exit_attributable };
+    const code = shellExitCode(event);
+    return exit_attributable ? ownStatusOutcome(event, code) : hiddenStatusOutcome(event, kind, code);
+}
+
+function shellExitCode(event: HarnessEvent): number | null {
     const response = isJsonObject(event.tool_response) ? event.tool_response : {};
-    const code = event.exit_code ?? response.exit_code;
-    if (event.tool_outcome === "interrupted") return { outcome: "interrupted", basis: "provider", exit_code: null };
-    if (typeof code === "number" && Number.isInteger(code)) return { outcome: code === 0 ? "pass" : "fail", basis: "exit-code", exit_code: code };
-    if (event.tool_outcome === "error") return { outcome: "fail", basis: "provider", exit_code: null };
-    if (event.tool_outcome === "success") return { outcome: "pass", basis: "provider", exit_code: null };
-    return { outcome: "unknown", basis: "no-explicit-outcome", exit_code: null };
+    const raw = event.exit_code ?? response.exit_code;
+    return typeof raw === "number" && Number.isInteger(raw) ? raw : null;
+}
+
+/** The shell's status belongs to the check: it is the verdict. */
+function ownStatusOutcome(event: HarnessEvent, code: number | null): VerificationOutcome {
+    if (code !== null) return { outcome: code === 0 ? "pass" : "fail", basis: "exit-code", exit_code: code, exit_attributable: true };
+    if (event.tool_outcome === "error") return { outcome: "fail", basis: "provider", exit_code: null, exit_attributable: true };
+    if (event.tool_outcome === "success") return { outcome: "pass", basis: "provider", exit_code: null, exit_attributable: true };
+    return { outcome: "unknown", basis: "no-explicit-outcome", exit_code: null, exit_attributable: true };
+}
+
+/** A pipe or a later command owns the shell's status: only the runner's own
+ *  summary can give a verdict. The shell's status is kept as a fact. */
+function hiddenStatusOutcome(event: HarnessEvent, kind: VerificationSignal, code: number | null): VerificationOutcome {
+    const verdict = kind === "test" ? parseTestSummary(observedOutput(event)) : null;
+    if (verdict) return { outcome: verdict === "green" ? "pass" : "fail", basis: "runner-summary", exit_code: code, exit_attributable: false };
+    return { outcome: "unknown", basis: "exit-status-not-attributable", exit_code: code, exit_attributable: false };
 }
 
 export function nativeVerificationRecord(event: HarnessEvent): object | null {
@@ -25,7 +51,7 @@ export function nativeVerificationRecord(event: HarnessEvent): object | null {
     const kind = classifyVerificationCommand(command);
     if (!kind) return null;
     return { schema: "verification-command.v1", ...eventIdentity(event), kind, command,
-        classification: "command-shape", ...verificationOutcome(event),
+        classification: "command-shape", ...verificationOutcome(event, kind, command),
         tool_response_sha256: event.tool_response_sha256 ?? null,
         ...verificationDuration(event) };
 }

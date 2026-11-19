@@ -113,10 +113,10 @@ function purgeDeclaredArray(
  *  Without this the purge is blind to its own history: it walks the FRAGMENT's
  *  keys, so an event the installer USED to register and no longer does is never
  *  visited, and its stale Interlinked entries survive every later install
- *  forever. Live instance: `PostToolUseFailure` was dropped from the Claude
- *  Code adapter's registered events precisely to stop the runner reporting
+ *  forever. First instance: `PostToolUseFailure` was dropped from the Claude
+ *  Code adapter's registered events to stop the runner reporting
  *  "2 PostToolUse hooks ran", yet the old registration stayed in
- *  `.claude/settings.json` and kept the double count alive.
+ *  `.claude/settings.json`. (It is registered again since 2026-11-16.)
  *
  *  Uses the SAME `verdict` as the declared-key path, so a user-scope install
  *  still spares another repo's hooks (tallied as foreign) — which is the whole

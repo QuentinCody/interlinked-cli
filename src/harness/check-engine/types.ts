@@ -64,9 +64,22 @@ export interface CheckScope {
 }
 
 /** Controls HOW checks run. */
+export interface ToolInputScope {
+	tool: ToolId;
+	selection?: "working-tree" | "git-visible";
+	selectedFiles: number;
+	targets: string[];
+	excludedInputs: Array<{ file: string; reason: string }>;
+	unavailableInputs: Array<{ file: string; reason: string }>;
+	nativeLimitations?: string[];
+}
+
 export interface CheckOptions {
+	gitleaksScope?: "working-tree" | "git-visible";
 	/** Maximum time per tool in ms. */
 	timeoutMs?: number;
+	/** Reports the analyzer's selected inputs and explicit scope omissions. */
+	onInputScope?: (scope: ToolInputScope) => void;
 	/** Which tools to run (undefined = all available). */
 	tools?: ToolId[];
 	/** Which tools to skip. */
@@ -74,6 +87,8 @@ export interface CheckOptions {
 	/** Internal composition seam: the caller already owns the project's
 	 * cross-process heavyweight lease across a larger verification run. */
 	admissionAlreadyHeld?: boolean;
+    /** Explicit verify owns a serialized foreground lane without memory admission or RSS kills. */
+    resourcePolicy?: "foreground-verify";
     /** Explicit background callers may wait for a runner's additional project lease. */
     waitForCapacity?: boolean;
 }
@@ -84,6 +99,8 @@ export interface ToolAvailability {
 	available: boolean;
 	version?: string | undefined;
 	reason?: string | undefined; // why unavailable (e.g. "not installed", "no config file")
+	/** An inconclusive version probe is not evidence that a tool is absent. */
+	probeError?: string;
 }
 
 /** Full report from a check run. */
@@ -113,9 +130,12 @@ export interface AuditResult {
 
 /** Input for a tool runner function. */
 export interface ToolRunnerInput {
+	gitleaksScope?: "working-tree" | "git-visible";
 	scope: CheckScope;
 	timeoutMs: number;
+	onInputScope?: (scope: ToolInputScope) => void;
     waitForCapacity?: boolean;
+    resourcePolicy?: "foreground-verify";
 }
 
 /** A tool runner function: spawn tool, parse output, return results.

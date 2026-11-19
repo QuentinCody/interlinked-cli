@@ -247,11 +247,12 @@ describe("ensureDistFresh", () => {
 	// previous dist generation when the build fails.
 	it("P5: build failure is terminal", () => {
 		mocks.existsSync.mockImplementation((p: unknown) => p === DIST_SERVER);
+		const cause = new Error("compiler failed");
 		mocks.execSync.mockImplementation(() => {
-			throw new Error("compiler failed");
+			throw cause;
 		});
 		expect(() => ensureDistFresh({ readStaleness: () => STALE })).toThrow(
-			"refusing to start the harness with stale code",
+			expect.objectContaining({ message: expect.stringContaining("refusing to start the harness with stale code"), cause }),
 		);
 	});
 });

@@ -8,7 +8,7 @@ import { parseCoworkPolicy, type CoworkPolicy } from "./policy.js";
 import { digest } from "./receipts.js";
 import { COWORK_LAUNCHER } from "./launcher.js";
 
-export function findCoworkBundle(): string {
+function findCoworkBundle(): string {
     let directory = dirname(fileURLToPath(import.meta.url));
     for (let level = 0; level < 6; level++) {
         for (const path of [join(directory, "cowork", "cowork-hook.js"), join(directory, "dist", "cowork", "cowork-hook.js")]) {

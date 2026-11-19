@@ -14,11 +14,17 @@ function driveGuardPrediction(event: HarnessEvent, mode: GuardPredictionMode = "
 
 describe("predict, reveal, reconcile guard changes", () => {
     let cwd: string;
+    let sandbox: string;
     const before = "function f(){if(ready)return result;}";
     const after = "function f(){if(ready)log();return result;}";
     const changes = [{ owner: "f", statement: "return result ;", before: [{ condition: "ready", branch: "then" }], after: [] }];
-    beforeEach(() => { cwd = mkdtempSync(join(tmpdir(), "guard-prediction-")); writeFileSync(join(cwd, "a.ts"), before); });
-    afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+    beforeEach(() => {
+        sandbox = mkdtempSync(join(tmpdir(), "guard-prediction-"));
+        cwd = join(sandbox, ...Array<string>(20).fill("dir"));
+        mkdirSync(cwd, { recursive: true });
+        writeFileSync(join(cwd, "a.ts"), before);
+    });
+    afterEach(() => rmSync(sandbox, { recursive: true, force: true }));
     function event(content = after, session = "agent-1", id = "edit-1"): HarnessEvent {
         return { cwd, hook_event: "PreToolUse", session_id: session, tool_use_id: id, agent_source: "codex",
             timestamp: "2026-09-25T00:00:00Z", tool_name: "Write", tool_input: { file_path: "a.ts", content } };

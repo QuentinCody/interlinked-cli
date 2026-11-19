@@ -10,22 +10,20 @@ import { basename, dirname, extname, join } from "node:path";
 import { CheckEngine, type CheckReport, type ToolId } from "../harness/check-engine/index.js";
 import { RUNNABLE_TOOL_IDS } from "../harness/check-engine/tool-catalog.js";
 import { ProjectGraph } from "../harness/project-graph.js";
+import { isConventionExport } from "../lib/import-resolution/framework-entries.js";
 import { containsSecrets, findAnyTypes } from "../harness/quality-checks.js";
-import type { ExportedSymbol, ImportEdge } from "../harness/types.js";
+import type { ExportedSymbol } from "../harness/types.js";
+import { scanBrokenImports } from "./check-import-edges.js";
+import { applyMissingTestsLayout } from "./check-missing-tests-layout.js";
+import { applyPythonChecks } from "./check-python.js";
+import { BLAST_RADIUS_MIN_DEPENDENTS } from "./check-python-run.js";
 import { emitCheckOutput, printToolReportIfRequested, warnDroppedDiscoveryTools } from "./check-report.js";
 import { findDeadImports } from "./check-dead-imports.js";
 import { type StructuralCheckResult } from "./check-output.js";
+import { duplicateGroup } from "./check-duplicates-rules.js";
 
 // Re-exported for callers/tests that import the dead-import helpers directly.
 export { extractBindings, findDeadImports } from "./check-dead-imports.js";
-
-// Helper: returns true if any symbol in the import edge is not exported by the target file.
-function hasMissingSymbol(importSymbols: string[], exportedNames: Set<string>): boolean {
-	for (const sym of importSymbols) {
-		if (!exportedNames.has(sym)) return true;
-	}
-	return false;
-}
 
 interface CycleRecordContext {
 	cycle: string[];
@@ -47,37 +45,7 @@ function recordCycleFiles(ctx: CycleRecordContext): void {
 // the inline blocks that previously lived in checkCommand, extracted so the
 // orchestrator stays a thin dispatcher.
 
-type ImportEdgeVerdict = "ok" | "missing-file" | "missing-symbol";
-
-// Helper: judges one import edge in isolation. "ok" covers both a healthy edge
-// and an edge the scan ignores (unresolved, .json, node_modules).
-function classifyImportEdge(graph: ProjectGraph, edge: ImportEdge): ImportEdgeVerdict {
-	if (!edge.toFile) return "ok";
-	if (edge.specifier.endsWith(".json")) return "ok";
-	if (edge.toFile.includes("/node_modules/")) return "ok";
-	if (!existsSync(edge.toFile)) return "missing-file";
-	if (edge.symbols.length === 0) return "ok";
-	const targetExports = graph.getExports(edge.toFile);
-	const targetNames = new Set(targetExports.map((e) => e.name));
-	targetNames.add("default");
-	return hasMissingSymbol(edge.symbols, targetNames) ? "missing-symbol" : "ok";
-}
-
-function scanBrokenImports(graph: ProjectGraph): Set<string> {
-	const files = new Set<string>();
-	for (const file of graph.allFiles()) {
-		const edges = graph.getDependencies(file);
-		for (const edge of edges) {
-			const verdict = classifyImportEdge(graph, edge);
-			if (verdict === "ok") continue;
-			files.add(graph.toRelative(file));
-			// A missing target file stops the scan of this file's remaining edges;
-			// a missing symbol keeps looking (mirrors the original break/no-break).
-			if (verdict === "missing-file") break;
-		}
-	}
-	return files;
-}
+// broken-imports lives in check-import-edges.ts (imported above).
 
 function scanCycles(graph: ProjectGraph): Set<string> {
 	const files = new Set<string>();
@@ -104,11 +72,18 @@ function isDuplicateScanExport(exp: ExportedSymbol): boolean {
 }
 
 // Helper: records one file's duplicate-scan exports under their symbol keys.
+// Only the file's OWN exports count: `getExports` also lists the names a barrel
+// gains through `export * from`, and a barrel is not a duplicate of its source.
+// A name the framework reads from a route file (`load`, `GET`, ...) is a
+// convention, not a duplicate (see import-resolution/framework-entries.ts).
 function indexFileExports(graph: ProjectGraph, file: string, index: ExportSymbolIndex): void {
 	const boundary = graph.getProjectBoundary(file);
-	const exports = graph.getExports(file);
+	const exports = graph.getDirectExports(file);
+	const relative = graph.toRelative(file);
+	// `import { X } from "./x"; export { X };` re-publishes X: the file imports the name it exports.
+	const imported = new Set(graph.getDependencies(file).flatMap((edge) => edge.symbols));
 	for (const exp of exports) {
-		if (!isDuplicateScanExport(exp)) continue;
+		if (!isDuplicateScanExport(exp) || isConventionExport(relative, exp.name) || imported.has(exp.name)) continue;
 		const key = `${exp.name}::${boundary}`;
 		const existing = index.get(key);
 		if (existing) {
@@ -119,19 +94,17 @@ function indexFileExports(graph: ProjectGraph, file: string, index: ExportSymbol
 	}
 }
 
-// Helper: relative paths of the files that share a symbol key with another file.
+// Helper: relative paths of the files that share a symbol key with another file
+// (declaration-file pairs, index modules and file-name conventions dropped; see check-duplicates-rules.ts).
 function filesSharingSymbolKeys(graph: ProjectGraph, index: ExportSymbolIndex): Set<string> {
 	const files = new Set<string>();
-	for (const [, dupes] of index) {
-		if (dupes.length <= 1) continue;
-		for (const f of dupes) {
-			files.add(graph.toRelative(f));
-		}
+	for (const [, all] of index) {
+		for (const f of duplicateGroup(all)) files.add(graph.toRelative(f));
 	}
 	return files;
 }
 
-function scanDuplicates(graph: ProjectGraph): Set<string> {
+export function scanDuplicates(graph: ProjectGraph): Set<string> {
 	const symbolIndex: ExportSymbolIndex = new Map();
 	for (const file of graph.allFiles()) {
 		indexFileExports(graph, file, symbolIndex);
@@ -237,7 +210,7 @@ function scanBlastRadius(graph: ProjectGraph): Set<string> {
 	const files = new Set<string>();
 	for (const file of graph.allFiles()) {
 		const dependents = graph.getDependents(file);
-		if (dependents.length >= 5) {
+		if (dependents.length >= BLAST_RADIUS_MIN_DEPENDENTS) {
 			files.add(graph.toRelative(file));
 		}
 	}
@@ -484,6 +457,10 @@ export async function checkCommand(opts: {
 	// --- Structural checks (instant, graph-based) ---
 	const results: StructuralCheckResult[] =
 		plan.runStructural && graph ? runStructuralChecks(graph, shouldRun) : [];
+	// Every structural check also reads Python source; see check-python.ts.
+	for (const note of applyPythonChecks(results, cwd)) process.stderr.write(`${note}\n`);
+	// The layout-aware reading of missing-tests (tests in a test tree, tests that import the module) sits beside the list above.
+	for (const note of applyMissingTestsLayout(results, cwd)) process.stderr.write(`${note}\n`);
 
 	// --- Engine checks (external tools, opt-in) ---
 	const engineReport = runEngineChecks(cwd, plan.runEngine, plan.engineToolFilter);

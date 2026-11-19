@@ -2,6 +2,7 @@
 // file-checks UBS group unit tests
 // ===========================================
 
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import { type FileCheckContext, runPerFileChecks } from "./file-checks.js";
@@ -124,7 +125,10 @@ describe("runUbsChecks", () => {
 		const src = 'if (x == 5) { doThing(); }\n';
 		const c = ctx(src);
 		runUbsChecks(c);
-		expect(c.r.jsLooseEquality).toEqual(orchestrate(src).jsLooseEquality);
+		// The orchestrator binds each primary-file finding to the sha256 of the content it checked.
+		const sourceHash = createHash("sha256").update(src).digest("hex");
+		expect(c.r.jsLooseEquality.length).toBeGreaterThan(0);
+		expect(orchestrate(src).jsLooseEquality).toEqual(c.r.jsLooseEquality.map(row => ({ ...row, sourceHash })));
 	});
 
 	it("is a no-op on benign content", () => {

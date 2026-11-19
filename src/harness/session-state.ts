@@ -88,6 +88,7 @@ import {
 	trackFileOperations,
 	trackToolCall,
 } from "./session-state-mutators.js";
+import { mergeObservedOnly } from "./observed-files.js";
 import type { HarnessEvent, SessionTrajectory } from "./types.js";
 
 export { acknowledgeChecks, isAcknowledged } from "./session-state-mutators.js";
@@ -234,6 +235,7 @@ export class SessionTracker {
 		const to = this.sessions.get(toSessionId);
 		if (!from || !to) return false;
 
+		mergeObservedOnly(from, to);
 		for (const f of from.files_written) to.files_written.add(f);
 		for (const f of from.files_read) to.files_read.add(f);
 
@@ -283,6 +285,7 @@ export class SessionTracker {
 			last_coordination_ts: s.last_coordination_ts,
 			files_read: [...s.files_read],
 			files_written: [...s.files_written],
+			files_observed_only: [...(s.files_observed_only ?? [])],
 			commands_run: s.commands_run,
 			test_commands_run: s.test_commands_run ?? [],
 			test_lanes_run: s.test_lanes_run ?? [],
@@ -334,6 +337,7 @@ export class SessionTracker {
 			last_coordination_ts: readNumber(snapshot.last_coordination_ts, Date.now()),
 			files_read: readStringSet(snapshot.files_read),
 			files_written: readStringSet(snapshot.files_written),
+			files_observed_only: readStringSet(snapshot.files_observed_only),
 			commands_run: readStringArray(snapshot.commands_run),
 			...readTestHistory(snapshot),
 			tool_sequence: readStringArray(snapshot.tool_sequence),

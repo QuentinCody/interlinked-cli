@@ -9,6 +9,14 @@ function under(path: string, prefix: string): boolean {
     return path === prefix || path.startsWith(`${prefix.replace(/\/$/, "")}/`);
 }
 
+/** ` (reason: count, ...)` for the unresolved imports that carry a reason, largest first; empty when none does. */
+function unresolvedReasons(graph: ScoringGraph): string {
+    const counts = new Map<string, number>();
+    for (const item of graph.unresolved) if (item.reason) counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
+    const ranked = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return ranked.length ? ` (${ranked.map(([reason, count]) => `${reason}: ${count}`).join(", ")})` : "";
+}
+
 export function measureArchitecture(analysis: RepositoryAnalysis, graph: ScoringGraph, boundaries: readonly ImportBoundary[] = []): AdapterResult {
     const products = analysis.files.filter(file => file.input.role === "product");
     const paths = new Set(products.map(file => file.input.path));
@@ -33,7 +41,7 @@ export function measureArchitecture(analysis: RepositoryAnalysis, graph: Scoring
     }
     if (graph.unresolved.length) for (const metric of metrics) {
         if (metric.state === "measured") metric.state = "inconclusive";
-        metric.limitations.push(`${graph.unresolved.length} imports could not be resolved; graph scope is incomplete`);
+        metric.limitations.push(`${graph.unresolved.length} imports could not be resolved${unresolvedReasons(graph)}; graph scope is incomplete`);
     }
     return { metrics, findings };
 }

@@ -52,7 +52,7 @@
 // cold one-shot or to an empty diagnostics list. The daemon must never crash
 // because of tsgo.
 
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TsgoDiagnostic } from "./daemon-protocol.js";
@@ -223,70 +223,36 @@ async function checkViaWarmOrCold(
 	return runTsgoOneShot(ctx.executable, path, extraArgs, timeoutMs);
 }
 
-export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
-	const executable = opts.executable ?? locateTsgo();
-	const timeoutMs = opts.timeoutMs ?? DEFAULT_COLD_TIMEOUT_MS;
-	const maxEntries = opts.maxCacheEntries ?? DEFAULT_MAX_CACHE_ENTRIES;
-	const extraArgs: readonly string[] = opts.extraArgs ?? ["--noEmit"];
-	const watchIdleMs = opts.watchIdleMs ?? DEFAULT_WATCH_IDLE_MS;
-	const watchEnabled = !opts.disableWatch;
-	const cache = new Map<string, CacheEntry>();
-	const isAvailable = executable !== null;
-
-	// One warm `tsgo --watch` child per discovered project root. Lazy: nothing
-	// is spawned at createTsgoRunner() time — a codebase with no TypeScript
-	// never triggers a TS check, so it never pays any tsgo cost.
-	const watchers = new Map<string, WatchProcess>();
-	const lifecycle = { disposed: false };
-	const watcherContext: WarmWatcherContext = {
-		watchEnabled,
-		isAvailable,
-		isDisposed: () => lifecycle.disposed,
-		executable,
-		watchIdleMs,
-		watchers,
-	};
-
-	function cachePut(path: string, entry: CacheEntry): void {
-		if (cache.size >= maxEntries) {
-			const oldest = cache.keys().next().value;
-			if (oldest !== undefined) cache.delete(oldest);
-		}
-		// In-memory result cache; bounded by maxEntries with FIFO eviction
-		// above, so no unbounded growth (this is not a Redis key).
-		cache.set(path, entry);
+/** Run the compiler against an isolated proposed edit and remove the transient source on every exit. */
+async function checkTemporarySource(
+	path: string, patched: string, executable: string, extraArgs: readonly string[], timeoutMs: number,
+): Promise<TsgoDiagnostic[]> {
+	const dir = mkdtempSync(join(tmpdir(), "interlinked-simedit-"));
+	try {
+		const suffix = path.match(/\.[A-Za-z0-9]+$/)?.[0] ?? ".ts";
+		const tmpFile = join(dir, `sim${suffix}`);
+		writeFileSync(tmpFile, patched);
+		return await runTsgoOneShot(
+			executable,
+			tmpFile,
+			extraArgs,
+			timeoutMs,
+			findTsconfigDir(path) ?? join(path, ".."),
+		);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
 	}
+}
 
-	async function check(path: string): Promise<{
-		diagnostics: TsgoDiagnostic[];
-		cached: boolean;
-		elapsed_ms: number;
-	}> {
-		if (!isAvailable) return { diagnostics: [], cached: false, elapsed_ms: 0 };
-		if (!existsSync(path)) return { diagnostics: [], cached: false, elapsed_ms: 0 };
-
-		const key = computeCacheKey(path);
-		const cached = cache.get(path) ?? null;
-		if (cached && cached.key === key) {
-			return { diagnostics: cached.diagnostics, cached: true, elapsed_ms: 0 };
-		}
-
-		const started = nowMs();
-		// Warm path: read the watch child's latest completed pass. Falls back
-		// to the cold one-shot when the warm child is unavailable / raced.
-		const diagnostics = await checkViaWarmOrCold(path, watcherContext, extraArgs, timeoutMs);
-		const elapsed_ms = nowMs() - started;
-		cachePut(path, { key, diagnostics });
-		return { diagnostics, cached: false, elapsed_ms };
-	}
-
-
-	async function simulate(
+function createEditSimulator(
+	executable: string | null, extraArgs: readonly string[], timeoutMs: number,
+): TsgoRunner["simulateEdit"] {
+	return async function simulate(
 		path: string,
 		oldString: string,
 		newString: string,
 	): Promise<{ new_diagnostics: TsgoDiagnostic[]; elapsed_ms: number }> {
-		if (!isAvailable || !existsSync(path)) return { new_diagnostics: [], elapsed_ms: 0 };
+		if (executable === null || !existsSync(path)) return { new_diagnostics: [], elapsed_ms: 0 };
 
 		const started = nowMs();
 		const original = readFileSyncSafe(path);
@@ -306,28 +272,79 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 		// is correct here. Pass the live project's root as the admission key so
 		// runTsgoOneShot evicts its warm watcher before the temp-file child starts.
 
-		const dir = mkdtempSync(join(tmpdir(), "interlinked-simedit-"));
-		const suffix = path.match(/\.[A-Za-z0-9]+$/)?.[0] ?? ".ts";
-		const tmpFile = join(dir, `sim${suffix}`);
-		writeFileSync(tmpFile, patched);
-		const diagnostics = await runTsgoOneShot(
-			executable,
-			tmpFile,
-			extraArgs,
-			timeoutMs,
-			findTsconfigDir(path) ?? join(path, ".."),
-		);
+		const diagnostics = await checkTemporarySource(path, patched, executable, extraArgs, timeoutMs);
 		const elapsed_ms = nowMs() - started;
 		// We do not diff against baseline here because the baseline check is a
 		// separate `tsgo.check_file` call; the callers in the daemon do the
 		// diff to surface only the *new* diagnostics. This keeps the runner
 		// responsibilities narrow.
 		return { new_diagnostics: diagnostics, elapsed_ms };
+	};
+}
+
+function createFileCheckCache(maxEntries: number, isAvailable: boolean, diagnose: (path: string) => Promise<TsgoDiagnostic[]>) {
+	const cache = new Map<string, CacheEntry>();
+	function cachePut(path: string, entry: CacheEntry): void {
+		if (maxEntries <= 0) return;
+		if (!cache.has(path) && cache.size >= maxEntries) {
+			const oldest = cache.keys().next().value;
+			if (oldest !== undefined) cache.delete(oldest);
+		}
+		// In-memory result cache; bounded by maxEntries with FIFO eviction
+		// above, so no unbounded growth (this is not a Redis key).
+		cache.set(path, entry);
+	}
+
+	async function check(path: string): Promise<{
+		diagnostics: TsgoDiagnostic[];
+		cached: boolean;
+		elapsed_ms: number;
+	}> {
+		if (!isAvailable || !existsSync(path)) return { diagnostics: [], cached: false, elapsed_ms: 0 };
+
+		const key = computeCacheKey(path);
+		const cached = cache.get(path) ?? null;
+		if (cached && cached.key === key) {
+			return { diagnostics: cached.diagnostics, cached: true, elapsed_ms: 0 };
+		}
+
+		const started = nowMs();
+		const diagnostics = await diagnose(path);
+		const elapsed_ms = nowMs() - started;
+		cachePut(path, { key, diagnostics });
+		return { diagnostics, cached: false, elapsed_ms };
 	}
 
 	function invalidate(path: string): void {
 		cache.delete(path);
 	}
+	return { check, invalidate, size: () => cache.size };
+}
+
+export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
+	const executable = opts.executable ?? locateTsgo();
+	const timeoutMs = opts.timeoutMs ?? DEFAULT_COLD_TIMEOUT_MS;
+	const maxEntries = opts.maxCacheEntries ?? DEFAULT_MAX_CACHE_ENTRIES;
+	const extraArgs: readonly string[] = opts.extraArgs ?? ["--noEmit"];
+	const watchIdleMs = opts.watchIdleMs ?? DEFAULT_WATCH_IDLE_MS;
+	const watchEnabled = !opts.disableWatch;
+	const isAvailable = executable !== null;
+
+	// One warm `tsgo --watch` child per discovered project root. Lazy: nothing
+	// is spawned at createTsgoRunner() time — a codebase with no TypeScript
+	// never triggers a TS check, so it never pays any tsgo cost.
+	const watchers = new Map<string, WatchProcess>();
+	const lifecycle = { disposed: false };
+	const watcherContext: WarmWatcherContext = {
+		watchEnabled,
+		isAvailable,
+		isDisposed: () => lifecycle.disposed,
+		executable,
+		watchIdleMs,
+		watchers,
+	};
+
+	const cache = createFileCheckCache(maxEntries, isAvailable, path => checkViaWarmOrCold(path, watcherContext, extraArgs, timeoutMs));
 
 	function stats(): {
 		cache_size: number;
@@ -335,7 +352,7 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 		watch_process?: WatchProcessState;
 	} {
 		return {
-			cache_size: cache.size,
+			cache_size: cache.size(),
 			available: isAvailable,
 			watch_process: summarizeWatchers(isAvailable, watchEnabled, watchers),
 		};
@@ -367,9 +384,9 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 
 	return {
 		available: () => isAvailable,
-		checkFile: check,
-		simulateEdit: simulate,
-		invalidate,
+		checkFile: cache.check,
+		simulateEdit: createEditSimulator(executable, extraArgs, timeoutMs),
+		invalidate: cache.invalidate,
 		stats,
 		dispose,
 	};

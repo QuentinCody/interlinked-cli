@@ -24,9 +24,9 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
     process.execArgv = originalExecArgv;
 });
-const argv = [process.execPath, "/fixture/index.js", "verify", "--json"];
+const argv = [process.execPath, "/fixture/index.js", "tests", "run", "--json"];
 
-it.each([["status"], ["coverage", "status"], ["metrics", "coverage", "status"], ["coverage", "check"], ["coverage", "check", "--from-index", "--help"]].map(args => ({ args })))("leaves cancellation ownership unchanged for $args", async ({ args }) => {
+it.each([["status"], ["coverage", "status"], ["metrics", "coverage", "status"], ["metrics", "diagnostics", "compare", "before.json", "after.json"], ["metrics", "--cwd", "diagnostics", "score"], ["metrics", "diagnostics", "--help"], ["coverage", "check"], ["coverage", "check", "--from-index", "--help"]].map(args => ({ args })))("leaves cancellation ownership unchanged for $args", async ({ args }) => {
     const before = process.listenerCount("SIGINT");
     await withResourceCliCancellation([process.execPath, "/fixture/index.js", ...args], async () => {
         expect(currentProcessSignal()).toBeUndefined();
@@ -34,7 +34,7 @@ it.each([["status"], ["coverage", "status"], ["metrics", "coverage", "status"], 
     });
     expect(readResourceBudget).not.toHaveBeenCalled();
 });
-it.each([["coverage", "check", "--from-index"], ["coverage", "--from-index"], ["metrics", "coverage", "warm"]].map(args => ({ args })))("cancels indexed dispatch without adding admission for $args", async ({ args }) => {
+it.each([["coverage", "check", "--from-index"], ["coverage", "--from-index"], ["metrics", "coverage", "warm"], ["metrics", "diagnostics"], ["metrics", "--cwd", "/selected/root", "diagnostics", "--profile", "python"], ["verify"]].map(args => ({ args })))("cancels owned dispatch without adding admission for $args", async ({ args }) => {
     vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const before = process.listenerCount("SIGTERM");
     await withResourceCliCancellation([process.execPath, "/fixture/index.js", ...args], async () => {
@@ -103,16 +103,50 @@ it("waits for heavy memory within the caller deadline, without a light-budget fa
     expect(runProcessAsync).toHaveBeenCalledWith(expect.any(String), expect.any(Array), expect.objectContaining({ timeout: 500, resourceBudget: budget }));
 });
 
-it("bounds default verify admission at 30 seconds without relaxing the memory requirement", async () => {
-    vi.useFakeTimers(); vi.spyOn(process.stderr, "write").mockReturnValue(true);
+it.each(["", "--max-old-space-size=8192", "--max-old-space-size-percentage=50"])("runs verify without memory admission or an imposed heap/RSS cap (%s)", async options => {
+    vi.stubEnv("NODE_OPTIONS", options);
+    process.execArgv = ["--import", "tsx"];
     vi.mocked(readResourceBudget).mockReturnValue(null);
-    const pending = superviseResourceCli(argv);
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(await pending).toBe(true); expect(runProcessAsync).not.toHaveBeenCalled(); expect(process.exitCode).toBe(75);
-    expect(readResourceBudget).not.toHaveBeenCalledWith("light");
+    vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, killed: false, timedOut: false, stdout: "", stderr: "" });
+    const verifyArgv = [process.execPath, "/fixture/index.js", "verify", "/other/repo", "--all-checks", "--json"];
+    expect(await superviseResourceCli(verifyArgv)).toBe(true);
+    expect(readResourceBudget).not.toHaveBeenCalled();
+    expect(runProcessAsync).toHaveBeenCalledExactlyOnceWith(process.execPath, [...process.execArgv, ...verifyArgv.slice(1)], expect.objectContaining({ inheritOutput: true, signal: expect.any(AbortSignal) }));
+    expect(vi.mocked(runProcessAsync).mock.calls[0]?.[2]).not.toHaveProperty("resourceBudget");
+    expect(vi.mocked(runProcessAsync).mock.calls[0]?.[2]).toHaveProperty("reapDescendantGroups", true);
+    expect(vi.mocked(runProcessAsync).mock.calls[0]?.[2]).toHaveProperty("timeout", null);
+    expect(process.exitCode).toBe(0);
     expect(appendVerifyTiming).toHaveBeenCalledWith(process.cwd(), expect.objectContaining({
-        check: "host_memory_admission", duration_ms: 30_000, status: "deferred", execution_started: false,
+        check: "managed_process_tree", status: "complete", rss_budget_bytes: null, heap_limit_mb: null,
     }));
+});
+
+it.each(["1200", "7200000"])("respects the explicit foreground whole-run timeout %s without the old hour ceiling", async timeout => {
+    vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, killed: false, timedOut: false, stdout: "", stderr: "" });
+    await superviseResourceCli([process.execPath, "/fixture/index.js", "verify", "--timeout", timeout]);
+    expect(runProcessAsync).toHaveBeenCalledWith(expect.any(String), expect.any(Array), expect.objectContaining({ timeout: Number(timeout) }));
+});
+
+it("treats explicit foreground timeout zero as no deadline", async () => {
+    vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, killed: false, timedOut: false, stdout: "", stderr: "" });
+    await superviseResourceCli([process.execPath, "/fixture/index.js", "verify", "--timeout=0"]);
+    expect(runProcessAsync).toHaveBeenCalledWith(expect.any(String), expect.any(Array), expect.objectContaining({ timeout: null }));
+});
+
+it.each([null, 0])("records interrupted verification when the signalled child exits with %s", async code => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    vi.mocked(runProcessAsync).mockImplementation(async (_command, _args, options) => {
+        process.emit("SIGINT");
+        expect(options?.signal?.aborted).toBe(true);
+        return { code, killed: code === null, timedOut: false, stdout: "", stderr: "" };
+    });
+    expect(await superviseResourceCli([process.execPath, "/fixture/index.js", "verify"])).toBe(true);
+    expect(process.exitCode).toBe(75);
+    expect(stderr).toHaveBeenCalledWith("[resources] CLI interrupted; no verification verdict.\n");
+    expect(appendVerifyTiming).toHaveBeenCalledWith(process.cwd(), expect.objectContaining({
+        check: "managed_process_tree", status: "interrupted", exit_code: code,
+    }));
+    expect(readResourceBudget).not.toHaveBeenCalled();
 });
 it("owns signals while admission waits and never starts after cancellation", async () => {
     vi.spyOn(process.stderr, "write").mockReturnValue(true);

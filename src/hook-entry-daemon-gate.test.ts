@@ -57,9 +57,9 @@ describe("findRepoRoot", () => {
 	});
 
 	it("returns null when no ancestor has .interlinked/", () => {
-		const bare = mkdtempSync(join(tmpdir(), "he-bare-"));
+		const bare = join(dir, ...Array<string>(20).fill("bare"));
+		mkdirSync(bare, { recursive: true });
 		expect(findRepoRoot(bare)).toBeNull();
-		rmSync(bare, { recursive: true, force: true });
 	});
 
 	// 2026-10-22: hook-written files (payload census, receipts) had created `.interlinked/` folders under `scratch/`;

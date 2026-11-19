@@ -3,13 +3,19 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
-import { hasErrorCode } from "../tool-errors.js";
+import { hasErrorCode, PartialToolReportError } from "../tool-errors.js";
 import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { nonNull } from "../../../lib/non-null.js";
 import { filterResultsToFile, parseCargoJson } from "../output-parsers.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
+import { runProcessAsync } from "../spawn-async.js";
+import { currentProcessSignal } from "../process-cancellation.js";
+import { deduplicateResults } from "../index-dedup.js";
+import { requireGenericProcessVerdict } from "./generic-process-verdict.js";
+import { inventoryPaths } from "../../../lib/metrics/inventory-paths.js";
+import { rustfmtProjectScope } from "./rustfmt-project.js";
 
 // -------------------------------------------
 // cargo check / cargo clippy — one JSON-diagnostic protocol
@@ -77,13 +83,18 @@ export function runCargoClippy(input: ToolRunnerInput): CheckResult[] {
  *  rustfmt's --check output across versions. Exported for tests. */
 export function parseRustfmtCheckOutput(output: string, projectRoot: string): CheckResult[] {
 	const results: CheckResult[] = [];
+	let canonicalRoot = resolve(projectRoot);
+	try { canonicalRoot = realpathSync(projectRoot); }
+	catch (error) { void error; } // Historical/offline reports can name a root absent on this host.
 	for (const lineText of output.split("\n")) {
 		const m = lineText.match(/^Diff in (.+?)(?: at line |:)(\d+)/);
 		if (!m) continue;
+		const source = resolve(projectRoot, nonNull(m[1]));
+		const local = relative(projectRoot, source);
 		results.push({
 			tool: "rustfmt",
 			severity: "warning",
-			file: relative(projectRoot, nonNull(m[1])),
+			file: local.startsWith(`..${sep}`) ? relative(canonicalRoot, source) : local,
 			line: Number.parseInt(nonNull(m[2]), 10),
 			message: "not rustfmt-formatted — run `cargo fmt` (or `rustfmt <file>`)",
 		});
@@ -164,14 +175,17 @@ function spawnRustfmt(
 	if (!fileTarget) {
 		return spawnSync("cargo", ["fmt", "--all", "--", "--check", "--color=never"], spawnOpts);
 	}
-	const edition = crateEditionFor(fileTarget, scope.projectRoot);
-	const args = [
+	return spawnSync("rustfmt", rustfmtFileArgs(fileTarget, scope.projectRoot), spawnOpts);
+}
+
+function rustfmtFileArgs(target: string, root: string): string[] {
+	const edition = crateEditionFor(target, root);
+	return [
 		"--check",
 		"--color=never",
 		...(edition !== null ? ["--edition", edition] : []),
-		fileTarget,
+		target,
 	];
-	return spawnSync("rustfmt", args, spawnOpts);
 }
 
 /** Turn a non-zero, non-ENOENT `rustfmt`/`cargo fmt` result into findings:
@@ -189,10 +203,7 @@ function interpretRustfmtFailure(
 	// modules. A per-edit check must surface only the edited file's findings,
 	// not pre-existing diffs elsewhere — the same `filterToFile` contract
 	// cargo check/clippy already honor above.
-	const findings =
-		scope.mode === "file" && scope.targetFile && scope.filterToFile
-			? filterResultsToFile(parsed, scope.targetFile)
-			: parsed;
+	const findings = rustfmtScopedFindings(parsed, scope);
 	if (findings.length > 0) return findings;
 	// Parsed diffs existed but were all filtered out as OTHER files → the
 	// edited file is clean; don't synthesize a tool-failure warning.
@@ -222,4 +233,102 @@ export function runRustfmtCheck(input: ToolRunnerInput): CheckResult[] {
 	} catch {
 		return [];
 	}
+}
+
+interface RustfmtCommand { bin: string; args: string[]; }
+
+function rustfmtScopedFindings(results: CheckResult[], scope: ToolRunnerInput["scope"]): CheckResult[] {
+	return scope.mode === "file" && scope.targetFile && scope.filterToFile
+		? filterResultsToFile(results, relative(scope.projectRoot, resolve(scope.projectRoot, scope.targetFile))) : results;
+}
+
+async function rustfmtCommands(input: ToolRunnerInput, deadline: number): Promise<RustfmtCommand[]> {
+	const { scope } = input;
+	if (scope.mode === "file") {
+		if (!scope.targetFile) throw new PartialToolReportError("rustfmt file scope has no selected file", []);
+		return [{ bin: "rustfmt", args: rustfmtFileArgs(scope.targetFile, scope.projectRoot) }];
+	}
+	const selected = rustfmtProjectScope(scope.projectRoot,
+		input.resourcePolicy === "foreground-verify" ? undefined : inventoryPaths(scope.projectRoot));
+	if (selected.mode === "unavailable") throw new PartialToolReportError(`rustfmt input scope unavailable: ${selected.reason}`, []);
+	if (selected.mode === "excluded") return [];
+	if (selected.mode === "cargo") {
+		const workspace = /^\s*\[\s*workspace\s*\]/m.test(readFileSync(selected.manifest, "utf8"));
+		const packages = workspace ? await rustfmtWorkspacePackages(input, selected.manifest, deadline) : [];
+		return [{ bin: "cargo", args: ["fmt", "--manifest-path", selected.manifest, ...packages.flatMap(name => ["--package", name]), "--", "--check", "--color=never"] }];
+	}
+	return selected.files.map(file => ({ bin: "rustfmt", args: rustfmtFileArgs(file, scope.projectRoot) }));
+}
+
+/** Cargo's default formatter selection has no target for a virtual workspace.
+ * Explicit native member names include declared fixture-named crates while
+ * avoiding --all's recursive local path dependency selection. */
+async function rustfmtWorkspacePackages(input: ToolRunnerInput, manifest: string, deadline: number): Promise<string[]> {
+	currentProcessSignal()?.throwIfAborted();
+	const remaining = deadline - Date.now();
+	if (remaining <= 0) throw new PartialToolReportError("rustfmt caller-selected deadline expired before workspace discovery", []);
+	const outcome = await runProcessAsync("cargo", ["metadata", "--offline", "--no-deps", "--format-version", "1", "--manifest-path", manifest], {
+		cwd: input.scope.projectRoot, timeout: Number.isFinite(remaining) ? remaining : 0,
+		...(input.resourcePolicy === "foreground-verify" ? { maxBufferBytes: null, env: { CARGO_NET_OFFLINE: "true", RUSTUP_AUTO_INSTALL: "0" } } : {}),
+	});
+	currentProcessSignal()?.throwIfAborted();
+	requireGenericProcessVerdict("rustfmt workspace metadata", outcome, []);
+	let metadata: unknown;
+	try { metadata = JSON.parse(outcome.stdout); }
+	catch (error) { throw new Error("rustfmt workspace metadata is not valid JSON", { cause: error }); }
+	if (!metadata || typeof metadata !== "object" || !("workspace_members" in metadata) || !("packages" in metadata)
+		|| !Array.isArray(metadata.workspace_members) || !Array.isArray(metadata.packages)) throw new Error("rustfmt workspace metadata has no member/package census");
+	const packages = metadata.packages;
+	const names = metadata.workspace_members.map((id: unknown) => {
+		const member: unknown = packages.find((value: unknown) => value !== null && typeof value === "object" && "id" in value && value.id === id);
+		if (typeof id !== "string" || !member || typeof member !== "object" || !("name" in member) || typeof member.name !== "string" || !member.name.trim()) {
+			throw new Error("rustfmt workspace metadata contains an unresolved member");
+		}
+		return member.name;
+	});
+	if (!names.length) throw new Error("rustfmt workspace metadata selects no packages");
+	return [...new Set(names)];
+}
+
+/** Async project/file formatting preserves complete foreground output and real
+ * formatter failures. Native Cargo owns edition, workspace and formatter config. */
+export async function runRustfmtCheckAsync(input: ToolRunnerInput): Promise<CheckResult[]> {
+	const deadline = input.timeoutMs === 0 ? Infinity : Date.now() + input.timeoutMs;
+	const results: CheckResult[] = [], unavailable: string[] = [];
+	currentProcessSignal()?.throwIfAborted();
+	for (const command of await rustfmtCommands(input, deadline)) {
+		currentProcessSignal()?.throwIfAborted();
+		const remaining = deadline - Date.now();
+		if (remaining <= 0) { unavailable.push("rustfmt caller-selected deadline expired before remaining source was checked"); break; }
+		try {
+			results.push(...await runRustfmtCommand(command, input, Number.isFinite(remaining) ? remaining : 0));
+		} catch (error) {
+			currentProcessSignal()?.throwIfAborted();
+			if (error instanceof PartialToolReportError) results.push(...error.results);
+			unavailable.push(error instanceof Error ? error.message : String(error));
+		}
+	}
+	currentProcessSignal()?.throwIfAborted();
+	const findings = deduplicateResults(results).deduplicated;
+	if (unavailable.length) throw new PartialToolReportError(unavailable.join("\n"), findings);
+	return findings;
+}
+
+async function runRustfmtCommand(command: RustfmtCommand, input: ToolRunnerInput, timeout: number): Promise<CheckResult[]> {
+	const foreground = input.resourcePolicy === "foreground-verify";
+	const outcome = await runProcessAsync(command.bin, command.args, {
+		cwd: input.scope.projectRoot, timeout,
+		...(foreground ? { maxBufferBytes: null, env: { CARGO_NET_OFFLINE: "true", RUSTUP_AUTO_INSTALL: "0" } } : {}),
+	});
+	const parsed = parseRustfmtCheckOutput(outcome.stdout + outcome.stderr, input.scope.projectRoot);
+	const findings = rustfmtScopedFindings(parsed, input.scope);
+	try {
+		requireGenericProcessVerdict("rustfmt", outcome, parsed);
+		if (/^\s*(?:error(?:\[[^\]]+\])?:|Error writing files:|Error:)/m.test(outcome.stderr)) {
+			throw new PartialToolReportError(`rustfmt could not parse or format its complete scope: ${outcome.stderr.trim()}`, findings);
+		}
+	} catch (error) {
+		throw new PartialToolReportError(error instanceof Error ? error.message : String(error), findings, { cause: error });
+	}
+	return findings;
 }

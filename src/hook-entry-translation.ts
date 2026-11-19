@@ -4,10 +4,20 @@ import { isJsonObject, type JsonObject } from "./lib/json-types.js";
 import type { RunnerAdapter, AdapterOutput } from "./harness/adapters/types.js";
 import type { HookControl, HookTranslation } from "./harness/adapters/hook-contract.js";
 import { hookProfileDigest } from "./harness/adapters/hook-contract.js";
+import { eventCapability } from "./harness/adapters/provider-capabilities.js";
+import { type DeliveryChannel, recordVisibleFallback } from "./harness/packets/fallback-ledger.js";
 import type { HarnessDecision } from "./harness/types.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
 
 function object(value: unknown): JsonObject { return isJsonObject(value) ? value : {}; }
+/** A simulated event (`interlinked harness test`) persists nothing; only the raw payload carries the flag. */
+function rawDryRun(event: UnifiedHookEvent): boolean { return isJsonObject(event.raw) && event.raw.dry_run === true; }
+
+/** What this native event does with the encoded warnings, from the runner's capability table. */
+export function deliveryChannel(adapter: RunnerAdapter, event: UnifiedHookEvent, decision: HarnessDecision): DeliveryChannel {
+    const cap = eventCapability(adapter.capabilities, event.runner_native_event);
+    return { modelVisible: cap !== null && cap.install && cap.model_context, limit: cap?.context_limit, prefix: decision.additional_context ? decision.additional_context.length + 1 : 0 };
+}
 function jsonBody(output: AdapterOutput): JsonObject {
     try { return object(JSON.parse(output.stdout ?? "{}")); } catch { return {}; }
 }
@@ -57,10 +67,17 @@ export function measureHookTranslation(output: AdapterOutput, decision: HarnessD
 
 export function encodeHookResult(args: { adapter: RunnerAdapter; event: UnifiedHookEvent; decision: HarnessDecision; dataDir: string; fellBack: boolean }): AdapterOutput & { fell_back: boolean } {
     const output = args.adapter.encodeDecision(args.decision, args.event);
+    // Released instruction text the daemon proposed counts as received only when THIS native event's encoded
+    // output carries it to the model — the daemon cannot know the native event (packets/fallback-ledger.ts).
+    try {
+        if (!rawDryRun(args.event)) recordVisibleFallback(args.dataDir, args.event, args.decision.warnings ?? [], output.stdout, "daemon", deliveryChannel(args.adapter, args.event, args.decision));
+    // interlinked-ignore: empty_catch — a lost receipt means one more proposal next call, never a changed decision
+    } catch { /* A receipt failure must not change the already encoded decision. */ }
     const translation = measureHookTranslation(output, args.decision, args.event);
     try {
         mkdirSync(args.dataDir, { recursive: true });
         appendFileSync(join(args.dataDir, "hook-translations.jsonl"), `${JSON.stringify({ schema: 1, event_id: args.event.event_id, session_id: args.event.session_id, provider: args.adapter.id, native_event: args.event.runner_native_event, runtime_version: args.event.runner_version ?? "unmeasured", profile_digest: hookProfileDigest(args.adapter.capabilities), translation, enforcement: "unmeasured" })}\n`, { mode: 0o600 });
+    // interlinked-ignore: empty_catch — a lost diagnostic row must never change the already encoded decision
     } catch { /* Diagnostic loss must not change the already encoded decision. */ }
     return { stdout: output.stdout, stderr: output.stderr, exit_code: output.exit_code, fell_back: args.fellBack };
 }
@@ -71,5 +88,6 @@ export function recordSuppressedStop(dataDir: string | null, provider: string | 
     try {
         mkdirSync(dataDir, { recursive: true });
         appendFileSync(join(dataDir, "hook-reentry.jsonl"), `${JSON.stringify({ schema: 1, timestamp: new Date().toISOString(), provider: provider ?? "unknown", native_event: nativeEvent, outcome: "suppressed-reentry", daemon_evaluated: false })}\n`, { mode: 0o600 });
+    // interlinked-ignore: empty_catch — a lost diagnostic row must never restart a stopped turn
     } catch { /* Diagnostic failure must not restart a stopped turn. */ }
 }

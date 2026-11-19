@@ -265,7 +265,8 @@ describe("parseImports", () => {
 			expect.arrayContaining([
 				expect.objectContaining({
 					specifier: "./widget",
-					symbols: ["Widget"],
+					// A default import is recorded by its export-side name, not the local binding.
+					symbols: ["default"],
 				}),
 			]),
 		);

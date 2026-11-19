@@ -16,15 +16,9 @@
 // so a blocked legitimate commit would fail the low-FP bar.
 
 import { listGitInvocations } from "../evaluator/commit-parse.js";
-import { isPostEdit, isSourceCodeFile, isTestFile, isVerifyCommand } from "./helpers.js";
-import type { ToolEvent, TrajectoryRule, Verdict } from "./types.js";
+import { nudge, metric, isPostEdit, isSourceCodeFile, isTestFile, isVerifyCommand } from "./helpers.js";
+import type { ToolEvent, TrajectoryRule } from "./types.js";
 
-function nudge(ruleId: string, severity: Verdict["severity"], reason: string): Verdict {
-	return { ruleId, action: "nudge", severity, reason };
-}
-function metric(ruleId: string, reason: string): Verdict {
-	return { ruleId, action: "silent_metric", severity: "low", reason };
-}
 
 /** Lines in a string (0 for empty). */
 function lineCount(s: string): number {

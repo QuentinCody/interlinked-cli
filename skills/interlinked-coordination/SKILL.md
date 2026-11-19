@@ -1,6 +1,6 @@
 ---
 name: interlinked-coordination
-description: "Coordinate with other agents/humans via the optional Interlinked MCP Server, and use local checkpoints & file reservations. Load this when picking up or handing off work (`tasks`, `send`, `inbox`, `handoff`), switching workspace context (`workspace`, `attach`), when a write is blocked because a file is \"reserved by\" another agent, when creating/restoring a local checkpoint (`checkpoint`, `rewind`, `resume`), installing the git-hook reservation guard (`interlinked guard`), or checking CI failure rates (`ci-status`). IMPORTANT: `checkpoint`/`rewind`/`resume` MUTATE git state (stash, checkout, clean -fd) and must not be run without explicit per-turn user authorization."
+description: "Coordinate with other agents and humans through the optional Interlinked MCP Server, local checkpoints, and file reservations. Load to pick up or hand off work (`tasks`, `send`, `inbox`, `handoff`), switch workspace (`workspace`, `attach`), when a write is blocked as \"reserved by\" another agent, for `interlinked guard` (git-hook reservations), CI failure rates (`ci-status`), or `checkpoint`/`rewind`/`resume`. WARNING: those three change git state (stash, checkout, clean -fd); run them only with explicit per-turn user authorization."
 ---
 
 # interlinked-coordination — multi-agent server surface & local checkpoints
@@ -29,14 +29,13 @@ The whole server half is opt-in. Auth resolution: explicit `--token` → `access
 
 ## ⚠️ Git-safety (read before any checkpoint/rewind/resume)
 `checkpoint`, `rewind`, `resume`, and `git link-checkpoint --apply` **mutate git state** —
-`git stash`, `git checkout <sha>` (detaches HEAD), `git checkout -- . && git clean -fd`
+`git stash`, detached HEAD updates, `git restore --staged` / `--worktree`, and `git clean -fd`
 (discards uncommitted changes + deletes untracked files), or commit amend. Under the standing
 rule that **each commit/push/reset/stash/checkout is an independent per-turn ask**, an agent
 must **not** run these autonomously — describe and recommend, don't execute, unless the user
-explicitly authorizes it this turn. Also note **`rewind` rarely restores the working tree**
-(the checkpoint stash is popped at creation, so the message-based lookup usually finds nothing)
-— its reliable effect is detaching HEAD to the base commit with a "changes may be missing"
-warning. Don't rely on it as an undo.
+explicitly authorizes it this turn. Checkpoint creation retains a snapshot object
+and restores the captured index/worktree. Restore verifies its snapshot and base
+before forced cleanup.
 
 ## Server-backed commands
 `tasks`/`send`/`inbox`/`handoff`/`workspace` are auth-gated (`!isAuthenticated &&
@@ -111,8 +110,11 @@ client wired in, reservations are a purely local optimistic lease shared across 
 still useful, just no cross-machine truth.
 
 ## Local checkpoints (git-mutating — see the warning above)
-Metadata in `.interlinked/checkpoints.json`; working-tree state via a transient git stash.
-A checkpoint captures HEAD SHA, changed files, and a stash ref.
+Metadata lives in `.interlinked/checkpoints.json` or the configured data directory.
+A checkpoint captures HEAD SHA, changed files and a stash object ID. Snapshots are
+pinned by `refs/interlinked/checkpoints/<id>` and also retain their ordinary stash
+entry. Clearing the ordinary stash list leaves the pinned object available.
+Metadata pruning and archiving retain snapshot objects and refs.
 
 An absent metadata file starts an empty history. An existing unreadable file,
 invalid JSON or malformed checkpoint record instead stops the operation with its
@@ -120,14 +122,39 @@ path; it is never treated as empty. Creation validates metadata before stashing,
 and prune/archive cannot overwrite a malformed ledger. Preserve and repair the
 existing metadata before retrying rather than deleting it to clear the error.
 
+Restoration stops when Git cannot determine the working-tree status or check out
+the checkpoint's base commit. `rewind` reports the error before applying a stash.
+Archiving beyond the active-checkpoint capacity retires the oldest checkpoints
+first, retaining the newest eligible checkpoints.
+Stored base commits used by restore/compare must be full SHA-1 or SHA-256 object
+IDs. Inventory and retention commands preserve existing metadata for repair.
+Restore verifies the commit object before forced cleanup. Input-bearing Git
+operations pass literal argument arrays, including structured stash messages.
+It also verifies snapshot/index/untracked trees, their paths and matching base. Legacy stored object
+IDs and message-based lookup remain supported. Missing or inconsistent data fails
+before forced cleanup. Capture, source-tree restoration and untracked cleanup
+exclude owned state in both the index and worktree, including tracked configuration
+and checkpoint history. Detaching HEAD preserves the original branch tip.
+`checkpoint prune --older-than` and `--keep-latest` require positive safe integers.
+Invalid explicit values fail before metadata mutation.
+
 | Command | Effect |
 |---|---|
-| `interlinked checkpoint [message]` | **Creates** a checkpoint (runs `git stash push --include-untracked` then immediately `git stash pop` — a stash/pop; a pop conflict can leave changes stashed). |
+| `interlinked checkpoint [message]` | Captures source changes with `git stash push`, pins the object, and restores captured worktree/index trees while excluding owned state. A clean source tree creates metadata-only history and preserves older user stashes. Git discovery failures stop before writing history. |
 | `checkpoint list` / `show <id>` / `compare <id1> <id2>` | Metadata/diff-stat only — **no git mutation**. |
 | `checkpoint prune [--older-than --keep-latest]` / `archive` | Rewrite metadata only (stash cleanup deliberately skipped). |
-| `interlinked rewind [id] [--force]` | On a dirty tree refuses without `--force`; with `--force` runs `git checkout -- . && git clean -fd` (**discards changes**), then `git checkout <base>` (detaches HEAD). |
+| `interlinked rewind [id] [--force]` | Refuses a dirty tree without `--force`. Preflights the base and snapshot trees, detaches HEAD without moving the original branch, and restores source index/worktree/untracked paths. Forced cleanup preserves tracked and untracked owned state. |
 | `interlinked resume [id]` | Non-destructive on a dirty tree, **but still `git checkout <base>` (detaches HEAD) on a clean tree**; then best-effort server work-context. |
 | `interlinked git link-checkpoint --apply` | **Amends HEAD** to link a server checkpoint (rewrites the commit). |
+
+Git link apply resolves its selected commit and HEAD before server work and
+rechecks them before local mutation. The selected commit must resolve to HEAD.
+Amend and notes subprocesses use literal arguments. Required message/identity
+discovery failures and incomplete writes exit nonzero with `applied:false`.
+JSON includes `apply_error` when a local apply step fails. A notes failure after
+amending leaves the new commit identity in the result for recovery.
+Explicit checkpoint IDs must be complete positive safe integers. Omitting the
+ID retains the latest-checkpoint lookup, and an explicit blank ID fails.
 
 ## `interlinked guard` — git-hook reservation enforcement
 A separate git pre-commit/pre-push hook (not the PreToolUse daemon guard):
@@ -143,6 +170,9 @@ be outdated.
 - `interlinked ci-status [--limit --branch]` — shells out to `gh run list` (needs the GitHub
   `gh` CLI, **not** the Interlinked server); aggregates per-workflow failure rate. "This step
   failed 7 of the last 10 pushes" before you push.
+  A failed gh process or malformed response exits nonzero. A successful empty array
+  remains an empty run collection. Limit text must be a complete safe integer, and
+  accepted integers retain the existing 1–100 clamping.
 - `interlinked reminder add --glob <p> --message <t> [--ops Edit,Write,Read] [--team]` /
   `reminder list` / `reminder remove` — file-touch reminders that warn when a matching file is
   edited.
@@ -150,6 +180,9 @@ be outdated.
   spawns a real stdio MCP server and records its JSON-RPC traffic for observability. **There is
   no `mcp serve`; it does not expose Interlinked's own tools.** The real MCP Server is the remote
   Worker reached over HTTP by the server-backed commands above.
+  Set `--inline-limit <bytes>` to a non-negative decimal integer through
+  9007199254740991. Zero sends every nonempty payload to blob storage. Invalid
+  values fail before the server starts.
 
 ## Common workflows
 - **Pick up a task:** `tasks list --status open` → `tasks claim <id>` → work → `tasks complete <id>`.

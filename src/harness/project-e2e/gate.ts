@@ -17,7 +17,7 @@ import type { E2eGates, E2eProject } from "./policy.js";
 import { GATE_DEFAULTS } from "./policy-diff.js";
 import { resolveCliEntry } from "./scheduler.js";
 
-export const GATE_MARKER = "# interlinked-e2e-gate";
+const GATE_MARKER = "# interlinked-e2e-gate";
 const ZERO_SHA = "0".repeat(40);
 export type GateName = "commit" | "ci";
 export interface GateDecision { enforced: boolean; /** Required-mode projects whose gate requires a verdict. */ projects: string[]; }

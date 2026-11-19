@@ -218,6 +218,8 @@ export function collectQualityResultEntries(
 			detail: r.detail,
 			novelty: r.novelty,
 			findingCount: r.findingCount,
+			...(r.measurementState ? { measurementState: r.measurementState } : {}),
+			...(r.sourceEvidence ? { sourceEvidence: r.sourceEvidence } : {}),
 			writeAttribution: r.writeAttribution,
 			...(r.fpFilter ? { fp_filter_p: r.fpFilter.p } : {}),
 			...(r.fpFilter?.suppressed ? { fp_filter_suppressed: true } : {}),

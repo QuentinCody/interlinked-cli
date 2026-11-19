@@ -47,9 +47,9 @@ describe("listRecoveryKeys", () => {
 		expect(keys).toContain("unrecoverable/process-killed");
 	});
 
-	it("returns 26 templates and no duplicates", () => {
+	it("returns 27 templates and no duplicates", () => {
 		const keys = listRecoveryKeys();
-		expect(keys.length).toBe(26);
+		expect(keys.length).toBe(27);
 		expect(new Set(keys).size).toBe(keys.length);
 	});
 
@@ -146,6 +146,7 @@ describe("suggestRecovery — static templates (no context interpolation)", () =
 		["transient", "dns", "EAI_AGAIN"],
 		["transient", "rate-limit", "Rate-limited"],
 		["transient", "user-interrupt", "user interrupted the call"],
+		["transient", "own-timeout", "no verdict exists"],
 		["unrecoverable", "process-crash", "process crashed"],
 		["unrecoverable", "process-killed", "Process was killed"],
 	];

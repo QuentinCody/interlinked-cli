@@ -2,21 +2,46 @@ import type { RepositoryAnalysis } from "./analysis.js";
 import { discoverScoringEntries } from "./graph-entries.js";
 import type { ScoringEdge, ScoringGraph } from "./graph-types.js";
 import { scoringModuleResolver } from "./module-resolution.js";
+import { pythonScoringEntries } from "./python-entries.js";
+import { pythonDynamicImports, pythonScoringEdges } from "./python-modules.js";
+import { pythonUnresolvedImports } from "./python-unresolved.js";
+import { componentKind } from "../import-resolution/component-scripts.js";
+import type { ImportReference } from "./analysis-syntax.js";
+import { componentImports } from "./scoring-components.js";
+
+interface ImportSource { path: string; imports: readonly ImportReference[]; }
+
+/** Single-file components are importers: their script imports become edges, they are not measured. */
+function componentSources(analysis: RepositoryAnalysis): ImportSource[] {
+    return analysis.inventory.files
+        .filter(file => componentKind(file.path) !== null && (file.role === "product" || file.role === "test"))
+        .map(file => ({ path: file.path, imports: componentImports(file.path, file.content) }));
+}
 
 export function buildScoringGraph(analysis: RepositoryAnalysis): ScoringGraph {
     const known = new Set(analysis.files.map(file => file.input.path));
-    const entries = discoverScoringEntries(analysis.inventory, known);
-    const resolveModule = scoringModuleResolver(analysis.inventory, known);
+    const components = componentSources(analysis);
+    const nodes = new Set([...known, ...components.map(component => component.path)]);
+    const entries = discoverScoringEntries(analysis.inventory, nodes);
+    const resolveModule = scoringModuleResolver(analysis.inventory, nodes);
     const edges: ScoringEdge[] = [], unresolved: ScoringGraph["unresolved"] = [];
     let dynamic = false;
-    for (const file of analysis.files) for (const reference of file.syntax.imports) {
-        if (reference.specifier === null) { dynamic = true; unresolved.push({ file: file.input.path, line: reference.line, specifier: null }); continue; }
-        const resolved = resolveModule(file.input.path, reference.specifier);
+    edges.push(...pythonScoringEdges(analysis.files, known));
+    const computed = pythonDynamicImports(analysis.files);
+    if (computed.length) dynamic = true;
+    unresolved.push(...computed, ...pythonUnresolvedImports(analysis.files, analysis.inventory.files.map(file => file.path)));
+    const sources: ImportSource[] = [...analysis.files.map(file => ({ path: file.input.path, imports: file.syntax.imports })), ...components];
+    for (const source of sources) for (const reference of source.imports) {
+        if (reference.specifier === null) { dynamic = true; unresolved.push({ file: source.path, line: reference.line, specifier: null }); continue; }
+        const resolved = resolveModule(source.path, reference.specifier);
         if (resolved.kind === "external") continue;
-        if (resolved.kind === "local") edges.push({ from: file.input.path, to: resolved.target, line: reference.line, names: reference.names, typeOnly: reference.typeOnly });
-        else unresolved.push({ file: file.input.path, line: reference.line, specifier: reference.specifier });
+        if (resolved.kind === "local") edges.push({ from: source.path, to: resolved.target, line: reference.line, names: reference.names, typeOnly: reference.typeOnly });
+        else unresolved.push({ file: source.path, line: reference.line, specifier: reference.specifier, reason: resolved.reason });
     }
-    return { files: analysis.files, edges, ...entries, unresolved, dynamic };
+    const python = pythonScoringEntries(analysis.inventory, analysis.files, known);
+    return { files: analysis.files, edges, entries: [...new Set([...entries.entries, ...python.entries])].sort(),
+        publicEntries: [...new Set([...entries.publicEntries, ...python.publicEntries])].sort(), unresolved, dynamic,
+        components: components.map(component => component.path).sort() };
 }
 
 export function reachableModules(entries: readonly string[], edges: readonly ScoringEdge[]): Set<string> {

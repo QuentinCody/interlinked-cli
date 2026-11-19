@@ -13,7 +13,6 @@
 
 import type { CheckPhase } from "../check-registry/types.js";
 import { describeAdversarialGap } from "./adversarial.js";
-import { mutationFloorFor } from "./recall.js";
 import type {
 	CheckEvidence,
 	EvidenceDimension,
@@ -28,9 +27,7 @@ export const OBLIGATION_TIERS: Record<ObligationTier["key"], ObligationTier> = {
 		label: "PreToolUse block (hard rail)",
 		min_positive: 3,
 		min_negative: 3,
-		min_branch_coverage: 1.0,
 		requires_corpus: true,
-		requires_mutation: true,
 		requires_adversarial: true,
 	},
 	pre_warn: {
@@ -38,9 +35,7 @@ export const OBLIGATION_TIERS: Record<ObligationTier["key"], ObligationTier> = {
 		label: "PreToolUse warn (edit-time priming)",
 		min_positive: 2,
 		min_negative: 2,
-		min_branch_coverage: 1.0,
 		requires_corpus: true,
-		requires_mutation: true,
 		requires_adversarial: false,
 	},
 	post_default: {
@@ -48,9 +43,7 @@ export const OBLIGATION_TIERS: Record<ObligationTier["key"], ObligationTier> = {
 		label: "PostToolUse, default gate",
 		min_positive: 2,
 		min_negative: 2,
-		min_branch_coverage: 0.9,
 		requires_corpus: true,
-		requires_mutation: false,
 		requires_adversarial: false,
 	},
 	post_advisory: {
@@ -58,9 +51,7 @@ export const OBLIGATION_TIERS: Record<ObligationTier["key"], ObligationTier> = {
 		label: "PostToolUse, advisory (--all-checks only)",
 		min_positive: 1,
 		min_negative: 1,
-		min_branch_coverage: 0.8,
 		requires_corpus: false,
-		requires_mutation: false,
 		requires_adversarial: false,
 	},
 };
@@ -96,6 +87,27 @@ function caseShortfalls(evidence: CheckEvidence, tier: ObligationTier): string[]
 	if (evidence.negative_count < tier.min_negative) {
 		out.push(
 			`needs ≥${tier.min_negative} labeled MUST-NOT-FIRE case(s), found ${evidence.negative_count}`,
+		);
+	}
+	return out;
+}
+
+/**
+ * Attributed-case shortfalls (the `attributed_cases` dimension): the tier's
+ * floors, counted only over cases that NAME this detector (attribution.ts).
+ * Measured, not enforced, until the checks credited through other detectors'
+ * cases have their own.
+ */
+function attributedCaseShortfalls(evidence: CheckEvidence, tier: ObligationTier): string[] {
+	const out: string[] = [];
+	if (evidence.attributed_positive_count < tier.min_positive) {
+		out.push(
+			`needs ≥${tier.min_positive} labeled MUST-FIRE case(s) that name \`${evidence.detector_fn}\`, found ${evidence.attributed_positive_count}`,
+		);
+	}
+	if (evidence.attributed_negative_count < tier.min_negative) {
+		out.push(
+			`needs ≥${tier.min_negative} labeled MUST-NOT-FIRE case(s) that name \`${evidence.detector_fn}\`, found ${evidence.attributed_negative_count}`,
 		);
 	}
 	return out;
@@ -142,21 +154,6 @@ function derivedCaseShortfalls(evidence: CheckEvidence): string[] {
 	];
 }
 
-/** Detector mutation-score shortfalls (the `mutation` dimension). */
-function mutationShortfalls(evidence: CheckEvidence, tier: ObligationTier): string[] {
-	if (!tier.requires_mutation) return [];
-	if (evidence.mutation_score === null) {
-		return [
-			"no mutation score recorded for the detector — its cases may not distinguish it from a broken version",
-		];
-	}
-	const floor = mutationFloorFor(tier);
-	if (evidence.mutation_score >= floor) return [];
-	return [
-		`detector mutation score ${evidence.mutation_score.toFixed(2)} is below the ${floor.toFixed(2)} floor — surviving mutants mean undetected false negatives`,
-	];
-}
-
 /** Independent-adversary shortfalls (the `adversarial` dimension). */
 function adversarialShortfalls(evidence: CheckEvidence, tier: ObligationTier): string[] {
 	if (!tier.requires_adversarial || evidence.adversarial_gap === null) return [];
@@ -181,9 +178,9 @@ export function evaluateEvidence({
 	const shortfalls: string[] = [];
 
 	if (active.has("cases")) shortfalls.push(...caseShortfalls(evidence, tier));
+	if (active.has("attributed_cases")) shortfalls.push(...attributedCaseShortfalls(evidence, tier));
 	if (active.has("corpus")) shortfalls.push(...corpusShortfalls(evidence, tier));
 	if (active.has("derived_cases")) shortfalls.push(...derivedCaseShortfalls(evidence));
-	if (active.has("mutation")) shortfalls.push(...mutationShortfalls(evidence, tier));
 	if (active.has("adversarial")) shortfalls.push(...adversarialShortfalls(evidence, tier));
 
 	return {

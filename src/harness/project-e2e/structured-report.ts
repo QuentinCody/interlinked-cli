@@ -8,6 +8,7 @@
 // layout that could hide a case, or any XML entity/DOCTYPE machinery makes
 // the whole report unreadable — unverified, never guessed at.
 
+import { isJsonObject as isRecord } from "../../lib/json-types.js";
 export const MAX_REPORT_BYTES = 8 * 1024 * 1024;
 const MAX_CASES = 50_000;
 const MAX_ID_BYTES = 512;
@@ -26,7 +27,6 @@ function fail(message: string): never { throw new ReportInvalid(message); }
 function boundedText(text: string): void {
     if (Buffer.byteLength(text) > MAX_REPORT_BYTES) fail(`report exceeds ${MAX_REPORT_BYTES} bytes`);
 }
-function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function onlyKeys(row: Record<string, unknown>, allowed: readonly string[], where: string): void {
     for (const key of Object.keys(row)) if (!allowed.includes(key)) fail(`${where}: unknown key "${key}"`);
 }

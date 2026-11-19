@@ -12,9 +12,10 @@
 // that re-scan the project per edit.
 
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join, relative } from "node:path";
 import { nonNull } from "../lib/non-null.js";
 import { isGeneratedFile } from "./checks/shared.js";
+import { getProjectCheckEvidence } from "./checks/project-check-evidence.js";
 import type { StructuralCheckResult } from "./types.js";
 
 const TEST_FILE_RE = /\.(test|spec)\.|__tests__\/|\/tests\//;
@@ -37,16 +38,19 @@ interface FileContent {
 
 function safeReadAll(files: string[]): FileContent[] {
 	const out: FileContent[] = [];
+	const evidence = getProjectCheckEvidence();
 	for (const file of files) {
 		const ext = extname(file);
-		if (!JS_TS_EXTS.has(ext)) continue;
+		if (!JS_TS_EXTS.has(ext) || evidence?.isExcluded(file)) continue;
 		let content: string;
 		try {
-			content = readFileSync(file, "utf-8");
-		} catch {
+			content = evidence ? evidence.readFile(file) : readFileSync(file, "utf-8");
+		} catch (error) {
+			evidence?.reportUnavailable("project_parity", relative(evidence.root, file),
+				error instanceof Error ? error.message : String(error));
 			continue;
 		}
-		if (Buffer.byteLength(content) > 256 * 1024 || isGeneratedFile(content)
+		if ((!evidence && Buffer.byteLength(content) > 256 * 1024) || isGeneratedFile(content)
 			|| /^\s*(?:\/\/|\/\*|\*)\s*@codegen-data\b/m.test(content.split("\n", 20).join("\n"))) continue;
 		out.push({
 			file,

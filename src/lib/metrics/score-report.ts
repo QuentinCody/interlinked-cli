@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { computeRulesFingerprint } from "../rules-fingerprint.js";
-import { collectScoringSources, type SourceGap } from "./source-census.js";
+import { collectScoringSources, type SetAsideSource, type SourceGap } from "./source-census.js";
 import { aggregateBurden, interpolateBurden, scoreProfileHash, STRUCTURE_PROFILE, type BurdenAggregate, type StructuralMetric } from "./score-profile.js";
 import { measureStructure, type MeasuredStructure, type StructureFunction } from "./structure.js";
 
@@ -33,6 +33,8 @@ export interface MetricsScoreReport {
         notMeasured: SourceGap[];
         discoveryIssues: string[];
         excluded: string[];
+        /** Generated or vendored source that evidence set aside, with the evidence; nothing leaves the measured set silently. */
+        setAside: SetAsideSource[];
     };
     metrics: MetricScore[];
     files: ScoredFile[];
@@ -57,7 +59,7 @@ function reportStatus(functions: ScoredFunction[], gaps: SourceGap[], issues: st
 
 /** Full repository slop stays unavailable until all dimension contracts have adapters. */
 export function collectMetricsScoreReport(root: string): MetricsScoreReport {
-    const census = collectScoringSources(root);
+    const census = collectScoringSources(root, { resourcePolicy: "foreground-survey" });
     const files: ScoredFile[] = [];
     for (const source of census.sources) {
         if (!SUPPORTED_SOURCE.test(source.file)) {
@@ -83,7 +85,7 @@ export function collectMetricsScoreReport(root: string): MetricsScoreReport {
         scope: {
             discovery: census.discovery, measuredFiles: files.length, functions: functions.length,
             moduleTokensOutsideFunctions: files.reduce((sum, file) => sum + file.astTokens, 0) - functions.reduce((sum, fn) => sum + fn.exposure, 0),
-            notMeasured: census.notMeasured.sort((a, b) => a.file.localeCompare(b.file)), discoveryIssues: census.discoveryIssues, excluded: census.excluded,
+            notMeasured: census.notMeasured.sort((a, b) => a.file.localeCompare(b.file)), discoveryIssues: census.discoveryIssues, excluded: census.excluded, setAside: census.setAside,
         },
         metrics, files,
     };

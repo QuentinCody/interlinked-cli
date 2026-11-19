@@ -245,9 +245,11 @@ describe("EVENT_NORMALIZERS_CHUNK — byte-identical composition", () => {
 	// SHA-256 + length of the pre-split single-literal value. Captured at split
 	// time. Do NOT update these casually: if a sub-chunk edit changes them, it
 	// changed the emitted hook bytes — confirm that was intended.
-	const PINNED_LENGTH = 50873;
+	// Re-pinned 2026-11-16: Claude PostToolUseFailure now parses the
+	// `Exit code N` first line and carries duration_ms (intended byte change).
+	const PINNED_LENGTH = 51419;
 	const PINNED_SHA256 =
-		"8f2938311083842e89d35e6fa4481153d071a182ef558cfa0098f6930e71503f";
+		"a5753a82e126064bcb66e3128b8df01de5141a34a91dac65e9fed956de27ed8c";
 
 	it("composes exactly from the four per-client sub-chunks (direct join)", () => {
 		const composed =

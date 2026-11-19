@@ -38,8 +38,18 @@ export function registerSupplyChainCommands(program: Command): void {
 		.option("--reason <text>", "Why this state is approved")
 		.option("--lockfile <name>", "Snapshot a specific file only (e.g. package-lock.json)")
 		.option("--cwd <path>", "Project root")
+		.option(
+			"--dir <path>",
+			"Hash another directory's files into this project's allowlist, keyed by path",
+		)
 		.action(
-			async (opts: { by?: string; reason?: string; lockfile?: string; cwd?: string }) => {
+			async (opts: {
+				by?: string;
+				reason?: string;
+				lockfile?: string;
+				cwd?: string;
+				dir?: string;
+			}) => {
 				if (!opts.by) {
 					process.stderr.write("error: --by <name> is required\n");
 					process.exit(2);
@@ -50,6 +60,7 @@ export function registerSupplyChainCommands(program: Command): void {
 					by: opts.by,
 					...(opts.reason !== undefined ? { reason: opts.reason } : {}),
 					...(opts.lockfile !== undefined ? { lockfile: opts.lockfile } : {}),
+					...(opts.dir !== undefined ? { dir: opts.dir } : {}),
 				});
 			},
 		);

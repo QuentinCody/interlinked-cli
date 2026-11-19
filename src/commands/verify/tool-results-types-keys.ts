@@ -11,6 +11,8 @@ import type { CodeQualityIssue, CodeQualityResults } from "./tool-results-types.
 
 /** Public API — consumed by verify submodules. Every top-level key. */
 export const CQ_RESULT_KEYS = [
+	"commanderOptionAttribute",
+	"omittedPrivateParameter",
 	"strongTyping",
 	"suppressions",
 	"largeFiles",
@@ -34,6 +36,7 @@ export const CQ_RESULT_KEYS = [
 	"newExportWithoutImporter",
 	"extractedHelperDuplicate",
 	"singleUseTrivialHelper",
+	"deadLiteralStore",
     "pythonSimplification",
     "repeatedImplementation",
 	"circularImports",
@@ -99,6 +102,13 @@ export const CQ_RESULT_KEYS = [
 	"promiseRejectNonError",
 	"rawControlBytes",
 	"lossyErrorRethrow",
+	"jsonStringifyError",
+	"catchRewrapLosesCause",
+	"resourceHandleLeak",
+	"publicApiLeaksInternalType",
+	"jsdocParamDrift",
+	"unvalidatedInputBoundary",
+	"numericZeroDefault",
 	"importFromOwnBarrel",
 	"errorDispatchByInstanceof",
 	"silentPromiseSwallow",

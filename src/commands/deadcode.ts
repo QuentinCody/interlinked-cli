@@ -11,6 +11,7 @@
 // code inside reachable functions — belongs to mutation adjudication
 // (`interlinked mutation disposition`), not to reachability analysis.
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 import {
@@ -18,10 +19,20 @@ import {
 	findDeadTypeExports,
 	type DeadExportsRepo,
 } from "../harness/checks/dead-exports-inline.js";
+import { consumptionPathKey, type SpecifierKeyResolver } from "../harness/checks/export-consumption.js";
 import { getGitSourceFiles } from "../harness/checks/export-ripple.js";
 import { ProjectGraph } from "../harness/project-graph.js";
+import { componentKind, maskComponentScripts } from "../lib/import-resolution/component-scripts.js";
+import { reachabilityRoots } from "./deadcode-entries.js";
+import { scriptCommandEntries } from "./deadcode-command-entries.js";
+import { gitFileList } from "./check-python-files.js";
+import { htmlReferences } from "./deadcode-html.js";
+import { createImportResolver } from "../lib/import-resolution/import-resolver.js";
+import { fsRepoView, type RepoView } from "../lib/import-resolution/repo-view.js";
 import { isJsonObject } from "../lib/json-types.js";
 import { findDeadImports } from "./check-dead-imports.js";
+import { applySetAside, type DeadCodeSetAside, printSetAside, setAsideDecision } from "./deadcode-set-aside.js";
+import { pythonSummaryLines, scanPythonDeadCode, withPython, type PythonDeadCode } from "./deadcode-python.js";
 
 const WALK_SKIP_DIRS = new Set(["node_modules", "dist", "build", ".git", ".interlinked"]);
 
@@ -73,6 +84,12 @@ export interface DeadCodeReport {
 	scannedFiles: number;
 	/** Exact repository-relative files whose contents the scan inspected. */
 	scannedPaths: string[];
+	/** Which languages the rows come from. Set by `deadcodeCommand`, which adds the Python half. */
+	language?: "typescript" | "python" | "mixed";
+	/** The Python graph evidence (entry roots, unresolved imports, dynamic imports); present when the tree holds Python. */
+	python?: PythonDeadCode["python"];
+	/** Files that source roles set aside (generated, vendor, unlinted), with the evidence; their findings are not in the lists above. */
+	setAside?: DeadCodeSetAside;
 }
 
 /** Collect entries declared by package.json: `bin` targets (mapped
@@ -164,10 +181,16 @@ export interface ReferenceSets {
 
 /** Mark every relative specifier the pattern captures as a reached file,
  *  under each resolvable extension. */
-function markSpecTargets(reached: Set<string>, dir: string, content: string, re: RegExp): void {
+function markSpecTargets(reached: Set<string>, ctx: { dir: string; resolveBare?: ((specifier: string) => string | null) | undefined }, content: string, re: RegExp): void {
+	const { dir } = ctx;
 	for (const m of content.matchAll(re)) {
 		const spec = m[1];
-		if (!spec || !spec.startsWith(".")) continue;
+		if (spec && !spec.startsWith(".")) {
+			const aliased = ctx.resolveBare?.(spec);
+			if (aliased) reached.add(aliased);
+			continue;
+		}
+		if (!spec) continue;
 		const base = join(dir, spec).split(sep).join("/").replace(/\.js$/, "");
 		for (const ext of ["", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js"]) {
 			reached.add(`${base}${ext}`);
@@ -189,22 +212,73 @@ function markSpecTargets(reached: Set<string>, dir: string, content: string, re:
  *  fixpoint seeded from a COMPLETE entry set, and this repo's entry discovery
  *  is incomplete (npm scripts naming dist/*.js are not mapped back to src),
  *  so the fixpoint would over-report far worse than the bug it fixes. */
-export function collectReferences(cwd: string, files: readonly string[]): ReferenceSets {
+export function collectReferences(
+	cwd: string,
+	files: readonly string[],
+	resolveBare?: (specifier: string, importerRel: string) => string | null,
+): ReferenceSets {
 	const refs: ReferenceSets = { byTest: new Set<string>(), byNonTest: new Set<string>() };
 	for (const relRaw of files) {
 		const rel = relRaw.split(sep).join("/");
 		let content: string;
 		try {
-			content = stripComments(readFileSync(join(cwd, rel), "utf-8"));
+			content = stripComments(readImporterText(cwd, rel));
 		} catch (err) {
 			void err; // unreadable — no edges from it
 			continue;
 		}
 		const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".";
 		const into = isTestPath(rel) ? refs.byTest : refs.byNonTest;
-		for (const re of SPEC_PATTERNS) markSpecTargets(into, dir, content, re);
+		const ctx = { dir, resolveBare: resolveBare && ((spec: string) => resolveBare(spec, rel)) };
+		for (const re of SPEC_PATTERNS) markSpecTargets(into, ctx, content, re);
 	}
 	return refs;
+}
+
+/** Importer text as the import scan reads it: a single-file component shows only its script blocks. */
+function readImporterText(cwd: string, rel: string): string {
+	const text = readFileSync(join(cwd, rel), "utf-8");
+	const kind = componentKind(rel);
+	return kind === null ? text : maskComponentScripts(text, kind);
+}
+
+/** Tracked and untracked-but-not-ignored single-file components (`.svelte`, `.vue`, `.astro`). */
+function gitComponentFiles(cwd: string): string[] {
+	try {
+		const raw = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.svelte", "*.vue", "*.astro"], {
+			cwd, encoding: "utf-8", timeout: 10_000, stdio: ["pipe", "pipe", "pipe"],
+		});
+		return raw.split("\0").filter(Boolean);
+	} catch (err) {
+		void err; // not a git tree — walk the directory instead
+		return walkComponents(cwd, "");
+	}
+}
+
+function walkComponents(root: string, dir: string): string[] {
+	const out: string[] = [];
+	try {
+		for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+			const rel = dir ? `${dir}/${entry.name}` : entry.name;
+			if (entry.isDirectory()) {
+				if (!WALK_SKIP_DIRS.has(entry.name)) out.push(...walkComponents(root, rel));
+			} else if (componentKind(entry.name) !== null) out.push(rel);
+		}
+	} catch (err) {
+		void err; // unreadable directory — skip
+	}
+	return out;
+}
+
+/** `(specifier, importerRel) => repo-relative target file` for alias and workspace imports, from static config reads. */
+function aliasTargets(cwd: string): { target: (specifier: string, importerRel: string) => string | null; key: SpecifierKeyResolver; view: RepoView } {
+	const view = fsRepoView(cwd);
+	const resolver = createImportResolver(view);
+	const target = (specifier: string, importerRel: string): string | null => {
+		const found = resolver.resolve(importerRel, specifier);
+		return found?.kind === "local" ? found.target : null;
+	};
+	return { target, key: (specifier, importer) => { const hit = target(specifier, importer); return hit === null ? null : consumptionPathKey(hit); }, view };
 }
 
 /** Discovery is git-first: `git ls-files` covers every tracked/untracked
@@ -217,18 +291,19 @@ function discoverScanFiles(cwd: string): string[] {
 }
 
 /** Caching repo view shared by the per-symbol detectors. */
-function buildDeadExportsRepo(cwd: string, importerFiles: string[]): {
+function buildDeadExportsRepo(cwd: string, importerFiles: string[], resolveBare?: SpecifierKeyResolver): {
 	repo: DeadExportsRepo;
 	prime: (rel: string, content: string) => void;
 } {
 	const importerContent = new Map<string, string | null>();
 	const repo: DeadExportsRepo = {
 		listFiles: () => importerFiles,
+		...(resolveBare ? { resolveBare } : {}),
 		readFile: (rel) => {
 			const cached = importerContent.get(rel);
 			if (cached !== undefined) return cached;
 			try {
-				const content = readFileSync(join(cwd, rel), "utf-8");
+				const content = readImporterText(cwd, rel);
 				importerContent.set(rel, content);
 				return content;
 			} catch {
@@ -274,14 +349,49 @@ function classifyFileReachability(
 	if (fromTest && !nonTest && !isEntry) out.testOnlyImporterFiles.push(rel);
 }
 
-/** Sweep the repo once and report the reachability-layer candidates. */
-export function scanDeadCode(cwd: string): DeadCodeReport {
+interface ScanContext {
+	graph: ProjectGraph;
+	roots: Set<string>;
+	frameworkEntries: ReadonlySet<string>;
+	deadExportsRepo: DeadExportsRepo;
+	prime: (rel: string, content: string) => void;
+	refs: ReferenceSets;
+}
+
+/** Everything the per-file loop reads: the import graph, entry roots, reference sets and the importer view. */
+function buildScanContext(cwd: string, files: readonly string[]): ScanContext {
 	const graph = new ProjectGraph(cwd);
 	graph.initialize();
+	const relFiles = files.map((f) => f.split(sep).join("/"));
+	const alias = aliasTargets(cwd);
+	const components = gitComponentFiles(cwd);
+	// Framework route, layout and hook files are loaded by path, never imported.
+	const { entries: roots, frameworkEntries } = reachabilityRoots(alias.view, relFiles, components, entryPoints(cwd, relFiles));
+	for (const target of scriptCommandEntries(gitFileList(cwd) ?? [], alias.view.read, new Set(relFiles))) roots.add(target);
+	const { repo: deadExportsRepo, prime } = buildDeadExportsRepo(cwd, [...getGitSourceFiles(cwd), ...components], alias.key);
+	const refs = collectReferences(cwd, [...files, ...components], alias.target);
+	// A static page loads scripts by path; that is a reference the import scan cannot see.
+	for (const { html, targets } of htmlReferences(cwd, new Set(relFiles))) {
+		for (const target of targets) (isTestPath(html) ? refs.byTest : refs.byNonTest).add(target);
+	}
+	return { graph, roots, frameworkEntries, deadExportsRepo, prime, refs };
+}
+
+/** Cross-file export findings (values, then types) for one file. */
+function scanExports(
+	file: { cwd: string; rel: string; abs: string; content: string },
+	repo: DeadExportsRepo,
+	out: { deadExports: DeadExportFinding[]; deadTypeExports: DeadExportFinding[] },
+): void {
+	const args = { content: file.content, filePath: file.abs, cwd: file.cwd };
+	for (const m of findDeadExports(args, repo)) out.deadExports.push({ file: file.rel, detail: m.text });
+	for (const m of findDeadTypeExports(args, repo)) out.deadTypeExports.push({ file: file.rel, detail: m.text });
+}
+
+/** Sweep the repo once and report the reachability-layer candidates. */
+export function scanDeadCode(cwd: string): DeadCodeReport {
 	const files = discoverScanFiles(cwd);
-	const entries = entryPoints(cwd, files.map((f) => f.split(sep).join("/")));
-	const { repo: deadExportsRepo, prime } = buildDeadExportsRepo(cwd, getGitSourceFiles(cwd));
-	const refs = collectReferences(cwd, files);
+	const { graph, roots, frameworkEntries, deadExportsRepo, prime, refs } = buildScanContext(cwd, files);
 	const out: { unreachableFiles: string[]; deadImportBindings: DeadImportBinding[]; deadExports: DeadExportFinding[]; deadTypeExports: DeadExportFinding[]; testOnlyImporterFiles: string[]; scannedPaths: string[] } = {
 		unreachableFiles: [],
 		deadImportBindings: [],
@@ -300,16 +410,12 @@ export function scanDeadCode(cwd: string): DeadCodeReport {
 		prime(rel, content);
 		out.scannedPaths.push(rel);
 
-		classifyFileReachability(graph, entries, refs, rel, abs, out);
+		classifyFileReachability(graph, roots, refs, rel, abs, out);
 		for (const binding of findDeadImports(content)) {
 			out.deadImportBindings.push({ file: rel, binding });
 		}
-		for (const m of findDeadExports({ content, filePath: abs, cwd }, deadExportsRepo)) {
-			out.deadExports.push({ file: rel, detail: m.text });
-		}
-		for (const m of findDeadTypeExports({ content, filePath: abs, cwd }, deadExportsRepo)) {
-			out.deadTypeExports.push({ file: rel, detail: m.text });
-		}
+		// A framework loads route modules by path, so their exports (`load`, `GET`) have no importer.
+		if (!frameworkEntries.has(rel)) scanExports({ cwd, rel, abs, content }, deadExportsRepo, out);
 	}
 
 	out.unreachableFiles.sort((a, b) => a.localeCompare(b));
@@ -352,15 +458,18 @@ export async function deadcodeCommand(opts: {
 	cwd?: string;
 }): Promise<number> {
 	const cwd = opts.cwd ?? process.cwd();
-	const report = scanDeadCode(cwd);
+	const scripts = applySetAside(scanDeadCode(cwd), setAsideDecision(cwd));
+	// The categorizer reads TypeScript; Python rows are listed in the plain and JSON reports only.
 	if (opts.categorize) {
-		return printCategorized(cwd, report, opts.json === true);
+		return printCategorized(cwd, scripts, opts.json === true);
 	}
+	const report = applySetAside(withPython(scripts, scanPythonDeadCode(cwd)), setAsideDecision(cwd));
 	if (opts.json) {
 		console.log(JSON.stringify(report, null, 2));
 		return 0;
 	}
 	console.log(`Dead-code scan — ${report.scannedFiles} files (reachability layers; candidates, not verdicts)`);
+	for (const line of pythonSummaryLines(report)) console.log(line);
 	console.log(`\nUnreachable files (${report.unreachableFiles.length}) — nothing imports them; verify no runtime path loads them:`);
 	for (const f of report.unreachableFiles) console.log(`  ${f}`);
 	console.log(`\nDead import bindings (${report.deadImportBindings.length}) — imported, never referenced:`);
@@ -375,6 +484,7 @@ export async function deadcodeCommand(opts: {
 	for (const d of report.deadTypeExports.slice(0, 40)) console.log(`  ${d.file}: ${d.detail}`);
 	if (report.deadTypeExports.length > 40)
 		console.log(`  … +${report.deadTypeExports.length - 40} more (use --json)`);
+	printSetAside(report);
 	console.log(
 		"\nSemantic (behaviorally inert) dead code is the mutation lane's job: interlinked mutation disposition --list dead_code.",
 	);

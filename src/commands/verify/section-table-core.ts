@@ -80,6 +80,13 @@ export const coreSections: readonly SectionSpec[] = [
 		passLabel: "every private helper earns its name",
 		color: "33",
 	},
+	{
+		label: "dead literal stores",
+		key: "deadLiteralStore",
+		noun: "local literal initial values overwritten by the next statement",
+		passLabel: "no overwritten initial values",
+		color: "33",
+	},
     {
         label: "Python simplification review",
         key: "pythonSimplification",

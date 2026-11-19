@@ -31,15 +31,18 @@ import argparse
 import json
 import sys
 import traceback
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from opf import OPF  # type: ignore[import-not-found]
 
 
-def _write(obj: dict[str, Any]) -> None:
+def _write(obj: dict[str, object]) -> None:
     sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
 
-def _ok(req_id: str | None, payload: dict[str, Any]) -> None:
+def _ok(req_id: str, payload: dict[str, object]) -> None:
     _write({"id": req_id, "ok": True, **payload})
 
 
@@ -47,7 +50,7 @@ def _fail(req_id: str | None, msg: str) -> None:
     _write({"id": req_id, "ok": False, "error": msg})
 
 
-def _build_opf(viterbi_calibration_path: str | None) -> Any:
+def _build_opf(viterbi_calibration_path: str | None) -> OPF:
     try:
         from opf import OPF  # type: ignore[import-not-found]
     except ImportError as e:
@@ -80,26 +83,31 @@ def _build_opf(viterbi_calibration_path: str | None) -> Any:
     return opf
 
 
-def _handle_scan(opf: Any, req_id: str | None, text: Any) -> None:
+def _handle_scan(opf: OPF, req_id: str, text: object) -> None:
     if not isinstance(text, str):
         _fail(req_id, "scan `text` must be a string")
         return
     try:
         result = opf.redact(text)
+        spans = [
+            {
+                "label": span.label,
+                "start": int(span.start),
+                "end": int(span.end),
+                "text": span.text,
+            }
+            for span in result.detected_spans
+        ]
+        redacted = result.redacted_text
+        if not isinstance(redacted, str):
+            raise ValueError("redacted_text must be a string")
+        if any(not isinstance(span[key], str) for span in spans for key in ("label", "text")):
+            raise ValueError("span label and text must be strings")
     except Exception as e:
         _fail(req_id, f"scan failed: {e}\n{traceback.format_exc()}")
         return
 
-    spans = [
-        {
-            "label": span.label,
-            "start": int(span.start),
-            "end": int(span.end),
-            "text": span.text,
-        }
-        for span in result.detected_spans
-    ]
-    _ok(req_id, {"spans": spans, "redacted_text": result.redacted_text})
+    _ok(req_id, {"spans": spans, "redacted_text": redacted})
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -136,6 +144,9 @@ def main() -> None:
             continue
 
         req_id = req.get("id")
+        if not isinstance(req_id, str) or not req_id:
+            _fail(None, "request id must be a nonempty string")
+            continue
         op = req.get("op")
 
         if op == "ping":

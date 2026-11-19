@@ -3,7 +3,7 @@ import { nonNull } from "../../lib/non-null.js";
 
 import { describe, expect, it } from "vitest";
 import type { CheckRegistration } from "../check-registry/types.js";
-import { detectorHash } from "./adversarial.js";
+import { ADVERSARIAL_TEST_DIR } from "./adversarial.js";
 import { evidenceFor, failingVerdicts, staleExemptions, sweepEvidence } from "./extract.js";
 import type { DetectorIndex } from "./resolve.js";
 import { corpusResultDigest } from "./corpus-integrity.js";
@@ -239,81 +239,106 @@ export function detectExample(content: string, filePath: string): number[] {
 		expect(sweep.evidence[0]?.derived_case_floor).toBeGreaterThanOrEqual(2);
 	});
 
-	it("P3: attaches the detector file's mutation score", () => {
-		const sweep = sweepEvidence({
-			registry: [check()],
-			advisoryIds: new Set(),
-			index: index(),
-			mutationScores: { "src/harness/checks/example.ts": 0.42 },
-		});
-		expect(sweep.evidence[0]?.mutation_score).toBe(0.42);
-	});
-
 	it("N1: absent source leaves complexity UNKNOWN rather than zero", () => {
 		const sweep = sweepEvidence({ registry: [check()], advisoryIds: new Set(), index: index() });
 		expect(sweep.evidence[0]?.detector_cyclomatic).toBeNull();
 	});
-
-	it("N2: absent mutation data leaves the score null, not zero", () => {
-		const sweep = sweepEvidence({ registry: [check()], advisoryIds: new Set(), index: index() });
-		expect(sweep.evidence[0]?.mutation_score).toBeNull();
-	});
-
-	it("N3: a mutation map without this detector's file yields null", () => {
-		const sweep = sweepEvidence({
-			registry: [check()],
-			advisoryIds: new Set(),
-			index: index(),
-			mutationScores: { "src/other.ts": 0.9 },
-		});
-		expect(sweep.evidence[0]?.mutation_score).toBeNull();
-	});
 });
 
 describe("adversarial wiring", () => {
-	const SRC = "export function detectExample() { return []; }";
-	const HASH = detectorHash(SRC);
+	const SUITE = {
+		file: `${ADVERSARIAL_TEST_DIR}/example_check.adversarial.test.ts`,
+		source: 'import { detectExample } from "x";\nit("N1: a real near-miss", () => expect(detectExample()).toEqual([]));',
+	};
 
-	it("P1: a fresh independent pass over the current source clears the gap", () => {
+	it("P1: a suite named for the check that names its detector and pins a false positive clears the gap", () => {
 		const sweep = sweepEvidence({
 			registry: [check()],
 			advisoryIds: new Set(),
 			index: index(),
-			detectorSource: { "src/harness/checks/example.ts": SRC },
-			adversarial: {
-				example_check: { reviewer: "b", author: "a", detector_sha256: HASH, findings: [] },
-			},
+			adversarial: { example_check: [SUITE] },
 		});
 		expect(sweep.evidence[0]?.adversarial_gap).toBeNull();
 	});
 
-	it("P2: a pass over older source reads as stale", () => {
+	it("P2: a suite that never names the detector does not count", () => {
 		const sweep = sweepEvidence({
 			registry: [check()],
 			advisoryIds: new Set(),
 			index: index(),
-			detectorSource: { "src/harness/checks/example.ts": `${SRC}\n// changed` },
-			adversarial: {
-				example_check: { reviewer: "b", author: "a", detector_sha256: HASH, findings: [] },
-			},
+			adversarial: { example_check: [{ ...SUITE, source: SUITE.source.replaceAll("detectExample", "detectOther") }] },
 		});
-		expect(sweep.evidence[0]?.adversarial_gap).toBe("stale_source");
+		expect(sweep.evidence[0]?.adversarial_gap).toBe("detector_not_named");
 	});
 
-	it("N1: no record reads as missing, not as satisfied", () => {
+	it("N1: no suite reads as missing, not as satisfied", () => {
 		const sweep = sweepEvidence({ registry: [check()], advisoryIds: new Set(), index: index() });
 		expect(sweep.evidence[0]?.adversarial_gap).toBe("missing");
 	});
 
-	it("N2: another check's record does not satisfy this one", () => {
+	it("N2: another check's suite does not satisfy this one", () => {
 		const sweep = sweepEvidence({
 			registry: [check()],
 			advisoryIds: new Set(),
 			index: index(),
-			detectorSource: { "src/harness/checks/example.ts": SRC },
-			adversarial: { other_check: { reviewer: "b", detector_sha256: HASH, findings: [] } },
+			adversarial: { other_check: [SUITE] },
 		});
 		expect(sweep.evidence[0]?.adversarial_gap).toBe("missing");
+	});
+});
+
+describe("attribution wiring", () => {
+	const SHARED = `
+import { detectExample, detectOrphan } from "../checks/x.js";
+describe("detectExample — positive (must fire)", () => {
+	it("a", () => {});
+});
+describe("detectOrphan — positive (must fire)", () => {
+	it("b", () => {});
+	it("c", () => {});
+});
+describe("negative (must not fire)", () => {
+	it("d", () => expect(detectOrphan("x")).toEqual([]));
+});
+`;
+	const shared = (): DetectorIndex => ({
+		sourceByFn: new Map([["detectExample", "ex.ts"], ["detectOrphan", "or.ts"]]),
+		testsByFn: new Map([["detectExample", ["shared.test.ts"]], ["detectOrphan", ["shared.test.ts"]]]),
+		testSource: new Map([["shared.test.ts", SHARED]]),
+	});
+
+	it("P1: a shared suite credits each detector only with the cases that name it", () => {
+		const sweep = sweepEvidence({
+			registry: [check(), check({ id: "orphan_check", fn: detectOrphan })],
+			advisoryIds: new Set(),
+			index: shared(),
+		});
+		const [example, orphan] = sweep.evidence;
+		expect([example?.positive_count, example?.negative_count]).toEqual([3, 1]);
+		expect([example?.attributed_positive_count, example?.attributed_negative_count]).toEqual([1, 0]);
+		expect([orphan?.attributed_positive_count, orphan?.attributed_negative_count]).toEqual([2, 1]);
+	});
+
+	it("N1: a measured-only attributed shortfall does not fail the default sweep", () => {
+		const sweep = sweepEvidence({
+			registry: [check({ phase: "post" }), check({ id: "orphan_check", fn: detectOrphan })],
+			advisoryIds: new Set(["example_check"]),
+			index: shared(),
+		});
+		expect(sweep.evidence[0]?.attributed_negative_count).toBe(0);
+		expect(sweep.verdicts[0]?.satisfied).toBe(true);
+	});
+
+	it("P2: an enforced attributed_cases dimension fails the over-credited check", () => {
+		const sweep = sweepEvidence({
+			registry: [check(), check({ id: "orphan_check", fn: detectOrphan })],
+			advisoryIds: new Set(["example_check"]),
+			index: shared(),
+			enforced: ["attributed_cases"],
+		});
+		expect(sweep.verdicts[0]?.shortfalls).toEqual([
+			"needs ≥1 labeled MUST-NOT-FIRE case(s) that name `detectExample`, found 0",
+		]);
 	});
 });
 

@@ -7,22 +7,46 @@
 
 import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { Command } from "commander";
+import { type Command, InvalidArgumentError } from "commander";
 import { TrigramIndex } from "../harness/trigram-index.js";
 import type { IndexStats } from "../harness/trigram-primitives.js";
+
+function parseMaxFileSize(value: string): string {
+	const text = value.trim();
+	const bytes = Number(text);
+	if (!/^[+-]?\d+$/.test(text) || !Number.isSafeInteger(bytes) || bytes < 0) {
+		throw new InvalidArgumentError("Expected a nonnegative safe integer byte count.");
+	}
+	return text;
+}
+
+function parseStopThreshold(value: string): string {
+	const text = value.trim();
+	const ratio = Number(text);
+	if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(text) || !Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
+		throw new InvalidArgumentError("Expected a finite ratio between 0 and 1.");
+	}
+	return text;
+}
 
 export function registerIndexCommand(program: Command): void {
 	const index = program
 		.command("index")
 		.description("Manage the trigram search index for grep acceleration");
 
-	// --- build ---
+	registerBuild(index);
+	registerUpdate(index);
+	registerStatus(index);
+	registerQuery(index);
+}
+
+function registerBuild(index: Command): void {
 	index
 		.command("build")
 		.description("Build a full trigram index from the current codebase")
 		.option("--cwd <path>", "Working directory", process.cwd())
-		.option("--max-file-size <bytes>", "Skip files larger than this", "1048576")
-		.option("--stop-threshold <ratio>", "Stop trigram threshold (0-1)", "0.4")
+		.option("--max-file-size <bytes>", "Skip files larger than this", parseMaxFileSize, "1048576")
+		.option("--stop-threshold <ratio>", "Stop trigram threshold (0-1)", parseStopThreshold, "0.4")
 		.action(async (opts) => {
 			const cwd = resolve(opts.cwd);
 			console.log(`Building trigram index for ${cwd}...`);
@@ -57,7 +81,9 @@ export function registerIndexCommand(program: Command): void {
 			console.log(`  Base commit: ${stats.baseCommit.slice(0, 8)}`);
 		});
 
-	// --- update ---
+}
+
+function registerUpdate(index: Command): void {
 	index
 		.command("update")
 		.description("Incrementally update the index from git changes")
@@ -86,7 +112,9 @@ export function registerIndexCommand(program: Command): void {
 			console.log(`Updated ${updated} files in ${elapsed}s`);
 		});
 
-	// --- status ---
+}
+
+function registerStatus(index: Command): void {
 	index
 		.command("status")
 		.description("Show index status and statistics")
@@ -118,7 +146,9 @@ export function registerIndexCommand(program: Command): void {
 			printIndexFreshness(cwd);
 		});
 
-	// --- query (debug/test) ---
+}
+
+function registerQuery(index: Command): void {
 	index
 		.command("query <pattern>")
 		.description("Query the index for candidate files (debug tool)")

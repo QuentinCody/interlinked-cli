@@ -904,7 +904,7 @@ describe("runGitleaks (sync)", () => {
 			"--report-format",
 			"json",
 			"--report-path",
-			"/dev/stdout",
+			"-",
 			"--source",
 			".",
 		]);
@@ -1328,10 +1328,10 @@ describe("runEslintAsync", () => {
 		expect(args[args.length - 1]).toBe(".");
 	});
 
-	it("returns [] when code === 0 (clean) even with stdout content", async () => {
+	it("retains emitted ESLint diagnostics even when the process exits zero", async () => {
 		existsSyncMock.mockImplementation(existsForPaths([ESLINT_CONFIG]));
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: eslintUnix() }));
-		expect(await runEslintAsync(input(fileScope()))).toEqual([]);
+		expect(await runEslintAsync(input(fileScope()))).toEqual(expect.arrayContaining([expect.objectContaining({ tool: "eslint", ruleId: "no-unused-vars", line: 7 })]));
 	});
 
 	it("parses findings from stdout+stderr on a non-zero code", async () => {
@@ -1373,25 +1373,19 @@ describe("runOxlintAsync", () => {
 		expect(args).toEqual(["oxlint", "--format=json", "."]);
 	});
 
-	it("returns [] when code === null (ENOENT etc.)", async () => {
+	it("reports an unavailable Oxlint process while retaining emitted diagnostics", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null, stdout: oxlintJson() }));
-		expect(await runOxlintAsync(input(fileScope()))).toEqual([]);
+		await expect(runOxlintAsync(input(fileScope()))).rejects.toMatchObject({ results: expect.arrayContaining([expect.objectContaining({ tool: "oxlint" })]) });
 	});
 
-	it("returns [] when code === 0 (clean)", async () => {
+	it("retains emitted Oxlint diagnostics on exit zero", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: oxlintJson() }));
-		expect(await runOxlintAsync(input(fileScope()))).toEqual([]);
+		expect(await runOxlintAsync(input(fileScope()))).toHaveLength(2);
 	});
 
-	it("returns [] on a non-zero code with empty stdout (trim → '' guard)", async () => {
-		// parseOxlintJson swallows invalid JSON and returns [] too, so a
-		// mutant that neuters the `if (!output)` guard would still return []
-		// here — asserting the parser was never called is the discriminator.
-		const parseSpy = vi.spyOn(outputParsers, "parseOxlintJson");
+	it("reports an unavailable Oxlint verdict on nonzero exit with empty output", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: "  " }));
-		expect(await runOxlintAsync(input(fileScope()))).toEqual([]);
-		expect(parseSpy).not.toHaveBeenCalled();
-		parseSpy.mockRestore();
+		await expect(runOxlintAsync(input(fileScope()))).rejects.toThrow("no check verdict");
 	});
 
 	it("parses diagnostics on a non-zero code", async () => {
@@ -1423,30 +1417,24 @@ describe("runKnipAsync", () => {
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 3_456 });
 	});
 
-	it("returns [] when code === null (ENOENT etc.)", async () => {
+	it("reports an unavailable Knip process while retaining emitted diagnostics", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null, stdout: knipJson() }));
-		expect(await runKnipAsync(input(fileScope()))).toEqual([]);
+		await expect(runKnipAsync(input(fileScope()))).rejects.toMatchObject({ results: expect.arrayContaining([expect.objectContaining({ tool: "knip" })]) });
 	});
 
-	it("returns [] when code === 0 (clean)", async () => {
+	it("retains emitted Knip diagnostics on exit zero", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: knipJson() }));
-		expect(await runKnipAsync(input(fileScope()))).toEqual([]);
+		expect(await runKnipAsync(input(fileScope()))).toHaveLength(2);
 	});
 
-	it("returns [] when code === 2 (config error)", async () => {
+	it("reports a Knip configuration error even with partial findings", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 2, stdout: knipJson() }));
-		expect(await runKnipAsync(input(fileScope()))).toEqual([]);
+		await expect(runKnipAsync(input(fileScope()))).rejects.toMatchObject({ message: expect.stringContaining("process exited 2"), results: expect.arrayContaining([expect.objectContaining({ tool: "knip" })]) });
 	});
 
-	it("returns [] on a non-zero code with empty stdout (trim → '' guard)", async () => {
-		// parseKnipJson swallows invalid JSON and returns [] too, so a mutant
-		// that neuters the `if (!output)` guard would still return [] here —
-		// asserting the parser was never called is the discriminator.
-		const parseSpy = vi.spyOn(outputParsers, "parseKnipJson");
+	it("reports an unavailable Knip verdict on nonzero exit with empty output", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: "" }));
-		expect(await runKnipAsync(input(fileScope()))).toEqual([]);
-		expect(parseSpy).not.toHaveBeenCalled();
-		parseSpy.mockRestore();
+		await expect(runKnipAsync(input(fileScope()))).rejects.toThrow("no check verdict");
 	});
 
 	it("parses unused files + exports on a non-zero code (project mode, no filtering)", async () => {
@@ -1492,7 +1480,7 @@ describe("runKnipAsync", () => {
 
 describe("runSemgrepAsync", () => {
 	it("invokes runProcessAsync with the default ruleset + targetFile, cwd/timeout", async () => {
-		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: '{"results":[],"errors":[]}' }));
 		await runSemgrepAsync(input(fileScope(), 9_090));
 		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("semgrep");
@@ -1511,38 +1499,32 @@ describe("runSemgrepAsync", () => {
 	});
 
 	it("targets '.' in project mode", async () => {
-		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: '{"results":[],"errors":[]}' }));
 		await runSemgrepAsync(input(projectScope()));
 		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args[args.length - 1]).toBe(".");
 	});
 
 	it("ignores a stray targetFile in project mode (mode !== 'file' guards the ternary)", async () => {
-		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: '{"results":[],"errors":[]}' }));
 		await runSemgrepAsync(input(projectScope({ targetFile: "/some/leftover/path.ts" })));
 		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args[args.length - 1]).toBe(".");
 	});
 
-	it("returns [] when code === null (ENOENT etc.)", async () => {
+	it("retains positive findings as incomplete when the process exits without status", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null, stdout: semgrepJson() }));
-		expect(await runSemgrepAsync(input(fileScope()))).toEqual([]);
+		await expect(runSemgrepAsync(input(fileScope()))).rejects.toMatchObject({ results: [expect.objectContaining({ ruleId: "rules.no-eval" })], message: expect.stringContaining("no check verdict") });
 	});
 
-	it("returns [] when code === 2 (config/auth error)", async () => {
+	it("retains positive findings alongside an unavailable config/auth result", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 2, stdout: semgrepJson() }));
-		expect(await runSemgrepAsync(input(fileScope()))).toEqual([]);
+		await expect(runSemgrepAsync(input(fileScope()))).rejects.toMatchObject({ results: [expect.objectContaining({ ruleId: "rules.no-eval" })], message: expect.stringContaining("no check verdict") });
 	});
 
-	it("returns [] on a clean run with empty stdout (trim → '' guard)", async () => {
-		// parseSemgrepJson swallows invalid JSON and returns [] too, so a
-		// mutant that neuters the `if (!output)` guard would still return []
-		// here — asserting the parser was never called is the discriminator.
-		const parseSpy = vi.spyOn(outputParsers, "parseSemgrepJson");
+	it("reports a successful process with no JSON report as unavailable", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: "  " }));
-		expect(await runSemgrepAsync(input(fileScope()))).toEqual([]);
-		expect(parseSpy).not.toHaveBeenCalled();
-		parseSpy.mockRestore();
+		await expect(runSemgrepAsync(input(fileScope()))).rejects.toThrow("no complete scan verdict");
 	});
 
 	it("parses findings and relativizes path on a non-zero code", async () => {
@@ -1580,7 +1562,7 @@ describe("runGitleaksAsync", () => {
         expect(runProcessAsyncMock).not.toHaveBeenCalled();
     });
     it("monitors the admitted scanner tree at the light budget", async () => {
-        runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: "[]" }));
         await runGitleaksAsync(input(projectScope()));
         expect(memoryBudgetMock).toHaveBeenCalledWith("light");
         expect(runProcessAsyncMock).toHaveBeenCalledWith("gitleaks", expect.arrayContaining(["--redact", "--no-git"]), expect.objectContaining({ resourceBudget: { reserveBytes: 2 * 1024 ** 3, maxRssBytes: 1024 ** 3 } }));
@@ -1593,7 +1575,7 @@ describe("runGitleaksAsync", () => {
 	});
 
 	it("invokes runProcessAsync with detect args in project mode", async () => {
-		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: "[]" }));
 		await runGitleaksAsync(input(projectScope(), 11_111));
 		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("gitleaks");
@@ -1605,46 +1587,40 @@ describe("runGitleaksAsync", () => {
 			"--report-format",
 			"json",
 			"--report-path",
-			"/dev/stdout",
+			"-",
 			"--source",
 			".",
 		]);
 		expect(opts).toMatchObject({ cwd: PROJECT_ROOT, timeout: 11_111, env: { GOMAXPROCS: expect.stringMatching(/^[12]$/) } });
 	});
 
-	it("returns [] when code === null (process never started)", async () => {
+	it("reports an unavailable Gitleaks process and retains partial findings", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null, stdout: gitleaksJson() }));
-		expect(await runGitleaksAsync(input(projectScope()))).toEqual([]);
+		await expect(runGitleaksAsync(input(projectScope()))).rejects.toMatchObject({ results: expect.arrayContaining([expect.objectContaining({ tool: "gitleaks" })]) });
 	});
 
-	it("returns [] when code !== 1 (e.g. clean exit 0)", async () => {
+	it("retains Gitleaks findings even when the process exits zero", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: gitleaksJson() }));
-		expect(await runGitleaksAsync(input(projectScope()))).toEqual([]);
+		expect(await runGitleaksAsync(input(projectScope()))).toHaveLength(1);
 	});
 
-	it("returns [] when code === 1 but output contains FTL", async () => {
+	it("reports Gitleaks fatal execution while retaining emitted findings", async () => {
 		runProcessAsyncMock.mockResolvedValue(
 			procResult({ code: 1, stderr: "FTL boom", stdout: gitleaksJson() }),
 		);
-		expect(await runGitleaksAsync(input(projectScope()))).toEqual([]);
+		await expect(runGitleaksAsync(input(projectScope()))).rejects.toMatchObject({ message: expect.stringContaining("no complete security verdict"), results: expect.arrayContaining([expect.objectContaining({ tool: "gitleaks" })]) });
 	});
 
-	it("returns [] when code === 1 but output contains 'no such file'", async () => {
+	it("reports missing Gitleaks inputs while retaining emitted findings", async () => {
 		runProcessAsyncMock.mockResolvedValue(
 			procResult({ code: 1, stderr: "no such file", stdout: gitleaksJson() }),
 		);
-		expect(await runGitleaksAsync(input(projectScope()))).toEqual([]);
+		await expect(runGitleaksAsync(input(projectScope()))).rejects.toMatchObject({ results: expect.arrayContaining([expect.objectContaining({ tool: "gitleaks" })]) });
 	});
 
-	it("returns [] when code === 1 with empty stdout (trim → '' guard)", async () => {
-		// parseGitleaksJson swallows invalid JSON and returns [] too, so a
-		// mutant that neuters the `if (!output)` guard would still return []
-		// here — asserting the parser was never called is the discriminator.
-		const parseSpy = vi.spyOn(outputParsers, "parseGitleaksJson");
+	it("rejects an empty Gitleaks report instead of treating it as clean", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: "", stderr: "" }));
-		expect(await runGitleaksAsync(input(projectScope()))).toEqual([]);
-		expect(parseSpy).not.toHaveBeenCalled();
-		parseSpy.mockRestore();
+		await expect(runGitleaksAsync(input(projectScope()))).rejects.toThrow("report is malformed");
 	});
 
 	it("parses leaks on code === 1 with a clean (non-fatal) stdout", async () => {

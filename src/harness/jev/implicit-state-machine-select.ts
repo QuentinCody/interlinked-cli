@@ -35,10 +35,10 @@ import {
 import { collectScopes } from "./implicit-state-machine-scopes.js";
 import { calleeName, collectWriterSites, type ScopeWrites, type WriterSite } from "./implicit-state-machine-writes.js";
 
-export const MIN_LIFECYCLE_FIELDS = 3;
-export const MIN_MULTI_WRITER_FIELDS = 2;
-export const MIN_WRITERS = 2;
-export const MAX_COMBINATIONS = 16;
+const MIN_LIFECYCLE_FIELDS = 3;
+const MIN_MULTI_WRITER_FIELDS = 2;
+const MIN_WRITERS = 2;
+const MAX_COMBINATIONS = 16;
 
 export interface LifecycleField {
 	name: string;
@@ -168,7 +168,7 @@ function enumerationOrder(a: LifecycleField, b: LifecycleField): number {
 }
 
 /** Product of the chosen fields' domains, capped at MAX_COMBINATIONS; fields that do not fit are listed as omitted. */
-export function enumerateCombinations(fields: LifecycleField[]): Pick<StateMachineCandidate, "combinations" | "omittedFromCombinations"> {
+function enumerateCombinations(fields: LifecycleField[]): Pick<StateMachineCandidate, "combinations" | "omittedFromCombinations"> {
 	const ordered = [...fields].sort(enumerationOrder);
 	const chosen: LifecycleField[] = [];
 	const omitted: string[] = [];

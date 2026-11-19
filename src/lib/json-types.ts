@@ -47,6 +47,25 @@ export function isJsonObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Return the original keyed object when present, otherwise indicate an unparseable field. */
+export function asJsonObject(value: unknown): JsonObject | null {
+	return isJsonObject(value) ? value : null;
+}
+
+export function stringField(object: JsonObject, key: string): string | undefined {
+	const value = object[key];
+	return typeof value === "string" ? value : undefined;
+}
+
+/** Parse a JSON object from text, returning null for malformed or unkeyed input. */
+export function parseJsonObjectText(text: string): JsonObject | null {
+	try {
+		return asJsonObject(JSON.parse(text));
+	} catch {
+		return null;
+	}
+}
+
 /**
  * A recursive JSON value. Prefer `JsonObject` for most parameters; use
  * `JsonValue` only when you really need the strict recursive shape

@@ -28,25 +28,33 @@ function moduleTargets(entry: LintImportEntry): boolean {
     return entry.tool === "mypy" && (entry.flags ?? []).some((flag) => ["-p", "--package", "-m", "--module"].includes(flag));
 }
 
-function targetArguments(root: string, entry: LintImportEntry, defaults: string[]): string[] {
+function foregroundFlags(entry: LintImportEntry, resourcePolicy?: "foreground-verify"): string[] {
+    if (resourcePolicy !== "foreground-verify" || entry.tool !== "semgrep") return [];
+    const flags = entry.flags ?? [];
+    return ["--timeout", "--timeout-threshold", "--max-target-bytes"]
+        .filter(option => !flags.some(flag => flag === option || flag.startsWith(`${option}=`)))
+        .map(option => `${option}=0`);
+}
+
+function targetArguments(root: string, entry: LintImportEntry, defaults: string[], resourcePolicy?: "foreground-verify"): string[] {
     if (moduleTargets(entry)) return entry.targets ?? [];
     const targets = entry.targets ?? defaults;
     if (!FILE_TARGET_TOOLS.has(entry.tool)) return targets;
     const cwd = lintPath(root, entry.scope);
     if (entry.targets !== undefined) return literalLintTargets(cwd, entry.targets);
-    const files = lintSourceFiles(cwd).filter((file) => targets.some((target) => matchesGlob(file, target)));
+    const files = lintSourceFiles(cwd, resourcePolicy).filter((file) => targets.some((target) => matchesGlob(file, target)));
     if (files.length === 0) throw new Error(`No ${entry.tool} source files found; no verdict`);
     return files;
 }
 
 /** Reporter replacement is explicit; semantic options and the original targets survive. */
-export function importedLintInvocation(root: string, entry: LintImportEntry): LintInvocation {
+export function importedLintInvocation(root: string, entry: LintImportEntry, resourcePolicy?: "foreground-verify"): LintInvocation {
     validateLintArguments(entry);
     if (entry.report) return { command: entry.report.command, args: [...entry.report.args], successCodes: entry.report.successCodes };
     const adapter = LINT_ADAPTERS[entry.tool];
     if (!adapter) throw new Error(`No execution adapter for ${entry.tool}`);
     const config = entry.config === undefined ? [] : [adapter.configFlag ?? "--config", lintPath(root, entry.config)];
-    const args = [...adapter.prefix, ...config, ...(entry.flags ?? []), ...adapter.reporter, ...targetArguments(root, entry, adapter.targets)];
+    const args = [...adapter.prefix, ...config, ...foregroundFlags(entry, resourcePolicy), ...(entry.flags ?? []), ...adapter.reporter, ...targetArguments(root, entry, adapter.targets, resourcePolicy)];
     if (entry.tool === "clippy") args.push("--", "--cap-lints=warn");
     return { command: adapter.command, args: nativeOptionSyntax(entry.tool, args), successCodes: adapter.successCodes };
 }

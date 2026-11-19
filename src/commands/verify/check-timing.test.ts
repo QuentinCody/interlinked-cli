@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { measureVerifyCheck, measureVerifyCheckAsync, withVerifyTimings } from "./check-timing.js";
+import { currentVerifyTimings, measureVerifyCheck, measureVerifyCheckAsync, recordVerifyInputDeferral, recordVerifyInputExclusion, withVerifyTimings } from "./check-timing.js";
 
 const roots: string[] = [];
 function root(): string { const path = mkdtempSync(join(tmpdir(), "il-verify-timing-")); roots.push(path); return path; }
@@ -28,9 +28,40 @@ it("MUST-FIRE: cumulative budget stops later invocations and reports partial, ne
     expect(JSON.parse(readFileSync(join(cwd, ".interlinked/verify-runs.jsonl"), "utf8"))).toMatchObject({ check: "slow", skipped: 1, status: "partial" });
 });
 
+it("checks every selected input by default after more than thirty seconds of detector work", async () => {
+	const cwd = root(); let time = 0;
+	vi.spyOn(performance, "now").mockImplementation(() => time);
+	const work = vi.fn(() => { time += 31_000; return [work.mock.calls.length]; });
+	await withVerifyTimings(cwd, () => {
+		for (let index = 1; index <= 3; index++) {
+			expect(measureVerifyCheck("slow", work, () => [])).toEqual([index]);
+		}
+	});
+	expect(work).toHaveBeenCalledTimes(3);
+	expect(process.exitCode).toBe(0);
+	expect(JSON.parse(readFileSync(join(cwd, ".interlinked/verify-runs.jsonl"), "utf8")))
+		.toMatchObject({ calls: 3, skipped: 0, duration_ms: 93_000, status: "complete" });
+});
+
 it("MUST-NOT-FIRE: unexhausted check returns its original result and errors still propagate", async () => {
     const cwd = root();
     await expect(withVerifyTimings(cwd, () => measureVerifyCheck("broken", () => { throw new Error("actual failure"); }))).rejects.toThrow("actual failure");
     expect(JSON.parse(readFileSync(join(cwd, ".interlinked/verify-runs.jsonl"), "utf8"))).toMatchObject({ errors: 1, status: "error" });
     expect(measureVerifyCheck("outside", () => [1], () => [])).toEqual([1]);
+});
+
+it("retains every known unavailable input and separates intentional exclusions", async () => {
+	const cwd = root();
+	vi.spyOn(process.stderr, "write").mockReturnValue(true);
+	await withVerifyTimings(cwd, () => {
+		for (let index = 0; index < 101; index++) recordVerifyInputDeferral("unreadable", { file: `${index}.ts`, reason: "EACCES" });
+		recordVerifyInputExclusion("input_excluded:generated", { file: "generated.ts", reason: "generated source" });
+		const unavailable = currentVerifyTimings().find(row => row.check === "unreadable");
+		expect(unavailable?.unavailable_inputs).toHaveLength(101);
+		expect(unavailable?.unavailable_inputs?.[100]).toEqual({ file: "100.ts", reason: "EACCES" });
+		expect(currentVerifyTimings().find(row => row.check === "input_excluded:generated")).toMatchObject({
+			skipped: 0, excluded: 1, excluded_inputs: [{ file: "generated.ts", reason: "generated source" }],
+		});
+	});
+	expect(process.exitCode).toBe(75);
 });

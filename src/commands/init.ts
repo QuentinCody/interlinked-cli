@@ -55,6 +55,9 @@ const SERVER_REACHABLE_TIMEOUT_MS = 2000;
 interface InitOptions {
 	server?: string;
 	agent?: string;
+	syncMode?: string;
+	dryRun?: boolean;
+	// Keep the historical direct-call spelling while accepting Commander options.
 	"sync-mode"?: string;
 	"dry-run"?: boolean;
 	json?: boolean;
@@ -65,12 +68,9 @@ function isInteractiveTty(): boolean {
 	return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
-async function isServerReachable(
-	serverUrl: string,
-	timeoutMs: number = SERVER_REACHABLE_TIMEOUT_MS,
-): Promise<boolean> {
+async function isServerReachable(serverUrl: string): Promise<boolean> {
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+	const timeout = setTimeout(() => controller.abort(), SERVER_REACHABLE_TIMEOUT_MS);
 	try {
 		const res = await fetch(`${serverUrl}/health`, { signal: controller.signal });
 		return res.ok;
@@ -344,7 +344,8 @@ async function setupHarness(
 
 export async function initCommand(options: InitOptions): Promise<void> {
 	const cwd = process.cwd();
-	const dryRun = options["dry-run"] || false;
+	const dryRun = options.dryRun ?? options["dry-run"] ?? false;
+	const syncMode = parseSyncMode(options.syncMode ?? options["sync-mode"] ?? "realtime");
 	const isJson = options.json || false;
 	const autoConfirm = options.yes || !isInteractiveTty();
 
@@ -366,9 +367,6 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
 	// Step 4: Agent name
 	const agentName = await resolveAgentName(options, detectedNames, autoConfirm, isJson);
-
-	// Step 5: Sync mode
-	const syncMode = parseSyncMode(options["sync-mode"] || "realtime");
 
 	if (dryRun) {
 		emitDryRun(serverUrl, agentName, projectName, syncMode, detectedNames, isJson);

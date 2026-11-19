@@ -43,6 +43,9 @@ const VERIFY_SUBMODULES = [
 	// these siblings, so they must be concatenated for the regex extraction to
 	// continue seeing every wired check.
 	"file-checks-agent-safety.ts",
+	"file-checks-error-context.ts",
+	"file-checks-api-boundary.ts",
+	"file-checks-numeric-zero.ts",
 	"file-checks-type-redundancy.ts",
 	"file-checks-over-extraction.ts",
 	"file-checks-react-test.ts",
@@ -224,7 +227,7 @@ function extractAgentSafetyCheckNames(source: string, registrySource?: string): 
 /** Extract check names used in toIssues() calls in verify.ts */
 function extractVerifyCheckNames(source: string): Set<string> {
 	const names = new Set<string>();
-	for (const m of source.matchAll(/toIssues\(\s*["'](\w+)["']/g)) {
+	for (const m of source.matchAll(/\b(?:toIssues|runCheck)\(\s*["'](\w+)["']/g)) {
 		names.add(nonNull(m[1]));
 	}
 	return names;
@@ -273,6 +276,9 @@ function extractJsonOutputProps(source: string): Set<string> {
 		}
 	}
 	// Post-refactor: outputJson reads `cq.X` directly across the build object.
+	for (const m of source.matchAll(/\["\w+", "(\w+)", summarize(?:WithDetails)?\]/g)) {
+		names.add(nonNull(m[1]));
+	}
 	for (const m of source.matchAll(/\bcq\.(\w+)/g)) {
 		names.add(nonNull(m[1]));
 	}
@@ -393,22 +399,12 @@ const POSTTOOLUSE_ONLY_CHECKS = new Set([
 	"implicit_switch_fallthrough",
 	"detectNumericSortWithoutComparator",
 	"numeric_sort_without_comparator",
-	"detectCatchRewrapLosesCause",
-	"catch_rewrap_loses_cause",
-	"detectJsonStringifyError",
-	"json_stringify_error",
-	"detectResourceHandleLeak",
-	"resource_handle_leak",
-	"detectJsdocParamDrift",
-	"jsdoc_param_drift",
 	"detectTimeoutUnitMismatch",
 	"timeout_unit_mismatch",
 	// Effect second-look wave (2026-09-01): shipped PostToolUse-enforced;
 	// verify-surface wiring deferred, matching the quality-frontier precedent.
 	"checkFetchWithoutAbortSignal",
 	"fetch_without_abort_signal",
-	"checkPublicApiLeaksInternalType",
-	"public_api_leaks_internal_type",
 	// Helper-hygiene wave (2026-09-01): both are EDIT-TIME (pre_warn) nudges —
 	// they diff the proposed content against the on-disk baseline, so a verify
 	// walk (no baseline, no "new" symbols) has nothing to compare and never
@@ -444,8 +440,6 @@ const POSTTOOLUSE_ONLY_CHECKS = new Set([
 	"python_portability_trap",
 	"detectTestContractAnnotation",
 	"test_contract_annotation",
-	"detectUnvalidatedInputBoundary",
-	"unvalidated_input_boundary",
 	// Package publish invariants — needs pre-edit disk content to diff against
 	// post-edit proposed content, so the check only makes sense at PreToolUse
 	// where those two states differ. Running it during `interlinked verify`
@@ -484,6 +478,10 @@ const POSTTOOLUSE_ONLY_CHECKS = new Set([
 	"process_env_outside_config",
 	"findTopLevelSideEffects",
 	"top_level_side_effect",
+	// top_level_burden (G7, judgment of metric file.top_level): an advisory with no verify result key;
+	// `interlinked verify --all-checks` runs it through the registry sweep (registry-sweep.ts).
+	"findTopLevelBurden",
+	"top_level_burden",
 	// cjs_in_esm_module (CommonJS-in-ESM): a default-gate edit-time correctness
 	// check. Load-bearing surface is WRITE TIME — the PostToolUse warning the
 	// moment an agent writes require()/module.exports/__dirname into an ESM file.
@@ -725,6 +723,7 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 		// key in JSON output rather than destructured individually.
 		// TODO: These should be individually included in JSON output for tooling.
 		const AGGREGATED_IN_JSON = new Set([
+			"commanderOptionAttribute",
 			"anonymousRegistration",
 			"cognitiveComplexity",
 			"misusedPromises",
@@ -762,6 +761,7 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 			"newExportWithoutImporter",
 			"extractedHelperDuplicate",
 			"singleUseTrivialHelper",
+			"deadLiteralStore", // G7: reported through the aggregated code-quality results, like singleUseTrivialHelper
 			"snapshotHygiene",
 			"handRolledLexer",
 			"designSlop",
@@ -784,6 +784,9 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 			"throwLiteral",
 			"promiseRejectNonError",
 			"lossyErrorRethrow",
+			"jsonStringifyError",
+			"catchRewrapLosesCause",
+			"resourceHandleLeak",
 			"silentPromiseSwallow",
 			"unvalidatedJsonBoundary",
 			"deadExports",

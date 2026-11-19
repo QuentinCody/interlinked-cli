@@ -76,6 +76,25 @@ describe("runSuiteAndScan — suite dedup and degrade wording", () => {
         expect(decision).toBeNull();
     });
 
+    it("reports an admitted-suite deferral without discharging source or deletion obligations", async () => {
+        const recordDischarge = vi.fn(), run = vi.fn();
+        const ctx: GateContext = {
+            projectRoot: root, ledgerRoot: root, sessionId: "s", sources: [],
+            suiteLanguages: ["ts"], crapThreshold: 30, blockOnTestFailure: true, blockOnCrap: true,
+            deletedPaths: ["deleted.ts"], warnings: ["existing warning"],
+        };
+        const deps: CommitGateDeps = {
+            runnerFor: () => ({ run }), runAdmittedSuite: async () => ({ deferred: "host busy" }),
+            gitChangedFiles: () => [], cyclomaticFor: () => null, clock: Date.now, readFile: () => null,
+            recordDischarge,
+        };
+        const decision = await runSuiteAndScan(ctx, deps);
+        expect(decision?.decision).toBe("allow");
+        expect(decision?.warnings).toEqual(["existing warning", expect.stringMatching(/NOT CHECKED: host busy.*Retry/)]);
+        expect(recordDischarge).not.toHaveBeenCalled();
+        expect(run).not.toHaveBeenCalled();
+    });
+
     it("falls back to a generic degrade message when a failed run carries no error string", async () => {
         const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
         const ctx: GateContext = {

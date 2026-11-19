@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { nonNull } from "../lib/non-null.js";
-import { getOutputMode, output, outputError } from "../lib/output.js";
+import { getOutputMode, output, outputError, type OutputMode } from "../lib/output.js";
 import {
 	buildOrPattern,
 	escapeRegex,
@@ -65,6 +65,20 @@ const SEARCHABLE_EXTENSIONS = new Set([
 	".php",
 	".swift",
 	".kt",
+]);
+
+const NATIVE_TYPE_ALIASES = new Map<string, readonly string[]>([
+	["ts", [".ts", ".tsx"]],
+	["typescript", [".ts", ".tsx"]],
+	["js", [".js", ".jsx", ".mjs", ".cjs"]],
+	["javascript", [".js", ".jsx", ".mjs", ".cjs"]],
+	["python", [".py"]],
+	["rust", [".rs"]],
+	["ruby", [".rb"]],
+	["kotlin", [".kt"]],
+	["markdown", [".md"]],
+	["yaml", [".yaml", ".yml"]],
+	["shell", [".sh", ".bash", ".zsh"]],
 ]);
 
 /** Directories to always skip */
@@ -122,6 +136,11 @@ function searchWithRipgrep(
 		timeout: 30000,
 		maxBuffer: 10 * 1024 * 1024,
 	});
+	if (result.error || result.signal || (result.status !== 0 && result.status !== 1)) {
+		const reason = result.error?.message || result.stderr?.toString("utf-8").trim()
+			|| result.signal || `exit status ${result.status}`;
+		throw new Error(`ripgrep failed: ${reason}`);
+	}
 
 	const lines = ripgrepStdoutLines(result);
 	const { matches, searchedFiles } = processRipgrepLines(lines, dir, opts);
@@ -227,7 +246,7 @@ function scanLinesForMatches(
 function searchWithNative(
 	query: string,
 	dir: string,
-	opts: { limit: number; glob?: string | undefined; context: number },
+	opts: { limit: number; glob?: string | undefined; context: number; typeExtensions?: readonly string[] | undefined },
 ): SearchResult {
 	const start = performance.now();
 	const matches: SearchMatch[] = [];
@@ -261,6 +280,7 @@ function searchWithNative(
 
 		// Apply glob filter
 		if (globPattern && !globPattern.test(relPath)) continue;
+		if (opts.typeExtensions && !opts.typeExtensions.includes(extname(filePath).toLowerCase())) continue;
 
 		searchedFiles++;
 		let content: string;
@@ -310,8 +330,32 @@ function boundedOption(
 	min: number,
 	max: number,
 ): number {
-	const parsed = Number.parseInt(raw || String(fallback), 10) || fallback;
-	return Math.min(Math.max(min, parsed), max);
+	const parsed = Number.parseInt(raw || String(fallback), 10);
+	const value = Number.isNaN(parsed) || (parsed === 0 && min > 0) ? fallback : parsed;
+	return Math.min(Math.max(min, value), max);
+}
+
+/** Resolve backend capabilities before scanning or reading any file contents. */
+function selectSearchEngine(opts: { engine?: string; type?: string }, mode: OutputMode): {
+	useRipgrep: boolean;
+	typeExtensions: readonly string[] | undefined;
+} | null {
+	if (opts.engine && !["native", "ripgrep"].includes(opts.engine)) {
+		outputError(mode, "--engine must be ripgrep or native");
+		return null;
+	}
+	const useRipgrep = opts.engine !== "native" && hasRipgrep();
+	if (opts.engine === "ripgrep" && !useRipgrep) {
+		outputError(mode, "ripgrep (rg) not found. Install it or use --engine=native");
+		return null;
+	}
+	const typeExtensions = opts.type ? NATIVE_TYPE_ALIASES.get(opts.type)
+		?? (SEARCHABLE_EXTENSIONS.has(`.${opts.type}`) ? [`.${opts.type}`] : undefined) : undefined;
+	if (!useRipgrep && opts.type && !typeExtensions) {
+		outputError(mode, `Unsupported native file type: ${opts.type}. Native types are searchable extensions and the documented language aliases.`);
+		return null;
+	}
+	return { useRipgrep, typeExtensions };
 }
 
 /** One-line `--short` summary of a search result. */
@@ -346,12 +390,8 @@ export function searchCommand(
 	const limit = boundedOption(opts.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
 	const context = boundedOption(opts.context, CONTEXT_LINES, 0, 10);
 
-	// Choose engine
-	const useRipgrep = opts.engine !== "native" && hasRipgrep();
-	if (opts.engine === "ripgrep" && !useRipgrep) {
-		outputError(mode, "ripgrep (rg) not found. Install it or use --engine=native");
-		return;
-	}
+	const engine = selectSearchEngine(opts, mode);
+	if (!engine) return;
 
 	// Smart multi-term search: split natural language queries into OR pattern
 	const multiTerm = isMultiTermQuery(query);
@@ -359,17 +399,22 @@ export function searchCommand(
 	const searchQuery = multiTerm ? buildOrPattern(terms) : query;
 
 	let result: SearchResult;
-	if (useRipgrep) {
-		result = searchWithRipgrep(searchQuery, dir, {
-			limit,
-			glob: opts.glob,
-			type: opts.type,
-			context,
-		});
+	if (engine.useRipgrep) {
+		try {
+			result = searchWithRipgrep(searchQuery, dir, {
+				limit,
+				glob: opts.glob,
+				type: opts.type,
+				context,
+			});
+		} catch (error) {
+			outputError(mode, error instanceof Error ? error.message : "ripgrep failed");
+			return;
+		}
 		// Override the query in results for display (show original, not regex)
 		result.query = query;
 	} else {
-		result = searchWithNative(searchQuery, dir, { limit, glob: opts.glob, context });
+		result = searchWithNative(searchQuery, dir, { limit, glob: opts.glob, context, typeExtensions: engine.typeExtensions });
 		result.query = query;
 	}
 

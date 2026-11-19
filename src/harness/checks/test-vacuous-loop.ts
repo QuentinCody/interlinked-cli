@@ -32,7 +32,8 @@ import {
 	isProvenNonEmpty,
 	loopBodyHasThrowOrFail,
 } from "./test-vacuous-loop-pins.js";
-import { extractTestBlocks, type TestBlock } from "./test-structure.js";
+import { isGatedOut, extractTestBlocks, type TestBlock } from "./test-structure.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 const MAX_MATCHES = 10;
 
@@ -61,19 +62,6 @@ const EACH_WINDOW_LINES = 8;
 function isEachBlock(mLines: string[], block: TestBlock): boolean {
 	const window = mLines.slice(block.startLine, block.startLine + EACH_WINDOW_LINES).join("\n");
 	return EACH_START_RE.test(window);
-}
-
-/** True when `block` or any enclosing ancestor carries an unconditional
- *  skip/todo/fails gate — the case never runs, so it can't be vacuous. */
-function isGatedOut(blocks: TestBlock[], blockIdx: number): boolean {
-	let idx: number = blockIdx;
-	while (idx !== -1) {
-		const b = blocks[idx];
-		if (!b) return false;
-		if (b.unconditionalGate) return true;
-		idx = b.parent;
-	}
-	return false;
 }
 
 /** File-wide state shared by every block's proof lookup: the masked file
@@ -160,7 +148,8 @@ export function checkVacuousLoopAssertion(content: string, filePath: string): In
 	};
 
 	const matches: InlineMatch[] = [];
-	for (let i = 0; i < blocks.length && matches.length < MAX_MATCHES; i++) {
+	const maxMatches = checkMatchLimit(MAX_MATCHES);
+	for (let i = 0; i < blocks.length && matches.length < maxMatches; i++) {
 		const block = blocks[i];
 		if (!block || block.kind !== "test" || isGatedOut(blocks, i)) continue;
 		if (isEachBlock(mLines, block)) continue;

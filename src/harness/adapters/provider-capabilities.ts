@@ -12,9 +12,15 @@ interface EventOptions {
 	install?: boolean;
 	control?: NativeDecisionControl;
 	modelContext?: boolean;
+	/** See `NativeHookEventCapability.context_limit`. */
+	contextLimit?: number;
 	background?: boolean;
 	missingRuntime?: NativeHookEventCapability["missing_runtime"];
 }
+
+/** Codex keeps this many characters of a hook's additionalContext; the installer writes it as
+ *  `additionalContextLimit` on every context-capable handler (codex.ts, hook-installers-codex.ts). */
+export const CODEX_ADDITIONAL_CONTEXT_LIMIT = 2_500;
 
 function event(
 	name: string,
@@ -27,6 +33,7 @@ function event(
 		install: opts.install ?? true,
 		control: opts.control ?? "observe",
 		model_context: opts.modelContext ?? false,
+		...(opts.contextLimit !== undefined ? { context_limit: opts.contextLimit } : {}),
 		...(opts.controls ? { controls: opts.controls } : {}),
 		...(opts.background ? { background: true } : {}),
 		missing_runtime: opts.missingRuntime ?? "warn_open",
@@ -66,15 +73,17 @@ export const CLAUDE_CODE_CAPABILITIES = defineCapabilities({
 		event("SessionStart", "session-start", { modelContext: true }),
 		event("SessionEnd", "session-end"),
 		event("UserPromptSubmit", "user-prompt", { control: "deny", modelContext: true }),
-		event("Stop", "stop", { control: "continue", modelContext: true }),
+		event("Stop", "stop", { control: "continue" }),
 		event("PreToolUse", "pre-tool", {
 			control: "ask",
 			modelContext: true,
 			missingRuntime: "fail_closed",
 		}),
 		event("PostToolUse", "post-tool", { control: "continue", modelContext: true }),
+		// Registered since 2026-11-16: Claude Code 2.1.325 delivers a failed Bash
+		// call as PostToolUseFailure ONLY (no PostToolUse), so without it every
+		// failed call was invisible to the daemon.
 		event("PostToolUseFailure", "post-tool", {
-			install: false,
 			control: "continue",
 			modelContext: true,
 		}),
@@ -87,7 +96,8 @@ export const CLAUDE_CODE_CAPABILITIES = defineCapabilities({
 			missingRuntime: "fail_closed",
 		}),
 		event("SubagentStart", "subagent-start", { modelContext: true }),
-		event("SubagentStop", "subagent-stop", { control: "continue", modelContext: true }),
+		// No model context (AD-3): SubagentStop shares the advisory Stop encoder, which writes stderr only.
+		event("SubagentStop", "subagent-stop", { control: "continue" }),
 		event("Notification", "notification"),
 		event("PreCompact", "pre-compact", { control: "continue", modelContext: true }),
 		event("TaskCompleted", "other"),
@@ -118,24 +128,26 @@ export const CODEX_CAPABILITIES = defineCapabilities({
 	hook_trust: "definition-review",
 	status_line: "built-in-only",
 	events: [
-		event("SessionStart", "session-start", { modelContext: true }),
+		event("SessionStart", "session-start", { modelContext: true, contextLimit: CODEX_ADDITIONAL_CONTEXT_LIMIT }),
 		event("SessionEnd", "session-end"),
-		event("UserPromptSubmit", "user-prompt", { control: "deny", modelContext: true }),
-		event("Stop", "stop", { control: "continue", modelContext: true }),
+		event("UserPromptSubmit", "user-prompt", { control: "deny", modelContext: true, contextLimit: CODEX_ADDITIONAL_CONTEXT_LIMIT }),
+		event("Stop", "stop", { control: "continue" }),
 		event("PreToolUse", "pre-tool", {
 			control: "deny",
 			modelContext: true,
+			contextLimit: CODEX_ADDITIONAL_CONTEXT_LIMIT,
 			missingRuntime: "fail_closed",
 		}),
 		event("PermissionRequest", "permission-request", {
 			control: "permission",
 			missingRuntime: "fail_closed",
 		}),
-		event("PostToolUse", "post-tool", { control: "continue", modelContext: true }),
+		event("PostToolUse", "post-tool", { control: "continue", modelContext: true, contextLimit: CODEX_ADDITIONAL_CONTEXT_LIMIT }),
 		event("PreCompact", "pre-compact", { control: "continue" }),
 		event("PostCompact", "post-compact", { control: "continue" }),
-		event("SubagentStart", "subagent-start", { modelContext: true }),
-		event("SubagentStop", "subagent-stop", { control: "continue", modelContext: true }),
+		event("SubagentStart", "subagent-start", { modelContext: true, contextLimit: CODEX_ADDITIONAL_CONTEXT_LIMIT }),
+		// No model context (AD-3): SubagentStop shares the advisory Stop encoder, which writes stderr only.
+		event("SubagentStop", "subagent-stop", { control: "continue" }),
 		event("Interrupt", "other", { background: true }),
 	],
 });
@@ -152,7 +164,7 @@ export const COPILOT_CLI_CAPABILITIES = defineCapabilities({
 			control: "deny",
 			missingRuntime: "fail_closed",
 		}),
-		event("postToolUse", "post-tool"),
+		event("postToolUse", "post-tool", { modelContext: true }),
 		event("errorOccurred", "error"),
 		event("agentStop", "stop", { controls: ["continue"], control: "continue" }),
 		event("notification", "notification", { controls: ["context", "wake"], modelContext: true }),
@@ -178,7 +190,7 @@ export const GEMINI_CLI_CAPABILITIES = defineCapabilities({
 			control: "deny",
 			missingRuntime: "fail_closed",
 		}),
-		event("AfterTool", "post-tool"),
+		event("AfterTool", "post-tool", { modelContext: true }),
 		event("AfterModel", "post-model"),
 		event("PreCompress", "pre-compact"),
 		event("Notification", "notification"),

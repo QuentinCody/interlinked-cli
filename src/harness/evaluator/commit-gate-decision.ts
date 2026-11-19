@@ -56,6 +56,13 @@ interface ScanInput {
 	 *  repo's `interlinked caps set cyclomatic` cap honored at commit time, not
 	 *  just per-edit (finding 2026-06, round 8). */
 	cyclomaticCap?: number;
+	/** True when the project's coverage tool never measures this file (its vitest
+	 *  `coverage.include`/`exclude` put it out of scope). Absence from the report
+	 *  then says nothing about tests, so the missing-coverage BLOCK becomes a
+	 *  "not measured" warning (mcp-client-bio 2026-11-12: a green `servers/**`
+	 *  change blocked because the root config measures only `lib/**` etc.).
+	 *  Undecidable scope resolves to false — the stricter, pre-existing outcome. */
+	outsideCoverageScope?: boolean;
 	onUnmeasured?: (why: string) => void;
 }
 
@@ -96,6 +103,14 @@ export function scanFile(input: ScanInput): Violation[] {
 	if (cov) {
 		const covViolation = coverageViolation(source, cov);
 		if (covViolation) violations.push(covViolation);
+	} else if (input.outsideCoverageScope) {
+		// Absent from the report AND outside the coverage tool's scope: the report
+		// could never have contained it, so this is a measurement gap, not a
+		// missing test. Say so loudly and let the commit through.
+		unmeasuredScan(
+			input,
+			`coverage not measured for ${source.relPath} — the project's coverage configuration excludes it from the report`,
+		);
 	} else if (!isTypeOnlySource(content)) {
 		// The full suite ran, yet this changed source is ABSENT from the coverage
 		// report → no test loaded it → its executable code is UNCOVERED. Block instead

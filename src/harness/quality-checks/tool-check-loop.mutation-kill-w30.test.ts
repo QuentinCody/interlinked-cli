@@ -32,7 +32,8 @@ vi.mock("../check-engine/output-parsers.js", () => ({
 	parseOsvScannerJson: vi.fn(),
 }));
 
-vi.mock("../checks/shared.js", () => ({
+vi.mock("../checks/shared.js", async (original) => ({
+	...await original<typeof import("../checks/shared.js")>(),
 	isGeneratedFile: vi.fn(() => false),
 	isTestFile: vi.fn(() => false),
 }));

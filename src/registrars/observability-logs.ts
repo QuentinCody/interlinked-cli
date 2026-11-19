@@ -9,6 +9,17 @@
 import { type Command, type OptionValues } from "commander";
 
 export function registerObservabilityLogCommands(program: Command): void {
+	registerRecurrence(program);
+	registerTrajectory(program);
+	registerAudit(program);
+	registerPlan(program);
+	registerCloud(program);
+	registerTdd(program);
+	registerDebt(program);
+	registerQuery(program);
+}
+
+function registerRecurrence(program: Command): void {
 	// ===========================================
 	// recurrence — surface repeating agent behaviors (Lopopolo "garbage-
 	// collect AI slop" + Bitar "structurally impossible" framing). Three
@@ -79,7 +90,9 @@ export function registerObservabilityLogCommands(program: Command): void {
 			const { recurrenceProposeCommand } = await import("../commands/recurrence.js");
 			await recurrenceProposeCommand(signature, opts);
 		});
+}
 
+function registerTrajectory(program: Command): void {
 	// ===========================================
 	// interlinked trajectory — inspect session trajectory state and replay
 	// recorded event streams through the sequence-detector framework. See
@@ -121,7 +134,9 @@ export function registerObservabilityLogCommands(program: Command): void {
 			const { trajectoryReplayCommand } = await import("../commands/trajectory.js");
 			await trajectoryReplayCommand({ ...opts, file });
 		});
+}
 
+function registerAudit(program: Command): void {
 	// ===========================================
 	// interlinked audit — verify the hash-chained guard-decision log.
 	// Borrowed from Microsoft Agent Governance Toolkit's audit.mjs pattern;
@@ -141,7 +156,9 @@ export function registerObservabilityLogCommands(program: Command): void {
 			const { auditVerifyCommand } = await import("../commands/audit.js");
 			await auditVerifyCommand(opts);
 		});
+}
 
+function registerPlan(program: Command): void {
 	// ===========================================
 	// plan — show agent-emitted plans captured at PreToolUse / UserPromptSubmit.
 	// Data capture only (no evaluation); see src/harness/plan-capture.ts.
@@ -169,7 +186,9 @@ export function registerObservabilityLogCommands(program: Command): void {
 			const { planShowCommand } = await import("../commands/plan.js");
 			await planShowCommand(sessionId, opts);
 		});
+}
 
+function registerCloud(program: Command): void {
 	const cloudCmd = program
 		.command("cloud")
 		.description("Inspect the cloud governor (reads cloud_governor from config.local.json)");
@@ -190,7 +209,9 @@ export function registerObservabilityLogCommands(program: Command): void {
 				...(opts.json !== undefined ? { json: opts.json } : {}),
 			});
 		});
+}
 
+function registerTdd(program: Command): void {
 	// ===========================================
 	// tdd — inspect and clear TDD cycle state. The commit gate blocks on
 	// REMEMBERED cycle state and nothing re-measures the tree at decision
@@ -225,7 +246,9 @@ export function registerObservabilityLogCommands(program: Command): void {
 			const { tddClearCommand } = await import("../commands/tdd.js");
 			await tddClearCommand(file, opts);
 		});
+}
 
+function registerDebt(program: Command): void {
 	// ===========================================
 	// debt — inspect the pair-scoped TDD obligation ledger
 	// (.interlinked/obligations.jsonl): open coverage / red_suite debts, the
@@ -269,7 +292,9 @@ export function registerObservabilityLogCommands(program: Command): void {
 			const { debtResolveCommand } = await import("../commands/debt.js");
 			await debtResolveCommand(file, opts);
 		});
+}
 
+function registerQuery(program: Command): void {
 	// ===========================================
 	// query — bounded filter/aggregate surface over the .interlinked JSONL
 	// logs: the read verb the append-only logs lacked. Named sources carry an
@@ -287,6 +312,7 @@ export function registerObservabilityLogCommands(program: Command): void {
 			"Filter: key=value | key!=v | key~=substr | key>n (AND; dot paths fan out over arrays)",
 		)
 		.option("--fields <csv>", "Columns to display (dot paths)")
+		.option("--actions", "Project selected checks records as historical actions; revalidate before acting")
 		.option("--by <path>", "Aggregate: count records per value of <path>")
 		.option("--sum <path>", "With --by: sum this numeric field per group")
 		.option("--since <dur|iso>", "Only records at/after (30m, 2h, 7d, or an ISO timestamp)")

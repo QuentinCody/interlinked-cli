@@ -249,118 +249,40 @@ function diffIntroducesNewExport(diff: string): boolean {
 	return false;
 }
 
-/** Public API — flags conventional-commit prefix vs staged-diff mismatches. */
-export function checkConventionalCommitCoherence(
-	session: SessionTrajectory,
-	message: ParsedCommitMessage | null,
-): CheckResultEntry[] {
-	if (!message) return [];
-	const results: CheckResultEntry[] = [];
-	const files = [...session.files_written];
-	if (files.length === 0) return [];
+type StagedFile = { file: string; diff: string };
 
-	const allDiffs = files.map((f) => ({ file: f, diff: getStagedDiff(f) }));
-	// Only files with a non-empty staged diff belong to THIS commit. session
-	// .files_written also includes files written earlier in the session and
-	// committed separately; using it directly false-fires (e.g. test:/docs: on
-	// prod files that are not part of this commit).
-	const stagedFiles = allDiffs.filter((d) => d.diff).map((d) => d.file);
-	if (stagedFiles.length === 0) return [];
-
-	switch (message.type) {
-		case "fix": {
-			// Every touched file's added lines should be more than just
-			// comments / imports / test-only.
-			const allCommentOrWs = allDiffs.every((d) => !d.diff || diffIsCommentOrWhitespaceOnly(d.diff));
-			const onlyTests = stagedFiles.every((f) => !isProdSource(f) || isTestPath(f));
-			if (allCommentOrWs) {
-				results.push({
-					source: "structural",
-					name: "commit_message_diff_mismatch",
-					severity: "warning",
-					message: `Commit message says "fix:" but every staged change is comment-only / whitespace-only. Either rewrite the message (e.g. \`docs:\`, \`chore:\`) or include the actual fix.`,
-					file: "<session>",
-					determinism: "heuristic",
-				});
-			} else if (onlyTests) {
-				results.push({
-					source: "structural",
-					name: "commit_message_diff_mismatch",
-					severity: "warning",
-					message: `Commit message says "fix:" but no production source was modified — only tests. If the bug was in a test, use \`test:\`. If the production fix is missing, add it before committing.`,
-					file: "<session>",
-					determinism: "heuristic",
-				});
-			}
-			break;
-		}
-		case "feat": {
-			const introducesExport = allDiffs.some(
-				(d) => isProdSource(d.file) && d.diff && diffIntroducesNewExport(d.diff),
-			);
-			if (!introducesExport) {
-				results.push({
-					source: "structural",
-					name: "commit_message_diff_mismatch",
-					severity: "warning",
-					message: `Commit message says "feat:" but the staged diff introduces no new exported symbol. New features typically expose a callable surface — verify the message matches the change (try \`fix:\` or \`refactor:\` if you didn't add a public API).`,
-					file: "<session>",
-					determinism: "heuristic",
-				});
-			}
-			break;
-		}
-		case "test": {
-			const touchesProd = stagedFiles.some((f) => isProdSource(f));
-			if (touchesProd) {
-				results.push({
-					source: "structural",
-					name: "commit_message_diff_mismatch",
-					severity: "warning",
-					message: `Commit message says "test:" but production source files are also modified. Split the production change into its own commit (with \`fix:\` / \`feat:\` / \`refactor:\`) so the history accurately reflects what changed.`,
-					file: "<session>",
-					determinism: "heuristic",
-				});
-			}
-			break;
-		}
-		case "docs": {
-			const touchesNonDocs = stagedFiles.some((f) => !isDocsPath(f) && PROD_EXTS.has(extname(f)));
-			if (touchesNonDocs) {
-				results.push({
-					source: "structural",
-					name: "commit_message_diff_mismatch",
-					severity: "warning",
-					message: `Commit message says "docs:" but non-docs files (.ts / .tsx outside docs paths) are modified. Either narrow the diff to docs only or re-classify the commit type.`,
-					file: "<session>",
-					determinism: "heuristic",
-				});
-			}
-			break;
-		}
+function mismatchedCommitMessage(type: string, staged: readonly StagedFile[]): string | null {
+	switch (type) {
+		case "fix":
+			if (staged.every(({ diff }) => diffIsCommentOrWhitespaceOnly(diff))) return `Commit message says "fix:" but every staged change is comment-only / whitespace-only. Either rewrite the message (e.g. \`docs:\`, \`chore:\`) or include the actual fix.`;
+			if (staged.every(({ file }) => !isProdSource(file) || isTestPath(file))) return `Commit message says "fix:" but no production source was modified — only tests. If the bug was in a test, use \`test:\`. If the production fix is missing, add it before committing.`;
+			return null;
+		case "feat":
+			if (staged.some(({ file, diff }) => isProdSource(file) && diffIntroducesNewExport(diff))) return null;
+			return `Commit message says "feat:" but the staged diff introduces no new exported symbol. New features typically expose a callable surface — verify the message matches the change (try \`fix:\` or \`refactor:\` if you didn't add a public API).`;
+		case "test":
+			return staged.some(({ file }) => isProdSource(file)) ? `Commit message says "test:" but production source files are also modified. Split the production change into its own commit (with \`fix:\` / \`feat:\` / \`refactor:\`) so the history accurately reflects what changed.` : null;
+		case "docs":
+			return staged.some(({ file }) => !isDocsPath(file) && PROD_EXTS.has(extname(file))) ? `Commit message says "docs:" but non-docs files (.ts / .tsx outside docs paths) are modified. Either narrow the diff to docs only or re-classify the commit type.` : null;
 		case "refactor": {
-			// `refactor:` means "behavior preserved." Heuristic for behavior
-			// change: assertion-argument mutations OR new-test additions
-			// (suggests behavior was different than the prior tests captured).
-			const testsWithMutation = allDiffs.filter((d) => isTestPath(d.file) && d.diff)
-				.filter((d) => /\b(?:expect|assert)\s*\([^)]*\)\s*\.\s*to[A-Z]/.test(extractAddedLines(d.diff)));
-			if (testsWithMutation.length > 0) {
-				results.push({
-					source: "structural",
-					name: "commit_message_diff_mismatch",
-					severity: "info",
-					message: `Commit message says "refactor:" but test assertions changed in ${testsWithMutation.length} file(s). Refactors preserve behavior — assertion changes suggest a behavior delta. Consider \`fix:\` or \`feat:\` if the SUT contract moved.`,
-					file: "<session>",
-					determinism: "heuristic",
-				});
-			}
-			break;
+			const changed = staged.filter(({ file, diff }) => isTestPath(file) && /\b(?:expect|assert)\s*\([^)]*\)\s*\.\s*to[A-Z]/.test(extractAddedLines(diff)));
+			return changed.length ? `Commit message says "refactor:" but test assertions changed in ${changed.length} file(s). Refactors preserve behavior — assertion changes suggest a behavior delta. Consider \`fix:\` or \`feat:\` if the SUT contract moved.` : null;
 		}
 		default:
-			break;
+			return null;
 	}
+}
 
-	return results;
+/** Compare the message only with files actually staged for this commit. */
+export function checkConventionalCommitCoherence(session: SessionTrajectory, message: ParsedCommitMessage | null): CheckResultEntry[] {
+	if (!message) return [];
+	const staged = [...session.files_written].map(file => ({ file, diff: getStagedDiff(file) })).filter(({ diff }) => diff);
+	if (!staged.length) return [];
+	const mismatch = mismatchedCommitMessage(message.type, staged);
+	return mismatch === null ? [] : [{
+		source: "structural", name: "commit_message_diff_mismatch", severity: message.type === "refactor" ? "info" : "warning",
+		message: mismatch, file: "<session>", determinism: "heuristic",
+	}];
 }
 
 // ==========================================================================

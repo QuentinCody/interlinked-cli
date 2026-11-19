@@ -292,21 +292,21 @@ describe("GhCliFetcher.listRuns", () => {
 		expect(out).toEqual([good]);
 	});
 
-	it("returns [] when the parsed JSON is not an array", () => {
+	it("rejects a non-array response as unavailable collection", () => {
 		mocks.execFileSync.mockReturnValue(JSON.stringify({ not: "an array" }));
-		expect(new GhCliFetcher().listRuns({ limit: 30 })).toEqual([]);
+		expect(() => new GhCliFetcher().listRuns({ limit: 30 })).toThrow("expected an array");
 	});
 
-	it("returns [] when the JSON is unparseable", () => {
+	it("propagates malformed JSON as unavailable collection", () => {
 		mocks.execFileSync.mockReturnValue("this is not json{");
-		expect(new GhCliFetcher().listRuns({ limit: 30 })).toEqual([]);
+		expect(() => new GhCliFetcher().listRuns({ limit: 30 })).toThrow();
 	});
 
-	it("returns [] when gh itself throws (not authenticated / no repo)", () => {
+	it("propagates gh failure to the command error boundary", () => {
 		mocks.execFileSync.mockImplementation(() => {
 			throw new Error("gh: not authenticated");
 		});
-		expect(new GhCliFetcher().listRuns({ limit: 30 })).toEqual([]);
+		expect(() => new GhCliFetcher().listRuns({ limit: 30 })).toThrow("not authenticated");
 	});
 });
 

@@ -5,6 +5,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { hasErrorCode } from "../check-engine/tool-errors.js";
 import { stringDependencies } from "./package-dependencies.js";
 import { describeReason, suggestRuleFix, validateSettingsFile } from "../../lib/settings-validator.js";
 
@@ -14,17 +15,21 @@ import { describeReason, suggestRuleFix, validateSettingsFile } from "../../lib/
  * optional-dependencies because a `types: ["X"]` entry is satisfied by any
  * declared install relationship — peer deps are still installed by consumers.
  */
-function readAllDeps(pkgJsonPath: string): Record<string, string> {
+function readAllDeps(pkgJsonPath: string, options: ProjectSetupOptions = {}): Record<string, string> | null {
 	try {
 		const pkg: unknown = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
-		if (!isJsonObject(pkg)) return {};
+		if (!isJsonObject(pkg)) throw new Error("Expected a package.json object");
 		return {
 			...stringDependencies(pkg.dependencies),
 			...stringDependencies(pkg.devDependencies),
 			...stringDependencies(pkg.peerDependencies),
 			...stringDependencies(pkg.optionalDependencies),
 		};
-	} catch {
+	} catch (error) {
+		if (options.foreground && !hasErrorCode(error, "ENOENT")) {
+			options.onUnavailable?.({ file: pkgJsonPath, reason: error instanceof Error ? error.message : String(error) });
+			return null;
+		}
 		return {};
 	}
 }
@@ -49,21 +54,17 @@ const NON_SOURCE_DIRS: ReadonlySet<string> = new Set([
 	"__pycache__",
 ]);
 
-// Hard cap on directory entries one scan will visit. interlinked-cli itself,
-// minus node_modules, is a few thousand entries; 20K is well clear of any real
-// first-party tree yet aborts a mis-rooted walk in well under a second. The
-// cap fails toward "not found" — the safe bias for a presence probe (skip a
-// dependent check rather than emit a false finding from a partial scan).
+// Legacy runtime presence probes are bounded. Explicit foreground verification
+// removes this limit and reports unreadable inputs through its coverage callback.
 const MAX_PROJECT_SCAN_ENTRIES = 20_000;
 
 /** `readdirSync` with file types, returning `[]` rather than throwing so a
  *  single unreadable directory never aborts a whole project walk. */
-function readDirEntries(dir: string) {
+function readDirEntries(dir: string, options: ProjectSetupOptions) {
 	try {
 		return readdirSync(dir, { withFileTypes: true });
-	} catch {
-		// intentional: best-effort walk — an unreadable directory just
-		// shrinks the scan; it must not abort the probe.
+	} catch (error) {
+		options.onUnavailable?.({ file: dir, reason: error instanceof Error ? error.message : String(error) });
 		return [];
 	}
 }
@@ -98,12 +99,12 @@ function processDirEntry(
  * directories ({@link NON_SOURCE_DIRS}) or any dotfile directory. Returns
  * `false` when no file matched or the entry cap was hit.
  */
-function walkProjectFiles(root: string, visit: (absPath: string) => boolean): boolean {
+function walkProjectFiles(root: string, visit: (absPath: string) => boolean, options: ProjectSetupOptions): boolean {
 	const stack: string[] = [root];
-	let budget = MAX_PROJECT_SCAN_ENTRIES;
+	let budget = options.foreground ? Infinity : MAX_PROJECT_SCAN_ENTRIES;
 	let dir: string | undefined;
 	while ((dir = stack.pop()) !== undefined) {
-		for (const entry of readDirEntries(dir)) {
+		for (const entry of readDirEntries(dir, options)) {
 			if (--budget <= 0) return false;
 			if (processDirEntry(entry, dir, stack, visit)) return true;
 		}
@@ -136,10 +137,12 @@ export interface ProjectSetupIssue {
 export function checkTsConfigTypesAgainstDeps(
 	compilerOptions: JsonObject,
 	tsconfigDir: string,
+	options: ProjectSetupOptions = {},
 ): ProjectSetupIssue[] {
 	const types = compilerOptions.types;
 	if (!Array.isArray(types) || types.length === 0) return [];
-	const allDeps = readAllDeps(resolve(tsconfigDir, "package.json"));
+	const allDeps = readAllDeps(resolve(tsconfigDir, "package.json"), options);
+	if (allDeps === null) return [];
 	const issues: ProjectSetupIssue[] = [];
 	for (const entry of types) {
 		if (typeof entry !== "string" || !entry) continue;
@@ -217,9 +220,9 @@ export function checkClaudeSettingsPermissions(cwd: string): ProjectSetupIssue[]
  */
 /** Walk up from `cwd` (5 levels max) looking for a directory containing
  *  tsconfig.json. Returns the directory, or `null` if none was found. */
-function findTsconfigDir(cwd: string): string | null {
+function findTsconfigDir(cwd: string, options: ProjectSetupOptions): string | null {
 	let searchDir = cwd;
-	for (let i = 0; i < 5; i++) {
+	for (let i = 0; options.foreground || i < 5; i++) {
 		if (existsSync(resolve(searchDir, "tsconfig.json"))) {
 			return searchDir;
 		}
@@ -257,21 +260,25 @@ function readTsconfig(tsconfigDir: string):
 
 /** First-party source files use `node:` protocol imports if any `.ts` file
  *  (skipping node_modules et al) matches `from "node:..."`. */
-function hasNodeProtocolImportsIn(cwd: string): boolean {
+function hasNodeProtocolImportsIn(cwd: string, options: ProjectSetupOptions): boolean {
 	return walkProjectFiles(cwd, (f) => {
-		if (!f.endsWith(".ts")) return false;
+		if (options.foreground ? !/\.(?:[cm]?ts|tsx)$/.test(f) : !f.endsWith(".ts")) return false;
 		try {
 			return /from\s+["']node:/.test(readFileSync(f, "utf-8"));
-		} catch {
-			// intentional: an unreadable file → treat as no match, keep scanning.
+		} catch (error) {
+			options.onUnavailable?.({ file: f, reason: error instanceof Error ? error.message : String(error) });
 			return false;
 		}
-	});
+	}, options);
 }
 
 /** Best-effort probe: is `@types/node` declared in package.json's
  *  dependencies or devDependencies at `tsconfigDir`? */
-function packageHasTypesNode(tsconfigDir: string): boolean {
+function packageHasTypesNode(tsconfigDir: string, options: ProjectSetupOptions): boolean | null {
+	if (options.foreground) {
+		const deps = readAllDeps(resolve(tsconfigDir, "package.json"), options);
+		return deps === null ? null : "@types/node" in deps;
+	}
 	try {
 		const pkgPath = resolve(tsconfigDir, "package.json");
 		const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
@@ -293,10 +300,11 @@ function packageHasTypesNode(tsconfigDir: string): boolean {
 function checkNodeImportIssues(
 	tsconfigDir: string,
 	compilerOptions: JsonObject,
+	options: ProjectSetupOptions,
 ): ProjectSetupIssue[] {
 	const issues: ProjectSetupIssue[] = [];
 
-	if (!packageHasTypesNode(tsconfigDir)) {
+	if (packageHasTypesNode(tsconfigDir, options) === false) {
 		issues.push({
 			check: "project_setup",
 			file: "package.json",
@@ -361,20 +369,25 @@ function checkStrictModeIssue(compilerOptions: JsonObject): ProjectSetupIssue | 
 	return null;
 }
 
-export function checkProjectSetup(cwd: string): ProjectSetupIssue[] {
+export interface ProjectSetupOptions {
+	foreground?: boolean;
+	onUnavailable?: (input: { file: string; reason: string }) => void;
+}
+
+export function checkProjectSetup(cwd: string, options: ProjectSetupOptions = {}): ProjectSetupIssue[] {
 	const issues: ProjectSetupIssue[] = [];
 
 	// Run the Claude settings scan unconditionally — it applies to every
 	// project that has a .claude/ directory, regardless of language.
 	issues.push(...checkClaudeSettingsPermissions(cwd));
 
-	const tsconfigDir = findTsconfigDir(cwd);
+	const tsconfigDir = findTsconfigDir(cwd, options);
 
 	// Check if this is a TypeScript project (has .ts/.tsx files in first-party
 	// source). The walk skips node_modules: an unbounded recursive readdir
 	// over cwd pulled in dependencies' own .ts/.d.ts files and mislabelled
 	// pure-JavaScript projects as TypeScript ones.
-	const hasTypeScriptFiles = walkProjectFiles(cwd, (f) => /\.tsx?$/.test(f));
+	const hasTypeScriptFiles = walkProjectFiles(cwd, f => (options.foreground ? /\.(?:[cm]?ts|tsx)$/ : /\.tsx?$/).test(f), options);
 
 	if (!hasTypeScriptFiles) return issues;
 
@@ -402,15 +415,15 @@ export function checkProjectSetup(cwd: string): ProjectSetupIssue[] {
 	// skips node_modules — otherwise a dependency's own `node:` imports made
 	// this probe fire on nearly every project, recommending @types/node even
 	// when the project's own code never touches a node builtin.
-	const hasNodeProtocolImports = hasNodeProtocolImportsIn(cwd);
+	const hasNodeProtocolImports = hasNodeProtocolImportsIn(cwd, options);
 
 	// Issue: Uses node: imports but @types/node not installed, and/or
 	// tsconfig types field missing "node"
 	if (hasNodeProtocolImports) {
-		issues.push(...checkNodeImportIssues(tsconfigDir, compilerOptions));
+		issues.push(...checkNodeImportIssues(tsconfigDir, compilerOptions, options));
 	}
 
-	issues.push(...checkTsConfigTypesAgainstDeps(compilerOptions, tsconfigDir));
+	issues.push(...checkTsConfigTypesAgainstDeps(compilerOptions, tsconfigDir, options));
 
 	// Issue: Wrong moduleResolution for node: imports
 	const moduleResolutionIssue = checkModuleResolutionIssue(

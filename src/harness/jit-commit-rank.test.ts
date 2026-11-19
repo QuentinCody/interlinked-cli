@@ -4,9 +4,10 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { calibrationScores, rankRefCommit, rankStagedCommit } from "./jit-commit-rank.js";
 import type { HistoryCommit } from "./jit-commit-inputs.js";
+import { metricsJitCommand } from "../commands/metrics-jit.js";
 
 let root: string;
 
@@ -63,6 +64,20 @@ describe("rankRefCommit", () => {
 
 	it("N1: an unknown ref yields null, not a throw", () => {
 		expect(rankRefCommit(root, "no-such-ref", { calibrate: 10 })).toBeNull();
+	});
+
+	it("scores the same HEAD hunks with a zero-sized CLI calibration population", () => {
+		const calibrated = rankRefCommit(root, "HEAD", { calibrate: 1 });
+		expect(calibrated?.inputs.hunks).toBe(1);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		try {
+			metricsJitCommand({ cwd: root, calibrate: "0", json: true });
+			expect(JSON.parse(log.mock.calls[0]?.[0])).toMatchObject({
+				population: 0, percentile: null, score: calibrated?.score, inputs: { hunks: 1 },
+			});
+		} finally {
+			log.mockRestore();
+		}
 	});
 });
 

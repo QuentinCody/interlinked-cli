@@ -5,6 +5,7 @@
 // and `CodeQualityResults` without pulling the full check implementation.
 
 import type { CheckResult } from "../../harness/check-engine/index.js";
+import type { InlineSourceEvidence } from "../../harness/check-registry/types.js";
 
 /** Public API — consumed by verify submodules. Re-alias for backward compatibility. */
 export type DiagnosticResult = CheckResult;
@@ -14,6 +15,9 @@ export type AuditResult = import("../../harness/check-engine/types.js").AuditRes
 
 /** Public API — consumed by verify submodules. */
 export interface CodeQualityIssue {
+	sourceEvidence?: InlineSourceEvidence[];
+	/** Hash of the primary text actually passed to the detector, when captured. */
+	sourceHash?: string;
     startOffset?: number;
     endOffset?: number;
     endLine?: number;
@@ -31,6 +35,8 @@ export interface CodeQualityIssue {
  * streaming output.
  */
 export interface CodeQualityResults {
+	commanderOptionAttribute: CodeQualityIssue[];
+	omittedPrivateParameter: CodeQualityIssue[];
     expressionSize: CodeQualityIssue[];
     inlineCallbackCount: CodeQualityIssue[];
     controlFlowDepth: CodeQualityIssue[];
@@ -67,6 +73,8 @@ export interface CodeQualityResults {
 	extractedHelperDuplicate: CodeQualityIssue[];
 	/** Private, single-call-site, <=3-statement helpers with an uninformative name. */
 	singleUseTrivialHelper: CodeQualityIssue[];
+	/** A local literal initial value that the next statement overwrites (metric `redundancy.dead_stores`). */
+	deadLiteralStore: CodeQualityIssue[];
     pythonSimplification: CodeQualityIssue[];
     repeatedImplementation: CodeQualityIssue[];
 	circularImports: CodeQualityIssue[];
@@ -151,6 +159,13 @@ export interface CodeQualityResults {
 	promiseRejectNonError: CodeQualityIssue[];
 	rawControlBytes: CodeQualityIssue[];
 	lossyErrorRethrow: CodeQualityIssue[];
+	jsonStringifyError: CodeQualityIssue[];
+	catchRewrapLosesCause: CodeQualityIssue[];
+	resourceHandleLeak: CodeQualityIssue[];
+	publicApiLeaksInternalType: CodeQualityIssue[];
+	jsdocParamDrift: CodeQualityIssue[];
+	unvalidatedInputBoundary: CodeQualityIssue[];
+	numericZeroDefault: CodeQualityIssue[];
 	importFromOwnBarrel: CodeQualityIssue[];
 	errorDispatchByInstanceof: CodeQualityIssue[];
 	silentPromiseSwallow: CodeQualityIssue[];

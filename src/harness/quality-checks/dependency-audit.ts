@@ -26,6 +26,8 @@ interface ResolveOptions {
 	useOsvScanner?: boolean | undefined;
 	/** When osv-scanner is picked, pass --offline (requires pre-downloaded DB). */
 	offline?: boolean | undefined;
+	/** Explicit foreground probe deadline; zero is unlimited and bypasses the bounded cache. */
+	probeTimeoutMs?: number;
 }
 
 let osvScannerAvailable: boolean | null = null;
@@ -46,7 +48,13 @@ export function hasOsvScanner(): boolean {
 
 /** Event-loop-safe availability probe for daemon/PostToolUse callers. Shares
  * the same memoized answer as the legacy synchronous CLI resolver. */
-async function hasOsvScannerAsync(): Promise<boolean> {
+async function hasOsvScannerAsync(probeTimeoutMs?: number): Promise<boolean> {
+	if (probeTimeoutMs !== undefined) {
+		const result = await runProcessAsync("osv-scanner", ["--version"], { timeout: probeTimeoutMs });
+		if (result.timedOut || result.killed) throw new Error("OSV availability probe was interrupted; dependency scope is unavailable");
+		if (result.code !== null && result.code !== 0) throw new Error(`OSV availability probe exited ${result.code}; dependency scope is unavailable`);
+		return result.code === 0;
+	}
 	if (osvScannerAvailable !== null) return osvScannerAvailable;
 	const result = await runProcessAsync("osv-scanner", ["--version"], { timeout: 2_000 });
 	osvScannerAvailable =
@@ -93,7 +101,7 @@ export async function resolveDependencyAuditCommandAsync(
 	opts: ResolveOptions = {},
 ): Promise<ResolvedAuditCommand | null> {
 	if (!LOCKFILES.has(fileName)) return null;
-	const useOsv = opts.useOsvScanner !== false && (await hasOsvScannerAsync());
+	const useOsv = opts.useOsvScanner !== false && (await hasOsvScannerAsync(opts.probeTimeoutMs));
 	return resolveKnownAuditCommand(fileName, opts, useOsv);
 }
 

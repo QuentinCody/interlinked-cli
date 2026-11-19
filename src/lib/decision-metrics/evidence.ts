@@ -1,6 +1,7 @@
 import { computeFunctionTokens } from "../../harness/function-tokens/index.js";
-import { computeCyclomaticAst, parseTsSource } from "../../harness/checks/cyclomatic-ast.js";
-import { computeCognitiveAst } from "../../harness/checks/cognitive-ast.js";
+import { cyclomaticOfFunction, parseTsSource, type ParsedTsSource } from "../../harness/checks/cyclomatic-ast.js";
+import type * as TS from "typescript";
+import { visitCognitiveFunctions } from "../../harness/checks/cognitive-ast.js";
 import { object } from "./answers.js";
 import { digest } from "./store.js";
 import type { EvidenceRecord, Json } from "./types.js";
@@ -55,20 +56,28 @@ function changedLines(hunks: Hunk[]): Set<number> {
     return lines;
 }
 
+/** First changed line at or after the start, compared with this inclusive function span. */
+function hasChangedLine(changed: readonly number[], start: number, end: number): boolean {
+    let low = 0, high = changed.length;
+    while (low < high) {
+        const mid = low + Math.floor((high - low) / 2);
+        if (changed[mid]! < start) low = mid + 1;
+        else high = mid;
+    }
+    return low < changed.length && changed[low]! <= end;
+}
+
 function sourceIdentity(
-    source: ChangedSource,
+    source: ChangedSource, parsed: ParsedTsSource | null,
 ): Pick<EvidenceRecord, "repository" | "revision" | "timestamp" | "file" | "provenance"> {
-    const parsed = /\.[cm]?[jt]sx?$/.test(source.file)
-        ? parseTsSource(source.after, source.file)
-        : null;
-    const metricsVersion = `interlinked-code-v2:semantic-evidence-v2:typescript-${parsed?.ts.version ?? "unavailable"}`;
+    const metricsVersion = `interlinked-code-v2:semantic-evidence-v4:typescript-${parsed?.ts.version ?? "unavailable"}`;
     return {
         repository: source.repository,
         revision: source.revision,
         timestamp: source.timestamp,
         file: source.file,
         provenance: {
-            extractor: "semantic-evidence-v2",
+            extractor: "semantic-evidence-v4",
             sourceHash: digest(source.after),
             metricsVersion,
         },
@@ -76,26 +85,24 @@ function sourceIdentity(
 }
 
 export function extractChangedEvidence(source: ChangedSource): EvidenceRecord[] {
-    const identity = sourceIdentity(source);
+    const parsed = /\.[cm]?[jt]sx?$/.test(source.file)
+        ? parseTsSource(source.after, source.file)
+        : null;
+    const identity = sourceIdentity(source, parsed);
     const hunks = parseHunks(source.diff);
-    const changed = changedLines(hunks);
+    const changed = [...changedLines(hunks)].sort((a, b) => a - b);
     const entries = computeFunctionTokens(source.after, source.file) ?? [];
-    const cyclomatic = /\.[cm]?[jt]sx?$/.test(source.file)
-        ? (computeCyclomaticAst(source.after, source.file) ?? [])
-        : [];
-    const cognitive = /\.[cm]?[jt]sx?$/.test(source.file)
-        ? (computeCognitiveAst(source.after, source.file) ?? [])
-        : [];
+    const details = functionDetails(source.after, parsed);
     const rows: EvidenceRecord[] = entries
         .filter(
             (entry) =>
                 source.allFunctions ||
-                [...changed].some((line) => line >= entry.line && line <= entry.endLine),
+                hasChangedLine(changed, details.get(entry.startOffset)?.comment?.startLine ?? entry.line, entry.endLine),
         )
         .map((entry) => {
             const body = source.after.slice(entry.startOffset, entry.endOffset);
-            const cc = cyclomatic.find((item) => item.line === entry.line);
-            const cog = cognitive.find((item) => item.line === entry.line);
+            const detail = details.get(entry.startOffset);
+            const comment = detail?.comment;
             const related = hunks.filter(
                 (h) =>
                     h.newStart <= entry.endLine &&
@@ -105,11 +112,7 @@ export function extractChangedEvidence(source: ChangedSource): EvidenceRecord[] 
                 lines: entry.endLine - entry.line + 1,
                 tokens: entry.canonicalTokens,
             };
-            if (cc) metrics.cyclomatic = cc.cyclomatic;
-            if (cog) {
-                metrics.cognitive = cog.cognitive;
-                metrics.nesting = cog.maxNesting;
-            }
+            if (detail) Object.assign(metrics, detail.metrics);
             const id = `${source.file}::${entry.qualifiedName}:${entry.identityKind === "named" ? entry.declarationKind : entry.line}`;
             return {
                 ...identity,
@@ -118,6 +121,7 @@ export function extractChangedEvidence(source: ChangedSource): EvidenceRecord[] 
                 line: entry.line,
                 evidence: {
                     body,
+                    ...(comment ? { comment: comment.text, commentLocation: { startLine: comment.startLine, endLine: comment.endLine } } : {}),
                     signature: entry.qualifiedName,
                     hunk: related.map((h) => h.text).join("\n"),
                     message: source.message,
@@ -125,8 +129,54 @@ export function extractChangedEvidence(source: ChangedSource): EvidenceRecord[] 
                 },
             };
         });
-    rows.push(...hunkEvidence(source, identity, hunks));
+    for (const hunk of hunkEvidence(source, identity, hunks)) rows.push(hunk);
     return rows;
+}
+
+interface AttachedComment { text: string; startLine: number; endLine: number; }
+
+/** Only syntactically adjacent comments attach; a separated header is not a function claim. */
+function attachedComment(content: string, parsed: ParsedTsSource, node: TS.Node): AttachedComment | undefined {
+    const { ts, sf } = parsed;
+    let owner = node;
+    const parent = node.parent;
+    if (parent && ts.isVariableDeclaration(parent) && ts.isVariableDeclarationList(parent.parent)
+        && parent.parent.declarations.length === 1 && ts.isVariableStatement(parent.parent.parent)) owner = parent.parent.parent;
+    else if (parent && ts.isPropertyAssignment(parent)) owner = parent;
+    const ranges = ts.getLeadingCommentRanges(content, owner.getFullStart()) ?? [];
+    const adjacent: TS.CommentRange[] = [];
+    let end = owner.getStart(sf);
+    for (const range of [...ranges].reverse()) {
+        const gap = content.slice(range.end, end);
+        if (gap.trim() || (gap.match(/\n/g)?.length ?? 0) > 1) break;
+        adjacent.unshift(range);
+        end = range.pos;
+    }
+    const first = adjacent[0], last = adjacent.at(-1);
+    if (!first || !last) return undefined;
+    return {
+        text: adjacent.map(range => content.slice(range.pos, range.end)).join("\n"),
+        startLine: sf.getLineAndCharacterOfPosition(first.pos).line + 1,
+        endLine: sf.getLineAndCharacterOfPosition(last.end).line + 1,
+    };
+}
+
+interface FunctionDetail {
+    metrics: { cyclomatic: number; cognitive: number; nesting: number };
+    comment: AttachedComment | undefined;
+}
+
+function functionDetails(content: string, parsed: ParsedTsSource | null): Map<number, FunctionDetail> {
+    const details = new Map<number, FunctionDetail>();
+    if (!parsed) return details;
+    const { ts, sf } = parsed;
+    visitCognitiveFunctions(ts, sf, (node, entry) => {
+        details.set(node.getStart(sf), {
+            metrics: { cyclomatic: cyclomaticOfFunction(ts, node), cognitive: entry.cognitive, nesting: entry.maxNesting },
+            comment: attachedComment(content, parsed, node),
+        });
+    });
+    return details;
 }
 
 function hunkEvidence(

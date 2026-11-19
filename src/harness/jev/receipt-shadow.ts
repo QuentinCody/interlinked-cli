@@ -2,6 +2,7 @@
 import { interpretOperationalClaim, interpretTestClaim, verifyOperationalClaim, verifyTestClaim,
     type OperationalReceipt, type TestReceipt } from "./receipt-verifiers.js";
 import type { JevClient } from "./client.js";
+import { isJsonObject as object, type JsonObject } from "../../lib/json-types.js";
 
 export interface ReceiptShadowOptions {
     enabled?: boolean;
@@ -14,46 +15,62 @@ export interface ReceiptShadowRow {
     ts: string; claim: string; family: string | null; status: string; reason: string;
     jevSupported: boolean | null; disagrees: boolean | null; receiptId: string | null;
 }
-const object = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 const strings = (x: unknown): x is string[] => Array.isArray(x) && x.length > 0 && x.every(v => typeof v === "string" && v.length > 0);
 let observationFailures = 0;
 export const receiptShadowFailures = () => observationFailures;
 
 const missing = (reason: string) => ({ family: null, status: "not_assessable", reason, receiptId: null });
 
+function isCompletion(value: unknown): value is OperationalReceipt["completion"] {
+    return value === "completed" || value === "running" || value === "missing" || value === "cancelled";
+}
+
 function verifyLink(claim: string, value: unknown) {
     if (!object(value) || !object(value.scope) || !object(value.receipt)) return missing("invalid_link");
     const s = value.scope; const r = value.receipt;
     if (typeof s.receiptId !== "string" || typeof s.sourceIdentity !== "string" || !strings(s.selection) || typeof s.cwd !== "string"
         || typeof r.id !== "string" || typeof r.sourceIdentity !== "string" || !strings(r.selection)
-        || !["completed", "running", "missing", "cancelled"].includes(String(r.completion))) return missing("invalid_scope_or_completion");
+        || !isCompletion(r.completion)) return missing("invalid_scope_or_completion");
     const scope = { receiptId: s.receiptId, sourceIdentity: s.sourceIdentity, selection: s.selection, cwd: s.cwd };
     if (value.family === "tests") {
         if (!object(r.runner) && r.runner !== null) return missing("invalid_runner");
         const parsed = interpretTestClaim(claim, scope);
         const receipt: TestReceipt = { id: r.id, sourceIdentity: r.sourceIdentity, selection: r.selection,
-            completion: r.completion === "completed" ? "completed" : r.completion === "running" ? "running" : "missing", runner: r.runner };
+            completion: r.completion === "cancelled" ? "missing" : r.completion, runner: r.runner };
         return parsed ? { ...verifyTestClaim(parsed, receipt), family: "tests" } : missing("unsupported_claim_grammar");
     }
-    return verifyOperationalLink(claim, scope, r, { id: r.id, sourceIdentity: r.sourceIdentity, selection: r.selection });
+    return verifyOperationalLink(claim, scope, r, { id: r.id, sourceIdentity: r.sourceIdentity, selection: r.selection, completion: r.completion });
+}
+
+function parseExecution(r: JsonObject) {
+    const { cwd, runner, directInvocation, outputComplete, sourceUnchanged, exitCode, signal } = r;
+    if (typeof cwd !== "string" || (runner !== "command" && runner !== "typescript")) return null;
+    if (typeof directInvocation !== "boolean" || typeof outputComplete !== "boolean") return null;
+    if (sourceUnchanged !== null && typeof sourceUnchanged !== "boolean") return null;
+    if (exitCode !== null && (typeof exitCode !== "number" || !Number.isInteger(exitCode))) return null;
+    if (signal !== null && typeof signal !== "string") return null;
+    return { cwd, runner, directInvocation, outputComplete, sourceUnchanged, exitCode, signal } as const;
+}
+
+function parseFileWrite(value: unknown): OperationalReceipt["fileWrite"] | null {
+    if (value === undefined) return undefined;
+    if (!object(value)) return null;
+    const { path, observedByCall, afterSha256, bytesWritten } = value;
+    if (typeof path !== "string" || typeof observedByCall !== "string" || typeof afterSha256 !== "string" || typeof bytesWritten !== "number") return null;
+    return { path, observedByCall, afterSha256, bytesWritten };
 }
 
 function verifyOperationalLink(claim: string, scope: Parameters<typeof interpretOperationalClaim>[1],
-    r: Record<string, unknown>, common: Pick<OperationalReceipt, "id" | "sourceIdentity" | "selection">) {
-    if (typeof r.cwd !== "string" || !["command", "typescript"].includes(String(r.runner)) || typeof r.directInvocation !== "boolean"
-        || typeof r.outputComplete !== "boolean" || ![true, false, null].includes(r.sourceUnchanged as boolean | null)
-        || !(r.exitCode === null || Number.isInteger(r.exitCode)) || !(r.signal === null || typeof r.signal === "string")) return missing("invalid_operational_receipt");
-    if (r.fileWrite !== undefined && (!object(r.fileWrite) || typeof r.fileWrite.path !== "string" || typeof r.fileWrite.observedByCall !== "string"
-        || typeof r.fileWrite.afterSha256 !== "string" || typeof r.fileWrite.bytesWritten !== "number")) return missing("invalid_write_observation");
+    r: JsonObject, common: Pick<OperationalReceipt, "id" | "sourceIdentity" | "selection" | "completion">) {
+    const execution = parseExecution(r);
+    if (!execution) return missing("invalid_operational_receipt");
+    const fileWrite = parseFileWrite(r.fileWrite);
+    if (fileWrite === null) return missing("invalid_write_observation");
     const parsed = interpretOperationalClaim(claim, scope);
-    const receipt: OperationalReceipt = { ...common, cwd: r.cwd,
-        completion: r.completion === "completed" ? "completed" : r.completion === "running" ? "running" : r.completion === "cancelled" ? "cancelled" : "missing",
-        runner: r.runner === "typescript" ? "typescript" : "command", directInvocation: r.directInvocation, outputComplete: r.outputComplete,
-        sourceUnchanged: r.sourceUnchanged === true ? true : r.sourceUnchanged === false ? false : null,
-        exitCode: r.exitCode === null ? null : Number(r.exitCode), signal: typeof r.signal === "string" ? r.signal : null, stdout: "", stderr: "" };
-    if (object(r.fileWrite)) receipt.fileWrite = { path: String(r.fileWrite.path), observedByCall: String(r.fileWrite.observedByCall),
-        afterSha256: String(r.fileWrite.afterSha256), bytesWritten: Number(r.fileWrite.bytesWritten) };
-    return parsed ? { ...verifyOperationalClaim(parsed, receipt), family: parsed.family } : missing("unsupported_claim_grammar");
+    if (!parsed) return missing("unsupported_claim_grammar");
+    const receipt: OperationalReceipt = { ...common, ...execution, stdout: "", stderr: "" };
+    if (fileWrite !== undefined) receipt.fileWrite = fileWrite;
+    return { ...verifyOperationalClaim(parsed, receipt), family: parsed.family };
 }
 
 /** Never throws into, modifies, or supplies a result to the existing judgment path. */

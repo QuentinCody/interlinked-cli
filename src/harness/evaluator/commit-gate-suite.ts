@@ -12,9 +12,10 @@
 
 import { isAbsolute, resolve } from "node:path";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
-import type { CoverageLanguage, CoverageRunner, CoverageRunResult } from "../coverage-runner.js";
+import type { CoverageLanguage, CoverageRunner, CoverageRunOpts, CoverageRunResult } from "../coverage-runner.js";
 import { maxCyclomaticFor } from "../metric-caps.js";
 import type { HarnessDecision } from "../types.js";
+import type { CommitSuiteMeasurement } from "./commit-gate-admission.js";
 import type { GitChangedFilesFn } from "./commit-gate-changes.js";
 import {
 	blockForViolations,
@@ -25,12 +26,15 @@ import {
 	scanFile,
 } from "./commit-gate-decision.js";
 import type { ChangedSource, Violation } from "./commit-gate-scan.js";
+import { isOutsideCoverageScope, readCoverageScope } from "./coverage-measured-scope.js";
 import type { StagedSnapshot } from "./staged-snapshot.js";
 
 /** Injectable seams so unit tests run with NO real suite / git / analyzer. */
 export interface CommitGateDeps {
 	/** Resolve a CoverageRunner for a language (default: the real factory). */
 	runnerFor: (language: CoverageLanguage) => CoverageRunner | null;
+	/** Production runs use managed host capacity. Injected runners keep their existing test seam. */
+	runAdmittedSuite?: (language: CoverageLanguage, options: CoverageRunOpts) => Promise<CommitSuiteMeasurement>;
 	/** List changed source files vs HEAD (default: the real `git diff`). */
 	gitChangedFiles: GitChangedFilesFn;
 	/** The per-function cyclomatic analyzer for a language (default: TS AST / radon). */
@@ -121,6 +125,7 @@ interface SuiteOutcome {
 	anyRed: boolean;
 	/** Set to a loud-degrade reason when any language's run could not be measured. */
 	degradeReason: string | null;
+	deferred?: boolean;
 }
 
 function incompleteMeasurement(result: CoverageRunResult, language: CoverageLanguage): string | null {
@@ -158,12 +163,18 @@ async function runSuites(ctx: GateContext, deps: CommitGateDeps): Promise<SuiteO
 		const key = runner.id ?? language;
 		if (ranKeys.has(key)) continue;
 		ranKeys.add(key);
-		const result = await runner.run({
+		const options: CoverageRunOpts = {
 			projectRoot: ctx.projectRoot,
 			runtimeRoot: ctx.ledgerRoot ?? ctx.projectRoot,
 			coverageDir: `${ctx.projectRoot}/.interlinked/commit-gate-coverage`,
 			timeoutMs: COMMIT_RUN_TIMEOUT_MS,
-		});
+		};
+		const result = deps.runAdmittedSuite ? await deps.runAdmittedSuite(language, options) : await runner.run(options);
+		if ("deferred" in result) {
+			const warning = "[interlinked:commit-gate] NOT CHECKED: " + result.deferred + ". Coverage obligations remain open. Retry the full coverage suite against the same staged contents or commit when capacity is available.";
+			ctx.warnings.push(warning);
+			return { perFile, failingTests, anyRed, degradeReason: result.deferred, deferred: true };
+		}
 		if (result.testsPassed === false) {
 			anyRed = true;
 			failingTests.push(...(result.failingTests ?? []));
@@ -191,6 +202,11 @@ function collectViolations(
 	// `interlinked caps set cyclomatic` cap honored at commit time, not just
 	// per-edit (finding 2026-06, round 8). Cheap — metric-caps is mtime-cached.
 	const cyclomaticCap = maxCyclomaticFor(ctx.ledgerRoot ?? ctx.projectRoot);
+	// Which files the coverage tool measures at all. Read from the SAME tree the
+	// suite ran in (`projectRoot` — the materialized snapshot when there is one),
+	// so the scope is the one that produced this report. null = undecidable, and
+	// every file then keeps the stricter "absent means untested" reading.
+	const scope = readCoverageScope(ctx.projectRoot, deps.readFile);
 	for (const source of ctx.sources) {
 		const abs = isAbsolute(source.relPath)
 			? source.relPath
@@ -209,6 +225,7 @@ function collectViolations(
 				crapThreshold: ctx.crapThreshold,
 				blockOnCrap: ctx.blockOnCrap,
 				cyclomaticCap,
+				outsideCoverageScope: scope !== null && isOutsideCoverageScope(source.relPath, scope),
 				onUnmeasured: (why) => unmeasured.push(why),
 			}),
 		);
@@ -257,7 +274,10 @@ export async function runSuiteAndScan(
 	// the clean-pass discharge below is withheld.
 	const redDecision = decideRedBarOrWarn(ctx, outcome);
 	if (redDecision) return redDecision;
-	if (outcome.degradeReason !== null) return loudDegrade(outcome.degradeReason);
+	if (outcome.degradeReason !== null) {
+		loudDegrade(outcome.degradeReason);
+		return outcome.deferred ? { decision: "allow", warnings: ctx.warnings } : null;
+	}
 
 	const { violations, unmeasured } = collectViolations(ctx, outcome.perFile, deps);
 	ctx.warnings.push(...unmeasured.map((why) => `[interlinked:commit-gate] NOT CHECKED: ${why}; deferred obligations remain open.`));

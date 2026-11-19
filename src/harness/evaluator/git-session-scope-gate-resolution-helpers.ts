@@ -36,7 +36,9 @@ export const GIT_TIMEOUT_MS = 3000;
  *  and the gate's per-file check would over-match. */
 export function statusPaths(cwd: string, pathspecs: string[]): string[] {
 	try {
-		const args = ["status", "--porcelain", "-z", "-uall"];
+		// --no-optional-locks: without it `git status` takes .git/index.lock to save refreshed stat data, and the
+		// timeout below kills it while it holds the lock — a stale lock that blocks every later git add/commit (2026-11-13).
+		const args = ["--no-optional-locks", "status", "--porcelain", "-z", "-uall"];
 		if (pathspecs.length > 0) {
 			args.push("--");
 			for (const p of pathspecs) args.push(p);

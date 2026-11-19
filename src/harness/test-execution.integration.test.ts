@@ -28,6 +28,7 @@ it.each([
     { pool: "threads", heapArgs: [], ceiling: 1664, nodeOptions: "" },
     { pool: "forks", heapArgs: ["--max_old_space_size", "512"], ceiling: 640, nodeOptions: "" },
     { pool: "forks", heapArgs: [], ceiling: 640, nodeOptions: "--no-warnings --max-old-space-size=512" },
+    { pool: "forks", heapArgs: [], ceiling: 528, nodeOptions: "--max-old-space-size=512 --max-semi-space-size=4" },
 ])("bounds the actual $pool worker heap ($ceiling MiB) and preserves configured arguments", async ({ pool, heapArgs, ceiling, nodeOptions }) => {
     const workspace = realpathSync(mkdtempSync(join(tmpdir(), "test-worker-heap-")));
     const root = join(workspace, "project"), store = join(workspace, "store");

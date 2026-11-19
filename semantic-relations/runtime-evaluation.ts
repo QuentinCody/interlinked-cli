@@ -4,14 +4,18 @@ import { dirname, join, resolve } from "node:path";
 import { hash, textHash } from "../src/harness/semantic-graph/relation-core.js";
 import { haikuIdentity } from "../src/lib/decision-metrics/relation-haiku.js";
 import { loadRelationArtifact } from "../src/harness/semantic-graph/relation-freeze.js";
-import { parseRelationRun } from "../src/harness/semantic-graph/relation-codec.js";
-import type { EngineSpec, InvariantDefinition, RelationPlan } from "../src/harness/semantic-graph/relation-types.js";
+import { parseEngine, parseRelationRun } from "../src/harness/semantic-graph/relation-codec.js";
+import type { InvariantDefinition, RelationPlan } from "../src/harness/semantic-graph/relation-types.js";
 
 const root = resolve(process.cwd());
-const study = join(root, "semantic-relations/studies/2026-10-27-runtime");
-const repo = join(root, "scratch/semantic-relations-runtime/repo");
 const action = process.argv[2] ?? "prepare";
-mkdirSync(study, { recursive: true });
+if (action === "--help") {
+    console.log("Usage: runtime-evaluation.ts ACTION [RUN_DIR]\nA custom RUN_DIR needs heap-measurements.json and engines.json. The recipe writes its study and source capture in study/ and repo/. Assessment actions can call configured model providers.");
+    process.exit(0);
+}
+const runDir = process.argv[3] ? resolve(process.argv[3]) : undefined;
+const study = runDir ? join(runDir, "study") : join(root, "semantic-relations/studies/2026-10-27-runtime");
+const repo = runDir ? join(runDir, "repo") : join(root, "scratch/semantic-relations-runtime/repo");
 const save = (name: string, value: unknown) => writeFileSync(join(study, name), `${JSON.stringify(value, null, 2)}\n`);
 const read = <T>(name: string): T => JSON.parse(readFileSync(join(study, name), "utf8")) as T;
 const cli = join(root, "dist/index.js");
@@ -67,8 +71,16 @@ const definitions: InvariantDefinition[] = [
     },
 ];
 if (action === "prepare") {
+    if (runDir && (existsSync(repo) || existsSync(join(study, "protocol.json")) || existsSync(join(study, "engines.json")))) {
+        throw new Error(`Runtime capture or study inputs already exist in ${runDir}`);
+    }
     if (existsSync(join(repo, ".git"))) throw new Error("runtime capture already exists; do not overwrite its baseline");
-    mkdirSync(repo, { recursive: true });
+    const heap = readFileSync(join(runDir ?? join(root, "scratch/semantic-relations-runtime"), "heap-measurements.json"));
+    const engines: unknown = JSON.parse(readFileSync(join(runDir ?? join(root, "semantic-relations/studies/2026-10-27-exploratory"), "engines.json"), "utf8"));
+    if (!Array.isArray(engines)) throw new Error("engines.json must contain an array of engine definitions");
+    const available = engines.map(parseEngine).filter(e => e.id === "J" || e.id === "H").map(e => ({ ...e, maxCalls: 100, maxUsd: e.id === "J" ? 1 : 2, ...(e.id === "H" ? { identity: haikuIdentity(e.command!, e.model) } : {}) }));
+    mkdirSync(study, { recursive: true });
+    mkdirSync(repo, { recursive: runDir === undefined });
     const sources = new Set<string>([
         "src/harness/resource-command.ts", "src/harness/resource-cli.ts", "src/harness/resource-budget.ts", "src/harness/resource-wait.ts", "src/harness/resource-watch.ts", "src/harness/node-heap-limit.ts", "src/harness/test-execution.ts", "src/harness/verification-stages.ts", "src/harness/check-engine/spawn-async.ts", "scripts/run-resource-bounded.ts",
     ]);
@@ -79,7 +91,7 @@ if (action === "prepare") {
         return { file, hash: textHash(readFileSync(join(root, file), "utf8")) };
     });
     mkdirSync(join(repo, "runtime"), { recursive: true });
-    copyFileSync(join(root, "scratch/semantic-relations-runtime/heap-measurements.json"), join(repo, "runtime/heap-measurements.json"));
+    writeFileSync(join(repo, "runtime/heap-measurements.json"), heap);
     mkdirSync(join(repo, "semantic-relations"), { recursive: true });
     writeFileSync(join(repo, "semantic-relations/invariants.json"), JSON.stringify(definitions));
     writeFileSync(join(repo, "semantic-relations/scenarios.json"), "[]\n");
@@ -87,8 +99,6 @@ if (action === "prepare") {
     git("init", "-q"); git("add", "src", "scripts", "runtime", "semantic-relations");
     git("-c", "core.hooksPath=/dev/null", "-c", "user.name=Interlinked evaluation", "-c", "user.email=evaluation@localhost", "commit", "-qm", "Capture current source for isolated runtime evaluation");
     const revision = git("rev-parse", "HEAD"), until = git("show", "-s", "--format=%cI", "HEAD");
-    const engines = readFileSync(join(root, "semantic-relations/studies/2026-10-27-exploratory/engines.json"), "utf8");
-    const available = (JSON.parse(engines) as EngineSpec[]).filter(e => e.id === "J" || e.id === "H").map(e => ({ ...e, maxCalls: 100, maxUsd: e.id === "J" ? 1 : 2, ...(e.id === "H" ? { identity: haikuIdentity(e.command!, e.model) } : {}) }));
     save("engines.json", available);
     save("protocol.json", { exploratory: true, objective: "Does the actual CLI add actionable information to ordinary code inspection and executable runtime checks?", sourceCapture: { root: repo, revision, baseRepositoryCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(), captured, digest: hash(captured) }, beforeModelBaseline: { known: ["The earlier five failing test files pass all 76 tests under Node 22.", "Actual V8 heap differs by 144 MiB between installed Node 22 and 25 for the same old-space cap.", "Ordinary Astra review has proposed checking missing executable and external child signal handling; these are not model-discovered findings.", "Current relation workflow requires committed source, custom registry, engines, prepare, freeze, assess and manual JSON inspection."], successCriterion: "Credit a model only for a new verified finding, new necessary test, or materially narrower inspection scope absent from the prior baseline.", limits: "Single-agent sequential dogfood, not randomized timing or independent correctness qualification." }, threshold: .8, until, historySince: "2026-01-01T00:00:00Z", kinds: "invariant_membership,invariant_compatibility,invariant_group", D: "Unavailable adapter/model; no automatic download", noAutomaticGate: true });
 }

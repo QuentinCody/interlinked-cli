@@ -19,7 +19,7 @@ on:
 jobs:
   matrix:
     name: release matrix (Linux / Node 22 / Python 3 / Rust stable / Chromium)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4

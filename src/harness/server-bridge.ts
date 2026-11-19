@@ -244,7 +244,7 @@ export class ServerBridge implements ServerApiClient {
 				}),
 			};
 
-			await fetchWithTimeout(`${this.config.serverUrl}/api/hooks/activity/batch`, {
+			const response = await fetchWithTimeout(`${this.config.serverUrl}/api/hooks/activity/batch`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -256,6 +256,7 @@ export class ServerBridge implements ServerApiClient {
 				body: JSON.stringify(batchPayload),
 				timeout: 5000,
 			});
+			if (!response.ok) throw new Error(`Guard event delivery failed: HTTP ${response.status}`);
 		} catch {
 			// Re-queue events on failure (up to a limit)
 			if (events.length <= 50) {

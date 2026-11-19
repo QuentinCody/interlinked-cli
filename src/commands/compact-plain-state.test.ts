@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getDataDir } from "../lib/config-paths.js";
-import { loadPlainManifest } from "./compact-plain-state.js";
+import { nextActivitySegmentSeq } from "./compact-activity-manifest.js";
+import { loadPlainManifest, nextPlainSegmentSeq, rebuildArchiveManifestFromDisk } from "./compact-plain-state.js";
 
 let cwd: string;
 
@@ -28,6 +29,21 @@ beforeEach(() => {
 
 afterEach(() => {
 	rmSync(cwd, { recursive: true, force: true });
+});
+
+describe("archive sequence allocation", () => {
+	it.each([
+		["activity", () => nextActivitySegmentSeq(cwd, { version: 1, segments: [] })],
+		["collection", () => nextPlainSegmentSeq("collection", cwd, { version: 1, segments: [] })],
+	] as const)("distinguishes a missing %s archive from a failed directory read", (log, next) => {
+		expect(next()).toBe(1);
+		expect(rebuildArchiveManifestFromDisk(log, cwd).segments).toEqual([]);
+		mkdirSync(getDataDir(cwd), { recursive: true });
+		const archive = join(getDataDir(cwd), "archive");
+		writeFileSync(archive, "this path is a file");
+		expect(next).toThrow(expect.objectContaining({ code: "ENOTDIR" }));
+		expect(() => rebuildArchiveManifestFromDisk(log, cwd)).toThrow(expect.objectContaining({ code: "ENOTDIR" }));
+	});
 });
 
 describe("loadPlainManifest", () => {

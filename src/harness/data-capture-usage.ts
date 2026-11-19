@@ -7,7 +7,7 @@ function measuredToken(value: number | undefined): number | null {
 }
 
 /** Timeline usage is attached once per provider message and is a delta. */
-export function usageRecord(record: TimelineRecord): object | null {
+function usageRecord(record: TimelineRecord): object | null {
     if (!record.usage) return null;
     const provider = record.provider ?? "claude-code";
     const id = dataRecordHash(JSON.stringify([provider, record.session, record.agent_id, record.uuid]));

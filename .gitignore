@@ -168,6 +168,8 @@ src/lib/_write_integration/
 # blocks NEW additions. Drop a `!scripts/foo.mjs` carve-out below if a
 # new file in this directory needs to ship to the repo.
 scripts/*
+!scripts/generate-docs.test.mts
+!scripts/semantic-study-drivers.test.mjs
 # Maintained evidence qualification and advisory audit entry points.
 !scripts/evidence-deep-audit.mts
 !scripts/evidence-deep-audit.test.mts
@@ -193,6 +195,8 @@ scripts/internal/*
 !scripts/generate-managed-push-manifest.mjs
 !scripts/build-atomic.mjs
 !scripts/build-atomic-cli.mjs
+!scripts/cli-reference-help.ts
+!scripts/cli-reference-help.test.mts
 !scripts/build-atomic.test.mjs
 !scripts/build-input-fingerprint.mjs
 !scripts/e2e-*.mjs

@@ -16,6 +16,7 @@ interface VFile {
 	size?: number;
 	content?: string;
 	statThrows?: boolean;
+	unlinkThrows?: boolean;
 }
 type VFS = {
 	dirs: Record<string, string[]>;
@@ -52,6 +53,7 @@ vi.mock("node:fs", () => ({
 		return f.content;
 	},
 	unlinkSync: (p: string) => {
+		if (vfs.files[p]?.unlinkThrows) throw new Error("EACCES");
 		unlinked.push(p);
 	},
 	writeFileSync: (p: string, data: string) => {
@@ -180,12 +182,27 @@ describe("clean — stale hook session files", () => {
 		expect(out).toContain("Found 1 item(s). Run 'interlinked clean --force' to remove.");
 	});
 
+	it("reports a stale file that could not be removed", async () => {
+		const path = `${HOOK_SESSIONS}/old.json`;
+		vfs.files[path] = { mtimeMs: NOW - 2 * DAY, unlinkThrows: true };
+		await cleanCommand({ force: true });
+		expect(allOutput()).toContain(`could not remove ${path}`);
+		expect(allOutput()).toContain("Removed 0 item(s)");
+	});
+
 	it("--force: unlinks stale file and records it as removed", async () => {
 		await cleanCommand({ force: true });
 		expect(unlinked).toEqual([`${HOOK_SESSIONS}/old.json`]);
 		const out = allOutput();
 		expect(out).toContain(`removed ${HOOK_SESSIONS}/old.json`);
 		expect(out).toContain("Removed 1 item(s).");
+	});
+
+	it("explicit dry-run preserves files even with force", async () => {
+		await cleanCommand({ force: true, dryRun: true, json: true });
+		expect(unlinked).toEqual([]);
+		expect(written).toEqual([]);
+		expect(lastJson()).toMatchObject({ dry_run: true, total_removed: 0, removed: [] });
 	});
 
 	it("25h-old file formats age as 1d (days branch of formatAge)", async () => {

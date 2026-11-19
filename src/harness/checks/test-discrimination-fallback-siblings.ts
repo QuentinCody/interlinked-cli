@@ -15,15 +15,40 @@
 // `.unavailable` / `.defaults` suffix, and match every other test file in
 // the same directory (its `__tests__/` child, or its parent when the file
 // itself lives in `__tests__/`) whose stem strips down to the same value.
-// Bounded at 12 files; every read is try/catch-wrapped and never throws —
-// a heuristic advisory check must degrade to "no sibling found", not crash.
+// Runtime lookup retains its 12-file bound. Explicit foreground scans read
+// every matching sibling and disclose unavailable evidence without discarding
+// other readable siblings. Filename similarity remains a heuristic relation.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { checkRoot, reportNotMeasured } from "./check-root.js";
+import { isForegroundCheckScan } from "./check-scan-policy.js";
+import { getProjectCheckEvidence, type ProjectCheckEvidence } from "./project-check-evidence.js";
 
 const MAX_SIBLING_FILES = 12;
 
 const TEST_EXT_RE = /\.(test|spec)\.(tsx?|jsx?|mjs|cjs|mts|cts)$/;
+const snapshotDirectories = new WeakMap<ProjectCheckEvidence, Map<string, string[]>>();
+
+/** Index already selected paths once per invocation, without a new filesystem
+ * walk. A disappearing live entry must not erase captured dependency evidence. */
+function snapshotTestBasenames(dir: string): readonly string[] {
+	const evidence = isForegroundCheckScan() ? getProjectCheckEvidence() : undefined;
+	if (!evidence) return [];
+	let directories = snapshotDirectories.get(evidence);
+	if (!directories) {
+		directories = new Map();
+		for (const file of evidence.listFiles()) {
+			if (!TEST_EXT_RE.test(file)) continue;
+			const path = resolve(evidence.root, file), directory = dirname(path);
+			const names = directories.get(directory) ?? [];
+			names.push(basename(path));
+			directories.set(directory, names);
+		}
+		snapshotDirectories.set(evidence, directories);
+	}
+	return directories.get(dir) ?? [];
+}
 
 // Suffix patterns stripped (in order, repeated to a fixed point) after the
 // test extension itself is gone. `.mutation-kill-*` consumes everything from
@@ -40,13 +65,21 @@ const SUFFIX_PATTERNS: RegExp[] = [
 ];
 const MAX_SUFFIX_STRIP_ROUNDS = 6;
 
+function reportSiblingGap(file: string, error: unknown): void {
+	if (!isForegroundCheckScan()) return;
+	const reason = `Sibling evidence unavailable: ${error instanceof Error ? error.message : String(error)}`;
+	getProjectCheckEvidence()?.reportUnavailable("fallback_only_assertion", file, reason);
+	reportNotMeasured("fallback_only_assertion", `${file}: ${reason}`);
+}
+
 /** The shared SUT stem for a test file's basename, or `null` when the
  *  basename doesn't follow the `*.test.*` / `*.spec.*` convention at all. */
 function sutStem(fileBase: string): string | null {
 	const withoutTestExt = fileBase.replace(TEST_EXT_RE, "");
 	if (withoutTestExt === fileBase) return null;
 	let stem = withoutTestExt;
-	for (let round = 0; round < MAX_SUFFIX_STRIP_ROUNDS; round++) {
+	const rounds = isForegroundCheckScan() ? Number.POSITIVE_INFINITY : MAX_SUFFIX_STRIP_ROUNDS;
+	for (let round = 0; round < rounds; round++) {
 		let changed = false;
 		for (const pattern of SUFFIX_PATTERNS) {
 			const next = stem.replace(pattern, "");
@@ -60,13 +93,14 @@ function sutStem(fileBase: string): string | null {
 	return stem;
 }
 
-/** Test-file basenames in one directory, or `[]` when it can't be listed
- *  (missing, permissions) — never throws. */
-function listTestBasenames(dir: string): string[] {
+/** An absent optional child directory is known absence; failed enumeration
+ *  elsewhere cannot establish that no matching sibling exists. */
+function listTestBasenames(dir: string, optional: boolean): string[] {
 	try {
 		return readdirSync(dir).filter((name) => TEST_EXT_RE.test(name));
-	} catch (e) {
-		void e; // directory absent or unreadable — no siblings from here
+	} catch (error) {
+		const absent = error instanceof Error && "code" in error && error.code === "ENOENT";
+		if (!optional || !absent) reportSiblingGap(dir, error);
 		return [];
 	}
 }
@@ -86,37 +120,45 @@ interface SiblingSearch {
 	stem: string;
 	selfAbs: string;
 	found: string[];
+	seen: Set<string>;
+	limit: number;
 }
 
 /** Append every stem-matching sibling basename in `dir` to `search.found`
- *  (deduped, self-excluded, bounded at {@link MAX_SIBLING_FILES} by the
- *  caller). */
+ *  (deduped, self-excluded, subject to the caller's collection policy). */
 function collectSiblingsInDir(dir: string, search: SiblingSearch): void {
-	for (const name of listTestBasenames(dir)) {
-		if (search.found.length >= MAX_SIBLING_FILES) return;
+	const optional = dir === join(dirname(search.selfAbs), "__tests__");
+	const names = new Set(listTestBasenames(dir, optional));
+	for (const name of snapshotTestBasenames(dir)) names.add(name);
+	for (const name of names) {
+		if (search.found.length >= search.limit) return;
 		if (sutStem(name) !== search.stem) continue;
 		const candidateAbs = resolve(join(dir, name));
 		if (candidateAbs === search.selfAbs) continue;
-		if (!search.found.includes(candidateAbs)) search.found.push(candidateAbs);
+		if (!search.seen.has(candidateAbs)) {
+			search.seen.add(candidateAbs);
+			search.found.push(candidateAbs);
+		}
 	}
 }
 
 /**
  * Every sibling test file of `filePath` sharing its SUT stem: same directory
  * (plus its `__tests__` child, or its parent when `filePath` itself sits in
- * `__tests__`), excluding `filePath` itself. Bounded at
- * {@link MAX_SIBLING_FILES}; returns `[]` for a nonexistent directory or a
- * basename that doesn't follow the test-file naming convention. Never throws.
+ * `__tests__`), excluding `filePath` itself. Runtime retains its file and
+ * normalization limits; foreground completes the matching population. Failed
+ * foreground enumeration remains unavailable evidence. Never throws for I/O.
  */
 export function findSiblingTestFiles(filePath: string): string[] {
 	const normalized = filePath.replace(/\\/g, "/");
-	const selfAbs = resolve(normalized);
+	const selfAbs = resolve(getProjectCheckEvidence()?.root ?? checkRoot(), normalized);
 	const stem = sutStem(basename(normalized));
 	if (stem === null) return [];
 
-	const search: SiblingSearch = { stem, selfAbs, found: [] };
-	for (const dir of candidateDirs(normalized)) {
-		if (search.found.length >= MAX_SIBLING_FILES) break;
+	const search: SiblingSearch = { stem, selfAbs, found: [], seen: new Set(),
+		limit: isForegroundCheckScan() ? Number.POSITIVE_INFINITY : MAX_SIBLING_FILES };
+	for (const dir of candidateDirs(selfAbs)) {
+		if (search.found.length >= search.limit) break;
 		collectSiblingsInDir(dir, search);
 	}
 	return search.found;
@@ -126,7 +168,8 @@ export function findSiblingTestFiles(filePath: string): string[] {
  * The union of `computeTargets(content)` over every sibling test file of
  * `filePath` (per {@link findSiblingTestFiles}) — the cross-file half of the
  * sibling-visibility set. Each sibling read is independently try/catch'd: a
- * file that vanished between listing and reading is skipped, not fatal.
+ * file that vanished between listing and reading is unavailable in foreground,
+ * not fatal. Existing invocation snapshots supply source bytes when available.
  */
 export function siblingNonDefaultTargets(
 	filePath: string,
@@ -134,14 +177,13 @@ export function siblingNonDefaultTargets(
 ): Set<string> {
 	const union = new Set<string>();
 	for (const sibling of findSiblingTestFiles(filePath)) {
-		let content: string;
 		try {
-			content = readFileSync(sibling, "utf-8");
-		} catch (e) {
-			void e; // removed/unreadable between listing and reading — skip it
-			continue;
+			const evidence = isForegroundCheckScan() ? getProjectCheckEvidence() : undefined;
+			const content = evidence ? evidence.readFile(sibling) : readFileSync(sibling, "utf-8");
+			for (const target of computeTargets(content)) union.add(target);
+		} catch (error) {
+			reportSiblingGap(sibling, error);
 		}
-		for (const target of computeTargets(content)) union.add(target);
 	}
 	return union;
 }

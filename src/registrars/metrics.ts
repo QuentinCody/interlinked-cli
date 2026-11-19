@@ -1,6 +1,7 @@
 import { type Command, type OptionValues } from "commander";
 import { registerMetricsAnalysisCommands } from "./metrics-analysis.js";
 import { registerDecisionMetricCommands } from "./metrics-decisions.js";
+import { registerMetricsStandardsCommands } from "./metrics-standards.js";
 
 function parentAndChildOptions(opts: OptionValues, command: Command): OptionValues {
     return { ...(command.parent?.opts() ?? {}), ...opts };
@@ -138,6 +139,7 @@ function registerScoreCommand(metrics: Command): void {
         .option("--cwd <path>", "Project root (default: current directory)")
         .option("--json", "Full measurements, profile, hashes and explicit evidence gaps")
         .option("--short", "One-line score and evidence status")
+        .option("--full", "Complete local action evidence and next steps")
         .action(async (opts: OptionValues, command: Command) => {
             const { metricsScoreCommand } = await import("../commands/metrics-score.js");
             metricsScoreCommand(parentAndChildOptions(opts, command));
@@ -151,7 +153,7 @@ export function registerMetricsCommands(program: Command): void {
             "Scan the whole codebase: function tokens, companion-test presence, coverage, complexity, and CRAP",
         )
         .option("--cwd <path>", "Project root (default: current directory)")
-        .option("--top <n>", "Number of function/file token and CRAP hotspots to show (default: 25)")
+        .option("--top <n>", "Number of function/file token and CRAP hotspots to show, 1 to 200 (default: 25)")
         .option("--include-tests", "Include test/spec functions as advisory token measurements")
         .option("--json", "Machine-readable output (full per-file + per-function)")
         .option("--short", "One-line summary")
@@ -168,6 +170,7 @@ export function registerMetricsCommands(program: Command): void {
     registerComplexityCommand(metrics);
     registerSplitPlanCommand(metrics);
     registerScoreCommand(metrics);
+    registerMetricsStandardsCommands(metrics);
     registerJitCommand(metrics);
     registerMetricsAnalysisCommands(metrics);
     registerDecisionMetricCommands(metrics);

@@ -16,6 +16,7 @@
 // never break the guard pipeline. The byte-cursor can rarely miss a line caught
 // mid-write; the backfill (timeline-backfill.ts) is the completeness backstop.
 
+import { isValidOffset, numericOffsets, type TranscriptCursor as Cursor, transcriptOffset, updatedCursor } from "./transcript-cursor.js";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -25,29 +26,7 @@ import { appendTimelineRecords, recentTimelineKeys, recordKey } from "./timeline
 import { parseTranscriptText, type TimelineRecord } from "./transcript-record.js";
 import type { HarnessEvent } from "./types.js";
 
-interface Cursor {
-	path: string;
-	offset: number;
-	offsets: Record<string, number>;
-}
-
-const MAX_CURSOR_TRANSCRIPTS = 32;
 export const MAX_LIVE_TRANSCRIPT_BYTES = 8 * 1024 * 1024;
-
-function numericOffsets(value: unknown): Record<string, number> {
-	const offsets: Record<string, number> = {};
-	if (!isJsonObject(value)) return offsets;
-	for (const [path, offset] of Object.entries(value)) {
-		if (isValidOffset(offset)) {
-			offsets[path] = offset;
-		}
-	}
-	return offsets;
-}
-
-function isValidOffset(value: unknown): value is number {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
 
 function readCursor(cursorPath: string): Cursor {
 	try {
@@ -64,18 +43,6 @@ function readCursor(cursorPath: string): Cursor {
 		void err; // missing/corrupt cursor → start fresh
 	}
 	return { path: "", offset: 0, offsets: {} };
-}
-
-function updatedCursor(cursor: Cursor, transcriptPath: string, offset: number): Cursor {
-	const offsets = { ...cursor.offsets };
-	delete offsets[transcriptPath];
-	offsets[transcriptPath] = offset;
-	const paths = Object.keys(offsets);
-	for (let i = 0; i < paths.length - MAX_CURSOR_TRANSCRIPTS; i++) {
-		const oldest = paths[i];
-		if (oldest !== undefined) delete offsets[oldest];
-	}
-	return { path: transcriptPath, offset, offsets };
 }
 
 interface TranscriptDrain {
@@ -118,7 +85,7 @@ function completeJsonlLength(buffer: Buffer): number {
 function readNewRecords(transcriptPath: string, cursorPath: string): TranscriptDrain | null {
 	const size = statSync(transcriptPath).size;
 	const cursor = readCursor(cursorPath);
-	let offset = cursor.offsets[transcriptPath] ?? 0;
+	let offset = transcriptOffset(cursor, transcriptPath);
 	if (offset > size) offset = 0;
 	if (offset === size) return null;
 	const readStart = Math.max(offset, size - MAX_LIVE_TRANSCRIPT_BYTES);

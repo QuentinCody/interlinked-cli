@@ -15,6 +15,7 @@ import {
 	TOOL_CATALOG,
 } from "./tool-catalog.js";
 import { runActionlint } from "./tool-runners/actionlint.js";
+import { runDocsCheck } from "./tool-runners/docs-check.js";
 import { runBiome } from "./tool-runners/biome.js";
 import { runCCompile, runClangTidy } from "./tool-runners/c-cpp.js";
 import {
@@ -62,6 +63,7 @@ const EXPECTED_RUNNERS: Record<string, (...args: never[]) => unknown> = {
 	swiftlint: runSwiftLint,
 	"swift-build": runSwiftBuild,
 	lizard: runLizard,
+	"docs-check": runDocsCheck,
 };
 
 describe("tool catalog — derived registry", () => {
@@ -95,6 +97,7 @@ describe("tool catalog — derived registry", () => {
 				"swiftlint",
 				"swift-build",
 				"lizard",
+				"docs-check",
 			]),
 		);
 	});
@@ -189,10 +192,11 @@ describe("tool catalog — derived discovery specs", () => {
 	const specs = buildToolSpecs();
 	const byId = new Map(specs.map((s) => [s.id, s]));
 
-	it("includes discovery-only tools (dep-audit, docs-check) that have no runner", () => {
+	it("includes dedicated audit discovery and runner-backed documentation checks", () => {
 		expect(byId.has("dep-audit")).toBe(true);
 		expect(byId.has("docs-check")).toBe(true);
 		expect(buildToolRegistry()["dep-audit"]).toBeUndefined();
+		expect(buildToolRegistry()["docs-check"]?.runner).toBe(runDocsCheck);
 	});
 
 	it("carries the tsgo→tsc fallback spec", () => {
@@ -222,11 +226,11 @@ describe("tool catalog — runnable tool ids", () => {
 		expect(RUNNABLE_TOOL_IDS.has("lizard")).toBe(true);
 	});
 
-	it("excludes discovery-only tools (dep-audit, docs-check) so callers reject them", () => {
+	it("excludes dedicated audit dispatch and includes executable documentation checks", () => {
 		// These are in the ToolId union + discovery specs but have no engine
 		// runner; dispatching `runChecks({tools:[id]})` would emit 0 findings →
 		// a false clean. `interlinked check --only` must reject them instead.
 		expect(RUNNABLE_TOOL_IDS.has("dep-audit")).toBe(false);
-		expect(RUNNABLE_TOOL_IDS.has("docs-check")).toBe(false);
+		expect(RUNNABLE_TOOL_IDS.has("docs-check")).toBe(true);
 	});
 });

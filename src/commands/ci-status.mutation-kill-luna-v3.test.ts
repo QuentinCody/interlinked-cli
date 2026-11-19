@@ -47,10 +47,10 @@ describe("ci-status survivor contracts", () => {
         expect(new GhCliFetcher().listRuns({ limit: 4 })).toEqual([valid]);
     });
 
-    // test-contract: non-array JSON input is treated as no runs rather than being mapped.
-    it("returns no runs for a JSON object", () => {
+    // test-contract: malformed collection is distinct from a successful empty array.
+    it("rejects a JSON object response", () => {
         mocks.execFileSync.mockReturnValue(JSON.stringify({ runs: [] }));
-        expect(new GhCliFetcher().listRuns({ limit: 1 })).toEqual([]);
+        expect(() => new GhCliFetcher().listRuns({ limit: 1 })).toThrow("expected an array");
     });
 
     // test-contract: subprocess output is decoded as UTF-8 using the configured execution options.

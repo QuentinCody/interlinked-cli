@@ -1,4 +1,7 @@
 import { buildConfigToTool, buildToolRegistry } from "./tool-catalog.js";
+import { withProcessCaptureLimit } from "./process-capture-policy.js";
+import { PartialToolReportError, ToolDeadlineError } from "./tool-errors.js";
+import { runTypedEslintForeground } from "./tool-runners/generic.js";
 import type {
 	CheckOptions,
 	CheckReport,
@@ -45,22 +48,30 @@ export async function runAsyncTool(
     options?: CheckOptions,
 ): Promise<{ results: CheckResult[]; metric: ToolMetrics; skipped?: SkipEntry }> {
 	const meta = toolRunnerMetaFor(tool.id);
-	if (!meta?.runnerAsync) {
+	const typedForeground = tool.id === "tseslint-types" && scope.mode === "project" && options?.resourcePolicy === "foreground-verify";
+	const runnerAsync = typedForeground ? runTypedEslintForeground : meta?.runnerAsync;
+	if (!runnerAsync) {
 		return {
 			results: [],
 			metric: { tool: tool.id, elapsedMs: 0, findingCount: 0, cacheHit: false },
 			skipped: {
 				check: tool.id,
 				reason: meta
-					? "async runner unavailable; run `interlinked verify` for this tool"
-					: "no async check runner is registered; run `interlinked verify` for this tool",
+					? "async runner unavailable for this tool; no verification verdict"
+					: "no async check runner is registered for this tool; no verification verdict",
 				category: "error",
 			},
 		};
 	}
 	const toolStart = Date.now();
 	try {
-		const results = await meta.runnerAsync({ scope, timeoutMs, ...(options?.waitForCapacity ? { waitForCapacity: true } : {}) });
+		const run = () => runnerAsync({ scope, timeoutMs,
+			...(options?.gitleaksScope ? { gitleaksScope: options.gitleaksScope } : {}),
+			...(options?.onInputScope ? { onInputScope: options.onInputScope } : {}),
+            ...(options?.waitForCapacity ? { waitForCapacity: true } : {}),
+            ...(options?.resourcePolicy ? { resourcePolicy: options.resourcePolicy } : {}),
+        });
+		const results = await (options?.resourcePolicy === "foreground-verify" ? withProcessCaptureLimit(null, run) : run());
 		return {
 			results,
 			metric: {
@@ -71,18 +82,19 @@ export async function runAsyncTool(
 			},
 		};
 	} catch (error) {
+		const results = error instanceof PartialToolReportError ? error.results : [];
 		return {
-			results: [],
+			results,
 			metric: {
 				tool: tool.id,
 				elapsedMs: Date.now() - toolStart,
-				findingCount: 0,
+				findingCount: results.length,
 				cacheHit: false,
 			},
 			skipped: {
 				check: tool.id,
 				reason: error instanceof Error ? error.message : "external tool failed",
-				category: "error",
+				category: error instanceof ToolDeadlineError ? "timeout" : "error",
 			},
 		};
 	}

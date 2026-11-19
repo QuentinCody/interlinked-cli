@@ -19,6 +19,7 @@
 //   { path, old_string, new_string }           (Edit  — spliced against disk)
 //   { path, edits: [{ old_string, new_string }] }  (MultiEdit)
 
+import { readStdin } from "../lib/read-stdin.js";
 import { readFileSync } from "node:fs";
 import {
 	formatGateResult,
@@ -49,16 +50,6 @@ const EXIT_GATE_FAIL = 1;
 interface ChangeEntry {
 	path: string;
 	toolInput: JsonObject;
-}
-
-/** Read stdin to EOF. */
-async function readStdin(): Promise<string> {
-	return new Promise<string>((res, rej) => {
-		const chunks: Buffer[] = [];
-		process.stdin.on("data", (ch: Buffer) => chunks.push(ch));
-		process.stdin.on("end", () => res(Buffer.concat(chunks).toString("utf-8")));
-		process.stdin.on("error", rej);
-	});
 }
 
 /** Read the changeset JSON from --file or --stdin. Throws a usage-level Error. */

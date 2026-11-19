@@ -3,7 +3,7 @@
 // ===========================================
 
 import { execSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -225,7 +225,7 @@ describe("discoverFiles", () => {
 		expect(names).toEqual(["keep.ts"]);
 	});
 
-	it("skips dot-prefixed entries during the manual walk", () => {
+	it("keeps hidden source files and directories during the manual walk", () => {
 		writeFileSync(join(tempDir, ".hidden.ts"), "export const x = 1;\n");
 		mkdirSync(join(tempDir, ".hiddendir"), { recursive: true });
 		writeFileSync(join(tempDir, ".hiddendir", "nested.ts"), "export const x = 1;\n");
@@ -233,7 +233,7 @@ describe("discoverFiles", () => {
 		const names = discoverFiles(tempDir)
 			.map((f) => f.split("/").pop())
 			.sort();
-		expect(names).toEqual(["keep.ts"]);
+		expect(names).toEqual([".hidden.ts", "keep.ts", "nested.ts"]);
 	});
 
 	it("applies extension/basename filtering to nested files during the manual walk", () => {
@@ -249,17 +249,50 @@ describe("discoverFiles", () => {
 		expect(names).toEqual(["keep.ts"]);
 	});
 
-	it("excludes a file exactly at the MAX_FILE_BYTES boundary, includes one just under it", () => {
+	it("includes files at and above the former 1MB boundary", () => {
 		const oneMb = 1_000_000;
 		writeFileSync(join(tempDir, "at-limit.ts"), "x".repeat(oneMb));
 		writeFileSync(join(tempDir, "under-limit.ts"), "x".repeat(oneMb - 1));
+		writeFileSync(join(tempDir, "above-limit.ts"), "x".repeat(oneMb + 1));
 		const names = discoverFiles(tempDir)
 			.map((f) => f.split("/").pop())
 			.sort();
-		expect(names).toEqual(["under-limit.ts"]);
+		expect(names).toEqual(["above-limit.ts", "at-limit.ts", "under-limit.ts"]);
 	});
 
 	describe("git-based discovery path", () => {
+		it("scans an explicitly selected ignored directory without treating an empty Git census as an empty project", () => {
+			gitInit(tempDir); writeFileSync(join(tempDir, ".gitignore"), "selected/\n");
+			const selected = join(tempDir, "selected"); mkdirSync(selected);
+			const file = join(selected, "main.rs"); writeFileSync(file, "fn main(){}\n");
+			expect(discoverFiles(selected)).toEqual([file]);
+		});
+
+		it("retains a Git inventory larger than the default subprocess output buffer", () => {
+			gitInit(tempDir);
+			writeFileSync(join(tempDir, ".gitignore"), "ignored.ts\n");
+			writeFileSync(join(tempDir, "ignored.ts"), "export const ignored = true;");
+			const suffix = `${"long-name-".repeat(23)}.ts`;
+			for (let index = 0; index < 6000; index++) writeFileSync(join(tempDir, `${index}-${suffix}`), "export const value = true;");
+			const files = discoverFiles(tempDir);
+			expect(files).toHaveLength(6001);
+			expect(files).toContain(join(tempDir, `5999-${suffix}`));
+			expect(files).not.toContain(join(tempDir, "ignored.ts"));
+		}, 20_000);
+
+		it("agrees with the non-git population for large, hidden and explicitly excluded paths", () => {
+			for (const dir of [".storybook", "build", "coverage", "scratch", "src/scratch"]) mkdirSync(join(tempDir, dir), { recursive: true });
+			for (const name of [".hidden.ts", ".storybook/main.ts", "build/out.ts", "coverage/out.ts", "scratch/copy.ts", "src/scratch/real.ts"]) {
+				writeFileSync(join(tempDir, name), "export const value = true;");
+			}
+			writeFileSync(join(tempDir, "large.ts"), " ".repeat(1_000_001) + "export const end = true;");
+			const before = discoverFiles(tempDir).map(file => file.replace(tempDir, "")).sort();
+			gitInit(tempDir);
+			const after = discoverFiles(tempDir).map(file => file.replace(tempDir, "")).sort();
+			expect(before).toEqual(["/.hidden.ts", "/.storybook/main.ts", "/large.ts", "/src/scratch/real.ts"]);
+			expect(after).toEqual(before);
+		});
+
 		it("respects .gitignore and runs the git command in the target root (not process cwd)", () => {
 			gitInit(tempDir);
 			writeFileSync(join(tempDir, ".gitignore"), "ignored.ts\n");
@@ -303,6 +336,15 @@ describe("discoverFiles", () => {
 });
 
 describe("discoverFunctionTokenFiles", () => {
+	it("retains a missing tracked source path so downstream metrics can label it unreadable", () => {
+		gitInit(tempDir);
+		const file = join(tempDir, "missing.ts");
+		writeFileSync(file, "export const value = true;");
+		execSync("git add missing.ts", { cwd: tempDir });
+		unlinkSync(file);
+		expect(discoverFunctionTokenFiles(tempDir)).toContain(file);
+	});
+
 	it("keeps hidden source directories in a non-git codebase", () => {
 		mkdirSync(join(tempDir, ".storybook"), { recursive: true });
 		writeFileSync(join(tempDir, ".storybook", "main.ts"), "export const x = 1;\n");

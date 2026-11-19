@@ -20,6 +20,20 @@ import type {
 	ToolAvailability,
 } from "../../harness/check-engine/types.js";
 import { nonNull } from "../../lib/non-null.js";
+import { withProcessCancellation } from "../../harness/check-engine/process-cancellation.js";
+// This suite owns streaming scheduling and rendering. Preserve its programmable
+// process fixture behind the new dedicated audit boundary; backend contracts
+// and genuine unavailable outcomes live in dependency-audit.test.ts.
+vi.mock("./dependency-audit.js", async original => {
+	const actual = await original<typeof import("./dependency-audit.js")>();
+	return { ...actual, runVerifyDependencyAudit: async (cwd: string, timeoutMs: number) => {
+		const result = await runToolSilent({ cmd: ["npm", "audit", "--json", "--audit-level=moderate"], cwd, timeoutMs, parseOutput: output => {
+			const audit = actual.parseDependencyAudit(output);
+			return audit ? [audit] : [];
+		} });
+		return { audit: (result.items[0] ?? null) as AuditResult | null, elapsedMs: Number.parseFloat(result.elapsedMs) * 1000, ...(result.unavailable ? { skipped: { check: "dep-audit", category: "error" as const, reason: result.unavailable } } : {}) };
+	} };
+});
 
 // ----- mocks --------------------------------------------------------------
 
@@ -57,6 +71,11 @@ vi.mock("../../harness/check-engine/output-parsers.js", () => ({
 	parseNpmAuditJson: (o: string) => parseNpmAuditJson(o),
 	parseDocsCheckOutput: (o: string) => parseDocsCheckOutput(o),
 }));
+// Scheduling fixtures retain their programmable parser. The separate Biome
+// report suite exercises the actual machine parser and unavailable contracts.
+vi.mock("../../harness/check-engine/tool-runners/biome-process-verdict.js", () => ({
+	parseCompleteBiomeReport: (output: string) => parseBiomeOutput(output),
+}));
 
 // streaming-output: the two subprocess runners + spinner frames. Each runner
 // invokes the SUT-provided `parseOutput(output, exitCode)` closure with a value
@@ -65,7 +84,11 @@ vi.mock("../../harness/check-engine/output-parsers.js", () => ({
 // real non-empty array because the parallel path indexes it modulo length.
 interface RunArgs {
 	cmd: string[];
+	run?: () => Promise<unknown[]>;
+	cwd?: string;
+	timeoutMs?: number;
 	parseOutput: (output: string, exitCode: number | null) => unknown[];
+	recoverPartial?: (error: unknown) => unknown[] | undefined;
 }
 // queue of {output, status} keyed by cmd[1] (the verb) or cmd[0] for non-npx.
 let runnerScript: Record<string, { output: string; status: number | null }>;
@@ -86,17 +109,25 @@ let deferRunners = false;
 // observe an intermediate spinner frame (partial completed/total, partial
 // "waiting:" set) rather than just "eventually resolves".
 let perKeyDelayMs: Record<string, number> = {};
-function fakeRun(args: RunArgs): Promise<{ items: unknown[]; elapsedMs: string }> {
+let activeRunners = 0;
+let peakRunners = 0;
+function fakeRun(args: RunArgs): Promise<{ items: unknown[]; elapsedMs: string; unavailable?: string }> {
+	activeRunners++;
+	peakRunners = Math.max(peakRunners, activeRunners);
 	const key = runnerKey(args.cmd);
-	const scripted = runnerScript[key] ?? { output: "", status: 0 };
-	const items = args.parseOutput(scripted.output, scripted.status);
-	const value = { items, elapsedMs: "0.0s" };
+	const scripted = runnerScript[key] ?? { output: key === "audit" ? JSON.stringify({ metadata: { vulnerabilities: { low: 0, moderate: 0, high: 0, critical: 0, total: 0 } } }) : key === "gitleaks" ? "[]" : "", status: 0 };
+	let items: unknown[] = [];
+	let unavailable: string | undefined;
+	try { items = args.parseOutput(scripted.output, scripted.status); }
+	catch (error) { items = args.recoverPartial?.(error) ?? []; unavailable = error instanceof Error ? error.message : String(error); }
+	const value = { items, elapsedMs: "0.0s", ...(unavailable ? { unavailable } : {}) };
 	const delay = perKeyDelayMs[key] ?? (deferRunners ? 200 : 0);
 	if (delay > 0) {
 		return new Promise((resolve) => {
-			setTimeout(() => resolve(value), delay);
+			setTimeout(() => { activeRunners--; resolve(value); }, delay);
 		});
 	}
+	activeRunners--;
 	return Promise.resolve(value);
 }
 const runToolWithSpinner = vi.fn(fakeRun);
@@ -110,20 +141,31 @@ vi.mock("./streaming-output.js", () => ({
 	runToolSilent: (args: RunArgs) => runToolSilent(args),
 }));
 
+// This suite owns scheduling/parser dispatch. Actual Semgrep report validation
+// and stderr separation are exercised by semgrep-reports.test.ts.
+vi.mock("../../harness/check-engine/tool-runners/generic-process-verdict.js", async original => ({
+	...await original<typeof import("../../harness/check-engine/tool-runners/generic-process-verdict.js")>(),
+	parseCompleteSemgrepReport: (output: string, cwd: string) => parseSemgrepJson(output, cwd),
+}));
+
 import { streamExternalTools, TOOLS_TO_RUN, type ToolSpec } from "./verify-tools.js";
 
 // ----- harness ------------------------------------------------------------
 
 let stderr: string[];
 let origErr: typeof process.stderr.write;
+let originalExitCode: typeof process.exitCode;
 
 beforeEach(() => {
+	originalExitCode = process.exitCode;
 	vi.clearAllMocks();
 	parserReturn = [];
 	npmAuditReturn = null;
 	runnerScript = {};
 	deferRunners = false;
 	perKeyDelayMs = {};
+	activeRunners = 0;
+	peakRunners = 0;
 	loadFileSuppressions.mockImplementation(() => new Set<string>());
 	stderr = [];
 	origErr = process.stderr.write;
@@ -135,24 +177,29 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	process.exitCode = originalExitCode;
 	vi.useRealTimers();
 	process.stderr.write = origErr;
 });
 
 /** Build a fake CheckEngine whose discoverTools() marks `ids` available. */
-function fakeEngine(ids: string[]): Pick<CheckEngine, "discoverTools"> {
+function fakeEngine(ids: string[], probeErrors: Partial<Record<ToolAvailability["id"], string>> = {}): Pick<CheckEngine, "discoverTools"> {
 	const all: ToolAvailability[] = TOOLS_TO_RUN.map((t) => ({
 		id: t.id,
 		available: ids.includes(t.id),
+		...(probeErrors[t.id] ? { probeError: probeErrors[t.id] } : {}),
 	}));
 	return { discoverTools: () => all };
 }
 
 interface RunOpts {
 	available: string[];
+	cwd?: string;
 	only?: string;
+	toolTimeout?: number;
 	skip?: string[];
 	details?: boolean;
+	probeErrors?: Partial<Record<ToolAvailability["id"], string>>;
 }
 
 /**
@@ -168,9 +215,9 @@ async function run(opts: RunOpts): Promise<{
 	const summary: Array<{ label: string; count: number; color: string }> = [];
 	const flagged = new Set<string>();
 	const p = streamExternalTools({
-		engine: fakeEngine(opts.available),
-		cwd: "/proj",
-		opts: { ...(opts.only !== undefined ? { only: opts.only } : {}) },
+		engine: fakeEngine(opts.available, opts.probeErrors),
+		cwd: opts.cwd ?? "/proj",
+		opts: { ...(opts.only !== undefined ? { only: opts.only } : {}), ...(opts.toolTimeout !== undefined ? { toolTimeout: opts.toolTimeout } : {}) },
 		skipChecks: new Set(opts.skip ?? []),
 		summary,
 		allFlaggedFiles: flagged,
@@ -224,7 +271,7 @@ describe("TOOLS_TO_RUN", () => {
 	});
 
 	it("exposes a structurally-typed ToolSpec", () => {
-		const sample: ToolSpec = nonNull(TOOLS_TO_RUN[0]);
+		const sample: ToolSpec = nonNull(TOOLS_TO_RUN.find(tool => tool.id === "oxlint"));
 		expect(sample).toHaveProperty("id");
 		expect(sample).toHaveProperty("cmd");
 		expect(sample.id).toBe("oxlint");
@@ -237,6 +284,19 @@ describe("TOOLS_TO_RUN", () => {
 // =========================================================================
 
 describe("streamExternalTools — single available tool (spinner fast path)", () => {
+	it("reports a selected failed version probe as unavailable without spawning a checker", async () => {
+		const { out } = await run({ available: [], only: "biome", probeErrors: { biome: "version probe timed out" }, skip: ["sca", "dep-audit"] });
+		expect(out).toContain("NOT CHECKED");
+		expect(out).toContain("version probe timed out");
+		expect(runToolWithSpinner).not.toHaveBeenCalled();
+		expect(process.exitCode).toBe(75);
+	});
+	it("honors an explicit exclusion before reporting version probe failure", async () => {
+		process.exitCode = 0;
+		const { out } = await run({ available: [], only: "biome", probeErrors: { biome: "version probe timed out" }, skip: ["biome", "sca", "dep-audit"] });
+		expect(out).not.toContain("NOT CHECKED");
+		expect(process.exitCode).toBe(0);
+	});
 	it("routes through runToolWithSpinner (not the parallel runner) and prints the pass label", async () => {
 		// tsc available, nothing else; dep-audit skipped so toolCount === 1.
 		runnerScript.tsc = { output: "", status: 0 };
@@ -357,6 +417,22 @@ describe("streamExternalTools — single available tool (spinner fast path)", ()
 // =========================================================================
 
 describe("streamExternalTools — parseToolOutput status short-circuits", () => {
+	it("retains Semgrep diagnostics even when its successful report exits zero", async () => {
+		const output = '{"results":[{"path":"warning.ts"}],"errors":[]}';
+		runnerScript.semgrep = { output, status: 0 };
+		parserReturn = [result({ tool: "semgrep", file: "warning.ts", message: "diagnostic" })];
+		const { summary, flagged } = await run({ available: ["semgrep"], skip: ["sca", "dep-audit"] });
+		expect(parseSemgrepJson).toHaveBeenCalledWith(output, "/proj");
+		expect(summary).toEqual([expect.objectContaining({ count: 1 })]);
+		expect(flagged.has("warning.ts")).toBe(true);
+	});
+
+	it.each([undefined, 0, 1234])("uses only the caller tool deadline (%s) for analyzers and audit", async toolTimeout => {
+		await run({ available: ["tsc", "semgrep"], ...(toolTimeout === undefined ? {} : { toolTimeout }) });
+		expect(runToolSilent).toHaveBeenCalledTimes(3);
+		for (const [args] of runToolSilent.mock.calls) expect(args.timeoutMs).toBe(toolTimeout ?? 0);
+	});
+
 	it("reports Oxlint warning-only diagnostics even when the analyzer exits zero", async () => {
 		const output = JSON.stringify({ diagnostics: [{ filename: "warning.ts", severity: "warning", message: "Review this assertion" }] });
 		runnerScript.oxlint = { output, status: 0 };
@@ -393,7 +469,7 @@ describe("streamExternalTools — parseToolOutput status short-circuits", () => 
 		expect(summary[0]).toMatchObject({ label: "1 typescript errors" });
 	});
 
-	it("gitleaks exit 1 with an FTL/no-such-file banner is treated as clean", async () => {
+	it("gitleaks fatal output remains unavailable instead of clean", async () => {
 		runnerScript.gitleaks = { output: "FTL no such file or directory", status: 1 };
 		parserReturn = [result({ tool: "gitleaks", file: "x.ts" })];
 		const { out, summary } = await run({
@@ -401,12 +477,13 @@ describe("streamExternalTools — parseToolOutput status short-circuits", () => 
 			skip: ["sca", "dep-audit"],
 		});
 		expect(parseGitleaksJson).not.toHaveBeenCalled();
-		expect(out).toContain("no secrets detected");
+		expect(out).toContain("NOT CHECKED");
+		expect(out).not.toContain("no secrets detected");
 		expect(summary).toEqual([]);
 	});
 
 	it("gitleaks exit 1 with real JSON findings is parsed (not the FTL branch)", async () => {
-		runnerScript.gitleaks = { output: '[{"x":1}]', status: 1 };
+		runnerScript.gitleaks = { output: '[{"File":"leak.ts","RuleID":"key","StartLine":1}]', status: 1 };
 		parserReturn = [result({ tool: "gitleaks", file: "leak.ts", message: "AWS key" })];
 		const { summary, flagged } = await run({
 			available: ["gitleaks"],
@@ -417,18 +494,19 @@ describe("streamExternalTools — parseToolOutput status short-circuits", () => 
 		expect(flagged.has("leak.ts")).toBe(true);
 	});
 
-	it("semgrep exit 2 (internal error) is treated as clean", async () => {
+	it("semgrep internal errors remain unavailable alongside parsed observations", async () => {
 		runnerScript.semgrep = { output: "boom", status: 2 };
 		parserReturn = [result({ tool: "semgrep", file: "x.ts" })];
 		const { out } = await run({
 			available: ["semgrep"],
 			skip: ["sca", "dep-audit"],
 		});
-		expect(parseSemgrepJson).not.toHaveBeenCalled();
-		expect(out).toContain("no findings");
+		expect(parseSemgrepJson).toHaveBeenCalled();
+		expect(out).toContain("NOT CHECKED");
+		expect(out).not.toContain("no findings");
 	});
 
-	it("knip exit 2 is treated as clean", async () => {
+	it("knip exit 2 remains unavailable", async () => {
 		runnerScript.knip = { output: "boom", status: 2 };
 		parserReturn = [result({ file: "x.ts" })];
 		const { out } = await run({
@@ -436,7 +514,8 @@ describe("streamExternalTools — parseToolOutput status short-circuits", () => 
 			skip: ["sca", "dep-audit"],
 		});
 		expect(parseKnipJson).not.toHaveBeenCalled();
-		expect(out).toContain("no unused exports or files");
+		expect(out).toContain("NOT CHECKED");
+		expect(out).not.toContain("no unused exports or files");
 	});
 
 	it("semgrep non-zero status passes cwd through to the parser", async () => {
@@ -473,22 +552,20 @@ describe("streamExternalTools — parseToolOutput status short-circuits", () => 
 		expect(summary[0]).toMatchObject({ label: "1 eslint issues" });
 	});
 
-	it("tseslint-types non-zero status dispatches to parseEslintJson tagged 'tseslint-types' (not the bare eslint arrow)", async () => {
-		// tseslint-types shares the same npx-verb runner key as "eslint"
-		// ("npx eslint --config ...") — availability is scoped to
-		// tseslint-types alone so the shared runnerScript.eslint entry can
-		// only be reached through the tseslint-types dispatch arrow.
-		runnerScript.eslint = { output: "typed-out", status: 1 };
-		parserReturn = [result({ tool: "tseslint-types", file: "t.ts", message: "no-unnecessary-condition" })];
+	it("tseslint-types streams findings from its dedicated typed runner", async () => {
+		const generic = await import("../../harness/check-engine/tool-runners/generic.js");
+		const typed = vi.spyOn(generic, "runTypedEslintForeground").mockResolvedValue([result({ tool: "tseslint-types", file: "t.ts", message: "no-unnecessary-condition" })]);
+		runToolWithSpinner.mockImplementationOnce(async args => ({ items: await nonNull(args.run)(), elapsedMs: "0.1s" }));
 		const { summary } = await run({ available: ["tseslint-types"], skip: ["sca", "dep-audit"] });
-		expect(parseEslintJson).toHaveBeenCalledWith("typed-out", "tseslint-types");
+		expect(typed).toHaveBeenCalledWith({ scope: { projectRoot: "/proj", mode: "project" }, timeoutMs: 0, resourcePolicy: "foreground-verify" });
+		typed.mockRestore();
 		expect(summary[0]).toMatchObject({ label: "1 tseslint-types (typed inert code) type-proven inert constructs" });
 	});
 
 	it("docs-check non-zero status dispatches to parseDocsCheckOutput", async () => {
 		runnerScript["docs-check"] = { output: "drift!", status: 1 };
 		parserReturn = [result({ file: "README.md", message: "gen marker drift" })];
-		const { summary } = await run({ available: ["docs-check"], skip: ["sca", "dep-audit"] });
+		const { summary } = await run({ cwd: process.cwd(), available: ["docs-check"], skip: ["sca", "dep-audit"] });
 		expect(parseDocsCheckOutput).toHaveBeenCalledWith("drift!");
 		expect(summary[0]).toMatchObject({ label: "1 docs:check (gen-marker drift) drifts" });
 	});
@@ -546,6 +623,13 @@ describe("streamExternalTools — tool selection", () => {
 		expect(runToolWithSpinner).not.toHaveBeenCalled();
 	});
 
+	it("runs the same catalog alias as JSON and honors that alias in --skip", async () => {
+		await run({ available: ["tsc", "biome"], only: "biome_lint" });
+		expect(runToolWithSpinner.mock.calls.map(([tool]) => tool.cmd)).toEqual([expect.arrayContaining(["biome"])]);
+		await run({ available: ["biome"], only: "biome", skip: ["biome_lint"] });
+		expect(runToolWithSpinner).toHaveBeenCalledTimes(1);
+	});
+
 	it("skipChecks removes a tool from the available set", async () => {
 		runnerScript.biome = { output: "", status: 0 };
 		await run({
@@ -588,7 +672,7 @@ describe("streamExternalTools — dependency audit gating", () => {
 		expect(out).toContain("dependency audit (SCA)");
 		expect(out).toContain("no known vulnerabilities");
 		expect(out).toContain("all tools completed");
-		expect(out).toContain("(parallel)");
+		expect(out).toContain("(sequential)");
 	});
 
 	it("renders dep-audit vulnerabilities with red severity when critical/high present", async () => {
@@ -661,17 +745,42 @@ describe("streamExternalTools — dependency audit gating", () => {
 // 6. parallel path with multiple real tools + spinner
 // =========================================================================
 
-describe("streamExternalTools — parallel multi-tool path", () => {
-	it("fans out across tools via runToolSilent and renders each result block", async () => {
+describe("streamExternalTools — sequential multi-tool path", () => {
+	it("reports an interrupted tool as unavailable and continues the remaining checks", async () => {
+		runToolSilent.mockResolvedValueOnce({ items: [], elapsedMs: "1.0s", unavailable: "Tool timed out; no complete verdict" });
+		const { out } = await run({ available: ["gitleaks", "tsc"], skip: ["sca", "dep-audit"] });
+		expect(out).toContain("NOT CHECKED");
+		expect(out).not.toContain("no secrets detected");
+		expect(out).toContain("typescript");
+		expect(runToolSilent).toHaveBeenCalledTimes(2);
+		expect(process.exitCode).toBe(75);
+	});
+	it("stops the queue and spinner when the operator cancels a running tool", async () => {
+		const controller = new AbortController();
+		runToolSilent.mockImplementationOnce(async args => {
+			controller.abort(new Error("Operator cancelled verification"));
+			return fakeRun(args);
+		});
+		await expect(withProcessCancellation(controller.signal, async () => {
+			await streamExternalTools({ engine: fakeEngine(["gitleaks", "tsc"]), cwd: "/proj",
+				opts: {}, skipChecks: new Set(), summary: [], allFlaggedFiles: new Set(), details: false });
+		})).rejects.toThrow("Operator cancelled verification");
+		expect(runToolSilent).toHaveBeenCalledTimes(1);
+		expect(vi.getTimerCount()).toBe(0);
+		expect(stderr.join("")).not.toContain("all tools completed");
+	});
+	it("runs tools and dependency audit one at a time while preserving every result block", async () => {
+		deferRunners = true;
 		runnerScript.tsc = { output: "x", status: 2 };
 		runnerScript.biome = { output: "{}", status: 1 };
 		// Both parsers share parserReturn; give each a finding.
 		parserReturn = [result({ file: "shared.ts", message: "issue" })];
 		const { out, summary, flagged } = await run({
 			available: ["tsc", "biome"],
-			skip: ["sca", "dep-audit"],
 		});
-		expect(runToolSilent).toHaveBeenCalledTimes(2);
+		expect(runToolSilent).toHaveBeenCalledTimes(3);
+		expect(peakRunners).toBe(1);
+		expect(activeRunners).toBe(0);
 		expect(runToolWithSpinner).not.toHaveBeenCalled();
 		expect(out).toContain("typescript");
 		expect(out).toContain("biome");
@@ -723,16 +832,18 @@ describe("streamExternalTools — parallel multi-tool path", () => {
 describe("TOOLS_TO_RUN — exact command vectors", () => {
 	it("matches the hand-transcribed expected id -> cmd table exactly", () => {
 		const expected: Record<string, string[]> = {
+			rustfmt: ["rustfmt", "--check"],
 			oxlint: ["npx", "oxlint", "--format=json", "."],
 			gitleaks: [
 				"gitleaks",
 				"detect",
 				"--no-git",
 				"--no-banner",
+				"--redact",
 				"--report-format",
 				"json",
 				"--report-path",
-				"/dev/stdout",
+				"-",
 				"--source",
 				".",
 			],
@@ -744,6 +855,8 @@ describe("TOOLS_TO_RUN — exact command vectors", () => {
 				"biome",
 				"check",
 				"--no-errors-on-unmatched",
+				"--reporter=json",
+				"--max-diagnostics=none",
 				".",
 			],
 			eslint: ["npx", "eslint", "--no-error-on-unmatched-pattern", "--format", "json", "."],
@@ -761,12 +874,14 @@ describe("TOOLS_TO_RUN — exact command vectors", () => {
 				"semgrep",
 				"scan",
 				"--quiet",
-				"--no-git-ignore",
 				"--metrics",
 				"off",
 				"--config",
 				"p/default",
 				"--json",
+				"--timeout", "0",
+				"--timeout-threshold", "0",
+				"--max-target-bytes", "0",
 				".",
 			],
 			knip: ["npx", "knip", "--no-progress", "--reporter", "json"],
@@ -926,21 +1041,22 @@ describe("streamExternalTools — gitleaks short-circuit is scoped to gitleaks o
 		expect(out).not.toContain("no issues");
 	});
 
-	it("gitleaks at status 2 (not 1) still runs the parser (rules out status===1 forced true)", async () => {
+	it("gitleaks fatal output at status 2 also remains unavailable", async () => {
 		runnerScript.gitleaks = { output: "FTL banner but status 2", status: 2 };
 		parserReturn = [result({ tool: "gitleaks", file: "leak.ts", message: "AWS key" })];
 		const { out } = await run({ available: ["gitleaks"], skip: ["sca", "dep-audit"] });
-		expect(parseGitleaksJson).toHaveBeenCalled();
-		expect(out).toContain("secrets");
+		expect(parseGitleaksJson).not.toHaveBeenCalled();
+		expect(out).toContain("NOT CHECKED");
 		expect(out).not.toContain("no secrets detected");
 	});
 
-	it("gitleaks status 1 with only 'FTL' (no 'no such file') is still treated as clean (rules out && for the FTL/no-such-file OR)", async () => {
+	it("gitleaks fatal banner alone is unavailable", async () => {
 		runnerScript.gitleaks = { output: "FTL", status: 1 };
 		parserReturn = [result({ tool: "gitleaks", file: "leak.ts", message: "AWS key" })];
 		const { out } = await run({ available: ["gitleaks"], skip: ["sca", "dep-audit"] });
 		expect(parseGitleaksJson).not.toHaveBeenCalled();
-		expect(out).toContain("no secrets detected");
+		expect(out).toContain("NOT CHECKED");
+		expect(out).not.toContain("no secrets detected");
 	});
 });
 
@@ -1011,7 +1127,7 @@ describe("streamExternalTools — spinner frame + elapsed-time arithmetic", () =
 		runnerScript.tsc = { output: "", status: 0 };
 		runnerScript.biome = { output: "", status: 0 };
 		// 300ms delay -> spinner ticks at 80/160/240ms (frame 0,1,2 -> 'a','b','a'
-		// via SPINNER_FRAMES=["a","b"]) before both resolve at 300ms.
+		// via SPINNER_FRAMES=["a","b"]) while each queued tool runs.
 		perKeyDelayMs = { tsc: 300, biome: 300 };
 		const { out } = await run({ available: ["tsc", "biome"], skip: ["sca", "dep-audit"] });
 		// frame%length must select 'b' at the second tick; frame*length or
@@ -1024,7 +1140,7 @@ describe("streamExternalTools — spinner frame + elapsed-time arithmetic", () =
 		// of `-` produce a huge, wrong number.
 		expect(out).toContain("0s — waiting:");
 		// Final aggregate elapsed line uses the same arithmetic shape at 1 d.p.
-		expect(out).toContain("all tools completed in 0.3s (parallel)");
+		expect(out).toContain("all tools completed in 0.6s (sequential)");
 	});
 });
 
@@ -1036,16 +1152,16 @@ describe("streamExternalTools — completed counter", () => {
 	it("increments (not decrements) when a TOOLS_TO_RUN entry finishes first (line 330)", async () => {
 		runnerScript.tsc = { output: "", status: 0 };
 		runnerScript.biome = { output: "", status: 0 };
-		perKeyDelayMs = { tsc: 0, biome: 150 };
+		perKeyDelayMs = { tsc: 150, biome: 0 };
 		const { out } = await run({ available: ["tsc", "biome"], skip: ["sca", "dep-audit"] });
 		expect(out).toContain("\x1b[1m1/2\x1b[0m");
 		expect(out).not.toContain("\x1b[1m-1/2\x1b[0m");
 	});
 
-	it("increments (not decrements) when dep-audit finishes first (line 349)", async () => {
+	it("retains the completed tool count while the final dependency audit runs", async () => {
 		runnerScript.tsc = { output: "", status: 0 };
 		npmAuditReturn = null;
-		perKeyDelayMs = { tsc: 150, audit: 0 };
+		perKeyDelayMs = { tsc: 0, audit: 150 };
 		const { out } = await run({ available: ["tsc"] });
 		expect(out).toContain("\x1b[1m1/2\x1b[0m");
 		expect(out).not.toContain("\x1b[1m-1/2\x1b[0m");
@@ -1060,17 +1176,19 @@ describe("streamExternalTools — completed counter", () => {
 // =========================================================================
 
 describe("streamExternalTools — dep-audit is removed from the waiting set on completion", () => {
-	it("stops listing 'dep audit' as waiting once it resolves, while another tool is still pending", async () => {
+	it("lists the queued dependency audit until the earlier tool and audit finish", async () => {
 		runnerScript.tsc = { output: "", status: 0 };
 		npmAuditReturn = null;
-		// dep-audit finishes well before the first 80ms spinner tick; tsc lingers.
+		// The dependency audit must stay queued while the compiler runs.
 		perKeyDelayMs = { tsc: 300, audit: 10 };
 		const { out } = await run({ available: ["tsc"] });
 		const waitingLines = out.split("\r\x1b[K").filter((s) => s.includes("waiting:"));
 		expect(waitingLines.length).toBeGreaterThan(0);
 		for (const line of waitingLines) {
-			expect(line).not.toContain("dep audit");
+			expect(line).toContain("dep audit");
 		}
+		expect(out).toContain("all tools completed");
+		expect(vi.getTimerCount()).toBe(0);
 	});
 });
 

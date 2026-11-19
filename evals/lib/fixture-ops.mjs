@@ -55,7 +55,7 @@ export function parseJsonFile(filePath) {
 	try {
 		return JSON.parse(fs.readFileSync(filePath, "utf8"));
 	} catch (err) {
-		throw new Error(`${filePath}: unreadable JSON (${err.message})`);
+		throw new Error(`${filePath}: unreadable JSON (${err.message})`, { cause: err });
 	}
 }
 
@@ -157,6 +157,7 @@ export async function loadMetricsModule() {
 		throw new Error(
 			"cannot load eval-metrics: no dist/harness/eval-metrics.js (current `npm run build` does not emit it) and the " +
 				`tsx fallback failed — run npm install so the repo's tsx devDependency can load src/harness/eval-metrics.ts (${err.message})`,
+			{ cause: err },
 		);
 	}
 }

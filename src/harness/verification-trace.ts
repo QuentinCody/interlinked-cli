@@ -1,3 +1,4 @@
+import { formatElapsedSeconds } from "../lib/formatter.js";
 import type { VerificationStageInput } from "./verification-stages.js";
 
 /**
@@ -128,17 +129,13 @@ export function latestPushTrace(rows: readonly TraceRow[]): string | null {
     return best?.trace ?? null;
 }
 
-function seconds(ms: number): string {
-    return `${(ms / 1000).toFixed(ms >= 10_000 ? 0 : 1)} s`;
-}
-
 /** Human rendering: span, phases, owners, fallback, deferred and fresh checks; bounded to the rows' own content. */
 export function renderVerificationTrace(summary: TraceSummary): string {
-    const lines = [`trace ${summary.trace ?? "(none)"}: ${summary.rows} row(s), ${summary.started ?? "?"} → ${summary.ended ?? "?"} (span ${seconds(summary.span_ms)})`];
+    const lines = [`trace ${summary.trace ?? "(none)"}: ${summary.rows} row(s), ${summary.started ?? "?"} → ${summary.ended ?? "?"} (span ${formatElapsedSeconds(summary.span_ms)})`];
     const { phases } = summary;
-    lines.push(`  phases: wait ${seconds(phases.wait_capacity_ms)} (on the clock ${seconds(summary.wall_wait_ms)}), validate ${seconds(phases.validate_ms)}, lookup ${seconds(phases.lookup_ms)}, exec ${seconds(phases.exec_ms)}, post ${seconds(phases.post_ms)}, queue ${seconds(phases.queue_ms)}`);
+    lines.push(`  phases: wait ${formatElapsedSeconds(phases.wait_capacity_ms)} (on the clock ${formatElapsedSeconds(summary.wall_wait_ms)}), validate ${formatElapsedSeconds(phases.validate_ms)}, lookup ${formatElapsedSeconds(phases.lookup_ms)}, exec ${formatElapsedSeconds(phases.exec_ms)}, post ${formatElapsedSeconds(phases.post_ms)}, queue ${formatElapsedSeconds(phases.queue_ms)}`);
     lines.push(`  test files: ${summary.tests.executed} observed executed, ${summary.tests.reused} reused; counts unavailable for ${summary.tests.unmeasured_runs} run(s); statuses: ${Object.entries(summary.statuses).map(([status, n]) => `${status} ${n}`).join(", ") || "none"}`);
-    for (const owner of summary.owners) lines.push(`  owner ${owner.owner}: ${owner.rows} row(s), exec ${seconds(owner.exec_ms)}, wait ${seconds(owner.wait_capacity_ms)}`);
+    for (const owner of summary.owners) lines.push(`  owner ${owner.owner}: ${owner.rows} row(s), exec ${formatElapsedSeconds(owner.exec_ms)}, wait ${formatElapsedSeconds(owner.wait_capacity_ms)}`);
     lines.push(summary.fallback ? `  handoff: FALLBACK (${summary.fallback.cause}) recorded by ${summary.fallback.check}` : "  handoff: no fallback recorded");
     for (const item of summary.deferred) lines.push(`  no verdict: ${item.check} — ${item.reason}`);
     for (const item of summary.fresh) lines.push(`  ran fresh: ${item.check} — ${item.reason}`);

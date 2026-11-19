@@ -14,7 +14,7 @@ import {
 	simplificationRunsPath,
 } from "./simplification-record.js";
 
-// Only `readFileSync` is overridden (and only when its path matches the
+// Reads are overridden (and only when its path matches the
 // currently-armed failure target); every other node:fs call forwards to the
 // real implementation, so the module's own mkdirSync/appendFileSync fixture
 // writes and every pre-existing test in this file keep working unmodified.
@@ -27,6 +27,10 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
+		openSync: (...args: Parameters<typeof actual.openSync>) => {
+			if (args[0] === fsFailure.readPath) throw new Error("EACCES: permission denied, open");
+			return actual.openSync(...args);
+		},
 		readFileSync: (...args: unknown[]) => {
 			const [target] = args;
 			if (typeof target === "string" && target === fsFailure.readPath) {

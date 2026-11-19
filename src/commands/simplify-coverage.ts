@@ -39,6 +39,15 @@ function exclusion(rule: string, paths: string[]): SimplificationCoverageExclusi
 	return { rule, count: paths.length, sample: paths.slice(0, 10) };
 }
 
+function excludedGroups(groups: { unsupported: string[]; missing: string[]; unanalyzed: string[]; setAside: string[] }): SimplificationCoverageExclusion[] {
+	return [
+		exclusion("unsupported local simplification language", groups.unsupported),
+		exclusion("selected path is deleted or unreadable", groups.missing),
+		exclusion("supported path was not inspected by a local detector", groups.unanalyzed),
+		exclusion("set aside by source roles v5 (generated, vendored or minified)", groups.setAside),
+	].filter((group) => group.count > 0);
+}
+
 function overallStatus(
 	sources: SimplificationSourceCoverage[],
 	missing: string[],
@@ -94,6 +103,8 @@ interface CoverageReceiptOptions {
 	scope: SimplificationScopeReceipt;
 	sources: SimplificationSourceCoverage[];
 	findings: SimplificationFinding[];
+	/** Source files that the v5 source roles set aside (generated, vendored, minified) before detection; listed in the receipt, never silent. */
+	setAside?: string[];
 }
 
 export function buildSimplificationCoverage(
@@ -120,11 +131,7 @@ export function buildSimplificationCoverage(
 		excluded_files: selected.length - analyzed.length,
 		missing_paths: missing,
 		included_paths: includedPatterns(supported),
-		excluded_paths: [
-				exclusion("unsupported local simplification language", unsupported),
-				exclusion("selected path is deleted or unreadable", missing),
-				exclusion("supported path was not inspected by a local detector", unanalyzed),
-		].filter((group) => group.count > 0),
+		excluded_paths: excludedGroups({ unsupported, missing, unanalyzed, setAside: options.setAside ?? [] }),
 		languages: [
 			{
 				language: "javascript/typescript",

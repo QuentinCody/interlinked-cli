@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { hasErrorCode } from "../../harness/check-engine/tool-errors.js";
 
 export function digest(value: unknown): string {
     return createHash("sha256")
@@ -16,7 +17,7 @@ export function saveImmutable(path: string, value: unknown): void {
     try {
         writeFileSync(path, text, { flag: "wx", mode: 0o600 });
     } catch (error) {
-        if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
+        if (!hasErrorCode(error, "EEXIST")) throw error;
         if (readFileSync(path, "utf8") !== text)
             throw new Error(`immutable evidence already exists: ${path}`, { cause: error });
     }

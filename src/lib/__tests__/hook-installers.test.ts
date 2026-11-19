@@ -23,7 +23,7 @@ describe("hook-installers barrel — re-export surface", () => {
 		expect(CLAUDE_HOOK_EVENTS).toContain("PostToolUse");
 		expect(CLAUDE_HOOK_EVENTS).toContain("PermissionRequest");
 		expect(CLAUDE_HOOK_EVENTS).toContain("WorktreeCreate");
-		expect(CLAUDE_HOOK_EVENTS).not.toContain("PostToolUseFailure");
+		expect(CLAUDE_HOOK_EVENTS).toContain("PostToolUseFailure");
 	});
 
 	it("re-exports the Copilot event list", () => {

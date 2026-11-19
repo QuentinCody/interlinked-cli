@@ -1,6 +1,7 @@
 import { nonNull } from "../lib/non-null.js";
 import { existsSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { hasErrorCode } from "../harness/check-engine/tool-errors.js";
 import { findLineBoundaryAtOrBefore, readFileRange } from "../lib/bounded-file-io.js";
 import { getDataDir } from "../lib/config.js";
 import type { FileIdentity } from "../lib/file-suffix-replacement.js";
@@ -10,6 +11,16 @@ export const BYTES_PER_MB = 1024 * 1024;
 export const MAX_ARCHIVE_MANIFEST_BYTES = 16 * 1024 * 1024;
 const ARCHIVE_SEGMENT_FILE_RE = /^(activity|collection|timeline)-(\d{4,})\.jsonl\.gz$/;
 type ArchiveLogName = "activity" | "collection" | "timeline";
+
+/** A missing archive has no segments. An unreadable archive cannot establish its next sequence. */
+function archiveFileNames(directory: string): string[] {
+	try {
+		return readdirSync(directory);
+	} catch (error) {
+		if (hasErrorCode(error, "ENOENT")) return [];
+		throw error;
+	}
+}
 
 export function readArchiveManifestJson(path: string): unknown {
 	const bytes = statSync(path).size;
@@ -168,35 +179,29 @@ export function loadPlainManifest(
 	}
 }
 
-function rebuildPlainManifestFromDisk(log: PlainLogName, cwd: string): ArchiveManifest {
+export function rebuildArchiveManifestFromDisk(log: ArchiveLogName, cwd: string): ArchiveManifest {
 	const archiveDir = join(getDataDir(cwd), "archive");
 	const segments: ArchiveSegment[] = [];
-	try {
-		const pattern = new RegExp(`^${log}-(\\d{4,})\\.jsonl\\.gz$`);
-		for (const name of readdirSync(archiveDir)) {
-			const match = pattern.exec(name);
-			if (!match) continue;
-			// SAFETY: the capture group is digits, so it is present and numeric.
-			const seq = Number.parseInt(nonNull(match[1]), 10);
-			if (!Number.isFinite(seq)) continue;
-			let gzBytes = 0;
-			try {
-				gzBytes = statSync(join(archiveDir, name)).size;
-			} catch {
-				/* unreadable stat: retain the self-describing segment row */
-			}
-			segments.push({
-				seq,
-				file: name,
-				bytes: 0,
-				gz_bytes: gzBytes,
-				records: 0,
-				created_at: "",
-				recovered: true,
-			});
+	for (const name of archiveFileNames(archiveDir)) {
+		const match = ARCHIVE_SEGMENT_FILE_RE.exec(name);
+		if (!match || match[1] !== log) continue;
+		const seq = Number.parseInt(nonNull(match[2]), 10);
+		if (!Number.isFinite(seq)) continue;
+		let gzBytes = 0;
+		try {
+			gzBytes = statSync(join(archiveDir, name)).size;
+		} catch {
+			/* unreadable stat: retain the self-describing segment row */
 		}
-	} catch {
-		/* no archive directory yet */
+		segments.push({
+			seq,
+			file: name,
+			bytes: 0,
+			gz_bytes: gzBytes,
+			records: 0,
+			created_at: "",
+			recovered: true,
+		});
 	}
 	segments.sort((a, b) => a.seq - b.seq);
 	return { version: 1, segments };
@@ -210,11 +215,11 @@ export function loadOrRebuildPlainManifest(
 	if (!existsSync(plainManifestPath(log, cwd))) return { version: 1, segments: [] };
 	const loaded = loadPlainManifest(log, cwd);
 	if (loaded.segments.length > 0) return loaded;
-	return rebuildPlainManifestFromDisk(log, cwd);
+	return rebuildArchiveManifestFromDisk(log, cwd);
 }
 
-export function nextPlainSegmentSeq(
-	log: PlainLogName,
+export function nextArchiveSegmentSeq(
+	log: ArchiveLogName,
 	cwd: string,
 	manifest: ArchiveManifest,
 ): number {
@@ -223,19 +228,16 @@ export function nextPlainSegmentSeq(
 		if (segment.seq > max) max = segment.seq;
 	}
 	const archiveDir = join(getDataDir(cwd), "archive");
-	try {
-		const onDisk = new RegExp(`^${log}-(\\d{4,})\\.jsonl\\.gz$`);
-		for (const name of readdirSync(archiveDir)) {
-			const match = onDisk.exec(name);
-			if (!match) continue;
-			const seq = Number.parseInt(nonNull(match[1]), 10);
-			if (Number.isFinite(seq) && seq > max) max = seq;
-		}
-	} catch {
-		/* no archive directory yet; the manifest maximum stands */
+	for (const name of archiveFileNames(archiveDir)) {
+		const match = ARCHIVE_SEGMENT_FILE_RE.exec(name);
+		if (!match || match[1] !== log) continue;
+		const seq = Number.parseInt(nonNull(match[2]), 10);
+		if (Number.isFinite(seq) && seq > max) max = seq;
 	}
 	return max + 1;
 }
+
+export { nextArchiveSegmentSeq as nextPlainSegmentSeq };
 
 export interface PlainCut {
 	cutByte: number;

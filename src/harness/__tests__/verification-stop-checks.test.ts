@@ -29,6 +29,31 @@ import {
 } from "../verification-stop-checks.js";
 
 describe("classifyVerificationCommand", () => {
+	it("classifies node --test as a test run", () => {
+		expect(classifyVerificationCommand("node --test a.test.mjs")).toBe("test");
+		expect(classifyVerificationCommand("node --import tsx --test a.test.mjs")).toBe("test");
+	});
+
+	it("does not classify a tool name inside an argument as a run", () => {
+		expect(classifyVerificationCommand("sed -n 1,90p eslint.interlinked-types.config.mjs")).toBeNull();
+		expect(classifyVerificationCommand("rg --files src | wc -l; sed -n 1,5p eslint.config.mjs")).toBeNull();
+		expect(classifyVerificationCommand("rg -n 'x' . ; ls eslint.config.*")).toBeNull();
+		expect(classifyVerificationCommand("rg jest src")).toBeNull();
+		expect(classifyVerificationCommand("rg vitest")).toBeNull();
+		expect(classifyVerificationCommand("cat ruff.toml")).toBeNull();
+		expect(classifyVerificationCommand("cat jest.config.ts")).toBeNull();
+		expect(classifyVerificationCommand("cat .eslintrc")).toBeNull();
+	});
+
+	it("still classifies invoked tools behind wrappers, env and paths", () => {
+		expect(classifyVerificationCommand("npx eslint src")).toBe("lint");
+		expect(classifyVerificationCommand("node_modules/.bin/eslint .")).toBe("lint");
+		expect(classifyVerificationCommand("./node_modules/.bin/eslint .")).toBe("lint");
+		expect(classifyVerificationCommand("cd x && npx vitest run a.test.ts")).toBe("test");
+		expect(classifyVerificationCommand("FOO=1 npx biome check .")).toBe("lint");
+		expect(classifyVerificationCommand("rg x src | npx eslint --stdin")).toBe("lint");
+	});
+
 	it("classifies typechecker invocations", () => {
 		expect(classifyVerificationCommand("tsc --noEmit")).toBe("typecheck");
 		expect(classifyVerificationCommand("npx tsc -p tsconfig.json")).toBe("typecheck");

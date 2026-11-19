@@ -19,6 +19,14 @@ function fixture(files: Record<string, string>): string {
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("scoring adapters", () => {
+    it("describes size findings as profile review references", () => {
+        const root = fixture({ "index.js": `export function many() { ${Array.from({ length: 180 }, (_, i) => `const value${i} = ${i};`).join("\n")} return 1; }\n${"// documentation\n".repeat(510)}` });
+        const findings = collectStaticMeasurements(root).findings.filter(row => row.metric === "tokens" || row.metric === "file.lines");
+        expect(findings.some(row => row.metric === "tokens")).toBe(true);
+        expect(findings.some(row => row.metric === "file.lines")).toBe(true);
+        expect(findings.every(row => row.message.includes("profile review reference"))).toBe(true);
+        expect(findings.every(row => !row.message.includes("shipped cap") && !row.message.includes("file cap"))).toBe(true);
+    });
     it("finds public-entry cycles and keeps unreferenced public exports", () => {
         const root = fixture({ "package.json": '{"exports":"./index.js"}', "index.js": 'export { b } from "./b.js"; export function publicApi() { return 1; }',
             "b.js": 'import { publicApi } from "./index.js"; export function b() { return publicApi(); }' });

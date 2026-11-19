@@ -9,9 +9,7 @@ export function compactJson(value: JsonObject): JsonObject {
 	return out;
 }
 
-export function asJsonObject(value: unknown): JsonObject | null {
-	return isJsonObject(value) ? value : null;
-}
+export { asJsonObject } from "../lib/json-types.js";
 
 export function readString(value: unknown): string | null {
 	return typeof value === "string" ? value : null;

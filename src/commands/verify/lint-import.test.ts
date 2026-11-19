@@ -9,7 +9,11 @@ beforeEach(() => { run.mockClear(); });
 describe("human verify lint cadence", () => {
     it.each([{ allChecks: false, cadence: "hook" }, { allChecks: true, cadence: "all" }])("routes allChecks=$allChecks to $cadence profiles", async ({ allChecks, cadence }) => {
         await streamImportedLint({ cwd: "/repo", opts: { allChecks }, skipChecks: new Set(), allFlaggedFiles: new Set() });
-        expect(run).toHaveBeenCalledWith({ scope: { projectRoot: "/repo", mode: "project", lintCadence: cadence }, timeoutMs: 30_000 });
+        expect(run).toHaveBeenCalledWith({ scope: { projectRoot: "/repo", mode: "project", lintCadence: cadence }, timeoutMs: 0, resourcePolicy: "foreground-verify" });
+    });
+    it("honors an explicit caller tool deadline", async () => {
+        await streamImportedLint({ cwd: "/repo", opts: { toolTimeout: 1234 }, skipChecks: new Set(), allFlaggedFiles: new Set() });
+        expect(run).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 1234, resourcePolicy: "foreground-verify" }));
     });
     it("honors explicit skips without starting a batch", async () => {
         await streamImportedLint({ cwd: "/repo", opts: { allChecks: true }, skipChecks: new Set(["lint_import"]), allFlaggedFiles: new Set() });

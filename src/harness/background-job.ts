@@ -66,7 +66,7 @@ async function runWithMemoryWatch(job: BackgroundJob, cwd: string, signal: Abort
     try {
         return await runProcessAsync(job.file, args, {
             cwd, timeout: 600_000, signal: controller.signal, resourceBudget,
-            env: { NODE_OPTIONS: "--max-old-space-size=768" },
+            env: { NODE_OPTIONS: "--max-old-space-size=768 --max-semi-space-size=16" },
         });
     } finally {
         clearInterval(timer);

@@ -177,6 +177,10 @@ async function daemonStep(args: {
 	} else {
 		await harnessRestartCommand({ json: false });
 	}
+	if (process.exitCode !== undefined && process.exitCode !== 0) {
+		args.say("  Daemon:      restart failed — inspect the error above and retry interlinked harness restart");
+		return false;
+	}
 	args.say(`  Daemon:      ${why}restarted on build ${args.after}`);
 	return true;
 }
@@ -210,6 +214,38 @@ export interface ReloadOptions {
 	build?: boolean;
 }
 
+/** Rebuild the CLI in its own checkout and report the measured artifact delta. */
+function rebuildCli(cliRoot: string, enabled: boolean, say: (line: string) => void) {
+	const before = distBuildHash(cliRoot);
+	let buildMs = 0;
+	if (enabled) {
+		const t0 = Date.now();
+		try {
+			execFileSync("npm", ["run", "build"], { cwd: cliRoot, stdio: "pipe" });
+		} catch (err) {
+			// A failed build throws with the tool's captured stdout/stderr — surface
+			// the real compiler diagnostics + a non-zero exit instead of an opaque
+			// Node stack, and stop (a stale/absent dist must not be wired in). Goes
+			// to stderr so it never corrupts a --json run's stdout.
+			console.error(
+				`reload: CLI build failed in ${cliRoot}. Fix the errors below, then re-run.\n${buildErrorText(err)}`,
+			);
+			process.exitCode = 1;
+			return null;
+		}
+		buildMs = Date.now() - t0;
+	}
+	const after = distBuildHash(cliRoot);
+	const buildChanged = before !== after;
+	say(
+		!enabled
+			? `  CLI build:   skipped (--no-build) — dist ${after}`
+			: `  CLI build:   ${buildChanged ? `CHANGED ${before} → ${after}` : `unchanged (${after})`} in ${(buildMs / 1000).toFixed(1)}s`,
+	);
+
+	return { before, after, buildMs, buildChanged };
+}
+
 /** `resolveCliRoot` defaults to the real `findCliRoot` lookup — injectable
  *  only so a unit test can force the "no checkout found" branch without
  *  fabricating a package.json above the real repo (that branch has no other
@@ -234,33 +270,9 @@ export async function reloadCommand(
 		return;
 	}
 
-	// 1. Rebuild the CLI in ITS OWN checkout (never the current repo's build).
-	const before = distBuildHash(cliRoot);
-	let buildMs = 0;
-	if (opts.build !== false) {
-		const t0 = Date.now();
-		try {
-			execFileSync("npm", ["run", "build"], { cwd: cliRoot, stdio: "pipe" });
-		} catch (err) {
-			// A failed build throws with the tool's captured stdout/stderr — surface
-			// the real compiler diagnostics + a non-zero exit instead of an opaque
-			// Node stack, and stop (a stale/absent dist must not be wired in). Goes
-			// to stderr so it never corrupts a --json run's stdout.
-			console.error(
-				`reload: CLI build failed in ${cliRoot}. Fix the errors below, then re-run.\n${buildErrorText(err)}`,
-			);
-			process.exitCode = 1;
-			return;
-		}
-		buildMs = Date.now() - t0;
-	}
-	const after = distBuildHash(cliRoot);
-	const buildChanged = before !== after;
-	say(
-		opts.build === false
-			? `  CLI build:   skipped (--no-build) — dist ${after}`
-			: `  CLI build:   ${buildChanged ? `CHANGED ${before} → ${after}` : `unchanged (${after})`} in ${(buildMs / 1000).toFixed(1)}s`,
-	);
+	const build = rebuildCli(cliRoot, opts.build !== false, say);
+	if (!build) return;
+	const { before, after, buildMs, buildChanged } = build;
 
 	// 2. Refresh the current repo's hook script + client wiring, delta-reported.
 	const hookPath = join(cwd, ".interlinked", "hooks", "interlinked-activity.mjs");
