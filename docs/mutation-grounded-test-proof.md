@@ -545,10 +545,12 @@ sees the PostToolUse line; the human sees the Stop line.
   `unavailable` (the tests do not load the file from the copy). A named test
   file whose real path is outside the project is refused; links that resolve
   inside the project are rewritten to the copy.
-- Ignored data is never copied. A test that reads an ignored fixture fails in
-  the copy and is reported `unavailable` (it passes live). A test that reads
-  ignored data OPTIONALLY passes vacuously in the copy and can read as
-  `survived`; nothing detects that case. Keep fixtures tracked.
+- Keep test fixtures tracked. The proof reports `unavailable` when the copy
+  lacks a file named by a read failure, or when a named test checks a literal
+  project-relative path with Node's ESM-imported `existsSync` in a top-level
+  variable initializer or its ternary condition and that path exists only live.
+  The latter check uses the optional TypeScript parser. Indirect or computed
+  optional reads can still pass vacuously in the copy and yield `survived`.
 - A monorepo root without its own `vitest` is `unavailable`; run with `--cwd
   <package>`.
 - The copy is a git-visible copy, not an OS sandbox: a test that writes

@@ -101,25 +101,27 @@ function exportedAliasNames(ts: TsModule, property: TS.PropertyAssignment): stri
 	return names;
 }
 
+function recordDeclaration(ts: TsModule, file: string, node: TS.PropertyAssignment, out: Declarations): void {
+	const key = propertyName(ts, node);
+	if (key !== null && (DECLARED_KEYS.has(key) || key === "projects")) {
+		const { values, computed } = staticStrings(ts, node.initializer);
+		(key === "projects" ? out.projects : out.setup).push(...values);
+		out.unresolvable.push(...computed.map(what => `${file}: ${key}${what.startsWith("[") ? what : ` ${what}`}`));
+	} else if (key === "alias") {
+		out.aliases.push(...exportedAliasNames(ts, node));
+	} else if (key === "root" && isTestObject(ts, node)) {
+		const value = staticString(ts, node.initializer);
+		if (value === null) out.unresolvable.push(`${file}: test.root is computed (${ts.SyntaxKind[node.initializer.kind]})`);
+		else out.root = value;
+	}
+}
+
 /** Every `setupFiles` / `globalSetup` / `projects` / `test.root` property assignment in the file, wherever it sits. */
 function declarationsIn(ts: TsModule, file: string, text: string): Declarations {
 	const sf = ts.createSourceFile(file, text, ts.ScriptTarget.ES2022, true, getExtension(file) === ".tsx" ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
 	const out: Declarations = { setup: [], projects: [], root: null, unresolvable: [], aliases: [] };
 	const visit = (node: TS.Node): void => {
-		if (ts.isPropertyAssignment(node)) {
-			const key = propertyName(ts, node);
-			if (key !== null && (DECLARED_KEYS.has(key) || key === "projects")) {
-				const { values, computed } = staticStrings(ts, node.initializer);
-				(key === "projects" ? out.projects : out.setup).push(...values);
-				out.unresolvable.push(...computed.map(what => `${file}: ${key}${what.startsWith("[") ? what : ` ${what}`}`));
-			} else if (key === "alias") {
-				out.aliases.push(...exportedAliasNames(ts, node));
-			} else if (key === "root" && isTestObject(ts, node)) {
-				const value = staticString(ts, node.initializer);
-				if (value === null) out.unresolvable.push(`${file}: test.root is computed (${ts.SyntaxKind[node.initializer.kind]})`);
-				else out.root = value;
-			}
-		}
+		if (ts.isPropertyAssignment(node)) recordDeclaration(ts, file, node, out);
 		ts.forEachChild(node, visit);
 	};
 	visit(sf);
@@ -141,17 +143,16 @@ function isDirectory(abs: string): boolean {
 	}
 }
 
+function directoryNames(path: string): string[] {
+	try { return readdirSync(path); }
+	catch { return []; }
+}
+
 /** Repo-relative entries (files and directories) under `root` down to `depth`, skipping node_modules and .git. */
 function entriesTo(root: string, depth: number): string[] {
 	const out: string[] = [];
 	const walk = (rel: string, left: number): void => {
-		let names: string[];
-		try {
-			names = readdirSync(join(root, rel));
-		} catch {
-			return;
-		}
-		for (const name of names) {
+		for (const name of directoryNames(join(root, rel))) {
 			if (name === "node_modules" || name === ".git") continue;
 			const child = rel ? `${rel}/${name}` : name;
 			out.push(child);
@@ -171,6 +172,15 @@ function projectGlobMatches(root: string, pattern: string, byDepth: Map<number, 
 	return candidates.filter(rel => regex.test(rel));
 }
 
+function addExistingProjectConfig(matched: Set<string>, rel: string, absolute: string): void {
+	if (!isDirectory(absolute)) {
+		matched.add(rel);
+		return;
+	}
+	const config = CONFIG_NAMES.find(candidate => existsSync(join(absolute, candidate)));
+	if (config !== undefined) matched.add(rel + "/" + config);
+}
+
 /** The config file a `test.projects` entry names: a directory takes its first default config name; a file is itself. */
 function projectConfigs(root: string, patterns: readonly string[]): { configs: string[]; unresolvable: string[] } {
 	const matched = new Set<string>(), unresolvable: string[] = [];
@@ -180,51 +190,56 @@ function projectConfigs(root: string, patterns: readonly string[]): { configs: s
 		const pattern = normalizeRel(raw);
 		const glob = /[*?[{]/.test(pattern);
 		const candidates = glob ? projectGlobMatches(root, pattern, byDepth) : [pattern];
-		for (const rel of candidates) {
-			if (negative.some(regex => regex.test(rel))) continue;
+		const included = candidates.filter(rel => !negative.some(regex => regex.test(rel)));
+		for (const rel of included) {
 			const abs = join(root, rel);
-			if (!existsSync(abs)) {
-				if (!glob) unresolvable.push(`projects entry ${JSON.stringify(raw)} does not exist`);
-				continue;
-			}
-			const directory = isDirectory(abs);
-			const config = directory ? CONFIG_NAMES.find(candidate => existsSync(join(abs, candidate))) : undefined;
-			if (config !== undefined) matched.add(`${rel}/${config}`);
-			else if (!directory) matched.add(rel);
+			if (existsSync(abs)) addExistingProjectConfig(matched, rel, abs);
+			else if (!glob) unresolvable.push(`projects entry ${JSON.stringify(raw)} does not exist`);
 		}
 	}
 	return { configs: [...matched], unresolvable };
 }
 
-/** The static local (relative) import closure of a config, repo-relative, bounded. */
-function configImportClosure(root: string, config: string, seen: Set<string>): string[] {
-	const out: string[] = [];
+function configSpecifiers(root: string, file: string, contents: Map<string, string>): string[] {
+	if (!JS_TS_EXTS.has(getExtension(file))) return [];
+	const absolute = join(root, file);
+	let content: string;
+	try { content = readFileSync(absolute, "utf8"); }
+	catch { return []; }
+	contents.set(file, content);
+	return staticLocalSpecifiers(content, absolute);
+}
+
+/** The static local import closure in discovery order, sharing the same bytes with declaration parsing. */
+function configImportClosure(root: string, config: string, seen: Set<string>, contents: Map<string, string>): string[] {
 	const queue = [config];
-	while (queue.length > 0 && seen.size < MAX_CONFIG_IMPORTS) {
-		const file = queue.shift() as string;
-		const abs = join(root, file);
-		if (!JS_TS_EXTS.has(getExtension(file)) || !existsSync(abs)) continue;
-		let content: string;
-		try {
-			content = readFileSync(abs, "utf8");
-		} catch {
-			continue;
-		}
-		for (const specifier of staticLocalSpecifiers(content, abs)) {
-			const target = resolveImportPath(abs, specifier);
+	for (let index = 0; index < queue.length && seen.size < MAX_CONFIG_IMPORTS; index++) {
+		const file = queue[index]!;
+		const absolute = join(root, file);
+		for (const specifier of configSpecifiers(root, file, contents)) {
+			const target = resolveImportPath(absolute, specifier);
 			const rel = target === null ? null : insideRoot(root, target);
 			if (rel === null || seen.has(rel) || rel.split("/").includes("node_modules")) continue;
 			seen.add(rel);
-			out.push(rel);
 			queue.push(rel);
 		}
 	}
-	return out;
+	return queue.slice(1);
 }
 
 /** vitest's base for a config's relative paths: `test.root` when declared (resolved from the cwd, as vite does), else `defaultBase`. */
 function baseFor(root: string, declaredRoot: string | null, defaultBase: string): string {
 	return declaredRoot === null ? defaultBase : resolve(root, declaredRoot);
+}
+
+function recordSetupFile(root: string, base: string, file: string, entry: string, binding: ConfigBinding): void {
+	if (!entry.startsWith(".") && !isAbsolute(entry)) return;
+	const rel = insideRoot(root, resolve(base, entry));
+	if (rel === null || !existsSync(join(root, rel))) {
+		binding.unresolvable.push(`${file}: setup file ${JSON.stringify(entry)} is not a project file (resolved against ${relative(root, base) || "."})`);
+		return;
+	}
+	if (!binding.setupFiles.includes(rel)) binding.setupFiles.push(rel);
 }
 
 /**
@@ -233,22 +248,17 @@ function baseFor(root: string, declaredRoot: string | null, defaultBase: string)
  * project files, and are not bound; a relative or absolute path that does not exist is a limit.
  */
 function walkConfig(ts: TsModule, root: string, config: string, defaultBase: string, seen: Set<string>, binding: ConfigBinding, rootConfig = false): string[] {
-	const closure = configImportClosure(root, config, seen);
+	const contents = new Map<string, string>();
+	const closure = configImportClosure(root, config, seen, contents);
 	const files = [config, ...closure];
-	const declared = files.map(file => declarationsIn(ts, file, readFileSync(join(root, file), "utf8")));
+	const declared = files.map(file => declarationsIn(ts, file, contents.get(file) ?? readFileSync(join(root, file), "utf8")));
 	const aliases = declared[0]?.aliases;
 	if (rootConfig && aliases?.length) binding.rootAliasNames = [...new Set(aliases)];
 	const base = baseFor(root, declared[0]?.root ?? null, defaultBase);
 	binding.configFiles.push(...closure);
 	declared.forEach((decl, index) => {
 		binding.unresolvable.push(...decl.unresolvable);
-		for (const entry of decl.setup) {
-			if (!entry.startsWith(".") && !isAbsolute(entry)) continue;
-			const rel = insideRoot(root, resolve(base, entry));
-			if (rel !== null && existsSync(join(root, rel))) {
-				if (!binding.setupFiles.includes(rel)) binding.setupFiles.push(rel);
-			} else binding.unresolvable.push(`${files[index]}: setup file ${JSON.stringify(entry)} is not a project file (resolved against ${relative(root, base) || "."})`);
-		}
+		for (const entry of decl.setup) recordSetupFile(root, base, files[index]!, entry, binding);
 	});
 	return declared.flatMap(decl => decl.projects);
 }

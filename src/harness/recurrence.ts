@@ -109,28 +109,27 @@ export interface RecurrenceAction {
 	detail: string;
 }
 
+interface RecurrenceBucket {
+	kind: RecurrenceKind;
+	signature: string;
+	/** All distinct check_ids seen in this bucket. The emitted row
+	 *  claims one only when exactly one appeared — ambiguity is sticky
+	 *  once two distinct ids show up (round-14 sol #1). */
+	checkIds: Set<string>;
+	count: number;
+	first_seen: string;
+	last_seen: string;
+	sessions: Set<string>;
+	agent_sources: Set<string>;
+	/** file -> latest ts (one entry per distinct file; see trackFile). */
+	fileLatest: Map<string, number>;
+}
+
 export function aggregateRecurrences(
 	events: Iterable<RecurrenceEvent>,
 	filters: RecurrenceFilters = {},
 ): Recurrence[] {
-	const buckets = new Map<
-		string,
-		{
-			kind: RecurrenceKind;
-			signature: string;
-			/** All distinct check_ids seen in this bucket. The emitted row
-			 *  claims one only when exactly one appeared — ambiguity is sticky
-			 *  once two distinct ids show up (round-14 sol #1). */
-			checkIds: Set<string>;
-			count: number;
-			first_seen: string;
-			last_seen: string;
-			sessions: Set<string>;
-			agent_sources: Set<string>;
-			/** file -> latest ts (one entry per distinct file; see trackFile). */
-			fileLatest: Map<string, string>;
-		}
-	>();
+	const buckets = new Map<string, RecurrenceBucket>();
 
 	for (const event of events) {
 		if (!matchesFilters(event, filters)) continue;
@@ -138,9 +137,9 @@ export function aggregateRecurrences(
 		// Bucket by (kind, signature), not signature alone (round-12 sol #1);
 		// `kind` is a newline-free enum, so the newline separator is unambiguous.
 		const bucketKey = `${event.kind}\n${signature}`;
-		const row =
-			buckets.get(bucketKey) ??
-			{
+		let row = buckets.get(bucketKey);
+		if (!row) {
+			row = {
 				kind: event.kind,
 				signature,
 				checkIds: new Set<string>(),
@@ -149,8 +148,10 @@ export function aggregateRecurrences(
 				last_seen: event.ts,
 				sessions: new Set<string>(),
 				agent_sources: new Set<string>(),
-				fileLatest: new Map<string, string>(),
+				fileLatest: new Map<string, number>(),
 			};
+			buckets.set(bucketKey, row);
+		}
 
 		row.count++;
 		// Accumulate every distinct check_id (including "" — a present-but-empty
@@ -161,7 +162,6 @@ export function aggregateRecurrences(
 		if (event.session_id) row.sessions.add(event.session_id);
 		if (event.file) trackFile(row.fileLatest, event.file, event.ts);
 		if (event.agent_source) row.agent_sources.add(event.agent_source);
-		buckets.set(bucketKey, row);
 	}
 
 	return [...buckets.values()]
@@ -179,9 +179,7 @@ export function aggregateRecurrences(
 			distinct_sessions: row.sessions.size,
 			distinct_files: row.fileLatest.size,
 			agent_sources: [...row.agent_sources].sort(),
-			sample_files: recentUniqueFiles(
-				[...row.fileLatest].map(([file, ts]) => ({ file, ts })),
-			),
+			sample_files: recentUniqueFiles(row.fileLatest),
 			// Structural-complexity tiebreak (#33): Re-Pair index of the
 			// kind-stripped signature payload, bounded by SIGNATURE_ASSEMBLY_CAP.
 			assembly_significance: assemblyIndexOfTokens([
@@ -250,15 +248,11 @@ function matchesFilters(event: RecurrenceEvent, filters: RecurrenceFilters): boo
  *  distinct count AND a fixed memory bound, and a signature spanning millions
  *  of distinct files is not a real threat for the harness's own recurrence log
  *  (accepted tradeoff, not a silent one). */
-function trackFile(fileLatest: Map<string, string>, file: string, ts: string): void {
-	const prev = fileLatest.get(file);
-	if (prev === undefined) {
-		fileLatest.set(file, ts);
-		return;
-	}
-	const p = new Date(prev).getTime();
-	const t = new Date(ts).getTime();
-	if (!Number.isFinite(p) || (Number.isFinite(t) && t > p)) fileLatest.set(file, ts);
+function trackFile(fileLatest: Map<string, number>, file: string, ts: string): void {
+	const parsed = Date.parse(ts);
+	const latest = Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+	const previous = fileLatest.get(file);
+	if (previous === undefined || latest > previous) fileLatest.set(file, latest);
 }
 
 /** Max distinct files retained per row: sample_files is a bounded SAMPLE, so a
@@ -266,28 +260,20 @@ function trackFile(fileLatest: Map<string, string>, file: string, ts: string): v
  *  amplify memory/output (round-18 sol #1). */
 const SAMPLE_FILES_CAP = 10;
 
-function recentUniqueFiles(events: Array<{ file: string; ts: string }>): string[] {
-	const seen = new Set<string>();
-	const files: string[] = [];
-	// A malformed timestamp sorts as OLDEST (round-14 sol #4).
-	const tsOf = (e: { ts: string }): number => {
-		const t = new Date(e.ts).getTime();
-		return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY;
-	};
-	// Compare, never subtract: -Infinity - -Infinity is NaN, an unstable
-	// comparator return (round-18 sol #3).
-	const sorted = [...events].sort((a, b) => {
-		const ta = tsOf(a);
-		const tb = tsOf(b);
-		return ta === tb ? 0 : tb > ta ? 1 : -1;
-	});
-	for (const event of sorted) {
-		if (files.length >= SAMPLE_FILES_CAP) break;
-		if (seen.has(event.file)) continue;
-		seen.add(event.file);
-		files.push(event.file);
+function recentUniqueFiles(fileLatest: ReadonlyMap<string, number>): string[] {
+	const sample: Array<{ file: string; latest: number }> = [];
+	for (const [file, latest] of fileLatest) {
+		let position = sample.length;
+		if (position === SAMPLE_FILES_CAP) {
+			// A tie retains the first file observed in the event stream.
+			if (latest <= sample[position - 1]!.latest) continue;
+			sample.pop();
+			position--;
+		}
+		while (position > 0 && latest > sample[position - 1]!.latest) position--;
+		sample.splice(position, 0, { file, latest });
 	}
-	return files;
+	return sample.map(entry => entry.file);
 }
 
 // ===========================================

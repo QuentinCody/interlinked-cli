@@ -1,6 +1,6 @@
 import { runVitestDetailed, type VitestRun } from "../fail-before-fix/index.js";
 import { type AsyncProjectCopy, createProjectCopyAsync } from "../fail-before-fix/snapshot.js";
-import { hoistLayout, type ValidatedProofInputs } from "./proof-preconditions.js";
+import { hoistLayout, omittedFixtureProblem, type ValidatedProofInputs } from "./proof-preconditions.js";
 import { captureEnvironment, hashFile } from "./receipt.js";
 import type { ProofContextOptions } from "./run.js";
 import type { HashedFile, ProofEnvironment } from "./types.js";
@@ -44,6 +44,8 @@ function inspectCopy(copy: AsyncProjectCopy, inputs: ValidatedProofInputs, warni
 	if (sizeWarning !== null && !warnings.includes(sizeWarning)) warnings.push(sizeWarning);
 	const testHashes = hashAll(copy.dir, inputs.tests);
 	if (typeof testHashes === "string") return { problem: `${testHashes.replace(/ does not exist$/, "")} is not visible to git (ignored or outside the work tree), so it is not in the copy` };
+	const problem = omittedFixtureProblem(inputs.root, copy.dir, inputs.tests);
+	if (problem !== null) return { problem };
 	return { dir: copy.dir, testHashes, environment: captureEnvironment(copy.dir, inputs.configPath ?? undefined) };
 }
 

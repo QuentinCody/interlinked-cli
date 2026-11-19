@@ -11,6 +11,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type * as TS from "typescript";
+import { parseTsSource, type TsModule } from "../checks/cyclomatic-ast.js";
 import { getExtension, JS_TS_EXTS } from "../checks/shared.js";
 import { isTestPath } from "../coverage-test-selector.js";
 import { gitVisibleFiles, type HoistedModules } from "../fail-before-fix/snapshot.js";
@@ -152,6 +153,70 @@ export interface ValidatedProofInputs {
 	tests: string[];
 	files: string[];
 	configPath: string | null;
+}
+
+/** Local names for the Node filesystem operation, including ESM import aliases. */
+function existenceChecks(ts: TsModule, source: TS.SourceFile): Set<string> {
+	const names = new Set<string>();
+	for (const statement of source.statements) {
+		if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+		if (!["fs", "node:fs"].includes(statement.moduleSpecifier.text)) continue;
+		const clause = statement.importClause;
+		if (!clause || clause.isTypeOnly) continue;
+		if (clause.name) names.add(clause.name.text + ".existsSync");
+		const imports = clause.namedBindings;
+		if (!imports) continue;
+		if (ts.isNamespaceImport(imports)) names.add(imports.name.text + ".existsSync");
+		else for (const item of imports.elements) {
+			if (!item.isTypeOnly && (item.propertyName ?? item.name).text === "existsSync") names.add(item.name.text);
+		}
+	}
+	return names;
+}
+
+function literalExistenceProbe(ts: TsModule, expression: TS.Expression, names: ReadonlySet<string>): string | undefined {
+	const condition = ts.isConditionalExpression(expression) ? expression.condition : expression;
+	if (!ts.isCallExpression(condition)) return;
+	const callee = condition.expression;
+	const name = ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)
+		? callee.expression.text + "." + callee.name.text
+		: ts.isIdentifier(callee) ? callee.text : undefined;
+	if (!name || !names.has(name)) return;
+	const path = condition.arguments[0];
+	return path && ts.isStringLiteralLike(path) ? path.text : undefined;
+}
+
+/** A module-level binding checks a fixture directly or selects its initializer with that check. */
+function moduleFixtureProbes(path: string): string[] {
+	const content = readFileSync(path, "utf8");
+	if (!content.includes("existsSync")) return [];
+	const parsed = parseTsSource(content, path);
+	if (!parsed) return [];
+	const { ts, sf } = parsed;
+	const names = existenceChecks(ts, sf);
+	const paths: string[] = [];
+	for (const statement of sf.statements) {
+		if (!ts.isVariableStatement(statement)) continue;
+		for (const declaration of statement.declarationList.declarations) {
+			const probe = declaration.initializer && literalExistenceProbe(ts, declaration.initializer, names);
+			if (probe) paths.push(probe);
+		}
+	}
+	return paths;
+}
+
+/** Compare presence only. Ignored fixture bytes never enter the proof or the receipt. */
+export function omittedFixtureProblem(root: string, copy: string, tests: readonly string[]): string | null {
+	for (const test of tests) {
+		for (const path of moduleFixtureProbes(join(copy, test))) {
+			const rel = relative(root, resolve(root, path));
+			if (isAbsolute(path) || isAbsolute(rel) || rel.split(sep)[0] === "..") continue;
+			if (!existsSync(join(copy, path)) && existsSync(join(root, path))) {
+				return `${test} checks ${path}, which exists in the live project but is absent from the proof copy. Use a reproducible test fixture and re-run.`;
+			}
+		}
+	}
+	return null;
 }
 
 /** The prerequisites every proof of a context shares: the named tests, vitest (unless a test runner replaces it), the git work tree and the config. */

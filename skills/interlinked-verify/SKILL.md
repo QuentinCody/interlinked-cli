@@ -345,6 +345,12 @@ The receipt cannot certify that test. When the companion source has known manife
 --prune [--dry-run]` removes receipts whose source or test file is gone. Coverage, a `test-contract`
 marker, a green run or an old receipt is not proof. Guide: `docs/mutation-grounded-test-proof.md`.
 
+If a proof reports a fixture present only in the live project, track the fixture
+and re-run. With the TypeScript parser, a named test's top-level variable
+initializer or ternary condition can expose that difference through a literal
+project-relative Node `existsSync` lookup. Indirect and computed reads remain
+outside this check.
+
 ## After you edit an old test (`tests edit-protection`)
 
 Before you hand over a change that edited or deleted existing tests, run

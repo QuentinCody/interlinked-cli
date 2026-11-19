@@ -70,7 +70,7 @@ these three checks and their existing recognition predicates determine candidate
 `verify --only` uses catalog aliases in both text and JSON output. Both report
 when the selected tool lacks a foreground runner.
 The verify skill describes partial scanner findings and timeout reasons.
-For unresolved alias imports in mutation proof receipts, use **interlinked-verify**.
+For unresolved alias imports or a missing fixture in a mutation proof, use **interlinked-verify**.
 For excluded checks and partial external-tool receipts in verify JSON, use **interlinked-verify**.
 Semgrep runs only with `verify --only semgrep`. Default and `--all-checks`
 skip its version probe and scan. Use `verify --skip gitleaks` to omit Gitleaks
