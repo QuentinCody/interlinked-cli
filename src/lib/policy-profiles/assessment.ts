@@ -1,4 +1,4 @@
-import { metricPolicyApplies, type MetricPolicies, type MetricPolicyMode, type MetricPolicyScope } from "../../harness/metric-policy.js";
+import { metricPolicyApplies, type MetricPolicies, type MetricPolicyMode, type MetricPolicyEntry, type MetricPolicyScope } from "../../harness/metric-policy.js";
 import { METRIC_CATALOG } from "../metrics/catalog-metrics.js";
 import { emptyReading } from "../metrics/adapter-values.js";
 import { profileMeasurementContract } from "./profile.js";
@@ -34,6 +34,38 @@ function assessmentScope(id: string, scope: MetricPolicyScope, files: readonly I
 		unmeasured: selected.length !== population.length || gaps.length > 0 || (context.discoveryIssues?.length ?? 0) > 0 };
 }
 
+function initialAssessment(
+	reading: MetricReading, entry: MetricPolicyEntry | undefined,
+	scope: ReturnType<typeof assessmentScope>, context: AssessmentContext,
+): MetricPolicyAssessment {
+	const requestedMode = entry?.mode ?? "report", mode = requestedMode === "block" ? "warn" : requestedMode;
+	const issues = reading.id === "function-tokens" || reading.id === "file.lines" ? [...reading.limitations] : [];
+	if (requestedMode === "block") issues.push("Requested block has no project-report enforcement. Review structural-three proposals separately.");
+	const reportingTarget = entry ? entry.threshold ?? context.canonicalThresholds?.[reading.id] ?? null : null;
+	return { id: reading.id, requestedMode, mode, measurementState: reading.state,
+		measurementContract: reading.id === "file.lines" && !entry ? "Physical lines excluding the terminal empty segment" : profileMeasurementContract(reading.id),
+		status: "no-target", reportingTarget, exceedsTarget: null, warning: false, populationFiles: scope.populationFiles, selectedFiles: scope.selectedFiles, issues };
+}
+
+function assessReading(
+	reading: MetricReading, entry: MetricPolicyEntry | undefined,
+	files: readonly InventoryFile[], context: AssessmentContext,
+): MetricPolicyAssessment {
+	const scope = assessmentScope(reading.id, entry?.scope ?? {}, files, context);
+	const result = initialAssessment(reading, entry, scope, context);
+	if (result.mode === "off") return { ...result, status: "off" };
+	if (reading.state === "not-applicable") return { ...result, status: "not-applicable" };
+	if (reading.state !== "measured" || reading.value === null || !Number.isFinite(reading.value)) return { ...result, status: "evidence-unavailable" };
+	if (scope.unmeasured) {
+		result.issues.push("Retained aggregate does not establish a complete measurement for this selected population");
+		return { ...result, status: "scope-unmeasured" };
+	}
+	const { reportingTarget } = result;
+	if (reportingTarget === null) return result;
+	const exceedsTarget = scope.direction === "higher" ? reading.value < reportingTarget : reading.value > reportingTarget;
+	return { ...result, status: "compared", exceedsTarget, warning: result.mode === "warn" && exceedsTarget };
+}
+
 /** Disposition consumes retained numeric evidence without changing its value, scope or score. */
 export function assessMetricPolicies(readings: readonly MetricReading[], policies: MetricPolicies, files: readonly InventoryFile[], context: AssessmentContext = {}): MetricPolicyAssessment[] {
 	const selectedReadings = readings.map(reading => reading.id === "file.lines" && policies[reading.id]
@@ -43,25 +75,5 @@ export function assessMetricPolicies(readings: readonly MetricReading[], policie
 	if (policies["function-tokens"] && !readings.some(reading => reading.id === "function-tokens")) {
 		selectedReadings.push(emptyReading("function-tokens", "unsupported", 0, "Canonical function-token measurement was not collected by this project-report adapter"));
 	}
-	return selectedReadings.map(reading => {
-		const entry = policies[reading.id];
-		const requestedMode = entry?.mode ?? "report", mode = requestedMode === "block" ? "warn" : requestedMode;
-		const scope = assessmentScope(reading.id, entry?.scope ?? {}, files, context);
-		const issues = reading.id === "function-tokens" || reading.id === "file.lines" ? [...reading.limitations] : [];
-		if (requestedMode === "block") issues.push("Requested block has no project-report enforcement. Review structural-three proposals separately.");
-		const reportingTarget = entry?.threshold ?? (entry ? context.canonicalThresholds?.[reading.id] ?? null : null);
-		const result: MetricPolicyAssessment = { id: reading.id, requestedMode, mode, measurementState: reading.state,
-			measurementContract: reading.id === "file.lines" && !entry ? "Physical lines excluding the terminal empty segment" : profileMeasurementContract(reading.id),
-			status: "no-target", reportingTarget, exceedsTarget: null, warning: false, populationFiles: scope.populationFiles, selectedFiles: scope.selectedFiles, issues };
-		if (mode === "off") return { ...result, status: "off" };
-		if (reading.state === "not-applicable") return { ...result, status: "not-applicable" };
-		if (reading.state !== "measured" || reading.value === null || !Number.isFinite(reading.value)) return { ...result, status: "evidence-unavailable" };
-		if (scope.unmeasured) {
-			issues.push("Retained aggregate does not establish a complete measurement for this selected population");
-			return { ...result, status: "scope-unmeasured" };
-		}
-		if (reportingTarget === null) return result;
-		const exceedsTarget = scope.direction === "higher" ? reading.value < reportingTarget : reading.value > reportingTarget;
-		return { ...result, status: "compared", exceedsTarget, warning: mode === "warn" && exceedsTarget };
-	});
+	return selectedReadings.map(reading => assessReading(reading, policies[reading.id], files, context));
 }

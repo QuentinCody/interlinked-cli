@@ -52,7 +52,7 @@
 // cold one-shot or to an empty diagnostics list. The daemon must never crash
 // because of tsgo.
 
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TsgoDiagnostic } from "./daemon-protocol.js";
@@ -223,6 +223,65 @@ async function checkViaWarmOrCold(
 	return runTsgoOneShot(ctx.executable, path, extraArgs, timeoutMs);
 }
 
+/** Run the compiler against an isolated proposed edit and remove the transient source on every exit. */
+async function checkTemporarySource(
+	path: string, patched: string, executable: string, extraArgs: readonly string[], timeoutMs: number,
+): Promise<TsgoDiagnostic[]> {
+	const dir = mkdtempSync(join(tmpdir(), "interlinked-simedit-"));
+	try {
+		const suffix = path.match(/\.[A-Za-z0-9]+$/)?.[0] ?? ".ts";
+		const tmpFile = join(dir, `sim${suffix}`);
+		writeFileSync(tmpFile, patched);
+		return await runTsgoOneShot(
+			executable,
+			tmpFile,
+			extraArgs,
+			timeoutMs,
+			findTsconfigDir(path) ?? join(path, ".."),
+		);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function createEditSimulator(
+	executable: string | null, extraArgs: readonly string[], timeoutMs: number,
+): TsgoRunner["simulateEdit"] {
+	return async function simulate(
+		path: string,
+		oldString: string,
+		newString: string,
+	): Promise<{ new_diagnostics: TsgoDiagnostic[]; elapsed_ms: number }> {
+		if (executable === null || !existsSync(path)) return { new_diagnostics: [], elapsed_ms: 0 };
+
+		const started = nowMs();
+		const original = readFileSyncSafe(path);
+		if (original === null) return { new_diagnostics: [], elapsed_ms: 0 };
+		if (oldString && !original.includes(oldString)) {
+			// Patch would fail anyway; no simulated diagnostics.
+			return { new_diagnostics: [], elapsed_ms: nowMs() - started };
+		}
+		const patched = oldString
+			? applyLiteralReplacement(original, oldString, newString, false)
+			: original + newString;
+
+		// simulate_edit type-checks a transient copy of the patched file. We do
+		// NOT route this through the warm `tsgo --watch` child: the watch graph
+		// only sees files on disk, and writing the patch into the live tree
+		// would corrupt the agent's working copy. A one-shot on the temp file
+		// is correct here. Pass the live project's root as the admission key so
+		// runTsgoOneShot evicts its warm watcher before the temp-file child starts.
+
+		const diagnostics = await checkTemporarySource(path, patched, executable, extraArgs, timeoutMs);
+		const elapsed_ms = nowMs() - started;
+		// We do not diff against baseline here because the baseline check is a
+		// separate `tsgo.check_file` call; the callers in the daemon do the
+		// diff to surface only the *new* diagnostics. This keeps the runner
+		// responsibilities narrow.
+		return { new_diagnostics: diagnostics, elapsed_ms };
+	};
+}
+
 export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 	const executable = opts.executable ?? locateTsgo();
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_COLD_TIMEOUT_MS;
@@ -281,50 +340,6 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 	}
 
 
-	async function simulate(
-		path: string,
-		oldString: string,
-		newString: string,
-	): Promise<{ new_diagnostics: TsgoDiagnostic[]; elapsed_ms: number }> {
-		if (!isAvailable || !existsSync(path)) return { new_diagnostics: [], elapsed_ms: 0 };
-
-		const started = nowMs();
-		const original = readFileSyncSafe(path);
-		if (original === null) return { new_diagnostics: [], elapsed_ms: 0 };
-		if (oldString && !original.includes(oldString)) {
-			// Patch would fail anyway; no simulated diagnostics.
-			return { new_diagnostics: [], elapsed_ms: nowMs() - started };
-		}
-		const patched = oldString
-			? applyLiteralReplacement(original, oldString, newString, false)
-			: original + newString;
-
-		// simulate_edit type-checks a transient copy of the patched file. We do
-		// NOT route this through the warm `tsgo --watch` child: the watch graph
-		// only sees files on disk, and writing the patch into the live tree
-		// would corrupt the agent's working copy. A one-shot on the temp file
-		// is correct here. Pass the live project's root as the admission key so
-		// runTsgoOneShot evicts its warm watcher before the temp-file child starts.
-
-		const dir = mkdtempSync(join(tmpdir(), "interlinked-simedit-"));
-		const suffix = path.match(/\.[A-Za-z0-9]+$/)?.[0] ?? ".ts";
-		const tmpFile = join(dir, `sim${suffix}`);
-		writeFileSync(tmpFile, patched);
-		const diagnostics = await runTsgoOneShot(
-			executable,
-			tmpFile,
-			extraArgs,
-			timeoutMs,
-			findTsconfigDir(path) ?? join(path, ".."),
-		);
-		const elapsed_ms = nowMs() - started;
-		// We do not diff against baseline here because the baseline check is a
-		// separate `tsgo.check_file` call; the callers in the daemon do the
-		// diff to surface only the *new* diagnostics. This keeps the runner
-		// responsibilities narrow.
-		return { new_diagnostics: diagnostics, elapsed_ms };
-	}
-
 	function invalidate(path: string): void {
 		cache.delete(path);
 	}
@@ -368,7 +383,7 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 	return {
 		available: () => isAvailable,
 		checkFile: check,
-		simulateEdit: simulate,
+		simulateEdit: createEditSimulator(executable, extraArgs, timeoutMs),
 		invalidate,
 		stats,
 		dispose,

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -432,6 +432,23 @@ describe("createTsgoRunner — cache FIFO eviction", () => {
 });
 
 describe("createTsgoRunner — simulateEdit edge paths", () => {
+	it("removes transient simulation files and preserves the original", async () => {
+		const path = join(tmp, "edit.ts");
+		writeFileSync(path, "const x = 1;");
+		const runner = createNoOutputRunner();
+		vi.stubEnv("TMPDIR", tmp);
+		vi.stubEnv("TEMP", tmp);
+		vi.stubEnv("TMP", tmp);
+		try {
+			await runner.simulateEdit(path, "1", "2");
+			expect(readdirSync(tmp)).toEqual(["edit.ts"]);
+			expect(readFileSync(path, "utf8")).toBe("const x = 1;");
+		} finally {
+			vi.unstubAllEnvs();
+			disposeRunner(runner);
+		}
+	});
+
 	it("returns empty diagnostics when the target path is a directory (unreadable as a file)", async () => {
 		const dirPath = join(tmp, "a-directory");
 		mkdirSync(dirPath, { recursive: true });

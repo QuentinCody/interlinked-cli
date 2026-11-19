@@ -93,63 +93,18 @@ function removeOwnedRawArtifacts(args: {
 	removePidFileIfOwned(args.pidPath, process.pid);
 }
 
-/** Build the socket + process-lifecycle cluster. The function bodies are moved
- *  verbatim from the monolithic server.ts; only the previously-module-level
- *  `let`s become closure state and the late-bound pieces become setters. */
-export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycle {
-	const {
-		socketPath: SOCKET_PATH,
-		pidPath: PID_PATH,
-		runRawSocket: RUN_RAW_SOCKET,
-		asyncAnalysisDrainTimeoutMs: ASYNC_ANALYSIS_DRAIN_TIMEOUT_MS,
-		serverBridge,
-		reservations,
-		contentScanner,
-		asyncAnalysis,
-		evaluateEventLine,
-		log,
-		logAlways,
-		exit = process.exit,
-	} = deps;
-
-	let socketServer: ReturnType<typeof createServer> | null = null;
-	let framedDaemon: FramedStopHandle | null = null;
-	let shuttingDown = false;
-	let connectionCount = 0;
-	let unwatchRules: () => void = () => {};
-	let unwatchSettings: () => void = () => {};
-
-	/** Tracks every open raw-socket client so shutdown can destroy them. Without
-	 *  this, `socketServer.close(callback)` waits for clients to disconnect on
-	 *  their own — which never happens for a hung .mjs hook — and SIGTERM appears
-	 *  to be ignored. The set is mutated by createRawSocketServer's connect/close
-	 *  handlers and emptied during shutdownAsync. */
-	const openRawClients: Set<Socket> = new Set();
-
-	/** Hard ceiling on graceful shutdown. If `shutdownAsync` doesn't reach
-	 *  `process.exit(0)` within this window, force-exit so a stuck connection or
-	 *  drain promise can't hold the daemon hostage and block restarts. */
-	const SHUTDOWN_GRACE_MS = 3000;
-	/** Per-step timeout for individual shutdown phases (framedDaemon.stop, etc.).
-	 *  Each phase races against this window; the SHUTDOWN_GRACE_MS umbrella
-	 *  catches anything that escapes both. */
-	const SHUTDOWN_STEP_TIMEOUT_MS = 500;
+function createPidFileOwner(pidPath: string) {
 	/** Cadence of the raw-pid-file ownership re-assert (writePidFile doc). */
 	const PID_HEAL_INTERVAL_MS = 60_000;
 	let pidHealTimer: NodeJS.Timeout | null = null;
-
-	function cleanupSocket(path: string = SOCKET_PATH): void {
-		cleanupSocketAt(path);
-	}
-
 	function writePidFile(): void {
 		// Owns ONLY the legacy `harness.pid`. The framed `harness-<session>.pid`
 		// is written exclusively by `startSessionDaemon()` (session-daemon.ts:136)
 		// AFTER its ownership check — writing it here too clobbers a sibling
 		// daemon's PID file before the session-daemon code can detect the
 		// existing owner, causing it to remove the live socket and rebind.
-		ensureDirectory(PID_PATH);
-		writeFileSync(PID_PATH, String(process.pid));
+		ensureDirectory(pidPath);
+		writeFileSync(pidPath, String(process.pid));
 		// Self-heal: a dual-protocol newcomer overwrites this file before losing
 		// the framed anti-stomp race; its exit-path sweep (anti-stomp.ts
 		// removeOwnPidLitter) normally cleans that litter, but a writer killed
@@ -161,14 +116,14 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 		if (pidHealTimer === null) {
 			pidHealTimer = setInterval(() => {
 				try {
-					const onDisk = readFileSync(PID_PATH, "utf-8").trim();
+					const onDisk = readFileSync(pidPath, "utf-8").trim();
 					if (Number.parseInt(onDisk, 10) === process.pid) return;
 				} catch (err) {
 					void err; // missing/unreadable — rewrite ours below
 				}
 				try {
-					ensureDirectory(PID_PATH);
-					writeFileSync(PID_PATH, String(process.pid));
+					ensureDirectory(pidPath);
+					writeFileSync(pidPath, String(process.pid));
 				} catch (err) {
 					void err; // read-only dir — nothing to heal with
 				}
@@ -177,49 +132,27 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 		}
 	}
 
-	function shutdown(): void {
-		if (shuttingDown) return;
-		shuttingDown = true;
+	function stopHealing(): void {
 		if (pidHealTimer) {
 			clearInterval(pidHealTimer);
 			pidHealTimer = null;
 		}
-		// Always-armed force-exit. Any path that hangs for more than 3 s — a
-		// pinned client connection, an async drain that never resolves, a third-
-		// party shutdown handler that throws — will fall through to this rather
-		// than leaving the daemon SIGTERM-deaf and forcing the user to SIGKILL.
-		const forceExit = setTimeout(() => {
-			try {
-				logAlways(`Graceful shutdown stalled after ${SHUTDOWN_GRACE_MS}ms — forcing exit`);
-			} catch (logErr) {
-				void logErr; /* intentional: logger may already be torn down */
-			}
-			try {
-				removeOwnedRawArtifacts({
-					pidPath: PID_PATH,
-					socketPath: SOCKET_PATH,
-					removeSocket: RUN_RAW_SOCKET,
-				});
-			} catch (cleanupErr) {
-				void cleanupErr; /* intentional: best-effort cleanup during forced exit */
-			}
-			exit(1);
-		}, SHUTDOWN_GRACE_MS);
-		forceExit.unref();
-		void shutdownAsync().finally(() => clearTimeout(forceExit));
 	}
+	return { writePidFile, stopHealing };
+}
 
-	async function shutdownAsync(): Promise<void> {
-		logAlways("Shutting down...");
-		serverBridge?.shutdown();
-		reservations.shutdown();
-		// Fire-and-forget: the Python sidecar will be SIGKILLed by the SidecarManager
-		// after its own 1 s grace window; we don't block the exit on it here.
-		contentScanner?.shutdown().catch(() => {
-			// best-effort
-		});
-		// Drain in-flight async analysis before exit (bounded by its own deadline).
-		await asyncAnalysis.drain(ASYNC_ANALYSIS_DRAIN_TIMEOUT_MS);
+function createRawListener(deps: SocketLifecycleDeps) {
+	const { socketPath, evaluateEventLine, log, logAlways, exit = process.exit } = deps;
+	let socketServer: ReturnType<typeof createServer> | null = null;
+	let connectionCount = 0;
+	/** Tracks every open raw-socket client so shutdown can destroy them. Without
+	 *  this, `socketServer.close(callback)` waits for clients to disconnect on
+	 *  their own — which never happens for a hung .mjs hook — and SIGTERM appears
+	 *  to be ignored. The set is mutated by createRawSocketServer's connect/close
+	 *  handlers and emptied during shutdownAsync. */
+	const openRawClients: Set<Socket> = new Set();
+
+	function destroyClients(): void {
 		// Destroy open raw-socket clients BEFORE server.close(). Node's
 		// `server.close()` only stops accepting new connections; it waits forever
 		// for active ones to drain on their own. A hung .mjs hook (mid-RPC, parent
@@ -232,19 +165,9 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 			}
 		}
 		openRawClients.clear();
-		// Stop the framed daemon, but bound it: an in-flight RPC on a stuck
-		// client would otherwise hang stop() forever. 500 ms is generous —
-		// stop() destroys its own clients first, so close() should resolve
-		// in microseconds. The race + timeout is insurance, not the path.
-		if (framedDaemon) {
-			await Promise.race([
-				framedDaemon.stop("server_shutdown"),
-				new Promise<void>((resolve) => {
-					const t = setTimeout(resolve, SHUTDOWN_STEP_TIMEOUT_MS);
-					t.unref();
-				}),
-			]);
-		}
+	}
+
+	function close(): void {
 		// Tell the raw server to stop accepting new connections, but DO NOT
 		// await server.close(callback). The callback only fires after every
 		// active connection drains on its own — and a malformed client (rare
@@ -256,14 +179,6 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 		} catch (closeErr) {
 			void closeErr; /* intentional: close() can throw if the server is already closed */
 		}
-		removeOwnedRawArtifacts({
-			pidPath: PID_PATH,
-			socketPath: SOCKET_PATH,
-			removeSocket: RUN_RAW_SOCKET,
-		});
-		unwatchRules();
-		unwatchSettings();
-		exit(0);
 	}
 
 	function createRawSocketServer(): ReturnType<typeof createServer> {
@@ -306,7 +221,7 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 
 	/** Bind the raw listener and stash the server instance so shutdown can close
 	 *  it. Mirrors the prior inline `const rawServer = createRawSocketServer();
-	 *  socketServer = rawServer; rawServer.listen(SOCKET_PATH);` startup block. */
+	 *  socketServer = rawServer; rawServer.listen(socketPath);` startup block. */
 	function startRawServer(reporter?: RawListenReporter): void {
 		const rawServer = createRawSocketServer();
 		socketServer = rawServer;
@@ -340,7 +255,110 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 			exit(1);
 		});
 		if (reporter) rawServer.on("listening", () => reporter.note("raw"));
-		rawServer.listen(SOCKET_PATH);
+		rawServer.listen(socketPath);
+	}
+
+	return { startRawServer, destroyClients, close };
+}
+
+/** Coordinate shutdown of the raw listener, framed daemon, and dependent services. */
+export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycle {
+	const {
+		socketPath: SOCKET_PATH,
+		pidPath: PID_PATH,
+		runRawSocket: RUN_RAW_SOCKET,
+		asyncAnalysisDrainTimeoutMs: ASYNC_ANALYSIS_DRAIN_TIMEOUT_MS,
+		serverBridge,
+		reservations,
+		contentScanner,
+		asyncAnalysis,
+		logAlways,
+		exit = process.exit,
+	} = deps;
+
+	const pidOwner = createPidFileOwner(PID_PATH);
+	const raw = createRawListener(deps);
+	let framedDaemon: FramedStopHandle | null = null;
+	let shuttingDown = false;
+	let unwatchRules: () => void = () => {};
+	let unwatchSettings: () => void = () => {};
+
+	/** Hard ceiling on graceful shutdown. If `shutdownAsync` doesn't reach
+	 *  `process.exit(0)` within this window, force-exit so a stuck connection or
+	 *  drain promise can't hold the daemon hostage and block restarts. */
+	const SHUTDOWN_GRACE_MS = 3000;
+	/** Per-step timeout for individual shutdown phases (framedDaemon.stop, etc.).
+	 *  Each phase races against this window; the SHUTDOWN_GRACE_MS umbrella
+	 *  catches anything that escapes both. */
+	const SHUTDOWN_STEP_TIMEOUT_MS = 500;
+
+	function cleanupSocket(path: string = SOCKET_PATH): void {
+		cleanupSocketAt(path);
+	}
+
+	function shutdown(): void {
+		if (shuttingDown) return;
+		shuttingDown = true;
+		pidOwner.stopHealing();
+		// Always-armed force-exit. Any path that hangs for more than 3 s — a
+		// pinned client connection, an async drain that never resolves, a third-
+		// party shutdown handler that throws — will fall through to this rather
+		// than leaving the daemon SIGTERM-deaf and forcing the user to SIGKILL.
+		const forceExit = setTimeout(() => {
+			try {
+				logAlways(`Graceful shutdown stalled after ${SHUTDOWN_GRACE_MS}ms — forcing exit`);
+			} catch (logErr) {
+				void logErr; /* intentional: logger may already be torn down */
+			}
+			try {
+				removeOwnedRawArtifacts({
+					pidPath: PID_PATH,
+					socketPath: SOCKET_PATH,
+					removeSocket: RUN_RAW_SOCKET,
+				});
+			} catch (cleanupErr) {
+				void cleanupErr; /* intentional: best-effort cleanup during forced exit */
+			}
+			exit(1);
+		}, SHUTDOWN_GRACE_MS);
+		forceExit.unref();
+		void shutdownAsync().finally(() => clearTimeout(forceExit));
+	}
+
+	async function shutdownAsync(): Promise<void> {
+		logAlways("Shutting down...");
+		serverBridge?.shutdown();
+		reservations.shutdown();
+		// Fire-and-forget: the Python sidecar will be SIGKILLed by the SidecarManager
+		// after its own 1 s grace window; we don't block the exit on it here.
+		contentScanner?.shutdown().catch(() => {
+			// best-effort
+		});
+		// Drain in-flight async analysis before exit (bounded by its own deadline).
+		await asyncAnalysis.drain(ASYNC_ANALYSIS_DRAIN_TIMEOUT_MS);
+		raw.destroyClients();
+		// Stop the framed daemon, but bound it: an in-flight RPC on a stuck
+		// client would otherwise hang stop() forever. 500 ms is generous —
+		// stop() destroys its own clients first, so close() should resolve
+		// in microseconds. The race + timeout is insurance, not the path.
+		if (framedDaemon) {
+			await Promise.race([
+				framedDaemon.stop("server_shutdown"),
+				new Promise<void>((resolve) => {
+					const t = setTimeout(resolve, SHUTDOWN_STEP_TIMEOUT_MS);
+					t.unref();
+				}),
+			]);
+		}
+		raw.close();
+		removeOwnedRawArtifacts({
+			pidPath: PID_PATH,
+			socketPath: SOCKET_PATH,
+			removeSocket: RUN_RAW_SOCKET,
+		});
+		unwatchRules();
+		unwatchSettings();
+		exit(0);
 	}
 
 	function setFramedDaemon(handle: FramedStopHandle | null): void {
@@ -354,9 +372,9 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 
 	return {
 		cleanupSocket,
-		writePidFile,
+		writePidFile: pidOwner.writePidFile,
 		shutdown,
-		startRawServer,
+		startRawServer: raw.startRawServer,
 		setFramedDaemon,
 		setUnwatchers,
 	};

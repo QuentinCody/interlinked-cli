@@ -26,6 +26,32 @@ function safeFile(root: string, file: string): string {
     if (!stat.isFile() || stat.size > SPEC_FILE_BYTES) throw new Error("not a regular file or exceeds 1 MiB cap");
     return path;
 }
+function* citationChildren(path: string, file: string, issues: SentenceScanIssue[]): Generator<string> {
+    let names: string[];
+    try {
+        names = readdirSync(path).sort();
+    } catch {
+        issues.push({ file, reason: "directory unreadable" });
+        return;
+    }
+    for (const name of names) {
+        const child = `${file}/${name}`;
+        if (name.startsWith(".") || SKIP.has(name)) {
+            issues.push({ file: child, reason: "excluded directory or dotfile" });
+            continue;
+        }
+        yield child;
+    }
+}
+
+function* readCitationSource(root: string, file: string, issues: SentenceScanIssue[]): Generator<CitationSource> {
+    try {
+        yield { file, content: readFileSync(safeFile(root, file), "utf8") };
+    } catch (error) {
+        issues.push({ file, reason: error instanceof Error ? error.message : "unreadable source" });
+    }
+}
+
 function* sources(root: string, issues: SentenceScanIssue[]): Generator<CitationSource> {
     let count = 0;
     function* walk(file: string): Generator<CitationSource> {
@@ -35,16 +61,10 @@ function* sources(root: string, issues: SentenceScanIssue[]): Generator<Citation
         try { stat = lstatSync(path); } catch { return; }
         if (stat.isSymbolicLink()) { issues.push({ file, reason: "symlink excluded" }); return; }
         if (stat.isDirectory()) {
-            let names: string[];
-            try { names = readdirSync(path).sort(); } catch { issues.push({ file, reason: "directory unreadable" }); return; }
-            for (const name of names) {
-                if (name.startsWith(".") || SKIP.has(name)) { issues.push({ file: `${file}/${name}`, reason: "excluded directory or dotfile" }); continue; }
-                yield* walk(`${file}/${name}`);
-            }
+            for (const child of citationChildren(path, file, issues)) yield* walk(child);
         } else if (/\.(?:[cm]?[jt]sx?|md)$/.test(file)) {
             count++;
-            try { yield { file, content: readFileSync(safeFile(root, file), "utf8") }; }
-            catch (error) { issues.push({ file, reason: error instanceof Error ? error.message : "unreadable source" }); }
+            yield* readCitationSource(root, file, issues);
         }
     }
     for (const dir of ["src", "test", "tests", "docs", "README.md", "CLAUDE.md"]) yield* walk(dir);

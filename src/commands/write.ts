@@ -21,6 +21,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { readStdin } from "../lib/read-stdin.js";
 import {
 	formatGateResult,
 	GATE_SEVERITY_ERROR,
@@ -47,18 +48,6 @@ export interface WriteCommandOptions {
 const EXIT_USAGE = 2;
 /** Exit-code sentinel for a gate failure. */
 const EXIT_GATE_FAIL = 1;
-
-/**
- * Read stdin until EOF. Returns the full string content.
- */
-async function readStdin(): Promise<string> {
-	return new Promise<string>((res, rej) => {
-		const chunks: Buffer[] = [];
-		process.stdin.on("data", (ch: Buffer) => chunks.push(ch));
-		process.stdin.on("end", () => res(Buffer.concat(chunks).toString("utf-8")));
-		process.stdin.on("error", rej);
-	});
-}
 
 /**
  * Load the single-file entry (from stdin or --from-file) into a
