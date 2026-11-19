@@ -12,7 +12,7 @@ import type { JsonObject } from "../../lib/json-types.js";
 /** Public API — consumed by evaluator sub-modules to detect Bash-family tool calls. */
 export function isBash(toolName: string | undefined): boolean {
 	if (!toolName) return false;
-	return ["Bash", "Shell", "shell", "bash", "run_command"].includes(toolName);
+	return ["Bash", "Shell", "shell", "bash", "run_command", "run_shell_command"].includes(toolName);
 }
 
 /** Public API — consumed by evaluator sub-modules to detect browser-navigation tool calls. */

@@ -180,6 +180,8 @@ source writes still belong in Write/Edit or the supported Interlinked write flow
   OpenCode's stable tool gate, Codex `PreToolUse`, Copilot, and Gemini deny instead;
   Claude/Codex `PermissionRequest` allow/ask abstain so the provider retains authority),
   or `allow` (may still carry non-blocking `warnings`, or an `updated_input` rewrite).
+- Gemini CLI's native `run_shell_command` receives the same Bash-family guard rules
+  as other shell runners. Rules can also target its native tool name directly.
 - Built-in rules are regex patterns on the command/tool-input. Use `interlinked harness checks`
   for the authoritative current inventory. Patterns are **ORed over positive entries;
   `negate:true` patterns are exceptions.** `executed_only` masks

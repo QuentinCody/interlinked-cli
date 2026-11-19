@@ -152,7 +152,7 @@ examples, expected-value provenance and retained previous expectations. Use
 **interlinked-spec-audit** for preparing explicit documentation examples. Contract
 review is advisory; configured acceptance is separate from agent-authored proposals.
 
-For provider edit normalization and Stop delivery, use **interlinked-harness**; for
+For provider edit normalization, shell guard matching, and Stop delivery, use **interlinked-harness**; for
 native qualification, use **interlinked-setup**; for re-entry/translation evidence,
 use **interlinked-observability**. Early test-readiness guidance is covered by
 **interlinked-verify**. Provider-specific capabilities remain available.

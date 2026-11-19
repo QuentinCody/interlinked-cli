@@ -30,3 +30,22 @@ it.each([
         await fixture.close();
     }
 });
+
+it("serves Gemini's native before-tool permission responses through the daemon", async () => {
+    const fixture = await createFixture();
+    try {
+        const call = (command: string) => fixture.hook({
+            runner: "gemini-cli", event: "BeforeTool", tool: "run_shell_command", input: { command },
+        });
+        const allowed = await call("git status --short");
+        fixture.assertServed(allowed);
+        expect(allowed.code).toBe(0);
+        expect(JSON.parse(allowed.stdout).decision).toBeUndefined();
+        const blocked = await call("git reset --hard");
+        fixture.assertServed(blocked);
+        expect(blocked.code).toBe(0);
+        expect(JSON.parse(blocked.stdout)).toMatchObject({ decision: "deny", reason: expect.any(String) });
+    } finally {
+        await fixture.close();
+    }
+});
