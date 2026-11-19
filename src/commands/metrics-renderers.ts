@@ -17,6 +17,7 @@ import {
 import type { FunctionTokenMetricsReport } from "./metrics-function-tokens.js";
 import type { ActionInventory } from "../lib/action-inventory.js";
 import type { MetricSourceInventory } from "./metrics-coverage-reports.js";
+import type { PopulationSummary } from "../lib/metrics/role-population.js";
 import { renderMetricActions } from "./metrics-actions.js";
 
 export interface FnMetric {
@@ -53,6 +54,8 @@ export interface MetricsReport {
 	actions?: ActionInventory;
 	functions?: FnMetric[];
 	sourceInventory?: MetricSourceInventory;
+	/** The v5 role census (role version, files per role, files set aside with the reason), shared by every analysis command. */
+	population?: PopulationSummary;
 	scope: {
 		files: number;
 		functions: number;

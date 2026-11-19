@@ -19,6 +19,9 @@ vi.mock("../harness/project-graph.js", () => {
 		allFiles(): string[] {
 			return graphState.files.map((f) => `${this.cwd}/${f}`);
 		}
+		allNodes(): string[] {
+			return this.allFiles();
+		}
 		toRelative(abs: string): string {
 			return abs.startsWith(`${this.cwd}/`) ? abs.slice(this.cwd.length + 1) : abs;
 		}

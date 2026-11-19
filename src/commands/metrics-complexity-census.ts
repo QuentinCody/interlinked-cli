@@ -15,6 +15,7 @@ import { computeCognitiveAst } from "../harness/checks/cognitive-ast.js";
 import { computeCyclomaticAst } from "../harness/checks/cyclomatic-ast.js";
 import { countLines, isCappableFile } from "../harness/large-file-policy.js";
 import { percentileRanks } from "../harness/percentile-rank.js";
+import type { PopulationSummary } from "../lib/metrics/role-population.js";
 
 /** The three census metrics, in report order. */
 export const CENSUS_METRICS = ["cyclomatic", "cognitive", "lines"] as const;
@@ -104,6 +105,10 @@ export interface CensusRows {
 	cyclomatic: FunctionRow[];
 	cognitive: FunctionRow[];
 	lines: FileRow[];
+	/** Files the census could not measure (Python parse failure or no `python3`); absent when every file was measured. */
+	notMeasured?: { file: string; reason: string }[];
+	/** The v5 role census of the listed sources: what stayed in the population and what was set aside, with the reason. */
+	population?: PopulationSummary;
 }
 
 export interface CensusSource {

@@ -3,12 +3,17 @@ import type { MetricDefinition, QualityDimension } from "./measurement-types.js"
 const PERCENT_KNOTS = [[0, 0], [1, .1], [5, .4], [20, 1]] as const;
 const SIZE_KNOTS = [[0, 0], [500, 0], [750, .4], [1500, 1]] as const;
 
+/** Metrics with a Python adapter (2026-11-16.1). The rest (correctness.findings, tests.integrity) stay JavaScript/TypeScript and say so per file in their limitations. */
+const PYTHON_METRICS: ReadonlySet<string> = new Set(["cyclomatic", "cognitive", "tokens", "difficulty", "file.lines", "file.top_level",
+    "redundancy.clones", "redundancy.dead_stores", "types.unsafe", "architecture.cycles", "architecture.reach", "architecture.boundaries",
+    "redundancy.unused", "redundancy.disconnected", "contracts.findings"]);
+
 function metric(id: string, name: string, dimension: QualityDimension, unit: string,
     denominator: string, evidence: MetricDefinition["evidence"],
     knots: MetricDefinition["knots"] = PERCENT_KNOTS): MetricDefinition {
     return { id, name, dimension, unit, denominator, evidence, knots, direction: "lower",
         roles: dimension === "test_integrity" ? ["test"] : ["product"],
-        languages: ["javascript", "typescript"],
+        languages: PYTHON_METRICS.has(id) ? ["javascript", "typescript", "python"] : ["javascript", "typescript"],
         limitations: ["A score describes the declared measurement contract, not all possible program behavior."] };
 }
 

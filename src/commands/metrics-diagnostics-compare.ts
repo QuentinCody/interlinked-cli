@@ -6,7 +6,11 @@ import { getOutputMode, output, outputError } from "../lib/output.js";
 
 function load(path: string) {
     if (statSync(path).size > 32 * 1024 * 1024) throw new Error("Diagnostic snapshot exceeds 32 MiB");
-    return parseDiagnosticSnapshot(JSON.parse(readFileSync(path, "utf8")));
+    const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof value === "object" && value !== null && "mixed" in value) {
+        throw new Error("Snapshot holds several language reports; save one with --profile js-ts or --profile python and compare those");
+    }
+    return parseDiagnosticSnapshot(value);
 }
 
 export function metricsDiagnosticsCompareCommand(before: string, after: string, options: { cwd?: string; json?: boolean; short?: boolean }): void {

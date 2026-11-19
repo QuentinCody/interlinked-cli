@@ -227,8 +227,8 @@ describe("metricsArchCommand — JSON output", () => {
 		expect(JSON.parse(out)).toHaveProperty(["depth"], 2);
 	});
 
-	it("falls back to depth 2 when --depth is empty or non-numeric", async () => {
-		for (const depth of ["", "not-a-number"]) {
+	it("falls back to depth 2 unless --depth is a positive integer", async () => {
+		for (const depth of ["", "not-a-number", "0", "-1", "1.5", "Infinity"]) {
 			const { out } = await runArch({ cwd: project, json: true, depth });
 			expect(JSON.parse(out)).toHaveProperty(["depth"], 2);
 		}

@@ -1,4 +1,9 @@
+import { basename } from "node:path";
 import { isJsonObject } from "../json-types.js";
+import { pythonExportCheck } from "./python-facts.js";
+import { scriptEntries } from "./python-entries.js";
+
+const PYTHON_MANIFESTS: ReadonlySet<string> = new Set(["pyproject.toml", "setup.cfg", "setup.py"]);
 import type { RepositoryAnalysis } from "./analysis.js";
 import { emptyReading, qualityFinding, ratioReading } from "./adapter-values.js";
 import { exportContractReader } from "./contract-exports.js";
@@ -9,7 +14,11 @@ function satisfies(contract: ScoreContract, analysis: RepositoryAnalysis, export
     const file = analysis.inventory.files.find(item => item.path === contract.path);
     if (!file) return false;
     if (contract.kind === "file") return true;
+    if (contract.kind === "export" && file.language === "python") {
+        return pythonExportCheck(analysis.files.find(item => item.input.path === contract.path)?.python?.row.facts, contract.path, contract.name);
+    }
     if (contract.kind === "export") return exported(contract.path, contract.name);
+    if (PYTHON_MANIFESTS.has(basename(file.path))) return scriptEntries(file.path, file.content).some(item => item.name === contract.name);
     const json: unknown = JSON.parse(file.content);
     return isJsonObject(json) && isJsonObject(json.scripts) && typeof json.scripts[contract.name] === "string";
 }
@@ -17,7 +26,7 @@ function satisfies(contract: ScoreContract, analysis: RepositoryAnalysis, export
 export function measureContracts(analysis: RepositoryAnalysis, config: ScoreConfiguration): AdapterResult {
     if (config.issues.length) return { findings: [], metrics: [emptyReading("contracts.findings", "inconclusive", config.contracts.length, config.issues.join("; "))] };
     const findings: QualityFinding[] = [], issues: string[] = [];
-    const exported = exportContractReader(analysis.inventory, config.contracts.filter(contract => contract.kind === "export").map(contract => contract.path));
+    const exported = exportContractReader(analysis.inventory, config.contracts.filter(contract => contract.kind === "export" && !contract.path.endsWith(".py")).map(contract => contract.path));
     const anchor = analysis.inventory.files.find(file => file.path === "interlinked.metrics.json");
     let failed = 0;
     for (const contract of config.contracts) {

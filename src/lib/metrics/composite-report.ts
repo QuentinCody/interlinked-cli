@@ -1,4 +1,5 @@
 import { measureCoverageEvidence, measureMutationEvidence } from "./adapter-behavioral.js";
+import type { RepositoryAnalysis } from "./analysis.js";
 import { buildMetricCatalog } from "./catalog.js";
 import { REVIEWED_REGISTRY_HASH } from "./catalog-review.js";
 import { COMPOSITE_PROFILE } from "./composite-profile.js";
@@ -8,6 +9,7 @@ import { loadEvidence } from "./evidence-store.js";
 import { executionEvidenceBlockers } from "./execution-evidence.js";
 import type { StoredEvidence } from "./evidence-types.js";
 import type { InventoryGap, MetricReading, QualityFinding, RepositoryInventory } from "./measurement-types.js";
+import { summarizeProvenance, type ProvenanceSummary } from "./provenance.js";
 import { collectStaticMeasurements } from "./static-measurements.js";
 import { computeRulesFingerprint } from "../rules-fingerprint.js";
 
@@ -17,6 +19,10 @@ export interface CompositeScoreReport extends CompositeResult {
     rulesHash: string;
     sourceHash: string; inputHash: string; languages: string[]; structuralScore: number | null;
     scope: { eligibleFiles: number; measuredFiles: number; functions: number; notMeasured: InventoryGap[]; exclusions: RepositoryInventory["excluded"]; discoveryIssues: string[]; };
+    /** Role classification the metrics used. Scores with different versions measure different file populations. */
+    rolesVersion: RepositoryInventory["version"];
+    /** What was measured as authored and what was set aside as generated or vendored, with the evidence for each. */
+    provenance: ProvenanceSummary;
     metrics: MetricReading[]; findings: QualityFinding[]; deletionCandidates: DeletionCandidate[];
     evidence: { id: string; kind: string; state: string; origin: string; durationMs: number; finishedAt: string; operatorPolicy: string; }[];
     evidenceIssues: string[];
@@ -28,24 +34,29 @@ function selectedEvidence(entries: StoredEvidence[], kind: string): StoredEviden
     return matching.find(entry => entry.observations.state !== "stale") ?? matching[0];
 }
 
+function reportScope(analysis: RepositoryAnalysis): CompositeScoreReport["scope"] {
+    const { inventory } = analysis;
+    return { eligibleFiles: inventory.files.filter(file => file.role === "product").length, measuredFiles: analysis.files.filter(file => file.input.role === "product").length,
+        functions: analysis.files.reduce((sum, file) => sum + (file.structure?.functions.length ?? 0), 0), notMeasured: analysis.gaps,
+        exclusions: [...inventory.excluded, ...analysis.exclusions], discoveryIssues: inventory.issues };
+}
+
 export function collectCompositeScoreReport(root: string): CompositeScoreReport {
-    const measured = collectStaticMeasurements(root), { analysis } = measured, { inventory } = analysis;
-    const catalog = buildMetricCatalog(), evidence = loadEvidence(inventory);
+    const measured = collectStaticMeasurements(root), { analysis, census } = measured, { inventory } = analysis;
+    const catalog = buildMetricCatalog(), evidence = loadEvidence(census);
     const coverage = selectedEvidence(evidence.entries, "coverage")?.observations;
     const mutation = selectedEvidence(evidence.entries, "mutation")?.observations;
     const metrics = [...measured.metrics, ...measureCoverageEvidence(analysis, coverage), ...measureMutationEvidence(analysis, mutation)];
-    const blockers = [...inventory.issues, ...measured.config.issues, ...evidence.issues, ...executionEvidenceBlockers(inventory)];
+    const blockers = [...inventory.issues, ...measured.config.issues, ...evidence.issues, ...executionEvidenceBlockers(census)];
     if (analysis.gaps.length) blockers.push(`${analysis.gaps.length} source files could not be measured`);
     if (catalog.registryHash !== REVIEWED_REGISTRY_HASH) blockers.push("Check registry changed; scoring disposition review required");
     const composite = composeScore(metrics, blockers);
     if (analysis.gaps.length || inventory.issues.length) composite.range = { lower: 0, upper: 100 };
     return { schemaVersion: 2, ...composite, profile: COMPOSITE_PROFILE, modelCalls: 0, registryHash: catalog.registryHash,
-        rulesHash: computeRulesFingerprint(root).rules_hash, sourceHash: inventory.sourceHash, inputHash: inventory.inputHash,
+        rulesHash: computeRulesFingerprint(root).rules_hash, sourceHash: census.sourceHash, inputHash: census.inputHash,
         languages: [...new Set(inventory.files.filter(file => file.role === "product").map(file => file.language ?? "unknown"))].sort(),
         structuralScore: composite.groups.find(group => group.id === "structure")?.score ?? null,
-        scope: { eligibleFiles: inventory.files.filter(file => file.role === "product").length, measuredFiles: analysis.files.filter(file => file.input.role === "product").length,
-            functions: analysis.files.reduce((sum, file) => sum + (file.structure?.functions.length ?? 0), 0), notMeasured: analysis.gaps,
-            exclusions: inventory.excluded, discoveryIssues: inventory.issues },
+        scope: reportScope(analysis), rolesVersion: inventory.version, provenance: summarizeProvenance(inventory),
         metrics, findings: measured.findings, deletionCandidates: joinDeletionEvidence(measured, coverage, mutation),
         evidence: evidence.entries.map(entry => ({ id: entry.id, kind: entry.receipt.kind, state: entry.observations.state, origin: entry.receipt.origin,
             durationMs: entry.receipt.durationMs, finishedAt: entry.receipt.finishedAt, operatorPolicy: entry.receipt.runner.operatorPolicy })), evidenceIssues: evidence.issues };

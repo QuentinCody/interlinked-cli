@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { performance } from "node:perf_hooks";
 import { qualityFinding } from "./adapter-values.js";
 import { lineUnionCounts } from "./diagnostic-lines.js";
 import { PYTHON_DIAGNOSTIC_PROFILE } from "./diagnostic-profile.js";
@@ -7,6 +6,8 @@ import { PYTHON_DIAGNOSTIC_SCRIPT } from "./diagnostic-python-script.js";
 import { aggregateDiagnostics, type DiagnosticFile, type DiagnosticFunction, type DiagnosticReport } from "./diagnostic-report.js";
 import { natural, record, textField } from "./evidence-json.js";
 import { collectRepositoryInventory, hashBytes, inventoryHash } from "./inventory.js";
+import { refineInventory } from "./inventory-refine.js";
+import { summarizeInventoryPopulation } from "./role-population.js";
 import type { InventoryFile, InventoryGap, QualityFinding, RepositoryInventory } from "./measurement-types.js";
 import type { JsonObject } from "../json-types.js";
 import { currentProcessSignal } from "../../harness/check-engine/process-cancellation.js";
@@ -17,9 +18,9 @@ interface PythonMeasurement {
     input: InventoryFile; file: DiagnosticFile; functions: DiagnosticFunction[]; findings: QualityFinding[];
     clones: { hash: string; startOffset: number; endOffset: number; lines: number[] }[];
 }
+/** One analyzer process per tree; the synchronous path (simplify) bounds it, the foreground survey does not. */
 const TOTAL_BUDGET_MS = 30_000;
-const BATCH_TIMEOUT_MS = 10_000;
-const BATCH_FILES = 8;
+const SYNC_MAX_BUFFER = 512 * 1024 * 1024;
 
 function objects(value: unknown): JsonObject[] {
     if (!Array.isArray(value)) throw new Error("Invalid Python analyzer rows");
@@ -63,7 +64,7 @@ function parseMeasurement(input: InventoryFile, value: unknown): PythonMeasureme
 function runBatch(batch: InventoryFile[], timeout: number) {
     const result = spawnSync("python3", ["-I", "-S", "-B", "-c", PYTHON_DIAGNOSTIC_SCRIPT], {
         encoding: "utf8", input: JSON.stringify(batch.map(file => ({ path: file.path, content: file.content }))), timeout,
-        maxBuffer: 16 * 1024 * 1024, cwd: "/" });
+        maxBuffer: SYNC_MAX_BUFFER, cwd: "/" });
     if (result.error || result.status !== 0) throw new Error("Isolated Python >=3.10 analyzer unavailable, failed, or exceeded its budget");
     return parseBatchOutput(batch, result.stdout);
 }
@@ -87,21 +88,15 @@ function parseBatchMeasurements(batch: InventoryFile[], rows: JsonObject[]) {
 
 function measurePython(files: InventoryFile[]) {
     const measured: PythonMeasurement[] = [], gaps: InventoryGap[] = [], parsers = new Set<string>();
-    const deadline = performance.now() + TOTAL_BUDGET_MS;
-    for (let i = 0; i < files.length; i += BATCH_FILES) {
-        const batch = files.slice(i, i + BATCH_FILES);
-        try {
-            const remaining = Math.floor(deadline - performance.now());
-            if (remaining <= 0) throw new Error("Python census exhausted its 30-second budget");
-            const result = runBatch(batch, Math.min(BATCH_TIMEOUT_MS, remaining));
-            const { completed, failed } = parseBatchMeasurements(batch, result.rows);
-            parsers.add(result.parser);
-            measured.push(...completed);
-            gaps.push(...failed);
-        } catch (error) {
-            for (const input of files.slice(i)) gaps.push({ path: input.path, role: "product", reason: String(error) });
-            break;
-        }
+    if (!files.length) return { measured, gaps, parsers: [] };
+    try {
+        const result = runBatch(files, TOTAL_BUDGET_MS);
+        const { completed, failed } = parseBatchMeasurements(files, result.rows);
+        parsers.add(result.parser);
+        measured.push(...completed);
+        gaps.push(...failed);
+    } catch (error) {
+        for (const input of files) gaps.push({ path: input.path, role: "product", reason: String(error) });
     }
     return { measured, gaps, parsers: [...parsers].sort() };
 }
@@ -110,25 +105,22 @@ function measurePython(files: InventoryFile[]) {
 async function measurePythonAsync(files: InventoryFile[], signal?: AbortSignal) {
     const measured: PythonMeasurement[] = [], gaps: InventoryGap[] = [], parsers = new Set<string>();
     const checkCancellation = () => { currentProcessSignal()?.throwIfAborted(); signal?.throwIfAborted(); };
-    for (let i = 0; i < files.length; i += BATCH_FILES) {
+    checkCancellation();
+    if (!files.length) return { measured, gaps, parsers: [] };
+    try {
+        const process = await runProcessAsync("python3", ["-I", "-S", "-B", "-c", PYTHON_DIAGNOSTIC_SCRIPT], {
+            cwd: "/", input: JSON.stringify(files.map(file => ({ path: file.path, content: file.content }))),
+            timeout: 0, maxBufferBytes: null, ...(signal ? { signal } : {}),
+        });
         checkCancellation();
-        const batch = files.slice(i, i + BATCH_FILES);
-        try {
-            const process = await runProcessAsync("python3", ["-I", "-S", "-B", "-c", PYTHON_DIAGNOSTIC_SCRIPT], {
-                cwd: "/", input: JSON.stringify(batch.map(file => ({ path: file.path, content: file.content }))),
-                timeout: 0, maxBufferBytes: null, ...(signal ? { signal } : {}),
-            });
-            checkCancellation();
-            if (process.code !== 0 || process.killed || process.timedOut || process.stdoutTruncated || process.stderrTruncated) {
-                throw new Error("Isolated Python analyzer unavailable, interrupted or incomplete");
-            }
-            const result = parseBatchOutput(batch, process.stdout), { completed, failed } = parseBatchMeasurements(batch, result.rows);
-            parsers.add(result.parser); measured.push(...completed); gaps.push(...failed);
-        } catch (error) {
-            checkCancellation();
-            for (const input of files.slice(i)) gaps.push({ path: input.path, role: "product", reason: String(error) });
-            break;
+        if (process.code !== 0 || process.killed || process.timedOut || process.stdoutTruncated || process.stderrTruncated) {
+            throw new Error("Isolated Python analyzer unavailable, interrupted or incomplete");
         }
+        const result = parseBatchOutput(files, process.stdout), { completed, failed } = parseBatchMeasurements(files, result.rows);
+        parsers.add(result.parser); measured.push(...completed); gaps.push(...failed);
+    } catch (error) {
+        checkCancellation();
+        for (const input of files) gaps.push({ path: input.path, role: "product", reason: String(error) });
     }
     return { measured, gaps, parsers: [...parsers].sort() };
 }
@@ -158,7 +150,7 @@ function mergeClones(measured: PythonMeasurement[]): DiagnosticReport["clones"] 
 
 /** Separate language profile; does not change JS/TS scoring or existing Python edit gates. */
 export function collectPythonDiagnosticReport(root: string): DiagnosticReport {
-    const inventory = collectRepositoryInventory(root);
+    const inventory = refineInventory(collectRepositoryInventory(root));
     return measurePythonDiagnosticInventory(inventory);
 }
 
@@ -169,7 +161,7 @@ export function measurePythonDiagnosticInventory(inventory: RepositoryInventory)
 
 export async function collectPythonDiagnosticReportAsync(root: string, options: InventoryOptions = {}): Promise<DiagnosticReport> {
     currentProcessSignal()?.throwIfAborted(); options.signal?.throwIfAborted();
-    const inventory = collectRepositoryInventory(root, { ...options, resourcePolicy: "foreground-survey" });
+    const inventory = refineInventory(collectRepositoryInventory(root, { ...options, resourcePolicy: "foreground-survey" }));
     return measurePythonDiagnosticInventoryAsync(inventory, options);
 }
 
@@ -203,5 +195,6 @@ function buildPythonDiagnosticReport(inventory: RepositoryInventory, inputs: Inv
             "Only exact function clones and opposite-boolean-return patterns are measured; matches are advisory.",
             "Ratios describe measured product files only. Parsing failures, unsupported languages and exhausted budgets remain gaps.",
             "Nested functions/classes do not add branches to enclosing functions. Function signatures count; decorators are module/enclosing code.",
-            "CC > 10 is discontinuous and ratios can be diluted. No target code or tests are executed; no model calls or dependency installation."] };
+            "CC > 10 is discontinuous and ratios can be diluted. No target code or tests are executed; no model calls or dependency installation."],
+        population: summarizeInventoryPopulation(inventory) };
 }

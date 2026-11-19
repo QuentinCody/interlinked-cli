@@ -4,6 +4,7 @@ import { evidenceAxes } from "../lib/metrics/axes.js";
 import { collectCompositeScoreReport } from "../lib/metrics/composite-report.js";
 import { renderCompositeScore, renderCompositeShort } from "./metrics-score-render.js";
 import { compositeScoreActions, structuralScoreActions } from "../lib/metrics/score-actions.js";
+import { judgeWholeTreeMetrics } from "../lib/metrics/score-judgment.js";
 import { renderMetricActions } from "./metrics-actions.js";
 
 export { collectMetricsScoreReport as buildMetricsScoreReport } from "../lib/metrics/score-report.js";
@@ -33,10 +34,12 @@ function renderSelectedComposite(options: MetricsScoreOptions): boolean {
     if (options.profile === "structure-v1") return false;
     const report = collectCompositeScoreReport(options.cwd ?? process.cwd());
     const actions = compositeScoreActions(report);
-    output(getOutputMode(options), { ...report, axes: evidenceAxes(report.groups), actions }, {
-        normal: () => [renderCompositeScore(report), ...renderMetricActions(actions, false)].join("\n"),
+    const judgments = judgeWholeTreeMetrics(report.metrics);
+    const judgmentLines = judgments.map(item => `  [${item.level}] ${item.message}`);
+    output(getOutputMode(options), { ...report, axes: evidenceAxes(report.groups), actions, judgments }, {
+        normal: () => [renderCompositeScore(report), ...(judgmentLines.length ? ["", "Whole-tree judgments:", ...judgmentLines] : []), ...renderMetricActions(actions, false)].join("\n"),
         short: () => renderCompositeShort(report),
-        full: () => [renderCompositeScore(report), ...renderMetricActions(actions, true)].join("\n"),
+        full: () => [renderCompositeScore(report), ...(judgmentLines.length ? ["", "Whole-tree judgments:", ...judgmentLines] : []), ...renderMetricActions(actions, true)].join("\n"),
     });
     return true;
 }

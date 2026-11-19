@@ -19,4 +19,7 @@
 // numeric_zero_default adds heuristic advisory evidence with no scoring dimension.
 // Removing only that row reproduces the prior 37e4c9bf hash; existing scoring
 // classifications, thresholds and enforcement authority remain unchanged.
-export const REVIEWED_REGISTRY_HASH = "9be4c5f74a1008bca8692fc83d9b2058464b78c760b0c15642fdf172a4132210";
+// dead_literal_store warns before an edit and top_level_burden advises afterwards.
+// Both are unscored. Removing their rows reproduces the prior 9be4c5f7 hash.
+// omitted_private_parameter is advisory and unscored. Removing this row restores 872f29e4.
+export const REVIEWED_REGISTRY_HASH = "ae3b65f27d70bd9799829cc452a5d7eba625ad3bf87a6cb3e1a3d6a37a33afb1";

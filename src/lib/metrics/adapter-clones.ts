@@ -8,7 +8,15 @@ import { syntaxSequence } from "./syntax-sequence.js";
 export interface CloneMember { file: AnalyzedFile; line: number; endLine: number; exposure: number; hash: string; startOffset: number; endOffset: number; }
 
 /** Exact written-token sequences, preserving identifiers/literals. Near-clones stay advisory. */
+function pythonFunctionHashes(file: AnalyzedFile): CloneMember[] {
+    return (file.structure?.functions ?? []).flatMap(fn => {
+        const body = file.python?.cloneHashes.get(fn.startOffset);
+        return body && fn.tokens >= 30 ? [{ file, line: fn.line, endLine: fn.endLine, exposure: fn.exposure, ...body }] : [];
+    });
+}
+
 function functionHashes(file: AnalyzedFile): CloneMember[] {
+    if (file.python) return pythonFunctionHashes(file);
     const parsed = parseTsSource(file.input.content, file.input.path);
     if (!parsed) return [];
     const bodies = new Map<number, { tokens: string[]; startOffset: number; endOffset: number }>();

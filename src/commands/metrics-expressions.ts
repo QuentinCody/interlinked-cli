@@ -5,6 +5,7 @@ import { analyzeExpressions, EXPRESSION_COUNTER, expressionLimitsFor, expression
 import type { ExpressionAnalysis, ExpressionFinding, ExpressionLimits } from "../harness/checks/expression-readability.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 import type { InventoryOptions } from "../lib/metrics/inventory-paths.js";
+import { addFileAt, createPopulation, type PopulationSummary } from "../lib/metrics/role-population.js";
 import { discoverFunctionTokenFiles } from "./verify/file-discovery.js";
 
 interface ExpressionFileReport extends ExpressionAnalysis {
@@ -21,6 +22,8 @@ export interface ExpressionReport {
     complete: boolean;
     scope: "discovered-js-ts-files" | "explicit-file";
     disposition: "advisory";
+    /** Source roles v5: files per role, and the generated or vendored files set aside before measuring, with the reason. */
+    population: PopulationSummary;
     files: ExpressionFileReport[];
     limitations: string[];
 }
@@ -45,15 +48,18 @@ export function collectExpressionReport(target = ".", cwd = process.cwd(), optio
     const root = resolve(cwd);
     const path = resolve(root, target);
     const directory = statSync(path).isDirectory();
-    const selected = directory
+    const population = createPopulation();
+    const discovered = directory
         ? discoverFunctionTokenFiles(path).filter(file => /\.[cm]?[jt]sx?$/i.test(file) && !/\.d\.[cm]?ts$/i.test(file))
         : [path];
+    // A directory scan sets generated and vendored files aside (source roles v5); an explicitly named file is always measured.
+    const selected = discovered.filter(file => addFileAt(population, root, relative(root, file)).kept || !directory);
     const files = selected.sort().map(file => measureFile(file, root, options));
     const complete = files.length > 0 && files.every(file => file.status === "measured");
     return {
         version: 1, counter: EXPRESSION_COUNTER, root, target, complete,
         scope: directory ? "discovered-js-ts-files" : "explicit-file",
-        disposition: "advisory", files,
+        disposition: "advisory", population: population.summary(), files,
         limitations: [
             "Directory discovery excludes ignored/build paths; completeness applies only to the listed files, not every repository path or language.",
             "Syntax budgets are review signals. They do not establish behavioral correctness or justify trivial helper extraction.",

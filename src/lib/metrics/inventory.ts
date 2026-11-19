@@ -5,7 +5,11 @@ import { inventoryPaths, type InventoryOptions } from "./inventory-paths.js";
 import { isScoreInput, sourceLanguage, sourceRole } from "./inventory-roles.js";
 import type { InventoryFile, RepositoryInventory } from "./measurement-types.js";
 
-export const SOURCE_ROLE_VERSION = "interlinked-source-roles-v3";
+/**
+ * The shared census: path-only roles. The gates, the coverage index, test planning and evidence identity read it, so evidence-based
+ * reclassification is not applied here; the score report applies it in `inventory-refine.ts` (roles v5).
+ */
+export const SOURCE_ROLE_VERSION = "interlinked-source-roles-v4";
 
 export function hashBytes(content: string | Uint8Array): string {
     return createHash("sha256").update(content).digest("hex");

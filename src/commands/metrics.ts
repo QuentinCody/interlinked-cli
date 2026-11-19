@@ -135,56 +135,51 @@ function fileFunctionMetrics(args: {
 	});
 }
 
-function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsReport {
-	// Resolve the gate caps ONCE per scan from `.interlinked/metric-caps.json`
-	// (else the shipped defaults) — these are the SAME numbers the write/commit
-	// gates enforce, so the report's labels + counts can never drift from them.
-	const crapGate = crapThresholdFor(cwd);
-	const cyclomaticBad = maxCyclomaticFor(cwd);
-	const cov = loadMetricsCoverage(cwd);
-	const sourceInventory = discoverMetricSourceInventory(cwd, includeTests);
-	const sourceFiles = sourceInventory.files;
-	const tokenContext = functionTokenMetricsContext({ cwd, topN, includeTests, sourceFiles: sourceFiles.map(file => join(cwd, file)) });
-	const functionTokenCap = tokenContext.cap;
-	const functionTokenMetrics = tokenContext.report;
-	const tokenCounts = tokenContext.countsByFile;
-	const tokenFiles = tokenContext.filesByPath;
+function readMetricSource(abs: string): { content: string; fileMtime: number } | { reason: string } {
+	let content: string;
+	let fileMtime: number;
+	try {
+		content = readFileSync(abs, "utf-8");
+		fileMtime = statSync(abs).mtimeMs;
+	} catch {
+		return { reason: "Source could not be read or stat'ed" };
+	}
+	if (JS_TS_METRIC_EXTS.has(extname(abs).toLowerCase())) {
+		const parsed = parseTsSource(content, abs);
+		if (!parsed) return { reason: "TypeScript parser unavailable; exact complexity is unavailable" };
+		if (!hasExactSyntax(parsed)) return { reason: "Source requires parser recovery; complexity is unavailable" };
+	}
+	return { content, fileMtime };
+}
 
+function measureFiles(args: {
+	cwd: string;
+	crapGate: number;
+	cov: ReturnType<typeof loadMetricsCoverage>;
+	sourceInventory: ReturnType<typeof discoverMetricSourceInventory>;
+	tokenContext: ReturnType<typeof functionTokenMetricsContext>;
+}) {
+	const { cwd, crapGate, cov, sourceInventory, tokenContext } = args;
 	const fns: FnMetric[] = [];
-	const tokenFns: FnMetric[] = [];
 	const files: FileMetric[] = [];
 	const missingCompanion: string[] = [];
 	let filesNoCoverage = 0;
 
-	for (const rel of sourceFiles) {
+	for (const rel of sourceInventory.files) {
 		const abs = join(cwd, rel);
-		let content: string;
-		let fileMtime: number;
-		try {
-			content = readFileSync(abs, "utf-8");
-			fileMtime = statSync(abs).mtimeMs;
-		} catch {
-			sourceInventory.notMeasured.push({ file: rel, reason: "Source could not be read or stat'ed" });
+		const source = readMetricSource(abs);
+		if ("reason" in source) {
+			sourceInventory.notMeasured.push({ file: rel, reason: source.reason });
 			continue;
 		}
-		// Explicit reports require an exact JS/TS parse, including test files.
-		// The compatibility helper retains its separate approximate fallback.
-		if (JS_TS_METRIC_EXTS.has(extname(abs).toLowerCase())) {
-			const parsed = parseTsSource(content, abs);
-			if (!parsed || !hasExactSyntax(parsed)) {
-				sourceInventory.notMeasured.push({ file: rel, reason: parsed
-					? "Source requires parser recovery; complexity is unavailable"
-					: "TypeScript parser unavailable; exact complexity is unavailable" });
-				continue;
-			}
-		}
+		const { content, fileMtime } = source;
 		const comps = cyclomaticForMetrics(content, abs);
 		const perFile = cov.perFile(rel, comps, fileMtime);
 		if (cov.available && !perFile) filesNoCoverage++;
 
 		const fileFns = fileFunctionMetrics({
 			comps,
-			tokenCounts: tokenCounts.get(rel) ?? new Map(),
+			tokenCounts: tokenContext.countsByFile.get(rel) ?? new Map(),
 			perFile,
 			rel,
 			fileMtime,
@@ -208,12 +203,16 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 			maxCrap: perFile ? fileFns.reduce((m, f) => Math.max(m, f.crap ?? 0), 0) : null,
 			companion,
 			overGate: fileFns.filter((f) => (f.crap ?? 0) >= crapGate).length,
-			maxFunctionTokens: tokenFiles.get(rel)?.maxFunctionTokens ?? null,
+			maxFunctionTokens: tokenContext.filesByPath.get(rel)?.maxFunctionTokens ?? null,
 		});
 	}
 
+	return { fns, files, missingCompanion, filesNoCoverage };
+}
+
+function rankedTokenHotspots(rows: ReturnType<typeof functionTokenMetricsContext>["report"]["functions"], fns: FnMetric[], topN: number): FnMetric[] {
 	const complexityByLocation = uniqueMetricComplexities(fns);
-	tokenFns.push(...functionTokenMetrics.functions.map((row) => ({
+	const tokens = rows.map((row) => ({
 		file: row.file,
 		name: row.qualifiedName,
 		line: row.line,
@@ -221,8 +220,21 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 		coveragePct: null,
 		crap: null,
 		canonicalTokens: row.canonicalTokens,
-	})));
+	}));
+	return tokens.sort((a, b) => b.canonicalTokens - a.canonicalTokens
+		|| compareMetricText(a.file, b.file)
+		|| a.line - b.line
+		|| compareMetricText(a.name, b.name)).slice(0, topN);
+}
 
+function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsReport {
+	const crapGate = crapThresholdFor(cwd);
+	const cyclomaticBad = maxCyclomaticFor(cwd);
+	const cov = loadMetricsCoverage(cwd);
+	const sourceInventory = discoverMetricSourceInventory(cwd, includeTests);
+	const tokenContext = functionTokenMetricsContext({ cwd, topN, includeTests, sourceFiles: sourceInventory.files.map(file => join(cwd, file)) });
+	const functionTokenMetrics = tokenContext.report;
+	const { fns, files, missingCompanion, filesNoCoverage } = measureFiles({ cwd, crapGate, cov, sourceInventory, tokenContext });
 	const cycSorted = fns.map((f) => f.cyclomatic).sort((a, b) => a - b);
 	const crapVals = fns
 		.map((f) => f.crap)
@@ -232,13 +244,6 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 		.filter((f) => f.crap !== null)
 		.sort((a, b) => (b.crap ?? 0) - (a.crap ?? 0))
 		.slice(0, topN);
-	const tokenHotspots = [...tokenFns]
-		.sort((a, b) => (b.canonicalTokens ?? 0) - (a.canonicalTokens ?? 0)
-			|| compareMetricText(a.file, b.file)
-			|| a.line - b.line
-			|| compareMetricText(a.name, b.name))
-		.slice(0, topN);
-
 	return {
 		scope: {
 			files: files.length,
@@ -252,7 +257,7 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 			cyclomatic: cyclomaticBad,
 			cyclomaticReview: CYCLOMATIC_REVIEW,
 			minCoveragePct: minCoverageFor(cwd),
-			functionTokens: functionTokenCap,
+			functionTokens: tokenContext.cap,
 		},
 		gates: {
 			functionsOverCrap: crapVals.filter((x) => x >= crapGate).length,
@@ -270,7 +275,7 @@ function buildReport(cwd: string, topN: number, includeTests: boolean): MetricsR
 			functionTokens: functionTokenMetrics.distributions.functions,
 		},
 		hotspots,
-		tokenHotspots,
+		tokenHotspots: rankedTokenHotspots(functionTokenMetrics.functions, fns, topN),
 		functionTokenMetrics,
 		missingCompanion,
 		files,
@@ -291,11 +296,21 @@ function bucketize(sorted: number[], bounds: number[]): Record<string, number> {
 	return out;
 }
 
+function hotspotLimit(raw: string | undefined): number {
+	if (raw === undefined) return 25;
+	const value = Number(raw);
+	if (!/^[0-9]+$/.test(raw) || !Number.isSafeInteger(value) || value < 1 || value > 200) {
+		throw new Error("--top must be an integer from 1 to 200");
+	}
+	return value;
+}
+
 export async function metricsCommand(opts: MetricsOptions): Promise<void> {
 	const mode = getOutputMode(opts);
 	const cwd = resolve(opts.cwd || process.cwd());
-	const topN = Math.max(1, Math.min(200, Number.parseInt(opts.top ?? "25", 10) || 25));
+	const topN = hotspotLimit(opts.top);
 	const report = buildReport(cwd, topN, opts.includeTests ?? false);
+	if (report.sourceInventory) report.population = report.sourceInventory.population;
 	report.actions = metricActions({ functions: report.functions ?? [], files: report.files, caps: report.caps, notMeasured: report.sourceInventory?.notMeasured ?? [] });
 
 	output(mode, report, {

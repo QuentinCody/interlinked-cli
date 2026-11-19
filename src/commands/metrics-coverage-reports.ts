@@ -29,6 +29,7 @@ import {
 import { type CoverageSummary, loadCoverageSummary } from "../harness/coverage-ratchet.js";
 import { reportMtimeMs } from "../lib/report-mtime.js";
 import { sourceLanguage, sourceRole } from "../lib/metrics/inventory-roles.js";
+import { addFileAt, classifyByPathAt, createPopulation, type Population, type PopulationSummary } from "../lib/metrics/role-population.js";
 import { discoverFiles } from "./verify/file-discovery.js";
 
 /** Source extensions the AST/regex complexity pass + coverage adapters cover. */
@@ -247,18 +248,33 @@ export interface MetricSourceInventory {
 	excluded: { file: string; reason: string }[];
 	notMeasured: { file: string; reason: string }[];
 	limitations: string[];
+	/** The v5 role census of every discovered file; the same classification `metrics score` applies. */
+	population: PopulationSummary;
 }
 
-/** Reuses verify discovery and shared source roles, exposing each named coverage gap. */
+/** An analyzable file stays measured unless the v5 roles set it aside (generated or vendored) or move it to test without `--include-tests`. */
+function admitAnalyzable(inventory: MetricSourceInventory, population: Population, cwd: string, file: string, includeTests: boolean): void {
+	const { kept, decision } = addFileAt(population, cwd, file);
+	if (!kept) {
+		inventory.excluded.push({ file, reason: `Set aside as ${decision.role} (${decision.evidence?.kind ?? "role"} evidence: ${decision.evidence?.detail ?? decision.role})` });
+	} else if (decision.role === "test" && !includeTests) {
+		inventory.excluded.push({ file, reason: "Excluded test source role" });
+	} else inventory.files.push(file);
+}
+
+/** Reuses verify discovery and the v5 source roles, exposing each named coverage gap and each file set aside. */
 export function discoverMetricSourceInventory(cwd: string, includeTests = false): MetricSourceInventory {
-	const inventory: MetricSourceInventory = { files: [], excluded: [], notMeasured: [], limitations: ["Discovery follows verify's Git/ignore and explicit source exclusions, without an implicit file-count or file-size cutoff. Unavailable inputs remain unmeasured evidence."] };
+	const population = createPopulation();
+	const inventory: MetricSourceInventory = { files: [], excluded: [], notMeasured: [], population: population.summary(), limitations: ["Discovery follows verify's Git/ignore and explicit source exclusions, without an implicit file-count or file-size cutoff. Unavailable inputs remain unmeasured evidence."] };
 	const discovered = discoverFiles(cwd, { onUnavailable: input => inventory.notMeasured.push(input) });
 	const files = [...new Set(discovered.map(file => relative(cwd, file).replace(/\\/g, "/")))].sort();
 	for (const file of files) {
-		if (isAnalyzableSource(file, includeTests)) { inventory.files.push(file); continue; }
+		if (isAnalyzableSource(file, includeTests)) { admitAnalyzable(inventory, population, cwd, file, includeTests); continue; }
+		population.add(file, classifyByPathAt(cwd, file), null);
 		const role = sourceRole(file), language = sourceLanguage(file);
 		if (language !== null && (role === "product" || (role === "test" && includeTests))) inventory.notMeasured.push({ file, reason: `No complexity adapter for ${language}` });
 		else inventory.excluded.push({ file, reason: `Excluded ${role} source role` });
 	}
+	inventory.population = population.summary();
 	return inventory;
 }

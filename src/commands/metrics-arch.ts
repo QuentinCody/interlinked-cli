@@ -15,6 +15,7 @@
 import { join } from "node:path";
 import { ProjectGraph } from "../harness/project-graph.js";
 import { getOutputMode, output } from "../lib/output.js";
+import { pythonArchGraph } from "./metrics-python-graph.js";
 
 export interface Edge {
 	from: string;
@@ -39,7 +40,7 @@ export function dirAtDepth(path: string, depth: number): string {
 }
 
 const TEST_PATH_RE = /(\.(test|spec)\.[cm]?[jt]sx?$)|((^|\/)__tests__\/)|(\.d\.ts$)/i;
-const CODE_EXT_RE = /\.[cm]?[jt]sx?$/i;
+const CODE_EXT_RE = /\.(?:[cm]?[jt]sx?|svelte|vue|astro)$/i;
 
 /** Production code only: source extension, not a test/spec/__tests__/.d.ts file. */
 export function isProductionSource(path: string): boolean {
@@ -157,7 +158,7 @@ function extractGraph(cwd: string, includeTests: boolean): { edges: Edge[]; file
 			!rel.startsWith("..") && (includeTests || isProductionSource(rel));
 		const edges: Edge[] = [];
 		const files: string[] = [];
-		for (const abs of graph.allFiles()) {
+		for (const abs of graph.allNodes()) {
 			const from = graph.toRelative(abs);
 			if (!keep(from)) continue;
 			files.push(from);
@@ -195,22 +196,27 @@ function renderArch(rows: DirMetrics[], prop: PropagationCost, depth: number): s
 /** Public API — wired by `interlinked metrics arch` in registrars/quality.ts. */
 export async function metricsArchCommand(opts: MetricsArchOpts): Promise<void> {
 	const cwd = opts.cwd || process.cwd();
-	const depth = Number(opts.depth ?? "") || 2;
+	const requestedDepth = Number(opts.depth);
+	const depth = Number.isSafeInteger(requestedDepth) && requestedDepth > 0 ? requestedDepth : 2;
 	const mode = getOutputMode(opts);
-	const graph = extractGraph(cwd, opts.includeTests === true);
-	if (graph === null) {
+	const scripts = extractGraph(cwd, opts.includeTests === true);
+	const python = pythonArchGraph(cwd, opts.includeTests === true);
+	if (scripts === null && python === null) {
 		process.stderr.write("project graph unavailable (initialize failed)\n");
 		process.exitCode = 1;
 		return;
 	}
+	const graph = { edges: [...(scripts?.edges ?? []), ...(python?.edges ?? [])], files: [...(scripts?.files ?? []), ...(python?.files ?? [])] };
 	const rows = computeDirMetrics(graph.edges, depth, graph.files);
 	const prop = computePropagationCost(graph.edges, graph.files);
 	// cost preserves the published N² definition; normalizedReach excludes self in both terms.
 	const normalizedReach = prop.files > 1 ? prop.cost * prop.files / (prop.files - 1) : 0;
+	const languages = python === null ? {} : { languages: { python: { modules: python.files.length, edges: python.edges.length, unresolvedImports: python.unresolved } } };
 	output(mode, rows, {
-		json: () => ({ depth, graphVersion: 2, propagation: prop, normalizedReach, dirs: rows }),
+		json: () => ({ depth, graphVersion: 2, propagation: prop, normalizedReach, ...languages, dirs: rows }),
 		short: () =>
-			`${prop.files} files, propagation ${(prop.cost * 100).toFixed(1)}%, ${rows.length} dirs`,
-		normal: () => renderArch(rows, prop, depth),
+			`${prop.files} files, propagation ${(prop.cost * 100).toFixed(1)}%, ${rows.length} dirs`
+			+ (python === null ? "" : `, ${python.unresolved} unresolved Python imports`),
+		normal: () => renderArch(rows, prop, depth) + (python === null ? "" : `\nPython: ${python.files.length} modules, ${python.edges.length} import edges, ${python.unresolved} unresolved internal imports (not edges).`),
 	});
 }

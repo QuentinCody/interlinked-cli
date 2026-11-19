@@ -153,7 +153,7 @@ export function registerMetricsCommands(program: Command): void {
             "Scan the whole codebase: function tokens, companion-test presence, coverage, complexity, and CRAP",
         )
         .option("--cwd <path>", "Project root (default: current directory)")
-        .option("--top <n>", "Number of function/file token and CRAP hotspots to show (default: 25)")
+        .option("--top <n>", "Number of function/file token and CRAP hotspots to show, 1 to 200 (default: 25)")
         .option("--include-tests", "Include test/spec functions as advisory token measurements")
         .option("--json", "Machine-readable output (full per-file + per-function)")
         .option("--short", "One-line summary")

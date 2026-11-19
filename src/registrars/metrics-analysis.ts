@@ -44,7 +44,7 @@ function evidenceCommands(metrics: Command): void {
 
 function diagnosticCommands(metrics: Command): void {
     const diagnostics = common(metrics.command("diagnostics").description("Explained verbosity and erosion census; advisory evidence, no quality verdict"))
-        .option("--profile <name>", "js-ts (default) or python; separate counting contracts")
+        .option("--profile <name>", "auto (default: by product-file languages: js-ts, python, or one report per language for a mixed tree), js-ts, or python; separate counting contracts")
         .action(async (opts: OptionValues, command: Command) => {
             const { metricsDiagnosticsCommand } = await import("../commands/metrics-diagnostics.js");
             await metricsDiagnosticsCommand(options(opts, command));

@@ -43,7 +43,7 @@ export interface JitRenderers {
 }
 
 function rulerLine(r: JitRank): string {
-	return r.percentile === null ? "unranked (no history)" : `p${r.percentile} of ${r.population} commits`;
+	return r.percentile === null ? "unranked (no comparison commits)" : `p${r.percentile} of ${r.population} commits`;
 }
 
 export function renderJitRank(r: JitRank): JitRenderers {
@@ -72,7 +72,8 @@ export function renderJitRank(r: JitRank): JitRenderers {
 export function metricsJitCommand(opts: MetricsJitOpts): void {
 	const cwd = opts.cwd || process.cwd();
 	const mode = getOutputMode(opts);
-	const calibrate = Number(opts.calibrate ?? "") || DEFAULT_CALIBRATION_COMMITS;
+	const population = Number(opts.calibrate?.trim() || Number.NaN);
+	const calibrate = Number.isSafeInteger(population) && population >= 0 ? population : DEFAULT_CALIBRATION_COMMITS;
 	const rank = opts.staged
 		? rankStagedCommit(cwd, opts.message ?? "", { calibrate })
 		: rankRefCommit(cwd, opts.ref ?? "HEAD", { calibrate });

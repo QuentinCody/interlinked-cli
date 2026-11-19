@@ -374,6 +374,13 @@ describe("metricsCommand — file selection (isAnalyzableSource)", () => {
 });
 
 describe("metricsCommand — canonical function-token metrics", () => {
+	it("can render a short report for 150,001 measured functions", async () => {
+		const rows = Array.from({ length: 150_001 }, (_, i) => ({ name: "f", line: i + 1, tokens: 501 }));
+		m.buildFunctionTokenMetricsReport.mockReturnValue(tokenReport(rows));
+		await metricsCommand({ cwd: CWD, short: true });
+		expect(logged).toContain("150001");
+	});
+
 	it("reports exact stable buckets and hotspots independently of complexity inventory", async () => {
 		m.discoverFiles.mockReturnValue([abs("src/a.ts")]);
 		m.computeCyclomaticAst.mockReturnValue([]);
@@ -753,7 +760,7 @@ describe("metricsCommand — missing-companion truncation", () => {
 	});
 });
 
-describe("metricsCommand — topN clamping", () => {
+describe("metricsCommand — hotspot limit", () => {
 	function manyHot(count: number): void {
 		m.discoverFiles.mockReturnValue([abs("src/a.ts")]);
 		m.loadCoverageFinal.mockReturnValue(new Map([["src/a.ts", perFile("src/a.ts")]]));
@@ -777,28 +784,19 @@ describe("metricsCommand — topN clamping", () => {
 	});
 
 	it("defaults to 25 when --top is omitted", async () => {
-		manyHot(10);
+		manyHot(30);
 		await metricsCommand({ cwd: CWD, json: true });
-		expect(lastJson().hotspots).toHaveLength(10); // all 10, under the 25 default
+		expect(lastJson().hotspots).toHaveLength(25);
 	});
 
-	it("falls back to 25 when --top is non-numeric", async () => {
-		manyHot(10);
-		await metricsCommand({ cwd: CWD, json: true, top: "abc" });
-		expect(lastJson().hotspots).toHaveLength(10);
+	it.each(["-5", "0", "", "abc", "3x", "2.5", "1e2", "201", "999"])("rejects --top %j before scanning", async (top) => {
+		await expect(metricsCommand({ cwd: CWD, json: true, top })).rejects.toThrow("--top");
+		expect(m.discoverFiles).not.toHaveBeenCalled();
 	});
 
-	it("clamps a negative --top up to 1", async () => {
-		// parseInt("-5") is truthy → bypasses the `|| 25` default and exercises
-		// the Math.max(1, …) lower clamp.
-		manyHot(10);
-		await metricsCommand({ cwd: CWD, json: true, top: "-5" });
-		expect(lastJson().hotspots).toHaveLength(1);
-	});
-
-	it("clamps --top above 200 down to 200", async () => {
+	it("accepts the inclusive upper limit of 200", async () => {
 		manyHot(250);
-		await metricsCommand({ cwd: CWD, json: true, top: "999" });
+		await metricsCommand({ cwd: CWD, json: true, top: "200" });
 		expect(lastJson().hotspots).toHaveLength(200);
 	});
 });

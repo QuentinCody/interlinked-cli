@@ -17,6 +17,8 @@ import { basename, dirname, join } from "node:path";
 import { ProjectGraph } from "../harness/project-graph.js";
 import { getOutputMode, output } from "../lib/output.js";
 import { nonNull } from "../lib/non-null.js";
+import { pythonLinkLookup } from "./metrics-python-graph.js";
+import { type SetAsideReport, setAsideReport, splitPairs, verdictsFor, withoutSetAside } from "./metrics-coupling-sets.js";
 
 export interface CommitFiles {
 	sha: string;
@@ -45,7 +47,8 @@ export interface CouplingPair {
 	percentile: number;
 }
 
-export type CouplingRelation = "companion" | "linked" | "hidden" | "unknown";
+/** `data` marks a pair of data files (locale JSON with locale JSON), which no import edge can link. */
+export type CouplingRelation = "companion" | "linked" | "hidden" | "unknown" | "data";
 
 export interface AnnotatedCouplingPair extends CouplingPair {
 	relation: CouplingRelation;
@@ -129,23 +132,28 @@ export function computeCoupling(commits: CommitFiles[], opts: CouplingOptions): 
 }
 
 const TEST_SUFFIX_RE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
-const CODE_EXT_RE = /\.[cm]?[jt]sx?$/i;
+const PY_TEST_RE = /(^|\/)test_[^/]+\.py$|_test\.py$/;
+const CODE_EXT_RE = /\.([cm]?[jt]sx?|py)$/i;
 
-function stemOf(path: string): string {
-	return basename(path).replace(TEST_SUFFIX_RE, "").replace(CODE_EXT_RE, "");
+function isTestFile(path: string): boolean {
+	return TEST_SUFFIX_RE.test(path) || PY_TEST_RE.test(path);
 }
 
-/** Same-stem test↔SUT siblings (same dir, or the test under a sibling __tests__/). */
+function stemOf(path: string): string {
+	return basename(path).replace(TEST_SUFFIX_RE, "").replace(CODE_EXT_RE, "").replace(/^test_/, "").replace(/_test$/, "");
+}
+
+/** Same-stem test↔SUT siblings (same dir, or the test under a sibling __tests__/ or tests/). */
 export function isCompanionPair(a: string, b: string): boolean {
-	const aIsTest = TEST_SUFFIX_RE.test(a);
-	const bIsTest = TEST_SUFFIX_RE.test(b);
+	const aIsTest = isTestFile(a);
+	const bIsTest = isTestFile(b);
 	if (aIsTest === bIsTest) return false;
 	const test = aIsTest ? a : b;
 	const sut = aIsTest ? b : a;
 	if (stemOf(test) !== stemOf(sut)) return false;
 	const testDir = dirname(test);
 	const sutDir = dirname(sut);
-	return testDir === sutDir || testDir === `${sutDir}/__tests__`;
+	return testDir === sutDir || testDir === `${sutDir}/__tests__` || (test.endsWith(".py") && testDir === `${sutDir}/tests`);
 }
 
 /**
@@ -153,10 +161,10 @@ export function isCompanionPair(a: string, b: string): boolean {
  * available — the pair is then "unknown", never silently "hidden" (a false
  * "hidden" is this command's worst failure mode).
  */
-export function annotateRelations(
-	pairs: CouplingPair[],
+export function annotateRelations<T extends CouplingPair>(
+	pairs: T[],
 	isLinked: (a: string, b: string) => boolean | null,
-): AnnotatedCouplingPair[] {
+): Array<T & { relation: CouplingRelation }> {
 	return pairs.map((p) => {
 		if (isCompanionPair(p.a, p.b)) return { ...p, relation: "companion" as const };
 		const linked = isLinked(p.a, p.b);
@@ -198,7 +206,7 @@ function importLookupFor(cwd: string): (a: string, b: string) => boolean | null 
 		return (a: string, b: string): boolean | null => {
 			const absA = join(cwd, a);
 			const absB = join(cwd, b);
-			if (!graph.hasFile(absA) || !graph.hasFile(absB)) return null;
+			if (!graph.hasNode(absA) || !graph.hasNode(absB)) return null;
 			return (
 				graph.getDependencies(absA).some((e) => e.toFile === absB) ||
 				graph.getDependencies(absB).some((e) => e.toFile === absA)
@@ -209,24 +217,48 @@ function importLookupFor(cwd: string): (a: string, b: string) => boolean | null 
 	}
 }
 
-function renderTable(pairs: AnnotatedCouplingPair[], since: string, scanned: number): string {
-	const lines: string[] = [];
-	lines.push(`Change coupling — ${scanned} commits since ${since}`);
-	lines.push("");
-	lines.push("  str%  pct  n   revs      relation   pair");
-	for (const p of pairs) {
+/** One lookup per language: a pair of Python files goes to the Python graph; every other pair keeps the script graph. */
+export function languageLookup(
+	scripts: (a: string, b: string) => boolean | null,
+	python: (a: string, b: string) => boolean | null,
+): (a: string, b: string) => boolean | null {
+	return (a, b) => (a.endsWith(".py") && b.endsWith(".py") ? python(a, b) : scripts(a, b));
+}
+
+function pairRows(pairs: AnnotatedCouplingPair[]): string[] {
+	return pairs.map((p) => {
 		const str = String(p.strength).padStart(4);
 		const pct = `p${p.percentile}`.padStart(4);
 		const n = String(p.support).padStart(3);
 		const revs = `${p.revA}/${p.revB}`.padEnd(9);
 		const rel = p.relation.padEnd(10);
-		lines.push(`  ${str} ${pct}  ${n} ${revs} ${rel} ${p.a} ↔ ${p.b}`);
+		return `  ${str} ${pct}  ${n} ${revs} ${rel} ${p.a} ↔ ${p.b}`;
+	});
+}
+
+function renderTable(
+	pairs: AnnotatedCouplingPair[],
+	since: string,
+	scanned: number,
+	dataPairs: AnnotatedCouplingPair[],
+	setAside: SetAsideReport,
+): string {
+	const lines: string[] = [];
+	lines.push(`Change coupling — ${scanned} commits since ${since}`);
+	if (setAside.files > 0) {
+		lines.push(`Set aside ${setAside.files} files (${setAside.pairs} pairs): ${setAside.by_reason.map((row) => `${row.reason} ${row.files}`).join(", ")}`);
 	}
+	lines.push("");
+	lines.push("  str%  pct  n   revs      relation   pair");
+	lines.push(...pairRows(pairs));
 	const hidden = pairs.filter((p) => p.relation === "hidden").length;
 	lines.push("");
 	lines.push(
 		`${pairs.length} pairs (${hidden} hidden — co-change with no import edge either way).`,
 	);
+	if (dataPairs.length > 0) {
+		lines.push("", "Data pairs (data files with data files, such as locale JSON; no import edge exists):", ...pairRows(dataPairs));
+	}
 	return lines.join("\n");
 }
 
@@ -253,18 +285,26 @@ export async function metricsCouplingCommand(opts: MetricsCouplingOpts): Promise
 		...c,
 		files: c.files.filter((f) => !EXCLUDE_RE.test(f)),
 	}));
-	const pairs = computeCoupling(commits, {
+	const options = {
 		minSupport: numericOption(opts.minSupport, 4),
 		maxCommitFiles: numericOption(opts.maxCommitFiles, 30),
 		minStrength: numericOption(opts.minStrength, 30),
-	});
+	};
+	// Lockfiles, generated and minified files fill pair counts with text nobody wrote: set them aside, and say how many pairs that was.
+	const verdicts = verdictsFor(cwd, commits.filter((c) => c.files.length <= options.maxCommitFiles));
+	const unfiltered = computeCoupling(commits, options);
+	const split = splitPairs(computeCoupling(withoutSetAside(commits, verdicts), options), verdicts);
 	const limit = numericOption(opts.limit, 25);
-	const annotated = annotateRelations(pairs.slice(0, limit), importLookupFor(cwd));
+	const annotated = annotateRelations(split.code.slice(0, limit), languageLookup(importLookupFor(cwd), pythonLinkLookup(cwd)));
+	const dataPairs = split.data.slice(0, limit).map((p) => ({ ...p, relation: "data" as const }));
+	const setAside = setAsideReport(verdicts, unfiltered);
 
 	output(mode, annotated, {
-		json: () => ({ since, commits_scanned: commits.length, pairs: annotated }),
+		json: () => ({ since, commits_scanned: commits.length, pairs: annotated, data_pairs: dataPairs, set_aside: setAside }),
 		short: () =>
-			`${annotated.length} coupled pairs, ${annotated.filter((p) => p.relation === "hidden").length} hidden`,
-		normal: () => renderTable(annotated, since, commits.length),
+			`${annotated.length} coupled pairs, ${annotated.filter((p) => p.relation === "hidden").length} hidden`
+			+ (dataPairs.length > 0 ? `; ${dataPairs.length} data pairs` : "")
+			+ (setAside.files > 0 ? `; ${setAside.files} files set aside` : ""),
+		normal: () => renderTable(annotated, since, commits.length, dataPairs, setAside),
 	});
 }

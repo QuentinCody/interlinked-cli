@@ -1,4 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,6 +19,21 @@ function fixture(): string {
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("repository measurement scope", () => {
+	it("keeps an unreadable tracked input as a named foreground gap", () => {
+		const root = fixture(); execFileSync("git", ["init", "--quiet"], { cwd: root });
+		execFileSync("git", ["add", "src/main.ts"], { cwd: root }); rmSync(join(root, "src/main.ts"));
+		const inventory = collectRepositoryInventory(root, { resourcePolicy: "foreground-survey" });
+		expect(inventory.files).toEqual([]); expect(inventory.gaps).toContainEqual(expect.objectContaining({ path: "src/main.ts", reason: expect.stringMatching(/ENOENT/) }));
+	});
+	it("measures the complete foreground body beyond two MiB including meaningful end-of-file structure", () => {
+		const root = fixture(), body = `// ${"x".repeat(2 * 1024 * 1024)}\nexport function atEnd(enabled: boolean) { return enabled ? 1 : 0; }\n`;
+		writeFileSync(join(root, "src/large.ts"), body);
+		const full = collectRepositoryInventory(root, { resourcePolicy: "foreground-survey" });
+		expect(full.files.find(file => file.path === "src/large.ts")?.content).toBe(body);
+		expect(full.gaps).toEqual([]);
+		expect(analyzeRepository(full).files.find(file => file.input.path === "src/large.ts")?.structure).toMatchObject({ state: "measured", functions: [{ name: "atEnd", cyclomatic: 2 }] });
+		expect(collectRepositoryInventory(root).gaps).toContainEqual(expect.objectContaining({ path: "src/large.ts", reason: expect.stringContaining("2 MiB") }));
+	});
     it("separates lock-named implementation changes from dependency lockfile changes", () => {
         const root = fixture();
         writeFileSync(join(root, "src/clock.ts"), "export function clock() { return 1; }\n");

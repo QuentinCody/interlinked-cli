@@ -67,7 +67,7 @@ describe("metrics diagnostics output", () => {
     it("shows partial scope in compact output rather than a clean quality verdict", async () => {
         writeFileSync(join(root, "worker.py"), "def worker(): return 1\n");
         const log = vi.spyOn(console, "log").mockImplementation(() => {});
-        await metricsDiagnosticsCommand({ cwd: root, short: true });
+        await metricsDiagnosticsCommand({ cwd: root, short: true, profile: "js-ts" });
         expect(log).toHaveBeenCalledWith(expect.stringContaining("partial scope 1/2 files; no quality verdict"));
         expect(log).toHaveBeenCalledWith(expect.stringContaining("(0/1 SLOC)"));
     });
@@ -75,11 +75,34 @@ describe("metrics diagnostics output", () => {
     it("makes unsupported source and interpretation limits visible in normal output", async () => {
         writeFileSync(join(root, "worker.py"), "def worker(): return 1\n");
         const log = vi.spyOn(console, "log").mockImplementation(() => {});
-        await metricsDiagnosticsCommand({ cwd: root });
+        await metricsDiagnosticsCommand({ cwd: root, profile: "js-ts" });
         const rendered = String(log.mock.calls[0]?.[0]);
         expect(rendered).toContain("Not measured: worker.py:");
         expect(rendered).toContain("not benchmark-compatible");
         expect(rendered).toContain("Redundant clone lines");
+    });
+
+    it("selects the language profile from the tree when no profile is named", async () => {
+        const body = "def worker(items):\n    total = 0\n    for item in items:\n        if item:\n            total += item\n    return total\n";
+        rmSync(join(root, "index.ts"));
+        writeFileSync(join(root, "worker.py"), body);
+        const log = vi.spyOn(console, "log").mockImplementation(() => {});
+        await metricsDiagnosticsCommand({ cwd: root, json: true });
+        expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({ profile: { id: "interlinked-iterative-python-v1" }, scope: { measuredFiles: 1 } });
+    });
+
+    it("reports a mixed tree as one report per language and refuses to compare it as one snapshot", async () => {
+        writeFileSync(join(root, "worker.py"), "def worker(): return 1\n");
+        const log = vi.spyOn(console, "log").mockImplementation(() => {});
+        await metricsDiagnosticsCommand({ cwd: root, json: true });
+        const mixed = JSON.parse(String(log.mock.calls[0]?.[0]));
+        expect(mixed.profiles.map((profile: { profile: { id: string } }) => profile.profile.id)).toEqual(
+            ["interlinked-iterative-js-ts-v1", "interlinked-iterative-python-v1"]);
+        writeFileSync(join(root, "mixed.json"), JSON.stringify(mixed));
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        metricsDiagnosticsCompareCommand(join(root, "mixed.json"), join(root, "mixed.json"), { json: true });
+        expect(String(error.mock.calls[0]?.[0])).toContain("several language reports");
+        expect(process.exitCode).toBe(1);
     });
 
     it("reports an inaccessible root as an error with failure exit status", async () => {
