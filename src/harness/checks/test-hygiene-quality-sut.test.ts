@@ -11,6 +11,13 @@ const TEST = "src/lib/foo.test.ts";
 const SRC = "src/lib/foo.ts";
 
 describe("checkTestMissingSutImport", () => {
+	it.each(["mts", "cts"])("checks the companion import and mock for a .%s suite", ext => {
+		const file = `src/foo.test.${ext}`;
+		expect(checkTestMissingSutImport('it("returns a result", () => expect(1).toBe(1));', file)).toHaveLength(1);
+		expect(checkTestMissingSutImport(`import { foo } from "./foo.${ext}";`, file)).toEqual([]);
+		expect(checkMockingTheSutSelf(`vi.mock("./foo.${ext}");`, file)).toHaveLength(1);
+		expect(checkMockingTheSutSelf(`vi.mock("../other/foo.${ext}");`, file)).toEqual([]);
+	});
 	it("flags a test file that imports no SUT and no other project source", () => {
 		const code = `import { describe, it, expect } from "vitest";\nit("does a thing", () => { expect(1).toBe(1); });\n`;
 		const matches = checkTestMissingSutImport(code, TEST);

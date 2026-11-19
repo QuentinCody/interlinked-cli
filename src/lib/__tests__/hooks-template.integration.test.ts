@@ -155,7 +155,8 @@ describe("buildHookScript", () => {
 		// the inline hook fallback used to fire on them anyway. The generated
 		// hook must short-circuit before scanning test files.
 		const out = buildHookScript("v");
-		expect(out).toContain("/\\.(?:test|spec)\\.(?:tsx?|jsx?|mjs|cjs)$/");
+		expect(out).toContain("if (!/\\.(?:[tj]sx?|[cm][tj]s)$/.test(filePath)) return null;");
+		expect(out).toContain("if (/\\.(?:test|spec)\\.(?:[tj]sx?|[cm][tj]s)$/.test(filePath))");
 	});
 
 	it("separates advisory PostToolUse warnings from blocking ones in the generated hook", () => {

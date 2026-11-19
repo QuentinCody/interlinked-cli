@@ -197,8 +197,7 @@ produce `cannot-judge`. A candidate means neither mapping found a test.
 
 `deadcode` recognizes repository-relative JS/TS scripts invoked directly by
 `node` or `tsx` in root README, docs and skills command examples, and in
-GitHub Actions `run` steps. Wrangler JSON/JSONC `main` and local oxlint JSON `jsPlugins` paths
-resolve from the configuration directory. Directory overrides, compound shell commands and
+GitHub Actions `run` steps. Directory overrides, compound shell commands and
 dynamic paths can leave a reachable file in the candidate list. Review the
 entry point before removing it.
 
@@ -250,6 +249,10 @@ parenthesized boolean ternaries. Conditional types and optional type members are
 `public_api_leaks_internal_type` reports a type named in an exported signature
 that consumers cannot import by name. A local export under an alias makes it
 available. TypeScript can emit declarations that refer to module-private types.
+
+Test checks recognize `.test.mts`, `.spec.mts`, `.test.cts` and `.spec.cts`
+alongside other JavaScript and TypeScript test filenames. Companion-import and
+self-mock checks resolve the module basename across these extensions.
 
 **Type assertions.** `unjustified_cast` uses the TypeScript AST when available, including
 angle-bracket assertions, literal targets, and anonymous object targets. `as const` is excluded.

@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import { isJsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 
+export const JS_TS_TEST_SUFFIX = /\.(?:test|spec)\.(?:[tj]sx?|[cm][tj]s)$/;
+
 /**
  * Resolve the interlinked-cli package root once, lazily, by walking up from
  * this module's location until we hit a `package.json` whose `name` matches.
@@ -232,7 +234,7 @@ export function isStrictTestFile(filePath: string): boolean {
 	if (fileName.endsWith("_test.go")) return true;
 
 	// JS/TS: *.test.ts, *.spec.ts, *.test.js, *.spec.js, *.test.tsx, *.spec.tsx, etc.
-	if (/\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/.test(fileName)) return true;
+	if (JS_TS_TEST_SUFFIX.test(fileName)) return true;
 
 	// Java: *Test.java, *Tests.java
 	if (/Tests?\.java$/.test(fileName)) return true;
@@ -293,6 +295,6 @@ export function isTestFile(filePath: string): boolean {
 /** Companion SUT basename for a test path (`foo.test.ts` → `foo`); "" if none. */
 export function sutBaseFromPath(filePath: string): string {
 	const fileName = nonNull(filePath.replace(/\\/g, "/").split("/").pop());
-	const base = fileName.replace(/\.(test|spec)\.(tsx?|jsx?|mjs|cjs|mts|cts)$/, "");
+	const base = fileName.replace(JS_TS_TEST_SUFFIX, "");
 	return base === fileName ? "" : base;
 }

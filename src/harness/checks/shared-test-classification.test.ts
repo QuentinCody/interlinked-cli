@@ -19,12 +19,13 @@ afterEach(() => {
 it.each([
 	"src/thing_test.go", "src/ThingTest.java", "src/ThingTests.swift",
 	"src/test_thing.swift", "src/test_thing.py", "src/thing_test.py",
+	"src/parser.test.mts", "src/parser.spec.mts", "src/parser.test.cts", "src/parser.spec.cts",
 ])("recognizes the language's test filename convention: %s", (file) => {
 	expect(isStrictTestFile(file)).toBe(true);
 	expect(isTestSourcePath(file)).toBe(true);
 });
 
-it.each(["src/test_helper.ts", "src/test_thing.txt", "src/ThingTests.txt"])(
+it.each(["src/test_helper.ts", "src/test_thing.txt", "src/ThingTests.txt", "src/parser.mts", "src/parser.cts"])(
 	"keeps similarly named production files out of test scope: %s", (file) => {
 		expect(isStrictTestFile(file)).toBe(false);
 		expect(isTestSourcePath(file)).toBe(false);
