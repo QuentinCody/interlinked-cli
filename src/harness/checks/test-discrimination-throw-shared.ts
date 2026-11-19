@@ -47,7 +47,7 @@ export function parseLeadingLiteral(text: string): { prefix: string; end: number
 	return { prefix: unescapeLiteralInterior(inner), end: i + 1 };
 }
 
-interface ParenScanState {
+export interface ParenScanState {
 	depth: number;
 	inStr: string | null;
 }
@@ -55,7 +55,7 @@ interface ParenScanState {
 /** Advance the paren/string scanner by one step from index `i`, mutating
  *  `state`. Returns the index to resume from (2 past `i` when consuming a
  *  backslash-escape inside a string, else 1 past `i`). */
-function stepParenScan(text: string, i: number, state: ParenScanState): number {
+export function stepParenScan(text: string, i: number, state: ParenScanState): number {
 	const ch = text[i];
 	if (state.inStr) {
 		if (ch === "\\") return i + 2;

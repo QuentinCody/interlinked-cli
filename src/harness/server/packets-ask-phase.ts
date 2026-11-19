@@ -8,6 +8,7 @@
 // failed, slow or empty evaluation leaves allow standing. With no cosign
 // packet the evaluator is not called (the PostToolUse shadow path still runs).
 
+import { withPacketDeliveryTimeout } from "./packet-delivery-timeout.js";
 import { collectPacketAsk } from "../packets/evaluator.js";
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent } from "../types.js";
 
@@ -18,28 +19,12 @@ export interface PacketAskPhaseDeps {
 	timeoutMs?: number;
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-	return new Promise<T>((resolve) => {
-		const timer = setTimeout(() => resolve(fallback), ms);
-		p.then(
-			(v) => {
-				clearTimeout(timer);
-				resolve(v);
-			},
-			() => {
-				clearTimeout(timer);
-				resolve(fallback);
-			},
-		);
-	});
-}
-
 /** The decision after the cosign packets had their say; never throws, never loosens. */
 export async function applyPacketAsk(event: HarnessEvent, rules: GuardRulesConfig, local: HarnessDecision, deps: PacketAskPhaseDeps = {}): Promise<HarnessDecision> {
 	if (event.dry_run === true || event.hook_event !== "PreToolUse" || local.decision !== "allow") return local;
 	const collect = deps.collect ?? ((e, r, l) => collectPacketAsk(e, r, l));
 	try {
-		const decision = await withTimeout(collect(event, rules, local), deps.timeoutMs ?? PACKET_ASK_TIMEOUT_MS, local);
+		const decision = await withPacketDeliveryTimeout(collect(event, rules, local), deps.timeoutMs ?? PACKET_ASK_TIMEOUT_MS, local);
 		// Tighten only: whatever came back, a non-ask answer leaves the local allow as it was.
 		return decision.decision === "ask" ? decision : local;
 	} catch {

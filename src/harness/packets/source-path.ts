@@ -6,6 +6,8 @@
 // compiler (hashing), the evaluator (hash check), the release/restore commands
 // and the budget report, so all four read the same bytes.
 
+import { findRepoRoot } from "../../lib/interlinked-root.js";
+import type { HarnessEvent } from "../types.js";
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
@@ -42,4 +44,12 @@ export function isGlobalSource(file: string): boolean {
 	if (file.startsWith("~/") || isAbsolute(file)) return true;
 	const n = normalize(file);
 	return n === ".." || n.startsWith("../") || n.startsWith("..\\");
+}
+
+/** The project the event belongs to: the root holding `.interlinked/` above its cwd, where the packet file and the
+ *  ledger live and against which consent globs are repo-relative (a call from a subdirectory is still judged; the
+ *  fallback oracle resolves the same root, so neither side can think the other covers the words; review-100 P1). */
+export function packetRoot(event: HarnessEvent): string {
+	const cwd = event.cwd || process.cwd();
+	return findRepoRoot(cwd) ?? cwd;
 }

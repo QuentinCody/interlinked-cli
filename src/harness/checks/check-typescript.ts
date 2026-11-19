@@ -24,6 +24,7 @@
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import type * as TS from "typescript";
+import { parseTsSourceWith } from "./cyclomatic-ast.js";
 import { checkRoot, reportNotMeasured } from "./check-root.js";
 
 type TsModule = typeof TS;
@@ -32,7 +33,7 @@ let harnessTs: TsModule | null = null;
 const projectTs = new Map<string, TsModule>();
 
 /** `typescript` resolved from `base` (a file URL or path), or null. */
-function requireTypescriptFrom(base: string): TsModule | null {
+export function requireTypescriptFrom(base: string): TsModule | null {
 	try {
 		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
 		return createRequire(base)("typescript") as TsModule;
@@ -76,4 +77,20 @@ export function loadCheckTypescript(checkId: string, unmeasured: string): TsModu
 export function resetCheckTypescriptCache(): void {
 	harnessTs = null;
 	projectTs.clear();
+}
+
+export function parseSourceFile(ts: TsModule, content: string, filePath: string): TS.SourceFile | null {
+	try {
+		return parseTsSourceWith(ts, content, filePath);
+	} catch {
+		return null;
+	}
+}
+
+export function lineOf(ts: TsModule, sourceFile: TS.SourceFile, pos: number): number {
+	return ts.getLineAndCharacterOfPosition(sourceFile, pos).line + 1;
+}
+
+export function excerptAt(lines: string[], line: number): string {
+	return (lines[line - 1] ?? "").trim().slice(0, 100);
 }

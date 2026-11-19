@@ -19,7 +19,6 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { findRepoRoot } from "../../lib/interlinked-root.js";
 import { resolveApiKey } from "../policy-classifier.js";
 import { JEV_API_KEY_ENV, JEV_USD_PER_INPUT_TOKEN, JevClient, type JevFetch } from "../jev/client.js";
 import type { JevEntry, JevQuestion } from "../jev/types.js";
@@ -28,7 +27,7 @@ import { cosignPairingAt, decidePacketAsk, pickAsk } from "./cosign-pairing.js";
 import { bindingMatches, consentDecision, EVIDENCE_REDACTION, EVIDENCE_RENDERER, type EvidenceConsent, renderEvidence, renderState } from "./evidence.js";
 import { nonLiveReason, outageFallbackLines, SLOW_JEV_REASON } from "./outage-fallback.js";
 import { judgmentId } from "./session-token.js";
-import { resolveSourcePath } from "./source-path.js";
+import { packetRoot, resolveSourcePath } from "./source-path.js";
 import { parsePacketFile } from "./schema.js";
 import { packetSupport, runnerIdOf, runnerSupportsAsk } from "./support.js";
 import { matchesTrigger, type Settled, settleView, type TriggerView, viewsFromToolInput } from "./trigger.js";
@@ -353,14 +352,6 @@ async function ask(event: HarnessEvent, asks: Admitted["asks"], config: PacketsC
 	const out: PacketJudgmentRow[] = [];
 	for (const group of groups.values()) out.push(...(await askGroup(event, group, config, apiKey, deps, source)));
 	return out;
-}
-
-/** The project the event belongs to: the root holding `.interlinked/` above its cwd, where the packet file and the
- *  ledger live and against which consent globs are repo-relative (a call from a subdirectory is still judged; the
- *  fallback oracle resolves the same root, so neither side can think the other covers the words; review-100 P1). */
-function packetRoot(event: HarnessEvent): string {
-	const cwd = event.cwd || process.cwd();
-	return findRepoRoot(cwd) ?? cwd;
 }
 
 async function judgePacketFile(event: HarnessEvent, file: PacketFile, config: PacketsConfig, cwd: string, apiKey: string, deps: PacketEvaluatorDeps): Promise<PacketJudgmentRow[]> {

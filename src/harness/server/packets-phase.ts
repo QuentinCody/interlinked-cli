@@ -11,8 +11,9 @@
 // trip is ~200 ms; past `timeoutMs` the judgment still lands in the ledger but
 // is not delivered.
 
+import { withPacketDeliveryTimeout } from "./packet-delivery-timeout.js";
 import { join } from "node:path";
-import { findRepoRoot } from "../../lib/interlinked-root.js";
+import { packetRoot } from "../packets/source-path.js";
 import { getAdapter } from "../adapters/index.js";
 import { collectPacketWarnings } from "../packets/evaluator.js";
 import type { FallbackEntry } from "../packets/fallback.js";
@@ -53,13 +54,6 @@ export function sessionStartReachesModel(agentSource: string): boolean {
  *  and Crush have none: proposing there only repeats the text to a terminal every call). */
 export function postToolReachesModel(agentSource: string): boolean {
 	return reachesModel(agentSource, "post-tool");
-}
-
-/** The project the event belongs to: the root holding `.interlinked/` above its cwd, where the hook records
- *  receipts and the packet file lives (an agent in a subdirectory still gets the words — break R1). */
-function projectRoot(event: HarnessEvent): string {
-	const cwd = event.cwd || process.cwd();
-	return findRepoRoot(cwd) ?? cwd;
 }
 
 /** Released text whose packet is not live here, by the static oracle (config, key, sources, status, binding,
@@ -103,34 +97,18 @@ function deliverable(lines: readonly string[], root: string, event: HarnessEvent
 	});
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-	return new Promise<T>((resolve) => {
-		const timer = setTimeout(() => resolve(fallback), ms);
-		p.then(
-			(v) => {
-				clearTimeout(timer);
-				resolve(v);
-			},
-			() => {
-				clearTimeout(timer);
-				resolve(fallback);
-			},
-		);
-	});
-}
-
 /** Append delivered packet warnings to an allow decision; never throws, never changes the decision. */
 export async function appendPacketWarnings(event: HarnessEvent, rules: GuardRulesConfig, decision: HarnessDecision, deps: PacketPhaseDeps = {}): Promise<void> {
 	if (event.dry_run === true || decision.decision !== "allow") return;
 	const collect = deps.collect ?? collectPacketWarnings;
 	let lines: string[];
 	try {
-		lines = await withTimeout(collect(event, rules), deps.timeoutMs ?? PACKET_DELIVERY_TIMEOUT_MS, []);
+		lines = await withPacketDeliveryTimeout(collect(event, rules), deps.timeoutMs ?? PACKET_DELIVERY_TIMEOUT_MS, []);
 	} catch {
 		// A failing evaluator is exactly when the released words are needed: fall through to the fallback.
 		lines = [];
 	}
-	const root = projectRoot(event);
+	const root = packetRoot(event);
 	// Trajectory findings from the session's last Stop/SessionEnd ride this allow too (Stop warnings reach no agent).
 	const queued = (deps.drain ?? drainWindowWarnings)(root, event.session_id);
 	let pending: string[];

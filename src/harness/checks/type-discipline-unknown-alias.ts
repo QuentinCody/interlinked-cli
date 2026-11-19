@@ -29,8 +29,7 @@
 // so there was nothing to tighten. See DEFAULT_ADVISORY_SKIPS for rationale.
 
 import type * as TS from "typescript";
-import { loadCheckTypescript } from "./check-typescript.js";
-import { parseTsSourceWith } from "./cyclomatic-ast.js";
+import { excerptAt, lineOf, loadCheckTypescript, parseSourceFile } from "./check-typescript.js";
 import { getExtension, type InlineMatch, isTestFile } from "./shared.js";
 
 type TsModule = typeof TS;
@@ -52,22 +51,6 @@ const TYPE_KEYWORD_RE = /\btype\s/;
 
 function loadTs(): TsModule | null {
 	return loadCheckTypescript("unknown_type_alias", "an alias of `unknown`");
-}
-
-function parseSourceFile(ts: TsModule, content: string, filePath: string): TS.SourceFile | null {
-	try {
-		return parseTsSourceWith(ts, content, filePath);
-	} catch {
-		return null;
-	}
-}
-
-function lineOf(ts: TsModule, sourceFile: TS.SourceFile, pos: number): number {
-	return ts.getLineAndCharacterOfPosition(sourceFile, pos).line + 1;
-}
-
-function excerptAt(lines: string[], line: number): string {
-	return (lines[line - 1] ?? "").trim().slice(0, 100);
 }
 
 function unwrapParenType(ts: TsModule, type: TS.TypeNode): TS.TypeNode {
