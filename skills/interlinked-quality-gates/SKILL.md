@@ -5,6 +5,14 @@ description: "Respond to and configure Interlinked metric ratchets: line count, 
 
 # interlinked-quality-gates — the metric ratchets
 
+For `metrics standards --profile dmmulroy-typescript`, see
+[local standards measurements](references/standards.md). It retains all 35 pinned
+guidance groups with separate syntax, detector, candidate and unknown coverage,
+all-role denominators, source-driven units and explicit caller/context gaps.
+Explicit metrics/standards surveys retain complete selected sources without implicit
+body-size, path-count or Git-listing limits. See [metrics procedures](references/metrics.md)
+for the separate foreground Python policy, runtime bounds, exclusions and unavailable inputs.
+
 Every quality metric is a **water-line** stored in a JSON file under `.interlinked/`. The gates
 enforce **"may only move in the tightening direction"**: coverage/mutation scores may only rise;
 caps may only fall. The harness raises water-lines itself (internal writes); **an agent
@@ -40,12 +48,27 @@ The following cap-block and grandfather-ledger instructions apply in that mode;
 measurements, protected baselines, explicit verification and behavioral test gates
 remain intact. Do not add concepts merely to lower a structural count.
 
+Per-metric settings in the check policy `metrics` map now control `cyclomatic`,
+`cognitive`, and `function-tokens`: report, warn, block or off, with targets and
+file/role scopes. Missing entries inherit the legacy posture. Blocking targets may
+only tighten canonical caps, and adopted policy is protected against agent weakening.
+See [metric policies](references/metric-policies.md) for edit configuration and
+unsupported metric IDs. `metrics policies export|inspect|evaluate` shares versioned
+data-only references to installed metrics and detectors. Its report/warn/off
+assessment retains all 23 project readings and explicit evidence gaps. See
+[policy profiles](references/policy-profiles.md) for the schema, aggregate-scope
+limits and reviewable structural proposals.
+
 Physical per-file size is now advisory. The `lines` setting remains a review
 preference and historical measurements remain available; it never blocks source
 edits, native cold fallback, verification or commits solely for size. Do not remove
 braces, join lines, invent temporary variables, or split modules merely to satisfy
 that number. This is a decomposition prompt, not an LLM context-token budget.
 Guard ownership belongs to predict–reveal–reconcile; see **interlinked-harness**.
+The `file.lines` metric-policy entry controls advice targets, path/role scope and
+report/warn/off disposition in the daemon and native cold pre-write path. Standalone
+generated cold hooks emit NOT MEASURED for physical-line settings. The policy
+reference records phase coverage and the project AST line-count convention.
 
 File-size and per-function checks share Write/Edit/MultiEdit and native patch projection.
 Multi-file patches check every reconstructed target, and moves retain their source
@@ -73,7 +96,7 @@ bricked and coverage only moves toward the goal. The separate `min_coverage`
 hard floor blocks outright and, once set, only rises (baseline-integrity gate).
 | **CRAP** | a touched function is both complex AND under-covered | shipped **30**; this repo overrides to **25**, default on | Decompose OR add coverage (both lower CRAP) |
 | **Per-edit mutation** | a measured edit adds a changed-region survivor/uncovered site, makes affected tests red, or exceeds the site limit | default **off**; site limit **50**; `mode: block\|warn\|off` | Strengthen the test, fix/remove the source behavior, or split an oversized behavioral change |
-| **Baseline-integrity** | a Write/Edit *loosens* any `.interlinked/` water-line | per-file direction | Meet the bar; don't edit the baseline |
+| **Baseline-integrity** | a Write/Edit *loosens* any `.interlinked/` water-line (the name matches in any letter case), or a `git commit` deletes one (`git rm`, `git mv`, `--pathspec-from-file` counts as the whole tree) | per-file direction | Meet the bar; don't edit, move or delete the baseline |
 
 **Modes ladder the philosophy-dependent gates (2026-08-17).** `interlinked mode`
 writes gate posture into `guard-rules.json` alongside its check-policy overrides:
@@ -197,9 +220,21 @@ Set the score floor in `.interlinked/check-policy.json` (team) or
 **Current contract:** `min_score` affects the comparison. `enabled` and `schedule` record policy
 intent but do not invoke or schedule Stryker; wire the command into the chosen CI/hook/cron
 surface yourself. The public command currently exposes `--report`, `--baseline`,
-`--update-baseline`, and `--json`; `--baseline` is accepted but the handler still reads the
-standard `.interlinked/mutation-baseline.json`. Internal `minScore`/`changedFiles` support is not
-registered as public CLI flags.
+`--update-baseline`, and `--json`. Omitted `--report` searches
+`reports/mutation/mutation.json`, `reports/mutation/mutation-report.json` and
+`.stryker-tmp/reports/mutation.json` in order. An explicit report selects that
+path and empty path arguments fail visibly.
+
+`--baseline <path>` selects an existing comparison baseline. The default is
+`.interlinked/mutation-baseline.json`. Explicit inputs require readable,
+shape-checked mutation data. With `--update-baseline`, the selected file receives
+the preserved-or-tightened water-lines. JSON output retains requested and resolved
+paths, selection source and update status. Ordinary aliases update their resolved
+baseline target under the same cross-process claim. Other protected runtime
+control paths, including resolved aliases, fail before comparison or updates.
+The root mutation policy supplies `min_score`. Alternate updates target the
+selected comparison file. Internal `minScore`/`changedFiles` support remains
+available to existing callers.
 
 The score is `killed / (killed + survived)`. Timeout, no-coverage, compile-error, and
 runtime-error mutants are excluded from that denominator; inspect the engine report instead of
@@ -212,44 +247,37 @@ concurrency, timeouts, coverage analysis, and incremental mode. There is no Inte
 
 ### Live per-edit survivor gate
 
-The shipped default is off. Opt in under `.interlinked/guard-rules.json` for team policy or
-`.interlinked/guard-rules.local.json` for machine-local runner topology/credentials:
-
-```json
-{
-  "per_edit_mutation": {
-    "enabled": true,
-    "mode": "warn",
-    "unavailable_behavior": "allow_unmeasured",
-    "site_count_threshold": 25,
-    "budget_ms": 10000,
-    "harvest_budget_ms": 15000,
-    "runner_url": "https://mutation-runner.example"
-  }
-}
-```
-
-| Knob | Effect |
-|---|---|
-| `enabled` | Master opt-in. `false` does no live mutation work. |
-| `mode` | `block` rejects measured findings; `warn` runs the same measurement but allows with warnings; `off` is a no-op. |
-| `unavailable_behavior` | `allow_unmeasured` preserves continuity with `[mutation:not-measured]`; `block` fails closed when no verdict is available. |
-| `site_count_threshold` | Maximum distinct changed-symbol mutation sites in one established file before "split this patch"; default 50. |
-| `budget_ms` | Initial runner round-trip ceiling; default 25,000 ms. Expiry is not a pass. Harvest of an expired run works only when the configured runner implements the durable job protocol; the current experimental Cloud Worker does not, so its expired runs are simply not-measured. |
-| `harvest_budget_ms` | PostToolUse wait for an over-budget pending run; default 25,000 ms. A harvest that comes back with nothing is reported as **survivor-only evidence, NOT clean** (2026-08-27): the late path carries back survivors and nothing else — no test-run, engine-exit or mutant-census evidence, and it does not go through the evaluator the synchronous path uses — so "no survivors" is equally consistent with a run that executed no tests. Read that message as "nothing adverse was reported", never as a pass. |
-| `runner_url` | THE mutation-runner endpoint (exactly one). No endpoint means unavailable, not clean. |
-| `runner_urls` | OBSOLETE (2026-08-27): line-range sharding is retired from v1 — a mutant spanning a range split vanished from both sides. Extra entries are NOT used (no partition, no failover) and the daemon logs a deprecation warning. Remove them. |
-| `token` | Optional bearer credential. Keep it in the gitignored local rules file, never committed policy. |
-
-When the live gate reports:
-
-- **New survivor:** strengthen the assertion, fix the source behavior, or remove dead/over-specific code.
-- **Uncovered site:** add a test that executes the changed behavior.
-- **Affected suite red:** restore green before interpreting mutation results.
-- **Over site limit:** split the patch into smaller behavioral changes with their tests.
-- **Not measured:** check runner configuration/reachability, test selection, budget, and the target repo's Stryker setup. Do not describe it as a pass.
+The shipped default is off. Opt in with a `per_edit_mutation` block in `.interlinked/guard-rules.json`
+(team policy) or `.interlinked/guard-rules.local.json` (machine-local runner and credentials).
+The knob table (`enabled`, `mode`, `unavailable_behavior`, `site_count_threshold`, `budget_ms`,
+`harvest_budget_ms`, `runner_url`, `token`) and the per-finding fixes (new survivor, uncovered site,
+affected suite red, over site limit, not measured) are in
+[references/mutation-live-gate.md](references/mutation-live-gate.md).
+A "not measured" result is never a pass.
 
 ## Command surface
+
+`caps --json <subcommand>` and `caps <subcommand> --json` both preserve JSON output.
+`metrics --cwd <path>` propagates the selected repository to nested commands,
+including every `metrics decisions` action. A leaf's explicitly parsed options
+take precedence when merging inherited options.
+
+Finding review uses `metrics decisions findings plan BUNDLE --select IDS --output PLAN`
+to freeze complete semantic inputs, provider identity and labeled cost estimates.
+`assess PLAN --approve-plan ID --output RUN` admits that frozen identity, while
+`--estimate-allowance-usd` explicitly accepts estimate-based admission. Inspect saved
+plans and v1/v2 runs with `show`; viewing and validated v2 `--reuse` are inference-free.
+TypeSafe exposes its exact public JSON body. Other installed decision adapters expose
+semantic inputs and retain actual wire receipts after dispatch. Unknown costs stop
+later paid requests, and byte-derived estimates can exceed monetary allowances.
+
+`findings questions DRAFT --output PROFILE` freezes alternative disposition and
+priority instructions and criteria. `plan --question-profile PROFILE` creates
+plan/2 with a full map and checksum. Outcome keys stay fixed. Metadata-only renaming
+retains semantic request identity, while wording or criteria changes miss the cache.
+Default plan/1 and saved v1/v2 runs remain readable. Orchestrator retries are zero,
+with external adapter retry guarantees recorded as capability-dependent.
+
 | Command | Purpose |
 |---|---|
 | `interlinked caps` | Show effective caps (lines/function-tokens/cyclomatic/crap/coverage) + provenance. |
@@ -258,11 +286,11 @@ When the live gate reports:
 | `interlinked caps ratchet <cyclomatic\|cognitive> --to <n> [--dry-run]` | Tighten a per-function cap AND regenerate the grandfather ledger (`function-complexity-baseline.json`) for everything over it. Only writer of the ledger; `caps set` delegates here when a section exists. |
 | `interlinked caps status` | Ledger burn-down per metric: cap, entries remaining, top offenders, delta vs the previous snapshot. |
 | `interlinked caps propose` | Data-driven cap proposals from a live census: percentile ladder and the count each candidate cap would grandfather. |
-| `interlinked metrics complexity [--metric <m>] [--top <n>] [--churn-days <n>]` | Complexity census: within-repo ranks, histograms, per-file mass, churn hotspots (90 days by default), directory line-count Gini, over-cap counts. |
-| `interlinked metrics jit [ref] [--staged] [--message <text>] [--calibrate <n>] [--cwd <path>] [--json\|--short]` | Ordinal commit-risk score and rank against recent first-parent commits (default 200); defaults to HEAD. `--message` classifies the staged commit's purpose. |
-| `interlinked metrics diagnostics [--profile js-ts\|python] [--cwd <path>] [--json\|--short]` | Explicit verbosity/erosion census, line overlap and absolute contributors; separate language profiles, diagnostic only. |
-| `interlinked metrics diagnostics compare <before> <after> [--json]` | Validate snapshot identity, scope and totals; incompatible overall deltas are withheld with nonzero exit, dilution remains visible. |
-| `interlinked metrics score [--profile structure-v1] [--cwd <path>] [--json\|--short]` | Explained composite and individual burdens, explicit evidence bounds and ranking eligibility; legacy structure profile remains selectable. |
+| `interlinked metrics complexity [--metric <m>] [--top <n>] [--churn-days <n>]` | Complexity census: within-repo ranks, histograms, per-file mass, churn hotspots (90 days by default), directory line-count Gini, over-cap counts. Generated, vendored and minified files are set aside (source roles v5, as in `metrics score`) and counted in `population`. |
+| `interlinked metrics jit [ref] [--staged] [--message <text>] [--calibrate <n>] [--cwd <path>] [--json\|--short]` | Scores HEAD or the selected commit against recent first-parent commits (default 200). Use `--calibrate 0` for the score with an empty comparison population. `--message` classifies the staged commit's purpose. |
+| `interlinked metrics diagnostics [--profile auto\|js-ts\|python] [--cwd <path>] [--json\|--short]` | Explicit verbosity/erosion census, line overlap and absolute contributors; separate language profiles, diagnostic only. Without `--profile` the profile follows the product files: only JS/TS runs `js-ts`, only Python runs `python`, both return `{mixed, profileSelection, profiles: [js-ts, python]}` with one report per language and no shared denominator; `profileSelection {rule, languages, shares}` is printed. An explicit `--profile` is unchanged. A mixed envelope is not a snapshot: save one profile to run `compare`. Uses source roles v5 (`population` in the JSON). |
+| `interlinked metrics diagnostics compare <before> <after> [--cwd <path>] [--json]` | Resolve relative snapshots against the selected root and validate identity, scope and totals. Incompatible overall deltas remain explicit with nonzero exit. |
+| `interlinked metrics score [--profile structure-v1] [--cwd <path>] [--json\|--short\|--full]` | Explained composite and individual burdens, explicit evidence bounds and ranking eligibility; full/JSON adds every retained action and evidence gap. Legacy structure profile remains selectable. |
 | `interlinked metrics arch [--cwd <path>] [--json]` | Import graph statistics including isolated modules; graphVersion 2 retains N² propagation cost and adds normalizedReach with N(N−1). |
 | `interlinked metrics split-plan <file>` | Where to cut one over-cap file: 2–4 cohesive modules from the intra-file reference graph. |
 | `interlinked coverage check [--strict] [--changed-files a,b] [--report <p>] [--update-baseline] [--json]` | Full-suite per-file coverage ratchet vs `coverage-baseline.json`. ADVISORY by default (exit 0 with findings); `--strict` exits 1 on any per-file drop; `--changed-files` scopes to a comma-separated list (what the pre-push hook passes). |
@@ -278,7 +306,7 @@ When the live gate reports:
 | `interlinked mutation cloud process` | Manually resume at most one due journaled v3 job through the same verified evaluator and journal-before-ack path. A separately opted-in (`background_enabled:true`) harness daemon also runs this single-row processor on a 15-second cadence; autonomous processing is default-off while manifest snapshots are copy-amplifying. Pending/failure retries are durably delayed; eight consecutive failures dead-letter and exit nonzero. |
 | `interlinked mutation cloud dead-letters [--limit <1..100>]` | List bounded local job dead letters without claiming or processing them, including the poll/ack phase and token needed for fenced recovery. |
 | `interlinked mutation cloud redrive <job-id> --redrive-token <token>` | Make one matching dead letter due again without processing it or returning a verdict; preserves poll-vs-ack phase. |
-| `interlinked metrics [--top <n>] [--full] [--include-tests] [--json]` | Read-only whole-repo scan: exhaustive function-token inventory and file aggregates, companion-test, coverage, cyclomatic, CRAP + gate verdicts. |
+| `interlinked metrics [--top <n>] [--full] [--include-tests] [--json]` | Measures function tokens, companion tests, coverage, cyclomatic complexity and CRAP. The hotspot limit accepts decimal integers from 1 through 200 and defaults to 25. Full and JSON output retain every projected action and next step. |
 | `interlinked debt list \| show <file> \| resolve <file>` | The obligation ledger — coverage / red-suite debts AND `transient` debts (the deferred tsc/registry findings a coordinated edit opens). All three verbs see every kind; `resolve` is the human override for a debt no future edit will clear. |
 | `interlinked debt markers [--root <path...>] [--exclude <path...>] [--record [--reason <text>]] [--json\|--short\|--full]` | Scan explicit design-debt receipts in source comments. The default is read-only; `--record` appends a local snapshot and lifecycle transitions. Neither mode consults or mutates the obligation ledger. |
 | `interlinked adopt [--dry-run] [--suite-baseline]` | Seed the supported adoption artifacts from the repo's current state (see below; mutation state is excluded). |
@@ -452,7 +480,7 @@ Read a reference file only when the task needs it.
 - [references/mutation-cloud-v3.md](references/mutation-cloud-v3.md): `mutation cloud`, runner connection and sharding, protocol-v3 durable jobs and the mutation journal.
 - [references/mutation-campaigns.md](references/mutation-campaigns.md): source-only mutation research helpers, the full-manifest census and survivor rounds.
 - [references/metrics.md](references/metrics.md): ranks and commit-risk nudges, the function-token inventory, model-free scoring, evidence runs, this repository's pre-push gate and the coverage index.
-- [references/decision-metrics.md](references/decision-metrics.md): the experimental `metrics decisions` namespace.
+- [references/decision-metrics.md](references/decision-metrics.md): the experimental `metrics decisions` namespace, including explicit frozen finding assessments and directional Astra reference reviews.
 - [references/baselines-detail.md](references/baselines-detail.md): decomposition campaigns, the SessionEnd baseline auto-fold and `max_predicate_drift`.
 - [references/lint-debt-adoption.md](references/lint-debt-adoption.md): `interlinked lint import` and the lint-debt baseline.
 - [references/dead-code.md](references/dead-code.md): dead-code controls, evidence layers and deletion buckets.

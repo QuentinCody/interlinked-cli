@@ -1,182 +1,9 @@
 ---
 name: interlinked-harness
-description: "Understand and respond to the Interlinked PreToolUse guard — the local daemon that BLOCKS dangerous tool calls before they run. Load this when a Bash command or file edit was refused with \"BLOCKED: … Suggestion: …\", when you see an `[interlinked:check-id]` warning tagged `[proven]` or `[heuristic]`, when a destructive command / force-push / protected-file / secret / repo-confinement rule fired, when a grep was answered by the index, or when you need to know how to legitimately suppress a false positive or disable a guard rule. Covers what blocks, how to read the reason, suppression grammar, determinism tags, and the degraded cold fallback."
+description: "Respond to the Interlinked PreToolUse guard, the local daemon that BLOCKS dangerous tool calls before they run. Load when a Bash command or edit was refused with \"BLOCKED: … Suggestion: …\", when an `[interlinked:check-id]` warning tagged `[proven]` or `[heuristic]` appears, when a destructive-command, force-push, protected-file, secret, or repo-confinement rule fired, when the index answered a grep, or to suppress a false positive or disable a guard rule legitimately. Covers suppression grammar, determinism tags, and the degraded cold fallback."
 ---
 
 # interlinked-harness — the guard: what blocks you & how to respond
-
-Commit-time function-token diagnostics compare against `HEAD` and name their scope:
-staged index, tracked working tree, selected constructed paths, or a conservative
-worktree scan. They do not identify the writer or when the changes were made.
-Only the first eight findings are displayed; the full set still determines the block.
-For unresolved compound staging scope, stage first and commit in a separate tool call
-to check the exact index. This changes the observed scope, not the cap or enforcement.
-
-`INTERLINKED_RUNTIME_POLICY=local-restricted` opts into a packaged local runtime
-policy shared by the CLI, daemon and generated cold fallback. It denies network
-calls and selected external commands, and refuses recognized agent reads of
-`.interlinked/config.local.json`; internal configuration readers still work.
-It is application policy, not a sandbox for arbitrary child code or computed paths.
-Unavailable tools remain unmeasured; this mode does not certify skipped checks.
-
-Remote-pipe detection permits interpreter inline programs preceded by bare flags
-(for example, `curl URL | python3 -I -c '...'`), where stdin is data. Shell sinks
-retain their existing remote-execution block.
-
-For recognized protected pushes in this repository, Codex and Claude can receive a
-native command replacement that makes Git's exact-revision pre-push hook the sole
-owner of typecheck and test execution. The replacement pins Git/Node, verifies a
-private snapshot of the recognized hook and its helper runtime, and forces Git to
-use that hook. Git still supplies the actual ref updates and pushed SHAs. This is
-not a cached passing verdict, and every other pre-tool guard remains active.
-
-Recognition is intentionally narrow: a plain `git push <named-remote> <protected-ref>`
-from the repository root, with supported literal output redirection. Compound
-commands, environment/config overrides, unsupported clients, custom/missing/changed
-hooks or unavailable snapshots retain legacy checks. A prepared command whose
-snapshot or execution context changes refuses the push. Do not weaken guards or
-use bypass flags to force the handoff. See `docs/verification-efficiency.md`.
-
-Every fallback of a recognized push is typed and visible (2026-11-05). The daemon
-writes a `pre-tool:managed-push` row with status `fallback` and
-`reuse_denied_reason: handoff-fallback:<cause>` to the stage ledger, and the agent
-sees one `[interlinked:managed_push_fallback] … (<cause>: <detail>)` warning. Causes:
-`environment-override` (the detail names the variable keys, never values),
-`repository-mismatch`, `hook-mismatch`, `stale-trust-map` (regenerate the map after
-reviewing the change), `executable-identity`, `snapshot-failure`. A command or client
-the handoff never covers (`unsupported-*`) leaves no fallback row; the legacy rows are
-its record. The IDE prompt helpers `GIT_ASKPASS` and `GIT_EDITOR` are allowed at
-preparation and execution (VS Code exports both in every terminal; neither selects
-a repository, configuration, hook, exec path, transport or loader). Every other
-`GIT_*` variable except `GIT_PAGER` still refuses the handoff. Explain a real push
-from one trace with `interlinked tests trace` (see **interlinked-verify**).
-For a recognized fallback on a client supporting command replacement, the response
-adds only the trace environment assignment to the original push; the legacy checks
-still run. If the client disconnects before receiving that response, the plain push
-has a separate hook trace: do not infer a complete daemon/hook join. Unknown failures
-use a bounded operation/error-code detail, never arbitrary exception or file contents.
-
-A hook client that times out (240 s PreToolUse in the installed settings) and
-cold-allows the push no longer leaves the daemon's legacy test gate holding the host
-slot: both socket transports abort a request's signal when its client disconnects,
-and the pre-tool git gate kills its child on it, recording `interrupted`.
-Queued framed requests retain that aborted signal after disconnect as well.
-
-Once the frozen hook is selected, it clears the launcher's command-scoped Git
-configuration before verification. This keeps the forced `core.hooksPath` from
-overriding nested fixture repositories; the outer push still executes its pinned
-protected hook. Ordinary pushes retain their own command-scoped Git settings.
-
-When maintaining this repository's gate or its helper runtime, regenerate the
-reviewed trust map with `node scripts/generate-managed-push-manifest.mjs` and run
-the same command with `--check`. A stale map disables recognition; it does not
-authorize skipping the legacy checks. Native client approval policies still apply.
-
-`[interlinked:decision-metrics]` is opt-in PostToolUse semantic advice. It can report
-an adverse judgment, uncertainty, failure or missing evidence, but it never sets a
-pre-execution block or authorizes an action. Both flags in
-`.interlinked/decision-metrics.json` default off. The short inference deadline can
-be followed by up to five seconds of local-model unload verification. Load
-**interlinked-quality-gates** for configuration, replay and calibration; do not
-weaken deterministic policy to satisfy a model's judgment.
-
-## Predict changes to guards
-
-The prediction phase includes a local JS/TS `if`-ownership oracle, independent of
-Supermodel and `graph_prediction.enabled`. Its default mode is `shadow`;
-`harness.guard_prediction.mode` in shared `.interlinked/config.json` accepts
-`enforced`, `shadow` (record/reveal without refusing), or `off`.
-
-In the default shadow mode, review concise scope-change advice and relevant tests;
-no declaration receipt is required. Repeated unchanged advice is deduplicated.
-Only with explicit `enforced` policy, before intentionally changing which `if`
-guards an existing `return` or `throw`, declare the expected ownership change.
-The raw before/after AST comparison runs
-before content checks; do not brace or format away an unexpected change.
-Unpredicted changes block as protocol mismatches, not proven bugs. Correct the
-proposal, or reconcile the exact revealed change with a rationale and behavioral
-validation. A matching prediction does not prove correctness.
-
-Receipts are JSON at `.interlinked/predictions/guards/<sha256(session)>/<id>.json`.
-Fields: `version: 1`, `session`, `id`, `file` (canonical repository-relative path),
-`beforeSha256`, `afterSha256`, `nonce` (nonempty declaration identifier), and
-`changes`: an array of `{owner, statement, before, after}`. Statement and condition
-strings use parser token spellings joined by spaces. Each guard is
-`{condition, branch: "then" | "else"}`; arrays list outer to inner guards. The ID is
-SHA-256 of `JSON.stringify([1, file, beforeSha256, afterSha256])`, with UTF-8 hashes
-of the exact source bytes. Use the native session identity printed in a reveal.
-The reveal includes the measured fields and receipt path. After a reveal, include
-`reconcile: id` and a nonempty `rationale`; a late prediction alone cannot pass.
-Identical retries retain their declaration; changed bytes, file or session require
-a matching receipt. Never use a wildcard acknowledgment.
-
-The append-only `predictions/guard-events.jsonl` retains `reveal`, `predicted`, and
-`reconciled` evidence; acceptance never erases a surprise. Dry runs do not persist
-events. Invalid or inaccessible protocol state cannot authorize a changed proposal.
-This is local intent bookkeeping, not an adversarial security boundary.
-
-The initial oracle handles unique existing statements in identifiable function
-scopes, plus unchanged complete function bodies. Changed ambiguous/anonymous
-scopes and changed statement text produce partial/NOT CHECKED evidence. It does not
-establish loop/switch/exception dominance, semantic predicate equivalence, deleted
-statements, cross-file moves, or arbitrary shell effects. Native cold fallback runs
-the same oracle; a standalone generated hook without the daemon reports NOT CHECKED
-because it has no AST runtime. Restore the daemon or use `interlinked-hook` for
-that check. Single-line guards remain valid code; brace style is a separate policy.
-
-Claude's demonstrated native `PostToolBatch` boundary coalesces TypeScript checks for
-declared single-file edits. The final tree is checked before the next model request;
-security guards remain per edit; metric caps advise unless `harness.edit_metrics.mode`
-is explicitly `enforced`. Final compiler findings are
-repair context, with unresolved work enforced at Stop/commit. See **interlinked-verify**
-for fallback and recovery behavior. Merely using multiple Edit calls is not evidence
-of a retry: correlate their emission time and assistant message with hook feedback.
-
-Repeated pre-edit content advice, test-evidence limitations, and unchanged coverage
-gaps are deduplicated for model delivery. Full observations remain in local evidence.
-Deep-audit style/design findings are retained in raw check evidence and available
-through `verify --all-checks`; ordinary hook feedback announces this once instead
-of sending every finding. Errors and blocking decisions remain visible. A persistent
-warning never becomes a proven error merely because it repeats.
-Changing coverage counts alone do not repeat the same instruction; a recovered gap
-that recurs or a different unavailable-check reason is announced again.
-
-Claude and Codex Stop/SubagentStop advisories remain operator diagnostics on stderr.
-Only explicit blocking repair decisions request another model turn. Source guidance is
-sent during editing. File-size advice and per-function gates share native edit/patch content
-projection; unreadable or invalid updates stay unmeasured. Shell effects remain
-post-execution evidence unless a supported pre-write path is used.
-
-PostToolUse classifies recognized untracked Python environments, installed Node dependency
-trees and named harness outputs before authored-source checks. Explicit edits, tracked files,
-protected policy and unsafe/symlink paths do not receive this exemption. Security scope stays
-separate; excluded files are not passes and runtime-input fingerprints are not narrowed.
-The same source role separates recovery batches. Repeated unavailable-check diagnostics are
-deduplicated for delivery; raw findings and unresolved evidence remain. Retry when prerequisites
-change, not merely because the same diagnostic repeats. Missing evidence cannot yield “all clean.”
-
-For edits outside the guarded repository, both command-based and named external checks
-(affected tests and dependency audit) skip this repository's runner. Inline content checks
-remain available. Security findings on excluded dependency files retain normal severity and
-enforcement; source-quality exclusion is not a security exemption.
-
-The built-in generic `rm` prior-inspection rule is advisory. A recent literal `Read` event
-does not prove inspection of the deletion targets, and clients may expose different read tools.
-Inspect the intended targets using the available tools; this heuristic does not require a
-particular invocation. Deterministic destructive-command, reservation and protected-file
-decisions still apply. Do not infer safe deletion merely from a recent unrelated read.
-
-The legacy `same_command_thrice_no_observe` advisory excludes simple read commands
-such as `tail`, `rg`, and `git status`: polling their output is observation. Compound
-commands, shell expansion and output redirection remain eligible. The advisory reports
-matching command observations in session history; hook events do not prove distinct
-executions or whether the agent read the output. This exception changes no execution gates.
-
-Guard audit records retain references for repeated warning text. Use `interlinked data search
---source warning-occurrences` to inspect full first/changed messages, hashes and occurrence
-counts; `data show ID` opens their raw evidence. This bounds repetition in the activity mirror
-without changing the guard decision or the warning returned by the evaluator. A later
-`not-reported` observation does not prove that the underlying issue was fixed.
 
 Interlinked runs a **local daemon** that evaluates each pre-execution event the installed
 runner exposes to its hook surface (PreToolUse). It is **default-permit with targeted
@@ -198,79 +25,6 @@ Host file policies require explicit bridge mapping and matching file snapshots.
 - A destructive command, `git push --force`, protected-file, secret, repo-confinement, or
   bash-redirect-bypass rule fired.
 - You need to legitimately suppress a check false-positive, or disable a wrong guard rule.
-
-## Mental model
-- Each installed hook event ships its payload to the daemon over a Unix socket. The daemon runs an
-  ordered set of phases; **the first phase that returns a terminal decision wins**.
-- Framed daemon RPC validates each method's request shape, including nested hook metadata
-  and administrative arguments, before dispatch. The client accepts only matching-id responses
-  with the expected method result shape. Malformed frames do not become successful decisions;
-  the existing timeout and fallback behavior still applies.
-- Local quality-check overrides validate each supplied field before merging it. Malformed
-  fields are ignored while valid fields and sibling checks survive; new checks require the
-  complete mandatory configuration. Team overrides affect existing checks only. Default
-  configuration copies preserve non-JSON values such as an unlimited (`Infinity`) step limit.
-- Content-scanner allowlists skip malformed entries. Known entry kinds require their declared
-  string fields; an unrecognized scanner runtime cannot select a backend. These checks apply
-  to these boundaries and do not imply that every legacy configuration section has a schema.
-- Decisions: `block` (tool refused, you see the reason), `ask` (human confirmation — Claude and
-  supported Cursor gates can ask natively; interactive Pi calls `ctx.ui.confirm`; headless Pi,
-  OpenCode's stable tool gate, Codex `PreToolUse`, Copilot, and Gemini deny instead;
-  Claude/Codex `PermissionRequest` allow/ask abstain so the provider retains authority),
-  or `allow` (may still carry non-blocking `warnings`, or an `updated_input` rewrite).
-- Built-in rules are regex patterns on the command/tool-input. Use `interlinked harness checks`
-  for the authoritative current inventory. Patterns are **ORed over positive entries;
-  `negate:true` patterns are exceptions.** `executed_only` masks
-  quoted/heredoc/comment text, so *mentioning* `rm -rf /` in an `echo` is allowed while the
-  bare command blocks. A quote around ONE shell word is an operand, not a mention: it stays
-  visible, so `truncate -s 0 "src/app.ts"` blocks like its unquoted twin, while a quoted body
-  with whitespace or a metacharacter (`git commit -m 'rm -rf /'`) stays masked. A quoted
-  argument of `eval` (or of `bash -c`, `python -c`, `node -e`) is code and is scanned. Compound
-  commands (`&&`, `||`, `;`, `|`, newline) are decomposed and each part checked.
-- If a stopping rule matches only data, you get `[interlinked:guard] rule <id> matched inside a
-  string literal (…); not blocked` instead of a block. Data here is a `harness test` argument, a
-  grep/rg pattern, an echo/printf argument, or a string in a `node -e`/`python3 -c` program with
-  no `child_process`/`subprocess`/`system`/`exec`. If the text can reach `sh`, `bash`, `eval`,
-  `xargs`, or a script that the same command runs, the block stands.
-- Python `open(...)` checks inspect executable calls and recognize write and append modes;
-  read-only calls and quoted examples do not establish a file write. Keep malformed tool
-  input tests at the raw hook-input boundary rather than passing invalid normalized events.
-- The log-output guard measures ordinary single-file `head`/`tail` windows of up to 200
-  lines before rejecting a file over 100 KiB. Small windows pass on large logs; a selected
-  line over the byte budget still blocks. Signed counts and unfamiliar option combinations
-  retain the file-size gate. Daemon and generated-hook paths use the same bounded reader.
-
-> **Two unrelated things are called "guard".** This skill is the **PreToolUse guard** (the
-> daemon, operated via `interlinked harness …`). `interlinked guard` is a separate **git
-> pre-commit/pre-push hook** that checks staged files against file reservations — see
-> **interlinked-coordination**.
-
-## What gets blocked (with concrete examples)
-
-| Category | Blocks (examples) | Allows (examples) |
-|---|---|---|
-| **Destructive fs** | `rm -rf /`, `rm -rf *`, `rm node_modules`, `sudo rm …`, `dd`, `mkfs`, `shred`, `chmod 777` | `rm -rf /tmp/x`, `rm -rf dist/`, `rm -rf .wrangler/cache` |
-| **Process killing** | `pkill node`, `killall wrangler`, `kill -9 1234`, `kill $(pgrep …)`, `… \| xargs kill` | `pkill -f 'wrangler dev'`, `grep -rn "kill -9" src/` |
-| **Git** | `git push --force`/`-f`, `git reset --hard`, `git clean -fd`, `git checkout -- .`, `git branch -D`, `git stash drop`/`clear`, agent-created worktrees (`git worktree add`; Claude `WorktreeCreate`) | `git push --force-with-lease`; `git worktree list/remove/prune` |
-| **DB / cloud / IaC / containers** | `DROP DATABASE`/`TRUNCATE`/`DELETE`-without-WHERE, `docker … prune`/`rm -f`, `kubectl delete`, `terraform destroy`, `pulumi destroy` | — |
-| **Info-flow / persistence** | env exfil (`env \| curl …`, `printenv \| nc …`), `.npmrc`/`.yarnrc` writes, `nohup curl … &`, `crontab -e`, `systemctl enable`, writes to `/etc/cron.d/`, `*.service` | — |
-| **Protected files** | Read/Write of `*.pem`/`*.key`; Write of `*.env*` **only if secrets detected**; **Delete** of CI configs, `migrations/**`, `.gitignore`, lockfiles, `Dockerfile` | `.env.example` / `.sample` |
-| **Sensitive-file read** | `Read` of `.env`, `credentials.json`, `service-account*.json`, `*.pem`/`*.key` | `.env.example` |
-| **Repo confinement** | any Write/Edit whose real (symlink-resolved) target is outside the repo root | paths under the allowlist / session scratchpad |
-| **Package installs** | any un-allowlisted `npm/pip/cargo/go/…` install; URL/git/tarball specs — see **interlinked-supply-chain** | allowlisted + exact-pinned |
-| **Bash-routed write bypass** | a `>` / `tee` redirect, `sed -i` / `perl -pi` / `gawk -i inplace` / `ex` / `ed` in-place edit, `patch` / working-tree `git apply`, or a wrapped form (`xargs`, `find -exec`, `timeout`) writing a tracked source file (dodges the content gate) | Write/Edit, `interlinked write`, or index-only `git apply --cached <patch>` |
-| **Applier-script execution** (`builtin-patch-applier`) | running an interpreter on a pre-existing throwaway script that writes into repo source | route the edit through Write/Edit; committed codegen belongs in `scripts/` |
-| **Bash-edit obligation** (`bash-edit-obligation`) | a bash-channel edit left an INTRODUCED `pre_block`-class finding on disk; the owning session's write-class calls to OTHER files are refused until it is fixed (edits to the flagged file and reads stay allowed; the gate re-checks and self-releases) | fix the flagged file first; unknown-writer findings do not acquire a guessed session owner |
-| **Hand-rolled patch applier** | a throwaway script in the scratchpad or `scratch/` that calls `writeFileSync`/`appendFileSync`/`write_text` on a path outside its sandbox (`"src/…"`, `process.cwd()`, `../`) — a re-implementation of Edit with the gates removed | probes that only READ repo source; scripts writing beside themselves; committed codegen under `scripts/` |
-| **Content pre_block** (introduced-only) | edit that *introduces* merge-conflict markers, `eval()`, and other zero-FP checks | pre-existing instances (warn, not block) |
-
-Inline interpreter writes (`builtin-interpreter-write`) require evidence about the
-write's own destination: a literal source path or a simple variable binding to it.
-Reading or hashing a source file while writing a JSON ledger does not establish a
-source edit. The guard does not pair unrelated filenames with writes elsewhere in
-the program. Reassigned, shadowed or otherwise unresolved destinations are not
-grounds for this hard block; computed-write warnings remain advisory. Actual
-source writes still belong in Write/Edit or the supported Interlinked write flow.
 
 ## When you're BLOCKED: what to do
 
@@ -372,74 +126,84 @@ An agent must not create a Git worktree to route around shared-workspace policy.
 current workspace. If isolation is genuinely required, ask a human operator to provision an
 approved worktree; listing and cleanup of existing worktrees remain allowed.
 
+## What gets blocked (with concrete examples)
+
+| Category | Blocks (examples) | Allows (examples) |
+|---|---|---|
+| **Destructive fs** | `rm -rf /`, `rm -rf *`, `rm node_modules`, `sudo rm …`, `dd`, `mkfs`, `shred`, `chmod 777` | `rm -rf /tmp/x`, `rm -rf dist/`, `rm -rf .wrangler/cache` |
+| **Process killing** | `pkill node`, `killall wrangler`, `kill -9 1234`, `kill $(pgrep …)`, `… \| xargs kill` | `pkill -f 'wrangler dev'`, `grep -rn "kill -9" src/` |
+| **Git** | `git push --force`/`-f`, `git reset --hard`, `git clean -fd`, `git checkout -- .`, `git branch -D`, `git stash drop`/`clear`, agent-created worktrees (`git worktree add`; Claude `WorktreeCreate`) | `git push --force-with-lease`; `git worktree list/remove/prune` |
+| **DB / cloud / IaC / containers** | `DROP DATABASE`/`TRUNCATE`/`DELETE`-without-WHERE, `docker … prune`/`rm -f`, `kubectl delete`, `terraform destroy`, `pulumi destroy` | — |
+| **Info-flow / persistence** | env exfil (`env \| curl …`, `printenv \| nc …`), `.npmrc`/`.yarnrc` writes, `nohup curl … &`, `crontab -e`, `systemctl enable`, writes to `/etc/cron.d/`, `*.service` | — |
+| **Protected files** | Read/Write of `*.pem`/`*.key`; Write of `*.env*` **only if secrets detected**; **Delete** of CI configs, `migrations/**`, `.gitignore`, lockfiles, `Dockerfile` | `.env.example` / `.sample` |
+| **Sensitive-file read** | `Read` of `.env`, `credentials.json`, `service-account*.json`, `*.pem`/`*.key` | `.env.example` |
+| **Repo confinement** | any Write/Edit whose real (symlink-resolved) target is outside the repo root | paths under the allowlist / session scratchpad |
+| **Package installs** | any un-allowlisted `npm/pip/cargo/go/…` install; URL/git/tarball specs — see **interlinked-supply-chain** | allowlisted + exact-pinned |
+| **Bash-routed write bypass** | a `>` / `tee` redirect, `sed -i` / `perl -pi` / `gawk -i inplace` / `ex` / `ed` in-place edit, `patch` / working-tree `git apply`, or a wrapped form (`xargs`, `find -exec`, `timeout`) writing a tracked source file (dodges the content gate) | Write/Edit, `interlinked write`, or index-only `git apply --cached <patch>` |
+| **Applier-script execution** (`builtin-patch-applier`) | running an interpreter on a pre-existing throwaway script that writes into repo source | route the edit through Write/Edit; committed codegen belongs in `scripts/` |
+| **Bash-edit obligation** (`bash-edit-obligation`) | a bash-channel edit left an INTRODUCED `pre_block`-class finding on disk; the owning session's write-class calls to OTHER files are refused until it is fixed (edits to the flagged file and reads stay allowed; the gate re-checks and self-releases) | fix the flagged file first; unknown-writer findings do not acquire a guessed session owner |
+| **Hand-rolled patch applier** | a throwaway script in the scratchpad or `scratch/` that calls `writeFileSync`/`appendFileSync`/`write_text` on a path outside its sandbox (`"src/…"`, `process.cwd()`, `../`) — a re-implementation of Edit with the gates removed | probes that only READ repo source; scripts writing beside themselves; committed codegen under `scripts/` |
+| **Content pre_block** (introduced-only) | edit that *introduces* merge-conflict markers, `eval()`, and other zero-FP checks | pre-existing instances (warn, not block) |
+
+Inline interpreter writes (`builtin-interpreter-write`) require evidence about the
+write's own destination: a literal source path or a simple variable binding to it.
+Reading or hashing a source file while writing a JSON ledger does not establish a
+source edit. The guard does not pair unrelated filenames with writes elsewhere in
+the program. Reassigned, shadowed or otherwise unresolved destinations are not
+grounds for this hard block; computed-write warnings remain advisory. Actual
+source writes still belong in Write/Edit or the supported Interlinked write flow.
+
+## Mental model
+- Each installed hook event ships its payload to the daemon over a Unix socket. The daemon runs an
+  ordered set of phases; **the first phase that returns a terminal decision wins**.
+- Framed daemon RPC validates each method's request shape, including nested hook metadata
+  and administrative arguments, before dispatch. The client accepts only matching-id responses
+  with the expected method result shape. Malformed frames do not become successful decisions;
+  the existing timeout and fallback behavior still applies.
+- Raw hook events also validate consumed field shapes before dispatch. The generated
+  hook's documented null optional fields normalize to absence; malformed identities,
+  controls and collections still fail closed. Future provider names and extra fields
+  remain supported. Replay records retain their stricter captured-record contract.
+- Local quality-check overrides validate each supplied field before merging it. Malformed
+  fields are ignored while valid fields and sibling checks survive; new checks require the
+  complete mandatory configuration. Team overrides affect existing checks only. Default
+  configuration copies preserve non-JSON values such as an unlimited (`Infinity`) step limit.
+- Content-scanner allowlists skip malformed entries. Known entry kinds require their declared
+  string fields; an unrecognized scanner runtime cannot select a backend. These checks apply
+  to these boundaries and do not imply that every legacy configuration section has a schema.
+- Decisions: `block` (tool refused, you see the reason), `ask` (human confirmation — Claude and
+  supported Cursor gates can ask natively; interactive Pi calls `ctx.ui.confirm`; headless Pi,
+  OpenCode's stable tool gate, Codex `PreToolUse`, Copilot, and Gemini deny instead;
+  Claude/Codex `PermissionRequest` allow/ask abstain so the provider retains authority),
+  or `allow` (may still carry non-blocking `warnings`, or an `updated_input` rewrite).
+- Built-in rules are regex patterns on the command/tool-input. Use `interlinked harness checks`
+  for the authoritative current inventory. Patterns are **ORed over positive entries;
+  `negate:true` patterns are exceptions.** `executed_only` masks
+  quoted/heredoc/comment text, so *mentioning* `rm -rf /` in an `echo` is allowed while the
+  bare command blocks. A quote around ONE shell word is an operand, not a mention: it stays
+  visible, so `truncate -s 0 "src/app.ts"` blocks like its unquoted twin, while a quoted body
+  with whitespace or a metacharacter (`git commit -m 'rm -rf /'`) stays masked. A quoted
+  argument of `eval` (or of `bash -c`, `python -c`, `node -e`) is code and is scanned. Compound
+  commands (`&&`, `||`, `;`, `|`, newline) are decomposed and each part checked.
+- If a stopping rule matches only data, you get `[interlinked:guard] rule <id> matched inside a
+  string literal (…); not blocked` instead of a block. Data here is a `harness test` argument, a
+  grep/rg pattern, an echo/printf argument, or a string in a `node -e`/`python3 -c` program with
+  no `child_process`/`subprocess`/`system`/`exec`. If the text can reach `sh`, `bash`, `eval`,
+  `xargs`, or a script that the same command runs, the block stands.
+- Python `open(...)` checks inspect executable calls and recognize write and append modes;
+  read-only calls and quoted examples do not establish a file write. Keep malformed tool
+  input tests at the raw hook-input boundary rather than passing invalid normalized events.
+- The log-output guard measures ordinary single-file `head`/`tail` windows of up to 200
+  lines before rejecting a file over 100 KiB. Small windows pass on large logs; a selected
+  line over the byte budget still blocks. Signed counts and unfamiliar option combinations
+  retain the file-size gate. Daemon and generated-hook paths use the same bounded reader.
+
+> **Two unrelated things are called "guard".** This skill is the **PreToolUse guard** (the
+> daemon, operated via `interlinked harness …`). `interlinked guard` is a separate **git
+> pre-commit/pre-push hook** that checks staged files against file reservations — see
+> **interlinked-coordination**.
+
 ## Warnings: `[proven]` vs `[heuristic]`
-
-### Filesystem observations and native control limits
-
-The daemon watches protected policy files and literal in-workspace reservation
-paths, then reconciles content identities periodically and at delivery boundaries.
-Writes by a shell, editor or agent can create durable pending verification entries.
-Writer identity is `unknown`; a reservation is not proof that its holder performed
-the write. Glob reservations, symbolic links, inaccessible or oversized files
-remain explicitly unmeasured. A stopped or unavailable observer cannot certify coverage.
-
-`harness coverage status --progress --json` reads cached observation time, generation
-and recovery counts without reconciling files or returning receipt history. Use it for
-progress, not to certify current bytes. Plain `harness coverage status --json` still
-reconciles and returns full evidence. Neither status command starts recovery.
-Starting verification returns a compact job acknowledgement. The waiting CLI refreshes
-current pending versions and the matching job's detailed results before declaring success,
-without copying historical receipts into each recovery response. An unmeasured check is
-not a successful verification, even if no findings or pending versions remain.
-While waiting, transient control outages are retried read-only for up to two
-minutes per outage (plus an in-flight RPC deadline), rather than failing after
-three timeouts. Terminal stderr reports the outage; JSON stdout remains one final
-document. A responsive report resets that outage window. Host permission denial
-and invalid control responses stop immediately; verification mutations are never
-automatically resubmitted after an ambiguous response.
-Receipts with nonempty `unavailable` retain completed checks as partial evidence while
-keeping the version pending. Retrying is not made unnecessary merely by having a receipt;
-safe cross-run reuse needs the relevant check input identities.
-
-Background coverage recovery runs ShellCheck and Taplo in file mode, sequentially
-under one project lease, with at most 32 inputs and a 30-second shared deadline
-per tool. Interactive multi-file requests still defer these file-only runners.
-Missing tools, truncated output, process failures and unparsed nonzero exits
-remain unavailable evidence; they cannot clear a pending version. Recovery may
-finish with pending versions when native test scopes or tools are missing, or
-when an observed file was deleted. Inspect the retained reasons before retrying;
-a completed job is not a claim that every version was checked.
-If a nested project's imported lint policy belongs to an ancestor project,
-background recovery waits for that policy project's lease within the existing
-tool deadline. Foreground checks still report contention immediately. Time spent
-waiting reduces the analyzer's remaining budget; it does not extend the job.
-
-`harness coverage accept-policy <digest>` records an explicitly reviewed current
-policy identity. It neither runs checks nor restores old policy bytes. A later
-Claude ConfigChange can refuse application of a differing identity, after the disk
-write has happened. This is not an immutable trust anchor or a universal policy
-reload interlock. Do not describe watcher readiness as baseline-integrity enforcement.
-
-Native translations are recorded in `.interlinked/hook-translations.jsonl` by the
-compiled entry point. A post-tool refusal may become context, continuation or batch
-cancellation; observational events cannot enforce a denial. Copilot/Gemini approval
-requests conservatively deny where native approval is not certified. Experimental
-Antigravity uses `force_ask`; Antigravity and Windsurf refuse a required input rewrite
-that their hook cannot apply. Read translation status separately from native enforcement.
-Harness-disable trajectory detection reads executable command positions, so a mutation-test
-filename containing `kill` is not a process-kill event. Failed commands do not establish a
-successful disable. A later event served by the daemon retires process/socket-outage suspicion;
-it does not retire a recorded weakening of `disabled_rules`. Shadow verdicts remain advisory
-and do not include a misleading `BLOCKED:` prefix.
-
-The optional-chain check uses syntax grouping: passing `value?.field` to a function and then
-accessing that function's result is different from `(value?.field).name`. Without optional
-TypeScript syntax support it cannot establish this finding; silence is not a clean verdict.
-SQL migration checks likewise cannot prove a column absent from an interpolated column list.
-For `it.each(table)(name, callback)`, assertion checks inspect the callback, not functions
-inside the data table. An unparsed callback cannot prove assertion absence; table assertions
-also cannot satisfy an assertion-free callback. A call to a same-file helper that asserts
-(directly or through another such helper), or to an `assertX(...)` function, counts as an assertion.
 
 Every warning is tagged. `[proven]` = a real compiler/linter/scanner/parser/test-runner
 produced it — authoritative, fix it. `[heuristic]` = regex/AST-shape match that could be a
@@ -477,7 +241,7 @@ calls multiplied that into unusable noise. Outage visibility is phase- and runti
 | Daemon unavailable, packaged PreToolUse runtime | an explicit `evaluator skipped` diagnostic; code edits also report function-token enforcement as not measured |
 | Daemon unavailable, generated PostToolUse runtime | may remain model-silent while recording local `no_harness` status |
 | `typescript` unresolvable (`--omit=optional` install) | a `[interlinked:self_import] NOT MEASURED` warning on every JS/TS edit — that pre_block check ran no scan and never guesses; the cyclomatic gate degrades to the regex walker; the daemon startup warning names both |
-| `self_import` cannot place the file in ONE project | the same `NOT MEASURED` warning on that edit only, naming the cause: a tsconfig on the walk (nearest config, its `extends`, its `references`, its sibling `tsconfig*.json` files) could not be parsed; two projects both claim the file; the reference walk hit its 32-project bound with projects unvisited; no config in reach claims the file by a `files`/`include` pattern (a `.js`/`.jsx`/`.mjs`/`.cjs` importer is matched by pattern even when the project never enables `allowJs` — a JS self-import is a runtime fact); or the importer's directory is not on disk yet. The check resolves with the project's own compiler options and caches nothing, so fixing the config applies on the next edit. In a batch (`write --batch`, `multi-edit`, `verify-changeset`) it sees the whole proposed batch, and the baseline is judged against the disk |
+| `self_import` cannot place the file in ONE project | the same `NOT MEASURED` warning on that edit only (for a probe under the repo-root `scratch/` it is a one-line notice with no remedy, because no tsconfig includes `scratch/` by design), naming the cause: a tsconfig on the walk (nearest config, its `extends`, its `references`, its sibling `tsconfig*.json` files) could not be parsed; two projects both claim the file; the reference walk hit its 32-project bound with projects unvisited; no config in reach claims the file by a `files`/`include` pattern (a `.js`/`.jsx`/`.mjs`/`.cjs` importer is matched by pattern even when the project never enables `allowJs` — a JS self-import is a runtime fact); or the importer's directory is not on disk yet. The check resolves with the project's own compiler options and caches nothing, so fixing the config applies on the next edit. In a batch (`write --batch`, `multi-edit`, `verify-changeset`) it sees the whole proposed batch, and the baseline is judged against the disk |
 | a batch rewrites a file of the project's configuration graph — the selected tsconfig, any file its `extends` chain reaches (whatever it is called, `base.json` included), or any `tsconfig*.json` / `jsconfig.json` / `package.json` | each TypeScript entry of that batch carries a `type checker cannot see the proposed configuration` row (error for transactional callers) — the checker reads the disk's config; land the configuration change first, then the sources |
 | a batch includes a member whose bytes equal the disk beside members that differ | the unchanged member is still type-checked, against the proposed siblings (a changed exporter can break an untouched consumer); `multi-edit` validates every manifest member and writes only the changed ones. Only a batch whose members are ALL unchanged skips the check. A config member whose bytes equal the disk is not a configuration rewrite |
 | the type checker cannot place the file in ONE project | `type checker unavailable (project_orphan: …)` or `(project_ambiguous: …)` on that edit — a warning on the hook path, an error for transactional callers. The compiler judges each file under the SAME project `self_import` selects (nearest config, `references`, sibling `tsconfig*.json`, membership by pattern; one program per governing config) and never under the project root's config by guess. Its disk baseline is recomputed on every check, so a dependency repaired or broken on disk is reflected the next time the file is judged. A warm compiler service is rebuilt when the CONTENT of any file of its configuration graph (the tsconfig or an `extends` target) changes on disk, re-reads the project's root files on every reuse (a declaration file added or removed on disk joins or leaves the program), sees a dependency rewritten on disk by its compiler TEXT (every UTF-16 code unit is preserved, including lone surrogates; a touch that changes no text does not count; each check reads a file once, so what it compiles is what it fingerprinted), forgets a proposal the moment its check ends (a refused proposal never colours a later check), and a configured project with no source on disk yet still measures the first source written into it |
@@ -519,55 +283,57 @@ module/suite arrays, shared aliases, and prototype methods still need restoratio
 Source headers and `docs/design/test-discrimination-checks.md` describe limits and
 calibration. A corpus hit count is not precision or proof of a surviving mutant.
 
-## Bash effects and sandbox evidence
+## Instruction packets: `[interlinked:packet]` (opt-in; warn, or ask at cosign)
 
-Do not trust a tool name as proof that no file changed. For Bash and other potentially mutating
-tools, the daemon snapshots Git-visible files plus standalone ignored local files (for example
-`.env`, while collapsing bulk ignored directory trees) before the call and attaches the observed
-created/modified/deleted ChangeSet after it. PostToolUse file checks prefer those observed paths over
-command text or runner-declared paths.
+An instruction-file rule that no regex can decide alone (CLAUDE.md, AGENTS.md,
+memory) can be compiled into a *packet*: a deterministic trigger, a regex
+decider for what IS decidable, and one Jev yes/no question for the residue
+(`docs/design/instruction-jev-evaluator.md`). Off unless `packets.enabled` and
+`jev.enabled` are set in `guard-rules.local.json` with an explicit
+`evidence_consent`. Nothing a packet says ever blocks; only a `cosign` packet can turn an allow into an ask.
 
-**A read-only tool contributes no observed paths.** The ChangeSet is a diff of the window the call
-occupied, not a record of what the call did, so on `Read` / `Glob` / `Grep` / `WebFetch` /
-`WebSearch` / `TodoRead` / `NotebookRead` / `ListFiles` every path in it was written by somebody
-else — another agent on the same tree, a background test run, a watcher. Those calls are charged
-nothing and run no file checks. `Bash` is NOT in that set and keeps its ChangeSet (it is the
-bash-edit obligation channel), and neither is an unknown tool, so a new writer cannot open the
-bypass by using an unfamiliar name. The list is one definition, at
-`src/lib/hook-read-only-tools.ts`. Claude Code's PostToolUse hook is also registered only for
-`Write|Edit|MultiEdit|NotebookEdit|Bash`; Codex keeps the all-tools matcher because `apply_patch`
-arrives through it. Reservation handling parses every `apply_patch` section destination and move
-source once; PreToolUse grants and PostToolUse idle-release scheduling consume the same ordered,
-de-duplicated path list. It preflights that full list before granting, so a later blocking path
-cannot strand an earlier lease when the tool never runs and therefore has no PostToolUse.
+A delivered line looks like:
 
-A Stop-time `[interlinked:effect-residue]` warning means a
-PostToolUse was missing/unreconciled; the observed files were added to the touched-file rescan.
-Effects reconciled by another actor are excluded (the warning reports the excluded count) — this
-includes another session and a sibling subagent that shares the same Codex session id, so one
-parallel actor is not charged for another's work. Actor identity is evidence-bounded: Interlinked
-uses the stable subagent id when Codex supplies one and otherwise stays at root-session scope.
-Persisted pre-upgrade rows with no actor field remain conservatively session-scoped; new rows
-distinguish a known root from a known child across daemon restarts.
-The noisy `.interlinked/` runtime tree stays collapsed, but its exact local policy/control files are
-observed and cannot be silenced by `skip_paths`.
+```
+[interlinked:packet] [heuristic] prefer-rg p=0.91 ≥ τ 0.85 — "Prefer `rg` over `grep`/`find` …" (CLAUDE.md)
+  ↳ evidence: grep -rn "foo" src
+  ↳ adjudicate: interlinked packets adjudicate prefer-rg:3f9a1c2e:248:1a2b3c4d:5e6f7a8b true|false|unsure
+```
 
-Interpret `[interlinked:sandbox]` as evidence visible to the hook:
+It appears only for a packet at `warn` or `cosign` whose judgment crossed its
+measured tau on THIS runner and model, or whose deterministic `violated`
+pattern matched. A trajectory finding (a rule over a whole turn, judged at Stop;
+the line names the call by seq) rides the NEXT tool call's warnings, because a
+Stop warning reaches no agent. Read it as a `[heuristic]` finding: follow the quoted rule if
+it applies; if the warning is wrong, say so with the printed adjudicate command
+(`true` = the rule was violated, `false` = false positive). Adjudications feed
+`interlinked packets calibrate score` as a labeler and demote a packet whose
+precision falls. A packet promoted to `cosign` (explicit, after enough
+adjudications) can turn an `allow` into an `ask` before a call runs, but only while one of its
+`cosignals` names a rule the guard runs here (the rule whose allow it tightens; the ask names that
+rule). `interlinked packets status` shows each cosign packet's pair, or `UNPAIRED`, with its asks
+delivered and withheld. A cosign packet never turns anything into a block, and never loosens a block or an ask. Do not edit `.interlinked/instruction-packets.json` by hand:
+it is a water-line; `packets compile`, `packets calibrate score --apply`,
+`packets release` and `packets restore` are the only writers.
 
-- `attested` — the runner marked this call sandboxed;
-- `configured` — restrictive client config was found, but a CLI/profile override may differ;
-- `disabled` — the call/config explicitly selected unsandboxed/escalated execution; or
-- `unknown` — no trustworthy evidence reached the hook.
-
-A workspace-write sandbox limits blast radius but still writes the real project, so it is
-defense-in-depth, not rollback. Do not rerun or rewrite a command to evade this warning. For changes
-that require rejection before disk, use Edit/Write or gated `interlinked write`/`multi-edit`.
-The transactional commands share the content gate and commit lock. They capture target state
-before checking, abort on target drift, preserve modes, and refuse rollback over newer edits.
-Unavailable Biome or TypeScript checks abort a transaction. Re-read and re-gate a conflicted
-proposal; consult **interlinked-verify** for the command contracts and transaction limits.
-The observer is bounded ordinary-process evidence: concurrent writers can cause conservative extra
-attribution, and an incomplete snapshot is never proof of absence.
+A line of the form `[interlinked:packet <id>] not live here (<reason>); instruction released from <file>, verbatim:` followed by
+rule text means that rule's words were RELEASED from the instruction file (`interlinked packets release <file>`, allowed only
+for a packet at warn/cosign, never from a global `~/` file) and the packet is not enforcing it in this session (Jev off, no key, the file changed since
+compile, demoted, another runner, daemon down, spend cap). Follow the quoted text exactly as if it were still in the file. It arrives at SessionStart on Claude Code, Codex and Factory Droid, and
+on the first model-visible tool call of the session on Copilot, Gemini, Cursor, OpenCode and Pi (their SessionStart hook is not model-visible).
+It arrives again on a later tool call when a packet stops being live mid-session (spend cap, Jev outage, a slow judgment),
+and on every model-visible PostToolUse with the daemon down (and at every SessionStart) until the hook records that the model received it
+(`.interlinked/packet-fallback-delivered.jsonl`; the hook writes a receipt only when the line reached a model-visible channel whole).
+`interlinked packets budget [--runner <id>]` shows, per instruction file, what is held by Pass 1 rules, by live packets
+(net releasable characters, or 0 with the reason the release would refuse), by releases (live, or `released_fallback` when not live
+for that runner), and by shadow packets; `interlinked packets restore <file>` puts released text back byte-for-byte.
+If release or restore reports an interrupted run, run `interlinked packets restore <file>`: the words are always in at least one place.
+If release, restore, `packets compile` or `packets calibrate score --apply` reports that another run holds `.interlinked/instruction-packets.json.lock`, or is taking over a stale lock, run it again when that run ends; a dead holder's lock is taken over.
+If one reports that a killed run left a takeover guard (`…lock.takeover-<hex>`) and no packet command is running, delete that file and run again.
+If release or restore reports that the instruction file is not valid UTF-8, fix the bytes first; neither command changes a file it cannot decode exactly.
+If a release reports that a span holds another packet's pointer line, restore that packet first, then release.
+A write that clears a release while the instruction file still holds only its pointer is refused (`release-removed`): run `interlinked packets restore <file>` instead.
+Judgment ids carry an 8-hex token of the whole session id; labels saved under the older session-prefix form still join where unambiguous.
 
 ## Compiler acceleration
 
@@ -685,6 +451,9 @@ never inferred read-only from their text. Restore the runtime before relying on 
   Neither has dedicated native MCP, subagent, or worktree lifecycle events. Do not infer an
   absent event from silence; the shared `git worktree add` shell block still applies.
 - **PII content scanner** is separate and opt-in: `interlinked scanner on|off|toggle|status|review`.
+  Toggle commands fail and preserve malformed or non-object local guard rules for repair.
+  Review selects the newest pending item when `--key` is omitted. Explicit empty or
+  whitespace-only keys fail before writing a decision.
 - **Decision shadows** (opt-in `decision_shadow` in guard-rules.local.json) log a model's
   second opinion and never change a verdict. A `guard_block` row means a shell block was
   asked "is this destructive as written?": `would_release` (p < 0.1476) says the model saw
@@ -708,54 +477,20 @@ interlinked index query "<pattern>"            # what the grep accelerator would
 interlinked harness restart                    # reload everything (clears trajectory)
 ```
 
+## References
+
+Read a reference file only when the task needs it.
+
+- [references/guard-prediction.md](references/guard-prediction.md): the guard-prediction oracle, its receipts and reveals, `PostToolBatch` check coalescing, Stop advisories, external-path checks and warning-occurrence records.
+- [references/managed-push.md](references/managed-push.md): the managed push handoff for protected pushes, its typed fallbacks and the trace variables.
+- [references/guard-notes.md](references/guard-notes.md): commit-time function-token diagnostics, `INTERLINKED_RUNTIME_POLICY=local-restricted`, remote-pipe detection and `[interlinked:decision-metrics]` advice.
+- [references/filesystem-observations.md](references/filesystem-observations.md): watched policy files, `harness coverage status`, background coverage recovery, `accept-policy`, native translations and the optional-chain check.
+- [references/bash-effects.md](references/bash-effects.md): Bash effect ChangeSets, `[interlinked:effect-residue]` and `[interlinked:sandbox]` evidence.
+- [references/permission-proposals.md](references/permission-proposals.md): permission-learner proposals, dormant `active_when` predicates, the baseline-effect guard and NOT CHECKED detector failures.
+- [references/typescript-history.md](references/typescript-history.md): the opt-in `session_tsc_history` Stop check.
+
 ## Related skills
 - **interlinked-verify** — the check catalog behind the warnings, `interlinked verify`, and how to land edits through the gates.
 - **interlinked-quality-gates** — advisory file size and the coverage/complexity/function-token ratchets.
 - **interlinked-supply-chain** — the package-install gate in detail.
 - **interlinked-setup** — starting/restarting the daemon, `doctor`, config.
-
-## Permission proposals and unavailable checks
-
-The permission learner is suggestion-only. Crossing an observation threshold does not write Claude permissions or guard rules. Proposals retain the observed command and conservative pattern; observations do not prove approval or execution. Interpreter-wide and compound-command proposals are withheld. Cross-session `learned-rules.json` is observational proposal history, including its legacy `decision: allow` field; it is not effective authorization. Existing explicit permissions remain operator-owned.
-
-Unknown `active_when` session predicates leave a distilled rule dormant with a diagnostic. The registered predicate is `active_agent_count_at_least` with `count`; do not substitute invented predicates or the legacy top-level `session_predicate` shape. See **enforce** for supported typed conditions.
-
-Existing top-level `session_predicate` fields retain their historical unconditional matching and the operator's enabled setting, with a migration diagnostic. They are not evaluated conditions. Migrate them explicitly to supported `active_when` rather than silently disabling existing guards.
-
-The baseline-effect guard compares bounded pre-call snapshots with the files after a tool
-call and restores the WHOLE pre-call file when a protected water-line loosened. Reapply any
-legitimate tightening that shared the same file. Restore audits live in
-`.interlinked/baseline-undo/restored/`; a failed restore leaves recovery evidence and a warning.
-Mutation-manifest changes and first-time seeding of an absent complexity metric are record-only:
-review and restore inappropriate changes yourself. Intentional resets require the operator's
-`INTERLINKED_DISABLE_BASELINE_GUARD=1` in the daemon environment; putting it in tool text
-does not authorize a reset. Dry runs neither restore nor record.
-
-Snapshots do not cover unbracketed background writes, oversized files, or an absent prior
-water-line. A concurrent write inside another call's bracket may be attributed to that call.
-Unresolvable Vitest denominator/config comparisons report NOT CHECKED, not a guessed restore.
-This local guard is not an immutable security boundary. Explicit edit aliases, including
-VS Code replacement arrays, are normalized per target file; shell wrappers retain their cwd
-when checking commits and baseline writes. Read-only shell examples are not edits.
-
-A thrown sequence detector or failed Stop scan records NOT CHECKED evidence while healthy detectors continue. Stop rescans are confined to the selected repository, including resolved symlink targets. External memory/config writes retained in session history are reported out of scope; they cannot launch another project's scan or receive repository check receipts. Project-aware detectors receive absolute paths in that repository. Endpoint checks build a project graph only when a finding requires reachability annotation. An instrumentation failure is not a source violation or a clean scan. LTL remains shadow-only: its event-clock.v1 counts PreToolUse and PostToolUse separately, including a paired tool-use ID. Open finite-trace obligations remain unknown at Stop; predicate exceptions taint that property and cannot manufacture violations. No local control-file guard is an immutable security boundary.
-
-Each throwing trajectory rule produces unavailable shadow telemetry while peer rules and the LTL monitor continue. Adapter failures also retain unavailable telemetry without changing the enforcement decision.
-
-## Opt-in TypeScript history at Stop
-
-`verification_stop_checks.session_tsc_history` defaults to `false`. Setting it
-to `true` appends advisory context only when the existing unverified-code Stop
-warning already fires. It reads up to the final 8 MiB of this repository's
-`.interlinked/check-results.jsonl`, using only the same session's executed
-TypeScript outcomes strictly before Stop and within the preceding hour.
-At least three valid runs and `(finding runs + 1) / (runs + 2) >= 0.5` are
-required; the latest valid run must still report a finding. Counted outcomes
-must carry a nonempty invocation ID; repeated IDs count only once. Missing, skipped,
-deferred, timeout and process/resource failure evidence does not count as a
-clean run. A later no-reported-findings result suppresses the addendum.
-
-This is a reported-finding history hint, not proof of full compile failure or
-success, not a per-edit risk score, and never a hard block. It does not change
-the TypeScript scheduler. Partial or unavailable log history can suppress the
-hint. Continue to use actual verification evidence for the final outcome.

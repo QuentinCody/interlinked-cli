@@ -58,8 +58,9 @@ serve. Existing legacy installs remain compatibility paths. Build an unbuilt che
 then refresh hooks with `interlinked install-hooks --refresh --preserve-mode`.
 
 Claude FileChanged has no static matcher; dynamic `watchPaths` are returned at
-SessionStart, CwdChanged and FileChanged. PostToolUseFailure remains parse-only to
-preserve the existing duplicate-hook-output policy. PostToolBatch cancels the loop
+SessionStart, CwdChanged and FileChanged. PostToolUseFailure is installed with the
+PostToolUse matcher: Claude Code 2.1.325 reports a failed Bash call only on that event.
+The daemon processes one completion per `tool_use_id`. PostToolBatch cancels the loop
 before another model request; it does not undo any tool. FileChanged and PostCompact
 are observational. Copilot responses are phase-specific, and Gemini receives its
 own JSON contract, including a valid empty response. Unsupported approval requests

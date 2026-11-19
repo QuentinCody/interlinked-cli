@@ -24,7 +24,7 @@ not static proofs or new automatic blockers. See **interlinked-quality-gates** f
 
 | Command | Scope and effect |
 |---|---|
-| `interlinked simplify scan [--cwd <path>] [--json] [--record]` | Run the deterministic repository scan. |
+| `interlinked simplify scan [--cwd <path>] [--json] [--record]` | Run the deterministic repository scan. Generated, vendored and minified source is set aside by the `metrics score` source roles (v5) before detection; the JSON carries `population` and lists the set-aside files under `coverage.excluded_paths`. |
 | `interlinked simplify review [--changed\|--staged\|--range <base..head>] [--deep-handoff] [--json] [--record]` | Emit findings for one git-selected path set while retaining whole-repo context. `--changed` is the default; the three selectors are mutually exclusive. |
 | `interlinked simplify audit [--deep-handoff] [--json] [--record]` | Run the deterministic repository audit. `--deep-handoff` embeds a portable Agent CI request but does not submit it. |
 | `interlinked simplify status [--cwd <path>] [--json]` | Read locally recorded run receipts and their materialized common-corpus findings. No network. |
@@ -44,8 +44,8 @@ callers and domain contract before applying advice; retain useful abstraction bo
 
 ## Metrics deletion trials
 
-For explained verbosity and erosion, `metrics diagnostics --profile js-ts|python [--json]`
-provides separate, versioned line-overlap and complexity-contribution profiles. Neither is a
+For explained verbosity and erosion, `metrics diagnostics [--profile auto|js-ts|python] [--json]`
+(default `auto`: chosen by the tree's product-file languages) provides separate, versioned line-overlap and complexity-contribution profiles. Neither is a
 benchmark-compatible score or removal proof. `simplify review --diagnostics js-ts|python`
 explicitly adds its clone/pattern candidates to the normal scoped review, overlap groups,
 coverage receipts and optional `--record` flow. It runs a full census for clone context, then

@@ -777,9 +777,8 @@ Run the default high-signal external catalog plus diff-safe inline checks.
 Target can be a local path, GitHub URL, or any git remote URL.
 
 Options:
-  --only <tool>             Run one named external check (for example: tsc,
-                            biome, oxlint, eslint, semgrep, gitleaks, knip,
-                            docs-check, sca)
+  --only <tool>             Run one named external check (e.g. tsc, biome,
+                            gitleaks, sca). Semgrep requires --only semgrep.
   --timeout <ms>            Whole command deadline in milliseconds (default: no
                             deadline; 0 disables)
   --tool-timeout <ms>       External analyzer deadline in milliseconds
@@ -796,7 +795,7 @@ Options:
   --branch <ref>            Branch, tag, or commit to check (remote repos)
   --subdir <path>           Only scan a subdirectory (useful for monorepos)
   --skip <checks>           Skip specific checks (comma-separated:
-                            semgrep,knip,complexity,silent_catches,...)
+                            gitleaks,knip,complexity,silent_catches,...)
   --suppress <entries...>   Suppress a finding: file:check or file:check:reason
   --show-suppressions       List all active suppressions
   --structure               Include generic artifact structure checks
@@ -909,7 +908,7 @@ complexity, and CRAP
 Options:
   --cwd <path>                        Project root (default: current directory)
   --top <n>                           Number of function/file token and CRAP
-                                      hotspots to show (default: 25)
+                                      hotspots to show, 1 to 200 (default: 25)
   --include-tests                     Include test/spec functions as advisory
                                       token measurements
   --json                              Machine-readable output (full per-file +
@@ -1191,8 +1190,10 @@ Options:
   --cwd <path>                        Repository root
   --json                              Machine-readable result
   --short                             Compact summary
-  --profile <name>                    js-ts (default) or python; separate
-                                      counting contracts
+  --profile <name>                    auto (default: by product-file languages:
+                                      js-ts, python, or one report per language
+                                      for a mixed tree), js-ts, or python;
+                                      separate counting contracts
   -h, --help                          display help for command
 
 Commands:
