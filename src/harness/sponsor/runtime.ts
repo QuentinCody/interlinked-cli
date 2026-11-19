@@ -96,21 +96,11 @@ const FLUSH_INTERVAL_MS = 5 * 60 * 1000;
 /** Dedup-memory bound for (creative, window) impression keys. */
 const MAX_COUNTED_KEYS = 500;
 
-export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime {
-	const fetchImpl = opts.fetchImpl ?? fetch;
-	const now = opts.now ?? (() => Date.now());
-	const log = opts.log ?? ((): void => undefined);
-
+function createFeedLoader(interlinkedDir: string, fetchImpl: typeof fetch, now: () => number, log: (msg: string) => void) {
 	let feed: SponsorFeed | null = null;
-	let feedFetchedAt = 0;
-	let lastFlushAt = now();
-	let wasEnabled: boolean | null = null;
-	let inFlight = false;
-	const countedKeys = new Set<string>();
-
-	async function refreshFeed(feedUrl: string): Promise<void> {
-		const due = feed === null || now() - feedFetchedAt >= FEED_REFRESH_MS;
-		if (!due) return;
+	let feedFetchedAt: number | null = null;
+	async function refreshFeed(feedUrl: string): Promise<SponsorFeed | null> {
+		if (feedFetchedAt !== null && now() - feedFetchedAt < FEED_REFRESH_MS) return feed;
 		// Mark the attempt time even on failure so an unreachable Worker is
 		// retried once per refresh interval, not once per tick.
 		feedFetchedAt = now();
@@ -119,13 +109,14 @@ export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime
 			const verified = verifyWire(wire);
 			if (verified) {
 				feed = verified;
-				saveCachedWire(opts.interlinkedDir, wire);
+				saveCachedWire(interlinkedDir, wire);
 				log(`[sponsor] feed refreshed: ${verified.creatives.length} creative(s)`);
-				return;
+				return feed;
 			}
 			log("[sponsor] fetched feed failed verification — ignoring");
 		}
 		if (feed === null) feed = loadVerifiedCachedFeed();
+		return feed;
 	}
 
 	/**
@@ -133,12 +124,19 @@ export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime
 	 * so local tampering cannot inject content.
 	 */
 	function loadVerifiedCachedFeed(): SponsorFeed | null {
-		const cached = loadCachedWire(opts.interlinkedDir);
+		const cached = loadCachedWire(interlinkedDir);
 		if (!cached) return null;
 		const verified = verifyWire(cached);
 		if (verified) log("[sponsor] using verified cached feed");
 		return verified;
 	}
+
+	return refreshFeed;
+}
+
+function createImpressionRecorder(opts: SponsorRuntimeOptions, fetchImpl: typeof fetch, now: () => number) {
+	let lastFlushAt = now();
+	const countedKeys = new Set<string>();
 
 	function recordImpression(
 		settings: SponsorRuntimeSettings,
@@ -172,6 +170,22 @@ export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime
 		await flushBeacons(opts.interlinkedDir, url, fetchImpl);
 	}
 
+	return async (settings: SponsorRuntimeSettings, creativeId: string, campaign: string): Promise<void> => {
+		recordImpression(settings, creativeId, campaign);
+		await maybeFlush(settings);
+	};
+}
+
+export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime {
+	const fetchImpl = opts.fetchImpl ?? fetch;
+	const now = opts.now ?? (() => Date.now());
+	const log = opts.log ?? ((): void => undefined);
+
+	const loadFeed = createFeedLoader(opts.interlinkedDir, fetchImpl, now, log);
+	const recordAndFlush = createImpressionRecorder(opts, fetchImpl, now);
+	let wasEnabled: boolean | null = null;
+	let inFlight = false;
+
 	/** Write the disabled marker once per state change, not every tick. */
 	function markDisabled(): void {
 		if (wasEnabled !== false) {
@@ -184,7 +198,7 @@ export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime
 	 * Publish this window's creative to `sponsor.status`, or clear the status
 	 * when the feed has nothing to show, then count the impression.
 	 */
-	async function publishCurrentCreative(settings: SponsorRuntimeSettings): Promise<void> {
+	async function publishCurrentCreative(settings: SponsorRuntimeSettings, feed: SponsorFeed | null): Promise<void> {
 		const current = feed === null ? null : selectCreative(feed, now());
 		if (!current) {
 			clearSponsorStatus(opts.interlinkedDir);
@@ -201,8 +215,7 @@ export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime
 			clickUrl,
 		});
 		if (settings.telemetry) {
-			recordImpression(settings, current.id, current.campaign);
-			await maybeFlush(settings);
+			await recordAndFlush(settings, current.id, current.campaign);
 		}
 	}
 
@@ -216,8 +229,8 @@ export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime
 				return;
 			}
 			wasEnabled = true;
-			await refreshFeed(settings.feedUrl);
-			await publishCurrentCreative(settings);
+			const feed = await loadFeed(settings.feedUrl);
+			await publishCurrentCreative(settings, feed);
 		} catch (e) {
 			// Prime directive: sponsor work never disturbs the daemon.
 			void e;

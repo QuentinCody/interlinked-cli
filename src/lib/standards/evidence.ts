@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { CHECK_REGISTRY } from "../../harness/check-registry/index.js";
-import type { CheckRegistration, InlineSourceEvidence } from "../../harness/check-registry/types.js";
+import type { CheckRegistration, InlineMatch, InlineSourceEvidence } from "../../harness/check-registry/types.js";
 import { withCheckRoot } from "../../harness/checks/check-root.js";
 import { withForegroundCheckScan } from "../../harness/checks/check-scan-policy.js";
 import { parseTsSource } from "../../harness/checks/cyclomatic-ast.js";
@@ -58,21 +58,28 @@ function syntaxEvidence(file: InventoryFile, report: StandardsEvidence): void {
 		determinism: null, suppressed: false, suppression: null }));
 }
 
+function detectorOccurrence(
+	file: InventoryFile, check: CheckRegistration, match: InlineMatch,
+	suppression: StandardsOccurrence["suppression"], captureState: SuppressionCapture["state"] | undefined,
+): StandardsOccurrence {
+	return identify({ file: file.path, role: file.role, sourceHash: file.sha256, rule: check.id,
+		...(match.sourceEvidence ? { sourceEvidence: match.sourceEvidence.map(source => ({ ...source })) } : {}),
+		kind: check.determinism === "fully_deterministic" ? "detector_match" : "semantic_candidate", determinism: check.determinism,
+		line: match.line, column: null, endLine: match.endLine ?? null, startOffset: match.startOffset ?? null, endOffset: match.endOffset ?? null,
+		text: match.text, detail: check.description, suppressed: suppression !== null, suppression,
+		...(captureState ? { suppressionState: captureState === "invalid" && suppression === null ? "unknown" as const : "known" as const } : {}) });
+}
+
 function detectorEvidence(root: string, file: InventoryFile, check: CheckRegistration, coverage: StandardsCheckCoverage, report: StandardsEvidence, capture?: SuppressionCapture): void {
 	try {
 		const run = withForegroundCheckScan(() => withCheckRoot(root, () => check.fn(file.content, join(root, file.path))));
-		coverage[run.notMeasured.length ? "unknownFiles" : "measuredFiles"]++;
 		for (const reason of run.notMeasured) report.notMeasured.push(`${file.path}: ${reason}`);
 		const inline = scanInlineSuppressions(file.content), suppressed = capture ? capture.forFile(file.path) : loadFileSuppressions(join(root, ".interlinked"), file.path);
 		for (const match of run.result) {
 			const suppression = suppressed.has(check.id) ? "file" : inline.get(match.line)?.has(check.id) ? "inline" : null;
-			report.occurrences.push(identify({ file: file.path, role: file.role, sourceHash: file.sha256, rule: check.id,
-				...(match.sourceEvidence ? { sourceEvidence: match.sourceEvidence.map(source => ({ ...source })) } : {}),
-				kind: check.determinism === "fully_deterministic" ? "detector_match" : "semantic_candidate", determinism: check.determinism,
-				line: match.line, column: null, endLine: match.endLine ?? null, startOffset: match.startOffset ?? null, endOffset: match.endOffset ?? null,
-				text: match.text, detail: check.description, suppressed: suppression !== null, suppression,
-				...(capture ? { suppressionState: capture.state === "invalid" && suppression === null ? "unknown" as const : "known" as const } : {}) }));
+			report.occurrences.push(detectorOccurrence(file, check, match, suppression, capture?.state));
 		}
+		coverage[run.notMeasured.length ? "unknownFiles" : "measuredFiles"]++;
 	} catch (error) {
 		coverage.unknownFiles++;
 		report.notMeasured.push(`${file.path}: ${check.id}: ${error instanceof Error ? error.message : String(error)}`);

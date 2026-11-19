@@ -145,6 +145,26 @@ describe("startSponsorRuntime", () => {
 		};
 	}
 
+	it("waits a refresh interval after a failed cold fetch without a cache", async () => {
+		let clock = 0;
+		const fetchImpl = vi.fn(async () => new Response(null, { status: 503 }));
+		const runtime = startSponsorRuntime({
+			interlinkedDir: dir, readSettings: () => settings(), hasRecentActivity: () => false,
+			fetchImpl, now: () => clock,
+		});
+		try {
+			await runtime.tick();
+			clock = 15 * 60_000 - 1;
+			await runtime.tick();
+			expect(fetchImpl).toHaveBeenCalledTimes(1);
+			clock++;
+			await runtime.tick();
+			expect(fetchImpl).toHaveBeenCalledTimes(2);
+		} finally {
+			runtime.dispose();
+		}
+	});
+
 	it("writes a disabled status and never fetches when the flag is off", async () => {
 		const calls: Call[] = [];
 		const rt = startSponsorRuntime({

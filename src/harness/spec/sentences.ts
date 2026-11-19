@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { extractHeadings } from "./extract-refs.js";
 import { maskCodeSpans } from "./extract-refs-masking.js";
+import type { HeadingInfo } from "./types.js";
 
 export const SENTENCE_GRAMMAR = "spec-sentences.v1";
 export type SentenceClass = "requirement" | "rationale" | "example" | "note";
@@ -65,36 +66,63 @@ function definitionIds(text: string): string[] {
     return id ? [id] : [];
 }
 
-export function parseSpecSentences(doc: string, text: string): SpecSentence[] {
+type SentenceLine =
+    | { kind: "heading"; heading: HeadingInfo }
+    | { kind: "boundary" }
+    | { kind: "anchor"; anchor: string }
+    | { kind: "text"; line: string; number: number; code: boolean; startsBlock: boolean };
+
+function classifySentenceText(line: string, number: number, code: boolean): SentenceLine {
+    if (code) return { kind: "text", line, number, code, startsBlock: false };
+    const anchor = /^\s*<a\s+(?:id|name)=["']([\w.-]+)["'][^>]*>\s*(?:<\/a>)?\s*$/.exec(line)?.[1];
+    if (anchor) return { kind: "anchor", anchor };
+    if (!line.trim() || /^\s*(?:\|?[\s:|-]+\||[-*_]{3,})\s*$/.test(line)) return { kind: "boundary" };
+    const startsBlock = /^\s*(?:[-*+]\s|\d+[.)]\s|\|)/.test(line);
+    return { kind: "text", line, number, code, startsBlock };
+}
+
+function* sentenceLines(text: string): Generator<SentenceLine> {
     const lines = text.split(/\r?\n/), codeLines = new Set<number>();
     const { headings, headingLines } = classifyMarkdownLines(lines, codeLines);
+    const headingAt = new Map(headings.map(heading => [heading.line, heading]));
+    let comment = false;
+    for (const [index, line] of lines.entries()) {
+        const number = index + 1, heading = headingAt.get(number);
+        if (heading) yield { kind: "heading", heading };
+        if (headingLines.has(number)) continue;
+        const code = codeLines.has(number);
+        if (!code && (comment || /^\s*<!--/.test(line))) {
+            comment = !line.includes("-->");
+            yield { kind: "boundary" };
+            continue;
+        }
+        yield classifySentenceText(line, number, code);
+    }
+}
+
+export function parseSpecSentences(doc: string, text: string): SpecSentence[] {
     const rows: SpecSentence[] = [], counts = new Map<string, number>();
-    const stack: typeof headings = [];
-    let block: string[] = [], startLine = 0, isCode = false, pendingAnchor: string | undefined, comment = false;
+    const stack: HeadingInfo[] = [];
+    let block: string[] = [], startLine = 0, isCode = false, pendingAnchor: string | undefined;
     const flush = (): void => {
         if (!block.length) return;
         rows.push(...sentenceBlockRows(doc, { lines: block, line: startLine, code: isCode, anchor: pendingAnchor }, stack, counts));
         block = []; pendingAnchor = undefined;
     };
-    const headingAt = new Map(headings.map(heading => [heading.line, heading]));
-    for (const [index, line] of lines.entries()) {
-        const number = index + 1, heading = headingAt.get(number);
-        if (heading) {
+    for (const entry of sentenceLines(text)) {
+        if (entry.kind !== "text") {
             flush();
-            while (stack.length && stack[stack.length - 1]!.level >= heading.level) stack.pop();
-            stack.push(heading);
+            if (entry.kind === "heading") {
+                while (stack.length && stack[stack.length - 1]!.level >= entry.heading.level) stack.pop();
+                stack.push(entry.heading);
+            } else if (entry.kind === "anchor") {
+                pendingAnchor = entry.anchor;
+            }
+            continue;
         }
-        if (headingLines.has(number)) continue;
-        const code = codeLines.has(number);
-        if (!code && (comment || /^\s*<!--/.test(line))) {
-            flush(); comment = !line.includes("-->"); continue;
-        }
-        const anchor = !code && /^\s*<a\s+(?:id|name)=["']([\w.-]+)["'][^>]*>\s*(?:<\/a>)?\s*$/.exec(line)?.[1];
-        if (anchor) { flush(); pendingAnchor = anchor; continue; }
-        if (!code && (!line.trim() || /^\s*(?:\|?[\s:|-]+\||[-*_]{3,})\s*$/.test(line))) { flush(); continue; }
-        if (block.length && (code !== isCode || !code && /^\s*(?:[-*+]\s|\d+[.)]\s|\|)/.test(line))) flush();
-        if (!block.length) { startLine = number; isCode = code; }
-        block.push(line);
+        if (block.length && (entry.code !== isCode || entry.startsBlock)) flush();
+        if (!block.length) { startLine = entry.number; isCode = entry.code; }
+        block.push(entry.line);
     }
     flush();
     return rows;

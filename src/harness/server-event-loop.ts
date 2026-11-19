@@ -188,36 +188,9 @@ function hydrateSession(ctx: ServerRuntime, event: HarnessEvent): void {
 	}
 }
 
-/** Build the per-event evaluation pipeline. Returns the entry points the raw
- *  and framed socket servers call. All daemon state is reached through `deps`
- *  — the function bodies are moved verbatim from the monolithic server.ts. */
-export function createEventLoop(deps: EventLoopDeps): EventLoop {
-	const {
-		ctx,
-		protocolStatus,
-		protocolStatusPath,
-		resetIdleTimer,
-		syncRuntimeIn,
-		syncRuntimeOut,
-		writeCollectionRecord,
-		writeLifecycleActivityRecord,
-	} = deps;
-	const { log, sessions } = ctx;
-	const CWD = ctx.cwd;
-	const INTERLINKED_DIR = ctx.interlinkedDir;
-
-	// Daemon-lifetime telemetry counter. Write-only — incremented on every
-	// processed event, never read back (the old module-level `_totalEventsProcessed`).
-	let _totalEventsProcessed = 0;
-
-	function writeProtocolStatus(): void {
-		persistProtocolStatus(protocolStatusPath, protocolStatus);
-	}
-
-	function recordProtocolEvent(protocol: "raw" | "framed"): void {
-		bumpProtocolEvent(protocolStatus, protocol);
-		writeProtocolStatus();
-	}
+function createEventProcessor(deps: EventLoopDeps) {
+	const { ctx, resetIdleTimer, syncRuntimeIn, syncRuntimeOut, writeCollectionRecord, writeLifecycleActivityRecord } = deps;
+	const { log, sessions, cwd: CWD } = ctx;
 
 	async function processEvent(rawData: string): Promise<HarnessDecision> {
 		let event: HarnessEvent;
@@ -241,7 +214,6 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 			return { decision: "allow" };
 		}
 
-		_totalEventsProcessed++;
 		resetIdleTimer();
 
 		// Lift object-tool_response outcome evidence onto the flat fields BEFORE
@@ -290,12 +262,7 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 		}
 	}
 
-	/** The Pre/Post/lifecycle dispatch that `processEvent` runs between its
-	 *  runtime in/out sync. Extracted verbatim from the body of that
-	 *  `try { … } finally { syncRuntimeOut(); }` — every path returns, so the
-	 *  caller needs no residual guard and the ordering of side effects is
-	 *  unchanged. Living at depth 0 in its own function removes the nesting
-	 *  increments the whole block paid inside the enclosing try. */
+	/** Route lifecycle, pre-tool, and post-tool events between runtime sync boundaries. */
 	async function dispatchEvent(
 		event: HarnessEvent,
 		session: ReturnType<typeof sessions.recordEvent>,
@@ -333,6 +300,23 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 		return { decision: "allow" };
 	}
 
+	return processEvent;
+}
+
+/** Build the raw and framed event entry points and their shared durability boundary. */
+export function createEventLoop(deps: EventLoopDeps): EventLoop {
+	const { ctx, protocolStatus, protocolStatusPath } = deps;
+	const { log, sessions, cwd: CWD, interlinkedDir: INTERLINKED_DIR } = ctx;
+	const processEvent = createEventProcessor(deps);
+
+	function writeProtocolStatus(): void {
+		persistProtocolStatus(protocolStatusPath, protocolStatus);
+	}
+
+	function recordProtocolEvent(protocol: "raw" | "framed"): void {
+		bumpProtocolEvent(protocolStatus, protocol);
+		writeProtocolStatus();
+	}
 
 	/** Per-event durability: write the live snapshot AFTER `processEvent`
 	 *  completes so it reflects every post-event state mutation — PostToolUse

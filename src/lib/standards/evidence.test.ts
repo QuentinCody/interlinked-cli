@@ -32,6 +32,13 @@ it("retains detector execution failures without interpreting them as zero matche
 	expect(report.notMeasured).toContain("source.ts: literal: fixture failure");
 });
 
+it("counts a file once when a completed detector has unreadable suppression evidence", () => {
+	const capture = { state: "read" as const, forFile() { throw new Error("suppression read failed"); } };
+	const report = scanStandardsEvidence("/repo", [file], ["literal"], [detector], capture);
+	expect(report.checks[0]).toMatchObject({ eligibleFiles: 1, measuredFiles: 0, unknownFiles: 1 });
+	expect(report.notMeasured).toContain("source.ts: literal: suppression read failed");
+});
+
 it("P1 retains supplied cross-file snapshots through raw occurrences and actions without reading supporting files", () => {
 	const sourceEvidence = [
 		{ file: "missing-helper.ts", sha256: "a".repeat(64), line: 7, role: "producer" as const },
