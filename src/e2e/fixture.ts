@@ -32,6 +32,7 @@ export function socketPaths(cwd: string): Record<Protocol, string> {
 }
 
 export interface HookCall {
+    runner?: "claude-code" | "cursor";
     protocol?: Protocol;
     runtime?: "entry" | "generated";
     cwd?: string;
@@ -201,7 +202,7 @@ export class E2eFixture {
         const receiptPath = join(this.dataDir, "hook-transport.jsonl");
         const offset = existsSync(receiptPath) ? statSync(receiptPath).size : 0;
         const child = spawn(process.execPath, args, { cwd, env: { ...this.env,
-            INTERLINKED_HOOK_PROTOCOL: protocol, INTERLINKED_CLIENT: "claude", INTERLINKED_NO_SELF_HEAL: "1" } });
+            INTERLINKED_HOOK_PROTOCOL: protocol, INTERLINKED_CLIENT: call.runner === "cursor" ? "cursor" : "claude", INTERLINKED_NO_SELF_HEAL: "1" } });
         const completion = childCompletion(child, 60_000);
         child.stdin?.end(JSON.stringify({ ...call.payload, hook_event_name: event, session_id: sessionId,
             cwd, tool_name: call.tool, tool_input: call.input }));
@@ -226,7 +227,7 @@ export class E2eFixture {
             writeFileSync(path, buildHookScript("e2e"));
             return [path];
         }
-        return [join(this.buildRoot, "dist/hook-entry.js"), "--runner", "claude-code", "--event", event,
+        return [join(this.buildRoot, "dist/hook-entry.js"), "--runner", call.runner ?? "claude-code", "--event", event,
             ...(call.discoverSocket ? [] : ["--socket", socket])];
     }
 
