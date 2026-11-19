@@ -29,6 +29,7 @@
 // file-level evidence", so a missed block degrades to coarser scoping, never
 // a wrong association.
 
+import type * as TS from "typescript";
 import { nonNull } from "../../lib/non-null.js";
 import { findBlockEnd } from "../taste-checks-shared.js";
 
@@ -210,6 +211,44 @@ export function inTestBlock(blocks: TestBlock[], line: number): boolean {
 		idx = nonNull(blocks[idx]).parent;
 	}
 	return false;
+}
+
+/** True when `block` or any enclosing ancestor carries an unconditional
+ *  skip/todo/fails gate — the case never runs, so it can't be vacuous. */
+export function isGatedOut(blocks: TestBlock[], blockIdx: number): boolean {
+	let idx: number = blockIdx;
+	while (idx !== -1) {
+		const b = blocks[idx];
+		if (!b) return false;
+		if (b.unconditionalGate) return true;
+		idx = b.parent;
+	}
+	return false;
+}
+
+/** Read an it()/test() case's name from its first argument's string literal
+ *  in the ORIGINAL (unmasked) content, for a readable warning. */
+export function readCaseName(content: string, argsStart: number, firstArgEnd: number): string {
+	const nameMatch = content.slice(argsStart, firstArgEnd).match(/["'`]([^"'`]{0,80})["'`]/);
+	return nameMatch ? `"${nameMatch[1]}" ` : "";
+}
+
+const TEST_FN_NAMES = new Set(["it", "test", "specify"]);
+// Modifiers that mean "don't actually run this body" — skip the block entirely.
+const SKIP_MODIFIERS = new Set(["skip", "todo", "failing", "skipIf", "runIf"]);
+
+/** Unwrap the base callee of an it()/test() call, tracking skip modifiers. */
+export function testCallInfo(ts: typeof TS, call: TS.CallExpression): { skipped: boolean } | null {
+	let expr: TS.Expression = call.expression;
+	let skipped = false;
+	// `it.each(table)('n', fn)` — callee is itself a call; descend to it.each.
+	while (ts.isCallExpression(expr)) expr = expr.expression;
+	while (ts.isPropertyAccessExpression(expr)) {
+		if (SKIP_MODIFIERS.has(expr.name.text)) skipped = true;
+		expr = expr.expression;
+	}
+	if (ts.isIdentifier(expr) && TEST_FN_NAMES.has(expr.text)) return { skipped };
+	return null;
 }
 
 /**

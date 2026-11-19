@@ -118,3 +118,14 @@ export function isScriptOrCliPath(filePath: string): boolean {
 		/(^|\/)samples?\//.test(norm)
 	);
 }
+
+export function basenameNoExt(filePath: string): string {
+	const base = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
+	return base.replace(/\.[^.]+$/, "");
+}
+
+/** Strip a module specifier to its basename (no dir, no extension). */
+export function importBasename(spec: string): string {
+	const last = spec.split("/").pop() ?? "";
+	return last.replace(/\.(js|ts|tsx|jsx|mjs|cjs|mts|cts)$/, "");
+}

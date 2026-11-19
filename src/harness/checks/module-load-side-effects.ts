@@ -11,6 +11,7 @@
 // (index/server/cli/hook-entry/bootstrap/setup) are exempt — bootstrapping is
 // exactly where import-time setup belongs.
 
+import { basenameNoExt } from "./shared-path-heuristics.js";
 import type { InlineMatch } from "./shared.js";
 import type * as TS from "typescript";
 import { parseTsSource, hasParseErrors, type ParsedTsSource } from "./cyclomatic-ast.js";
@@ -29,11 +30,6 @@ const ENTRYPOINT_NAMES: ReadonlySet<string> = new Set([
 	"bootstrap",
 	"setup",
 ]);
-
-function basenameNoExt(filePath: string): string {
-	const base = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
-	return base.replace(/\.[^.]+$/, "");
-}
 
 /**
  * Find side-effecting calls executed at module load (top level).

@@ -18,7 +18,7 @@ import { getExtension, type InlineMatch, isTestFile, JS_TS_EXTS } from "./shared
 import { type AliasMaps, collectAliases, resolveSubjectTarget } from "./test-discrimination-fallback-alias.js";
 import { siblingNonDefaultTargets } from "./test-discrimination-fallback-siblings.js";
 import { findCallSpan } from "./test-hygiene-shared.js";
-import { extractTestBlocks, type TestBlock } from "./test-structure.js";
+import { isGatedOut, extractTestBlocks, type TestBlock } from "./test-structure.js";
 import { stripAllLiterals } from "../strip-helpers.js";
 import { checkMatchLimit } from "./check-scan-policy.js";
 import { reportNotMeasured } from "./check-root.js";
@@ -245,19 +245,6 @@ function classifyBlockAssertions(body: string, blockIdx: number, aliases: AliasM
 		m = EXPECT_OPEN_RE.exec(body);
 	}
 	return results;
-}
-
-/** True when `block` or any enclosing `describe`/`suite` in its parent
- *  chain carries an unconditional skip/todo/fails gate. */
-function isGatedOut(blocks: TestBlock[], blockIdx: number): boolean {
-	let idx: number = blockIdx;
-	while (idx !== -1) {
-		const b = blocks[idx];
-		if (!b) return false;
-		if (b.unconditionalGate) return true;
-		idx = b.parent;
-	}
-	return false;
 }
 
 /** Read the original (unmasked) source line at a 0-based line index, trimmed. */

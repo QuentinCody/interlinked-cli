@@ -12,6 +12,7 @@
 // *.config.*, /config/ dirs, setup/bootstrap); a future repo-level
 // `.interlinked/env-access-allowlist.json` can extend it on the verify path.
 
+import { basenameNoExt } from "./shared-path-heuristics.js";
 import type { InlineMatch } from "./shared.js";
 import { stripCommentsAndStrings } from "./shared.js";
 
@@ -26,11 +27,6 @@ const CONFIG_MODULE_NAMES: ReadonlySet<string> = new Set([
 	"environment",
 	"settings",
 ]);
-
-function basenameNoExt(filePath: string): string {
-	const base = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
-	return base.replace(/\.[^.]+$/, "");
-}
 
 /** True for the config boundary where env parsing legitimately lives. */
 function isConfigBoundary(filePath: string): boolean {

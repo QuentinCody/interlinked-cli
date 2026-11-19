@@ -4,6 +4,7 @@
 // orchestrator under the per-file line cap. Pure functions over
 // content/masked-content pairs — no project-wide state.
 
+import { importBasename } from "./shared-path-heuristics.js";
 import { nonNull } from "../../lib/non-null.js";
 import { findCallSpan } from "./test-hygiene-shared.js";
 import type { Block } from "./test-mock-return-echo-types.js";
@@ -106,12 +107,6 @@ export function extractLiteralsFromMockArg(text: string): Set<string> {
 }
 
 export { sutBaseFromPath } from "./shared-test-classification.js";
-
-/** A module specifier's basename, extension stripped (`"./calc.js"` → `"calc"`). */
-function importBasename(spec: string): string {
-	const last = spec.split("/").pop() ?? "";
-	return last.replace(/\.(js|ts|tsx|jsx|mjs|cjs|mts|cts)$/, "");
-}
 
 /** Split `"a as b"` / `"a"` into its local binding name. */
 function localImportName(specifier: string): string {

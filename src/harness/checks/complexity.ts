@@ -1,6 +1,7 @@
 // Function complexity checks.
 // Extracted from generic-checks.ts.
 
+import { countTopLevelCommas } from "./shared-path-heuristics.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	collectFunctionSignature,
@@ -289,19 +290,4 @@ function checkComplexityPython(lines: string[], matches: InlineMatch[]): void {
 		const finding = braceBodyFinding(i, trimmed, analyzePythonBody(lines, i, headIndent));
 		if (finding) matches.push(finding);
 	}
-}
-
-/**
- * Count top-level parameter items, respecting nested angle brackets, parens, and braces.
- * Returns the number of comma-separated items at the top level.
- */
-function countTopLevelCommas(paramStr: string): number {
-	let depth = 0;
-	let count = 1;
-	for (const ch of paramStr) {
-		if (ch === "<" || ch === "(" || ch === "{" || ch === "[") depth++;
-		else if (ch === ">" || ch === ")" || ch === "}" || ch === "]") depth--;
-		else if (ch === "," && depth === 0) count++;
-	}
-	return count;
 }

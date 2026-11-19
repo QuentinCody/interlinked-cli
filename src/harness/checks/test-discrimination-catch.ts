@@ -11,6 +11,7 @@
 // HOW TO EXTEND: change AST guard classification with P/N counterexamples;
 // retain skipped-test handling. Census: scripts/scan-test-discrimination.ts.
 
+import { testCallInfo } from "./test-structure.js";
 import type * as TS from "typescript";
 import { parseTsSource } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isTestFile, JS_TS_EXTS } from "./shared.js";
@@ -19,27 +20,10 @@ import { checkMatchLimit } from "./check-scan-policy.js";
 type TsModule = typeof TS;
 
 
-const TEST_FN_NAMES = new Set(["it", "test", "specify"]);
-// Modifiers that mean "don't actually run this body" — skip the block entirely.
-const SKIP_MODIFIERS = new Set(["skip", "todo", "failing", "skipIf", "runIf"]);
 const MAX_MATCHES = 10;
 
 interface TestBlock {
 	body: TS.Node;
-}
-
-/** Unwrap the base callee of an it()/test() call, tracking skip modifiers. */
-function testCallInfo(ts: TsModule, call: TS.CallExpression): { skipped: boolean } | null {
-	let expr: TS.Expression = call.expression;
-	let skipped = false;
-	// `it.each(table)('n', fn)` — callee is itself a call; descend to it.each.
-	while (ts.isCallExpression(expr)) expr = expr.expression;
-	while (ts.isPropertyAccessExpression(expr)) {
-		if (SKIP_MODIFIERS.has(expr.name.text)) skipped = true;
-		expr = expr.expression;
-	}
-	if (ts.isIdentifier(expr) && TEST_FN_NAMES.has(expr.text)) return { skipped };
-	return null;
 }
 
 /** Find every (non-skipped) it()/test()/specify() block with a function body. */

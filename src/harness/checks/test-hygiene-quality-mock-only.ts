@@ -7,6 +7,7 @@
 // registry and every importer stay unchanged. Behavior is byte-identical to the
 // pre-extraction inline definitions.
 
+import { readCaseName } from "./test-structure.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	getExtension,
@@ -203,14 +204,6 @@ function matcherHasZeroInteractionCount(
 	const firstArgEnd = span.topLevelCommas[0] ?? span.end;
 	const firstArg = body.slice(argsStart, firstArgEnd);
 	return /^\s*0(?:\s+as\s+const)?\s*$/.test(firstArg);
-}
-
-/** Read an it()/test() case's name from its first argument's string literal. */
-function readCaseName(content: string, argsStart: number, firstArgEnd: number): string {
-	const nameMatch = content
-		.slice(argsStart, firstArgEnd)
-		.match(/["'`]([^"'`]{0,80})["'`]/);
-	return nameMatch ? `"${nameMatch[1]}" ` : "";
 }
 
 function escapeRegexLiteral(s: string): string {

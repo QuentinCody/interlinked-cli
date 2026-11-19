@@ -18,6 +18,8 @@
 // (directly or via a file-local factory helper) we don't flag; anything
 // untraceable is UNCERTAIN → silent. Recall is traded for precision.
 
+import { importBasename } from "./shared-path-heuristics.js";
+import { testCallInfo } from "./test-structure.js";
 import type * as TS from "typescript";
 import { sutBaseFromPath } from "./shared-test-classification.js";
 import { parseTsSource } from "./cyclomatic-ast.js";
@@ -35,10 +37,6 @@ type Rank = typeof NONE | typeof UNCERTAIN | typeof REACHED;
 
 const MAX_BINDING_DEPTH = 3;
 const MAX_MATCHES = 10;
-
-const TEST_FN_NAMES = new Set(["it", "test", "specify"]);
-// Modifiers that mean "don't actually run this body" — skip the block entirely.
-const SKIP_MODIFIERS = new Set(["skip", "todo", "failing", "skipIf", "runIf"]);
 
 // Globals + assertion libs that are definitively NOT the SUT (NONE, not
 // UNCERTAIN, so a literal-shaped `expect(Math.PI)` resolves). vi/jest/sinon are
@@ -63,12 +61,6 @@ function isSutSpecifier(spec: string): boolean {
 /** Strip a trailing module extension so `vi.mock("./p")` matches `from "./p.js"`. */
 function normalizeSpec(spec: string): string {
 	return spec.replace(/\.(js|ts|tsx|jsx|mjs|cjs|mts|cts)$/, "");
-}
-
-/** Strip a module specifier to its basename (no dir, no extension). */
-function importBasename(spec: string): string {
-	const last = spec.split("/").pop() ?? "";
-	return last.replace(/\.(js|ts|tsx|jsx|mjs|cjs|mts|cts)$/, "");
 }
 
 interface SutSymbols {
@@ -390,20 +382,6 @@ interface TestBlock {
 	name: string;
 	line: number;
 	body: TS.Node;
-}
-
-/** Unwrap the base callee of an it()/test() call, tracking skip modifiers. */
-function testCallInfo(ts: TsModule, call: TS.CallExpression): { skipped: boolean } | null {
-	let expr: TS.Expression = call.expression;
-	let skipped = false;
-	// `it.each(table)('n', fn)` — callee is itself a call; descend to it.each.
-	while (ts.isCallExpression(expr)) expr = expr.expression;
-	while (ts.isPropertyAccessExpression(expr)) {
-		if (SKIP_MODIFIERS.has(expr.name.text)) skipped = true;
-		expr = expr.expression;
-	}
-	if (ts.isIdentifier(expr) && TEST_FN_NAMES.has(expr.text)) return { skipped };
-	return null;
 }
 
 /** Find every (non-skipped) string-named it()/test()/specify() block with a body. */
