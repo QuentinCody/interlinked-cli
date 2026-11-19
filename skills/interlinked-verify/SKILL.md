@@ -243,6 +243,10 @@ parenthesized boolean ternaries. Conditional types and optional type members are
 `duplicate_test_names` compares titles containing escaped or embedded quotes.
 `file_level_suppression` ignores example directives inside JavaScript and TypeScript strings.
 
+`public_api_leaks_internal_type` reports a type named in an exported signature
+that consumers cannot import by name. A local export under an alias makes it
+available. TypeScript can emit declarations that refer to module-private types.
+
 **Type assertions.** `unjustified_cast` uses the TypeScript AST when available, including
 angle-bracket assertions, literal targets, and anonymous object targets. `as const` is excluded.
 A justification must be an actual comment with a nonempty `SAFETY:` explanation on the

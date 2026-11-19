@@ -60,9 +60,36 @@ describe("checkPublicApiLeaksInternalType — positive (must fire)", () => {
 		expect(out[0]?.text).toContain("'Bar'");
 		expect(out[0]?.line).toBe(2);
 	});
+
+	it("P6: a re-export from another module cannot expose this module's local type", () => {
+		const src = [
+			"interface Result { value: number }",
+			"export function read(): Result { return { value: 1 }; }",
+			'export type { Result as PublicResult } from "./other";',
+		].join("\n");
+		expect(checkPublicApiLeaksInternalType(src, FILE).map(match => match.line)).toEqual([2]);
+	});
 });
 
 describe("checkPublicApiLeaksInternalType — negative (must not fire)", () => {
+	it.each(["export const retries = 2;", "export const retries = 2"])("N8: a later private declaration is outside the signature of %s", line => {
+		const src = [
+			line,
+			"interface Local { count: number }",
+		].join("\n");
+		expect(checkPublicApiLeaksInternalType(src, FILE)).toEqual([]);
+	});
+
+	it("N9: a module can expose the return type under an alias in a multiline export", () => {
+		const src = [
+			"interface Local { count: number }",
+			"export function read(): Local { return { count: 2 }; }",
+			"export type {",
+			"	Local as Result,",
+			"};",
+		].join("\n");
+		expect(checkPublicApiLeaksInternalType(src, FILE)).toEqual([]);
+	});
 	it("N1: signature references an exported type", () => {
 		const src = [
 			"export interface Options { retries: number }",

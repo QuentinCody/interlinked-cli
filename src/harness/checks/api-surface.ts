@@ -1,11 +1,8 @@
 // api-surface — detects an exported declaration whose signature references a
 // same-file type that is NOT exported.
 //
-// Bug class: a public function/const/interface/type whose signature names an
-// internal type produces `error TS4023` ("exported variable ... cannot be
-// named") under declaration emit, and even without emit, consumers cannot
-// spell the type to annotate their own bindings. The fix is one keyword:
-// export the referenced type, or stop leaking it.
+// Declaration emit can include same-file private types. This advisory concerns
+// consumers that want to import a named return type, base type, or annotation.
 //
 // Effect-TS lessons port (docs/design/effect-ts-harness-additions.md §10):
 // approximates Effect's custom oxlint rule `effect/no-unused-internal`
@@ -41,17 +38,16 @@ const INTERNAL_DECL_RE =
 
 /** Column-0 export declaration opener (the ones with a signature to scan). */
 const EXPORT_DECL_RE =
-	/^export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|const|let|var|class|interface|type)\b/;
+	/^export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|const|let|var|class|interface|type(?!\s*\{))\b/;
 
 /** Re-export statements that make a locally-declared name public after all. */
-const REEXPORT_RE = /^export\s+(?:type\s+)?\{([^}]*)\}/;
+const REEXPORT_RE = /^export\s+(?:type\s+)?\{([^}]*)\}(\s*from\b)?/gm;
 
 /** Collect names re-exported via `export { A, B as C }` (the LOCAL name). */
 function collectReexportedNames(lines: string[]): Set<string> {
 	const names = new Set<string>();
-	for (const line of lines) {
-		const m = REEXPORT_RE.exec(line);
-		if (m === null) continue;
+	for (const m of lines.join("\n").matchAll(REEXPORT_RE)) {
+		if (m[2]) continue;
 		for (const entry of (m[1] ?? "").split(",")) {
 			const local = entry.replace(/^\s*type\s+/, "").split(/\s+as\s+/)[0]?.trim();
 			if (local) names.add(local);
@@ -62,13 +58,14 @@ function collectReexportedNames(lines: string[]): Set<string> {
 
 /** Collect internal (declared, never exported) type-ish names. */
 function collectInternalTypeNames(lines: string[]): Set<string> {
-	const reexported = collectReexportedNames(lines);
 	const names = new Set<string>();
 	for (const line of lines) {
 		const m = INTERNAL_DECL_RE.exec(line);
 		const name = m?.[1];
-		if (name && !reexported.has(name)) names.add(name);
+		if (name) names.add(name);
 	}
+	if (names.size === 0) return names;
+	for (const name of collectReexportedNames(lines)) names.delete(name);
 	return names;
 }
 
@@ -86,7 +83,8 @@ function signatureWindow(lines: string[], startIdx: number): string {
 	const end = Math.min(lines.length, startIdx + SIGNATURE_WINDOW_LINES);
 	for (let i = startIdx; i < end; i++) {
 		const line = lines[i] ?? "";
-		const { cut, depth } = bodyBraceCut(line, parenDepth);
+		if (i > startIdx && parenDepth === 0 && /^(?:export|import|interface|type|class|enum|function|const|let|var)\b/.test(line)) break;
+		const { cut, depth } = signatureEnd(line, parenDepth);
 		parenDepth = depth;
 		if (cut !== -1) {
 			collected.push(line.slice(0, cut));
@@ -110,17 +108,17 @@ function aliasWindow(lines: string[], startIdx: number): string {
 }
 
 /**
- * Find the body-opening `{` on `line`: the first `{` at paren depth 0, so a
- * `{` inside a parameter's object-type stays in the window. Returns the cut
+ * Find the body opener or statement terminator on `line` at paren depth 0,
+ * so an object type inside a parameter stays in the window. Returns the cut
  * index (-1 when none) and the paren depth carried to the next line.
  */
-function bodyBraceCut(line: string, startDepth: number): { cut: number; depth: number } {
+function signatureEnd(line: string, startDepth: number): { cut: number; depth: number } {
 	let depth = startDepth;
 	for (let j = 0; j < line.length; j++) {
 		const ch = line.charAt(j);
 		if (ch === "(") depth++;
 		else if (ch === ")") depth--;
-		else if (ch === "{" && depth === 0) return { cut: j, depth };
+		else if ((ch === "{" || ch === ";") && depth === 0) return { cut: j, depth };
 	}
 	return { cut: -1, depth };
 }
@@ -195,7 +193,7 @@ export function checkPublicApiLeaksInternalType(
 		if (leaked === null) continue;
 		matches.push({
 			line: i + 1,
-			text: `exported signature references non-exported type '${leaked}' — consumers cannot name it (TS4023 under declaration emit); export the type or remove it from the public signature`,
+			text: `exported signature references non-exported type '${leaked}'. Consumers cannot import it by name from this module.`,
 		});
 	}
 	return matches;

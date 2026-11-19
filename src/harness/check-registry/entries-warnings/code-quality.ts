@@ -275,7 +275,7 @@ export const CODE_QUALITY_ENTRIES: CheckRegistration[] = [
 		phase: "post",
 		name: "Public API Leaks Internal Type",
 		description:
-			"Detects an exported declaration whose signature (params, return type, heritage clause, type-alias RHS) references a same-file type that is not exported. Consumers cannot name the type to annotate their own bindings, and declaration emit fails with TS4023. Internal types used only inside function bodies are the normal pattern and never fire. Effect-TS lessons port: approximates Effect's custom oxlint rule `effect/no-unused-internal` at the same identifier-matching precision.",
+			"Detects a return type, variable annotation, heritage clause or type alias in an exported declaration that references a same-file type without a local export. Consumers cannot import the referenced type by name from this module. TypeScript can still emit its declaration. Parameter-only references are exempt.",
 		tier: 1,
 		determinism: "heuristic",
 		severity: "warning",
