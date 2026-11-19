@@ -2,6 +2,7 @@
 // Extracted from generic-checks.ts.
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import {
 	pushBareCatchOneLiner,
 	pushBarePythonExcept,
@@ -284,7 +285,7 @@ function pushInstanceofDispatches(
 	instanceofRe.lastIndex = openIdx + 1;
 	let opMatch: RegExpExecArray | null = instanceofRe.exec(stripped);
 	while (opMatch !== null && opMatch.index < closeIdx) {
-		if (matches.length >= 10) break;
+		if (matches.length >= checkMatchLimit(10)) break;
 		const className = nonNull(opMatch[1]);
 		const afterIdx = opMatch.index + opMatch[0].length;
 		if (
@@ -317,7 +318,7 @@ export function checkErrorDispatchByInstanceof(
 
 	let openMatch: RegExpExecArray | null = catchOpenRe.exec(stripped);
 	while (openMatch !== null) {
-		if (matches.length >= 10) break;
+		if (matches.length >= checkMatchLimit(10)) break;
 		const openIdx = openMatch.index + openMatch[0].length - 1;
 		const closeIdx = findCatchCloseIndex(stripped, openIdx);
 		if (closeIdx >= 0) {

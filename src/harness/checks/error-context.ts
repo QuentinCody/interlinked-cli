@@ -35,6 +35,8 @@ import {
 // line count, so it is valid over stripped text). Direct in-package import —
 // shared.ts sits at its line cap and cannot carry another re-export line.
 import { offsetToLine } from "./shared-text-utils.js";
+import { resourceAcquisitionGaps, resourceReleaseHelpers } from "./resource-ownership.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -188,7 +190,7 @@ function recordMatch(
 	matches: InlineMatch[],
 	seen: Set<number>,
 ): void {
-	if (matches.length >= MAX_MATCHES_PER_FILE) return;
+	if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) return;
 	const line = offsetToLine(code, offset);
 	if (seen.has(line)) return;
 	seen.add(line);
@@ -231,7 +233,7 @@ export function detectJsonStringifyError(content: string, filePath: string): Inl
 	const seen = new Set<number>();
 
 	for (const blk of findCatchBlocks(code)) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) break;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) break;
 		const body = code.slice(blk.bodyStart, blk.bodyEnd);
 		const bareRe = new RegExp(
 			String.raw`JSON\s*\.\s*stringify\s*\(\s*${escapeForRegex(blk.varName)}\s*[,)]`,
@@ -348,7 +350,7 @@ export function detectCatchRewrapLosesCause(content: string, filePath: string): 
 	const ctorRe = /\bnew\s+((?:[A-Z][A-Za-z0-9_$]*)?Error)\s*\(/g;
 
 	for (const blk of findCatchBlocks(code)) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) break;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) break;
 		ctorRe.lastIndex = blk.bodyStart;
 		let ctor: RegExpExecArray | null = ctorRe.exec(code);
 		while (ctor !== null && ctor.index < blk.bodyEnd) {
@@ -388,7 +390,7 @@ const BARE_ACQUIRE_SRC = String.raw`\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(
 const FS_IMPORT_RE = /from\s+["'](?:node:)?fs(?:\/promises)?["']|require\(\s*["'](?:node:)?fs["']\s*\)/;
 
 /** True when the post-declaration window releases or hands off the handle. */
-function handleIsReleasedOrHandedOff(window: string, varName: string): boolean {
+function handleIsReleasedOrHandedOff(window: string, varName: string, releases: readonly string[]): boolean {
 	const v = escapeForRegex(varName);
 	const releasedRe = new RegExp(
 		String.raw`\b${v}\s*\.\s*(?:close|destroy|end)\s*\(|\bclose(?:Sync)?\s*\(\s*${v}\b`,
@@ -399,7 +401,8 @@ function handleIsReleasedOrHandedOff(window: string, varName: string): boolean {
 		// into a collection managed elsewhere.
 		String.raw`\breturn\b[^;\n]*\b${v}\b|\byield\b[^;\n]*\b${v}\b|\.\s*pipe\s*\(\s*${v}\b|\b(?:pipeline|finished)\s*\([^)]*\b${v}\b|[=:]\s*${v}\s*[;,)\n\]}]|\b(?:resolve|push)\s*\(\s*${v}\b`,
 	);
-	return releasedRe.test(window) || handoffRe.test(window);
+	const wrappedRelease = releases.some(name => new RegExp(`\\b${escapeForRegex(name)}\\s*\\(\\s*${v}\\b`).test(window));
+	return releasedRe.test(window) || handoffRe.test(window) || wrappedRelease;
 }
 
 /** Run one acquire-pattern pass, appending unreleased-handle findings. */
@@ -409,21 +412,22 @@ function scanAcquisitions(
 	source: string,
 	matches: InlineMatch[],
 	seen: Set<number>,
+	releases: readonly string[],
 ): void {
 	const acqRe = new RegExp(source, "g");
 	let m: RegExpExecArray | null = acqRe.exec(code);
 	while (m !== null) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) return;
 		const varName = m[1];
 		const call = (m[2] ?? "").replace(/\s+/g, "");
 		if (varName !== undefined) {
 			const window = code.slice(m.index + m[0].length);
-			if (!handleIsReleasedOrHandedOff(window, varName)) {
+			if (!handleIsReleasedOrHandedOff(window, varName, releases)) {
 				recordMatch(
 					code,
 					rawLines,
 					m.index,
-					`resource_handle_leak: ${varName} from ${call}() is never closed/ended and never handed off — leaks on every path (wrap in try/finally or use \`using\`)`,
+					`resource_handle_leak: ${varName} from ${call}() has no recognized close or ownership handoff; review cleanup on failure paths`,
 					matches,
 					seen,
 				);
@@ -450,14 +454,20 @@ export function detectResourceHandleLeak(content: string, filePath: string): Inl
 	const src = prepareJsTsSource(content, filePath);
 	if (!src) return [];
 	const { code, rawLines } = src;
+	if (!new RegExp(`${QUALIFIED_ACQUIRE_SRC}|${BARE_ACQUIRE_SRC}`).test(code)) return [];
 	const matches: InlineMatch[] = [];
 	const seen = new Set<number>();
 
-	scanAcquisitions(code, rawLines, QUALIFIED_ACQUIRE_SRC, matches, seen);
+	const releases = resourceReleaseHelpers(content, filePath);
+	scanAcquisitions(code, rawLines, QUALIFIED_ACQUIRE_SRC, matches, seen, releases);
 	// Bare `openSync(` / `createWriteStream(` only when node:fs is imported —
 	// the import path is a string literal, so test the comment-stripped raw.
 	if (FS_IMPORT_RE.test(stripComments(content))) {
-		scanAcquisitions(code, rawLines, BARE_ACQUIRE_SRC, matches, seen);
+		scanAcquisitions(code, rawLines, BARE_ACQUIRE_SRC, matches, seen, releases);
+	}
+	for (const finding of resourceAcquisitionGaps(content, filePath, releases)) {
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) break;
+		if (!matches.some(existing => existing.line === finding.line)) matches.push(finding);
 	}
 	return matches;
 }

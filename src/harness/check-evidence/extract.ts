@@ -8,12 +8,13 @@
 // phase-scaled tier.
 
 import type { CheckRegistration } from "../check-registry/types.js";
-import { type AdversarialRecord, adversarialGap } from "./adversarial.js";
-import { countCases, parseLabeledCases } from "./case-parser.js";
+import { type AdversarialSuite, adversarialGap } from "./adversarial.js";
+import { type AttributionContext, attributedCasesIn, attributionContext, labeledCasesIn } from "./attribution.js";
+import { countCases } from "./case-parser.js";
 import { type CorpusRecord, corpusSatisfied, unadjudicatedHits } from "./corpus.js";
 import type { CorpusBinding } from "./corpus-provenance.js";
 import { evaluateEvidence, tierFor } from "./obligations.js";
-import { derivedCaseFloor, detectorCyclomatic, type MutationScores } from "./recall.js";
+import { derivedCaseFloor, detectorCyclomatic } from "./recall.js";
 import { buildDetectorIndex, type DetectorIndex, type IndexRoots, resolveDetector } from "./resolve.js";
 import type {
 	CheckEvidence,
@@ -46,10 +47,8 @@ interface EvidenceSweepInput {
 	 * Absent leaves `detector_cyclomatic` UNKNOWN rather than 0.
 	 */
 	detectorSource?: Readonly<Record<string, string>>;
-	/** Per-file mutation scores from the existing mutation baseline. */
-	mutationScores?: MutationScores;
-	/** Independent adversarial-pass records, keyed by check id. */
-	adversarial?: Readonly<Record<string, AdversarialRecord>>;
+	/** Independent adversarial / foreign suites, keyed by check id (adversarial.ts). */
+	adversarial?: Readonly<Record<string, readonly AdversarialSuite[]>>;
 }
 
 /** Result of one evidence sweep. */
@@ -63,12 +62,28 @@ function isIndex(value: DetectorIndex | IndexRoots): value is DetectorIndex {
 	return "sourceByFn" in value;
 }
 
-/** Gather labeled cases across every test file that exercises a detector. */
-function casesAcross(index: DetectorIndex, testFiles: readonly string[]): LabeledCase[] {
+/** Gather labeled cases across every test file that exercises a detector (the generous `cases` view). */
+function casesAcross(index: DetectorIndex, testFiles: readonly string[], context: AttributionContext): LabeledCase[] {
 	const all: LabeledCase[] = [];
 	for (const file of testFiles) {
 		const source = index.testSource.get(file);
-		if (source) all.push(...parseLabeledCases(source));
+		if (source) all.push(...labeledCasesIn(context, file, source));
+	}
+	return all;
+}
+
+/** The subset of those cases that name this detector (`attribution.ts`). */
+function attributedAcross(
+	index: DetectorIndex,
+	testFiles: readonly string[],
+	check: CheckRegistration,
+	context: AttributionContext,
+): LabeledCase[] {
+	const detector = { id: check.id, fn: check.fn.name };
+	const all: LabeledCase[] = [];
+	for (const file of testFiles) {
+		const source = index.testSource.get(file);
+		if (source) all.push(...attributedCasesIn(context, file, source, detector));
 	}
 	return all;
 }
@@ -91,10 +106,13 @@ interface RecallInputs {
 	tier?: ObligationTier;
 	/** Source text of the detector's file, for branch measurement. */
 	detectorSource?: string;
-	/** Per-file mutation scores from the existing mutation baseline. */
-	mutationScores?: MutationScores;
-	/** Independent adversarial-pass record for this check, if one exists. */
-	adversarial?: AdversarialRecord;
+	/** Independent adversarial / foreign suites for this check, if any exist. */
+	adversarial?: readonly AdversarialSuite[];
+	/**
+	 * Registry names and the per-file parse memo for case attribution. Absent
+	 * (a direct `evidenceFor` call), the registry is taken to be this check alone.
+	 */
+	attribution?: AttributionContext;
 }
 
 /** Branch complexity of the detector, or null when it cannot be measured. */
@@ -105,15 +123,6 @@ function measureCyclomatic(
 ): number | null {
 	if (!detectorFile || !detectorSource) return null;
 	return detectorCyclomatic(detectorSource, detectorFile, detectorFn);
-}
-
-/** Mutation score for the detector's file, or null when never measured. */
-function lookupMutationScore(
-	detectorFile: string | null,
-	scores: MutationScores | undefined,
-): number | null {
-	if (!detectorFile || !scores) return null;
-	return scores[detectorFile] ?? null;
 }
 
 /**
@@ -127,16 +136,17 @@ function recallInputsFor(
 	check: CheckRegistration,
 	tier: ObligationTier,
 	input: EvidenceSweepInput,
+	attribution: AttributionContext,
 ): RecallInputs {
 	const detectorFile = index.sourceByFn.get(check.fn.name);
 	const source = detectorFile ? input.detectorSource?.[detectorFile] : undefined;
 	const corpus = input.corpus?.[check.id];
 	return {
 		tier,
+		attribution,
         ...(input.corpusBindings?.[check.id] ? { corpusBinding: input.corpusBindings[check.id] } : {}),
 		...(corpus ? { corpus } : {}),
 		...(source ? { detectorSource: source } : {}),
-		...(input.mutationScores ? { mutationScores: input.mutationScores } : {}),
 		...(input.adversarial?.[check.id] ? { adversarial: input.adversarial[check.id] } : {}),
 	};
 }
@@ -148,8 +158,10 @@ export function evidenceFor(
 	recall: RecallInputs = {},
 ): CheckEvidence {
 	const { detectorFile, testFiles } = resolveDetector(index, check.fn.name);
-	const cases = casesAcross(index, testFiles);
+	const context = recall.attribution ?? attributionContext([check]);
+	const cases = casesAcross(index, testFiles, context);
 	const { positive, negative } = countCases(cases);
+	const attributed = countCases(attributedAcross(index, testFiles, check, context));
 	const { corpus, tier } = recall;
 	const cyclomatic = measureCyclomatic(detectorFile, recall.detectorSource, check.fn.name);
 
@@ -158,8 +170,7 @@ export function evidenceFor(
 		unadjudicated_hits: corpus ? unadjudicatedHits(corpus).length : 0,
 		detector_cyclomatic: cyclomatic,
 		derived_case_floor: tier ? derivedCaseFloor(cyclomatic, tier) : positive + negative,
-		mutation_score: lookupMutationScore(detectorFile, recall.mutationScores),
-		adversarial_gap: adversarialGap(recall.adversarial, recall.detectorSource),
+		adversarial_gap: adversarialGap(recall.adversarial, check.fn.name),
 		check_id: check.id,
 		phase: check.phase,
 		detector_fn: check.fn.name,
@@ -170,6 +181,8 @@ export function evidenceFor(
 		cases,
 		positive_count: positive,
 		negative_count: negative,
+		attributed_positive_count: attributed.positive,
+		attributed_negative_count: attributed.negative,
 		gaps: gapsFor(detectorFile, testFiles, cases.length),
 	};
 }
@@ -185,12 +198,13 @@ export function sweepEvidence(
 	grandfathered: ReadonlySet<string> = new Set(),
 ): EvidenceSweep {
 	const index = isIndex(input.index) ? input.index : buildDetectorIndex(input.index);
+	const attribution = attributionContext(input.registry);
 	const evidence: CheckEvidence[] = [];
 	const verdicts: EvidenceVerdict[] = [];
 
 	for (const check of input.registry) {
 		const tier = tierFor(check.phase, check.id, input.advisoryIds);
-		const record = evidenceFor(index, check, recallInputsFor(index, check, tier, input));
+		const record = evidenceFor(index, check, recallInputsFor(index, check, tier, input, attribution));
 		evidence.push(record);
 		verdicts.push(
 			evaluateEvidence({

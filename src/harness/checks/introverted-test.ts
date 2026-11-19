@@ -23,6 +23,7 @@ import type * as TS from "typescript";
 import { sutBaseFromPath } from "./shared-test-classification.js";
 import { parseTsSourceWith } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isStrictTestFile, JS_TS_EXTS } from "./shared.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 type TsModule = typeof TS;
 
@@ -470,8 +471,9 @@ export function checkIntrovertedTest(content: string, filePath: string): InlineM
 
 	const helpers = collectCompanionHelpers(ts, sf, sut);
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(MAX_MATCHES);
 	for (const block of findTestBlocks(ts, sf)) {
-		if (matches.length >= MAX_MATCHES) break;
+		if (matches.length >= maxMatches) break;
 		const subjects = collectAssertionSubjects(ts, block.body);
 		if (subjects.length === 0) continue; // assertion-free is a different check
 

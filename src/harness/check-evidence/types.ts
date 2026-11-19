@@ -45,14 +45,13 @@ export interface ObligationTier {
 	min_positive: number;
 	/** Minimum labeled MUST-NOT-FIRE cases. */
 	min_negative: number;
-	/** Detector branch coverage required, 0..1. Phase 3 enforces; recorded now. */
-	min_branch_coverage: number;
 	/** Corpus dogfood run required (Phase 2). */
 	requires_corpus: boolean;
-	/** Detector-level mutation score required (Phase 3). */
-	requires_mutation: boolean;
-	/** Independent FP-hunting pass required (Phase 4). */
+	/** Independent FP-hunting suite required (Phase 4). */
 	requires_adversarial: boolean;
+	// Removed 2026-11-05 because nothing measured them: `min_branch_coverage`
+	// (declared, never read) and `requires_mutation` (no trusted score source;
+	// see recall.ts for what would turn it back on).
 }
 
 /** Why a check could not be fully evaluated (missing files, not deficiency). */
@@ -76,6 +75,12 @@ export interface CheckEvidence {
 	positive_count: number;
 	negative_count: number;
 	/**
+	 * Of the counted cases, the ones that NAME this detector (attribution.ts):
+	 * a shared suite's case that exercises another detector is not among them.
+	 */
+	attributed_positive_count: number;
+	attributed_negative_count: number;
+	/**
 	 * Whether a corpus dogfood run exists with every hit adjudicated. `false`
 	 * covers both "never run" and "run, hits unresolved" — the shortfall message
 	 * distinguishes them.
@@ -91,12 +96,10 @@ export interface CheckEvidence {
 	detector_cyclomatic: number | null;
 	/** Total labeled cases owed, derived from branch structure and tier. */
 	derived_case_floor: number;
-	/** Mutation score of the detector's file, or `null` when never measured. */
-	mutation_score: number | null;
 	/**
-	 * Why the independent adversarial pass does not count, or `null` when it
-	 * does. Carries the reason (missing / stale / self-review) rather than a
-	 * bare boolean so the shortfall can say what to do about it.
+	 * Why the independent adversarial suite does not count, or `null` when it
+	 * does. Carries the reason (missing / names another detector / no negative
+	 * case) rather than a bare boolean so the shortfall can say what to do.
 	 */
 	adversarial_gap: AdversarialGap | null;
 	/** Non-fatal reasons the record is incomplete. */
@@ -126,17 +129,22 @@ export interface EvidenceVerdict {
  */
 export type EvidenceDimension =
 	| "cases"
+	| "attributed_cases"
 	| "corpus"
 	| "derived_cases"
-	| "mutation"
 	| "adversarial";
 
-/** Every dimension, in the order the program phases turn them on. */
+/**
+ * Every dimension, in the order the program phases turn them on.
+ * `attributed_cases` (2026-11-05) is measured only; it joins `enforced` once
+ * the checks credited through other detectors' cases have their own.
+ * `mutation` was removed the same day (no trusted score source; recall.ts).
+ */
 export const EVIDENCE_DIMENSIONS: readonly EvidenceDimension[] = [
 	"cases",
+	"attributed_cases",
 	"corpus",
 	"derived_cases",
-	"mutation",
 	"adversarial",
 ];
 

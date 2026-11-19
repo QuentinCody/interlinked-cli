@@ -34,6 +34,8 @@
 // excluded single-`=` shape).
 
 import { getExtension, type InlineMatch, JS_TS_ALL_EXTS, stripCommentsAndStrings } from "./shared.js";
+import { maskDiscardedValidators } from "./discarded-validation.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 const MAX_MATCHES_PER_FILE = 10;
 const REPORT_LINE_TRUNC = 150;
@@ -56,7 +58,7 @@ const VALIDATOR_NEARBY_RE =
  *  test-fixture write) while still matching a read used in a comparison
  *  (`===`/`!==` start with a SECOND `=`/`!`, which the inner `(?!=)` lets
  *  through). */
-const ARGV_INDEX_RE = /\bprocess\.argv\[\s*\d+\s*\](?!\s*=(?!=))/g;
+const ARGV_INDEX_RE = /\bprocess\.argv\[\s*(?:[2-9]|\d{2,})\s*\](?!\s*=(?!=))/g;
 
 /** True for a bin/cli entry file: a `bin/` path segment, or a basename of
  *  exactly `index.<ext>` / `cli.<ext>`. */
@@ -78,7 +80,7 @@ function scanJsonBoundary(
 	seen: Set<number>,
 ): void {
 	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) return;
 		const line = strippedLines[i];
 		if (line === undefined) continue;
 		if (!AWAIT_RE.test(line) || !JSON_CALL_RE.test(line)) continue;
@@ -109,7 +111,7 @@ function scanArgvIndexing(
 	const local = new RegExp(ARGV_INDEX_RE.source, ARGV_INDEX_RE.flags);
 	let m: RegExpExecArray | null;
 	while ((m = local.exec(stripped))) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) return;
 		const lineNo = stripped.slice(0, m.index).split("\n").length;
 		if (seen.has(lineNo)) continue;
 		seen.add(lineNo);
@@ -131,7 +133,7 @@ export function detectUnvalidatedInputBoundary(content: string, filePath: string
 	if (!JS_TS_ALL_EXTS.includes(getExtension(filePath))) return [];
 	if (content.length === 0) return [];
 
-	const stripped = stripCommentsAndStrings(content);
+	const stripped = stripCommentsAndStrings(maskDiscardedValidators(content, filePath, "unvalidated_input_boundary"));
 	const strippedLines = stripped.split("\n");
 	const rawLines = content.split("\n");
 	const matches: InlineMatch[] = [];
@@ -139,7 +141,7 @@ export function detectUnvalidatedInputBoundary(content: string, filePath: string
 	const seenArgv = new Set<number>();
 
 	scanJsonBoundary(strippedLines, rawLines, matches, seenJson);
-	if (matches.length < MAX_MATCHES_PER_FILE && !isEntryFilePath(filePath)) {
+	if (matches.length < checkMatchLimit(MAX_MATCHES_PER_FILE) && !isEntryFilePath(filePath)) {
 		scanArgvIndexing(stripped, rawLines, matches, seenArgv);
 	}
 

@@ -1,35 +1,35 @@
-import { isJsonObject } from "../../lib/json-types.js";
-// Check Evidence Contract — recall: derived case floors and detector mutation.
+// Check Evidence Contract — recall: derived case floors.
 //
 // Spec: docs/design/verification-density-program.md (Phase 3).
 //
-// This module answers the question the case COUNTS cannot: does the test suite
-// actually distinguish this detector from a subtly broken version of itself?
+// This module answers part of the question the case COUNTS cannot: does the
+// test suite exercise every distinguishable behavior of the detector?
 //
-// Two measurements, both about false negatives:
+// DERIVED CASE FLOOR. The flat "3 positive / 3 negative" was always a proxy for
+// "every distinguishable behavior has a case". The detector's own cyclomatic
+// complexity IS that count: a function with N independent paths needs N cases
+// to exercise them. One case is COMPLETE for a single-branch detector; three is
+// negligent for a twelve-branch one. So the floor is read off the code, not
+// declared in prose.
 //
-//   1. DERIVED CASE FLOOR. The flat "3 positive / 3 negative" was always a
-//      proxy for "every distinguishable behavior has a case". The detector's
-//      own cyclomatic complexity IS that count: a function with N independent
-//      paths needs N cases to exercise them. One case is COMPLETE for a
-//      single-branch detector; three is negligent for a twelve-branch one.
-//      So the floor is read off the code, not declared in prose.
-//
-//   2. MUTATION SCORE. Branch coverage says a line ran; it does not say an
-//      assertion would have noticed if the line were wrong. A surviving mutant
-//      in a detector means the cases cannot tell the detector apart from a
-//      broken one — the exact blind spot that lets a detector ship catching 5%
-//      of its class while looking fully tested. Scores are sourced from the
-//      existing mutation system's baseline rather than recomputed here (running
-//      mutants is minutes of work, not meta-test work).
+// MUTATION FLOOR — REMOVED 2026-11-05. It read per-file scores from
+// `.interlinked/mutation-baseline.json`, the report-score ratchet's water-line
+// (`interlinked mutation check --update-baseline` writes it from a Stryker
+// report). In this repo that file is absent and was never in git, so 0 scores
+// loaded and 86 checks carried a shortfall nothing could clear. It is also
+// per FILE, and one detector file holds many detectors. The raw
+// `.interlinked/mutation-manifest.json` survivor counts are no substitute:
+// about 87 % of them were measurement artifact. What would turn the floor back
+// on: a committed per-DETECTOR score file, `.interlinked/check-mutation-scores.json`,
+// shaped `{ "version": 1, "checks": { "<check_id>": { "score": 0..1, "receipts": ["<kill-proof receipt id>", ...] } } }`,
+// where every score is backed by `interlinked tests prove-kill --all-survivors`
+// receipts (executed kill / survive verdicts, `src/harness/kill-proof/`) and
+// re-checked by `interlinked tests kill-proofs --verify`. With that file in
+// place, re-add a reader here, `requires_mutation` on the pre_block / pre_warn
+// tiers (types.ts, obligations.ts) and the `mutation` evidence dimension.
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { computeCyclomaticAst } from "../checks/cyclomatic-ast.js";
 import type { ObligationTier } from "./types.js";
-
-/** Where the existing mutation system keeps per-file scores. */
-const MUTATION_BASELINE_PATH = ".interlinked/mutation-baseline.json";
 
 /**
  * Upper bound on a derived floor.
@@ -71,38 +71,4 @@ export function derivedCaseFloor(cyclomatic: number | null, tier: ObligationTier
 	const tierFloor = tier.min_positive + tier.min_negative;
 	if (cyclomatic === null) return tierFloor;
 	return Math.max(tierFloor, Math.min(cyclomatic, DERIVED_FLOOR_CAP));
-}
-
-/** Per-file mutation scores from the existing mutation baseline. */
-export type MutationScores = Readonly<Record<string, number>>;
-
-/** Read per-file mutation scores, failing closed to an empty map. */
-export function loadMutationScores(repoRoot: string): MutationScores {
-	const path = join(repoRoot, MUTATION_BASELINE_PATH);
-	if (!existsSync(path)) return {};
-	try {
-		return parseMutationScores(JSON.parse(readFileSync(path, "utf8")));
-	} catch {
-		return {};
-	}
-}
-
-/** Narrow the mutation baseline to a file→score map. */
-export function parseMutationScores(raw: unknown): MutationScores {
-	if (!isJsonObject(raw)) return {};
-	const files = raw.files;
-	if (!isJsonObject(files)) return {};
-	const out: Record<string, number> = {};
-	for (const [file, value] of Object.entries(files)) {
-		const score = isJsonObject(value) ? value.score : undefined;
-		if (typeof score === "number" && Number.isFinite(score)) out[file] = score;
-	}
-	return out;
-}
-
-/** Minimum mutation score a detector must reach, by tier. */
-export function mutationFloorFor(tier: ObligationTier): number {
-	// Mirrors the branch-coverage ladder: a hard rail must be near-fully
-	// distinguished from its mutants; an advisory check need not be.
-	return tier.requires_mutation ? 0.8 : 0;
 }

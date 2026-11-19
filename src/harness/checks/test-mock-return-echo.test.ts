@@ -1,9 +1,24 @@
 import { describe, expect, it } from "vitest";
+import { withForegroundCheckScan } from "./check-scan-policy.js";
 import { checkMockReturnEcho } from "./test-mock-return-echo.js";
 
 function run(content: string, path = "widget.test.ts"): ReturnType<typeof checkMockReturnEcho> {
 	return checkMockReturnEcho(content, path);
 }
+
+describe("checkMockReturnEcho foreground result collection", () => {
+	it("P1 retains twenty echo observations and their tail while ordinary edits keep twelve", () => {
+		const content = Array.from({ length: 20 }, (_, index) => `it("case ${index}", () => { dep.mockReturnValue("echo-${index}"); const result = sut(dep); expect(result).toBe("echo-${index}"); });`).join("\n");
+		expect(run(content)).toHaveLength(12);
+		expect(withForegroundCheckScan(() => run(content)).map(match => match.line)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+		expect(run(content)).toHaveLength(12);
+	});
+
+	it("N1 retains computed-value and argument-pinning exceptions in foreground scans", () => {
+		const content = Array.from({ length: 20 }, (_, index) => `it("computed ${index}", () => { dep.mockReturnValue(3); const result = sut(dep); expect(result).toBe(5); });\nit("pinned ${index}", () => { dep.mockReturnValue("echo"); const result = sut(dep); expect(result).toBe("echo"); expect(dep).toHaveBeenCalledWith("independent argument"); });`).join("\n");
+		expect(withForegroundCheckScan(() => run(content))).toEqual([]);
+	});
+});
 
 describe("checkMockReturnEcho — positive (must fire)", () => {
 	it("P1: mockReturnValue string literal echoed via toBe", () => {

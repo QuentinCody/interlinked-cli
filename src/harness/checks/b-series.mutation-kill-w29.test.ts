@@ -101,8 +101,11 @@ describe("checkAssertionFreeTests — mutation-kill w29", () => {
 	// one whitespace char required). A `throws(` call with NO space before the
 	// paren is a valid assertion under the original (zero whitespace allowed)
 	// but is missed by the mutant, which would wrongly flag the block.
+	// The line scanner these mutants lived in is gone: checkAssertionFreeTests now delegates to the registered
+	// detector, which counts `throws` only when it is BOUND to an assert module (an unbound `throws(fn)` may be
+	// any local helper). The contract pinned here is that bound form, with and without the space.
 	it("recognizes `throws(` with no space before the paren as an assertion", () => {
-		const content = ["it('does something', () => {", "  throws(fn);", "});"].join("\n");
+		const content = ['import { throws } from "node:assert";', "it('does something', () => {", "  throws(fn);", "});"].join("\n");
 		expect(checkAssertionFreeTests(content, "thing.test.ts")).toEqual([]);
 	});
 
@@ -113,8 +116,14 @@ describe("checkAssertionFreeTests — mutation-kill w29", () => {
 	// cannot consume the space and then fails to see the required `(`
 	// immediately after, so it wrongly flags the block.
 	it("recognizes `throws (` with a space before the paren as an assertion", () => {
-		const content = ["it('does something', () => {", "  throws (fn);", "});"].join("\n");
+		const content = ['import { throws } from "node:assert";', "it('does something', () => {", "  throws (fn);", "});"].join("\n");
 		expect(checkAssertionFreeTests(content, "thing.test.ts")).toEqual([]);
+	});
+	// test-contract: public-api — the registered assertion_free_test detector counts `throws` as an assertion only
+	// when it is bound to an assert module; an unbound `throws(fn)` may be any local helper and asserts nothing.
+	it("an UNBOUND `throws(fn)` is not an assertion (one implementation: the registered detector's contract)", () => {
+		const content = ["it('does something', () => {", "  throws(fn);", "});"].join("\n");
+		expect(checkAssertionFreeTests(content, "thing.test.ts")).toEqual([{ line: 1, text: "it('does something', () => {" }]);
 	});
 });
 

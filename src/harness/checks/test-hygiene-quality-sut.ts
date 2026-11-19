@@ -11,6 +11,7 @@
 import { nonNull } from "../../lib/non-null.js";
 import { isRepoScratchPath } from "../large-file-policy.js";
 import { MUTATION_DIRECTED_SUFFIX } from "./test-legitimacy.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -102,7 +103,7 @@ export function checkMockingTheSutSelf(content: string, filePath: string): Inlin
 	if (!sutBase || sutBase === fileName) return [];
 
 	const matches: InlineMatch[] = [];
-	const MAX_MATCHES = 3;
+	const MAX_MATCHES = checkMatchLimit(3);
 
 	SUT_MOCK_RE.lastIndex = 0;
 	let m: RegExpExecArray | null = SUT_MOCK_RE.exec(content);

@@ -21,6 +21,8 @@ import {
 	toolRunnerFor,
 } from "./index-runtime.js";
 import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
+import { currentProcessSignal } from "./process-cancellation.js";
+import { selectToolsForRun } from "./tool-applicability.js";
 import { type BiomeOverlayOutcome, runBiomeOverlay, runBiomeOverlayTyped } from "./tool-runners/biome.js";
 import { runDepAudit } from "./tool-runners/generic.js";
 import {
@@ -63,14 +65,17 @@ export class CheckEngine {
 	private toolsCache: ToolAvailability[] | null = null;
 	private singleToolCache = new Map<ToolId, ToolAvailability>();
 
-	constructor(projectRoot: string) {
+	constructor(projectRoot: string, private readonly discoveryOptions: { discoveryTimeoutMs?: number; discoverySelection?: Pick<CheckOptions, "tools" | "skipTools"> } = {}) {
 		this.projectRoot = projectRoot;
 	}
 
 	/** Discover which tools are available. Cached per engine instance. */
 	discoverTools(): ToolAvailability[] {
 		if (!this.toolsCache) {
-			this.toolsCache = discoverTools(this.projectRoot);
+			const timeout = this.discoveryOptions.discoveryTimeoutMs;
+			this.toolsCache = this.discoveryOptions.discoverySelection
+				? discoverTools(this.projectRoot, timeout, this.discoveryOptions.discoverySelection)
+				: timeout === undefined ? discoverTools(this.projectRoot) : discoverTools(this.projectRoot, timeout);
 			// Also populate the single-tool cache from the full discovery
 			for (const t of this.toolsCache) {
 				this.singleToolCache.set(t.id, t);
@@ -92,12 +97,21 @@ export class CheckEngine {
 		const cached = this.singleToolCache.get(id);
 		if (cached) return cached.available;
 		// Discover just this one tool
-		const result = discoverSingleTool(id, this.projectRoot);
+		const result = this.discoverOneTool(id);
 		if (result) {
 			this.singleToolCache.set(id, result);
 			return result.available;
 		}
 		return false;
+	}
+
+	private discoverOneTool(id: ToolId): ToolAvailability | undefined {
+		const selection = this.discoveryOptions.discoverySelection;
+		if (selection?.skipTools?.includes(id) || (selection?.tools && !selection.tools.includes(id))) {
+			return { id, available: false, reason: "not selected; availability not probed" };
+		}
+		const timeout = this.discoveryOptions.discoveryTimeoutMs;
+		return timeout === undefined ? discoverSingleTool(id, this.projectRoot) : discoverSingleTool(id, this.projectRoot, timeout);
 	}
 
 	/** Resolve only explicitly requested tools. A focused PostToolUse check must
@@ -114,7 +128,7 @@ export class CheckEngine {
 				continue;
 			}
 			// Every ToolId has a discovery row in the closed tool catalog.
-			const discovered = nonNull(discoverSingleTool(id, this.projectRoot));
+			const discovered = nonNull(this.discoverOneTool(id));
 			this.singleToolCache.set(id, discovered);
 			tools.push(discovered);
 		}
@@ -145,16 +159,10 @@ export class CheckEngine {
 	runChecks(scope: CheckScope, options?: CheckOptions): CheckReport {
 		const start = Date.now();
 		const available = this.toolsForRun(options);
-		const timeout = options?.timeoutMs ?? defaultTimeoutFor(scope);
+		const timeout = options?.timeoutMs ?? (options?.resourcePolicy === "foreground-verify" ? 0 : defaultTimeoutFor(scope));
 
 		// Determine which tools to run
-		const toolsToRun = available.filter((t) => {
-			if (!t.available) return false;
-			if (options?.skipTools?.includes(t.id)) return false;
-			return true;
-		});
-
-		const toolsSkipped = available.filter((t) => !toolsToRun.some((r) => r.id === t.id));
+		const { toolsToRun, toolsSkipped, skipped } = selectToolsForRun(available, scope, options);
 		const allResults: CheckResult[] = [];
 		const metrics: ToolMetrics[] = [];
 
@@ -174,12 +182,6 @@ export class CheckEngine {
 		}
 
 		const { deduplicated, removedCount } = deduplicateResults(allResults);
-
-		const skipped: import("./types.js").SkipEntry[] = toolsSkipped.map((t) => ({
-			check: t.id,
-			reason: t.reason || (t.available ? "skipped by options" : "not installed"),
-			category: t.available ? ("config_disabled" as const) : ("tool_missing" as const),
-		}));
 
 		return {
 			results: deduplicated,
@@ -220,33 +222,27 @@ export class CheckEngine {
 		scope: CheckScope,
 		options?: CheckOptions,
 	): Promise<CheckReport> {
+		currentProcessSignal()?.throwIfAborted();
 		const start = Date.now();
 		const available = this.toolsForRun(options);
-		const timeout = options?.timeoutMs ?? defaultTimeoutFor(scope);
+		const timeout = options?.timeoutMs ?? (options?.resourcePolicy === "foreground-verify" ? 0 : defaultTimeoutFor(scope));
 
-		const toolsToRun = available.filter((t) => {
-			if (!t.available) return false;
-			if (options?.skipTools?.includes(t.id)) return false;
-			return true;
-		});
-
-		const toolsSkipped = available.filter((t) => !toolsToRun.some((r) => r.id === t.id));
+		const { toolsToRun, toolsSkipped, skipped } = selectToolsForRun(available, scope, options);
 
 		// One child at a time inside the admitted finite batch. `runOne` catches
 		// runner failures and returns an explicit no-verdict skip, so the loop can
 		// continue without either rejecting the batch or reading a crash as clean.
 		const allRuns: Awaited<ReturnType<typeof runAsyncTool>>[] = [];
-		for (const tool of toolsToRun) allRuns.push(await runAsyncTool(tool, scope, timeout, options));
+		for (const tool of toolsToRun) {
+			currentProcessSignal()?.throwIfAborted();
+			allRuns.push(await runAsyncTool(tool, scope, timeout, options));
+		}
+		currentProcessSignal()?.throwIfAborted();
 		const allResults = allRuns.flatMap((r) => r.results);
 		const metrics = allRuns.map((r) => r.metric);
 
 		const { deduplicated, removedCount } = deduplicateResults(allResults);
 
-		const skipped: import("./types.js").SkipEntry[] = toolsSkipped.map((t) => ({
-			check: t.id,
-			reason: t.reason || (t.available ? "skipped by options" : "not installed"),
-			category: t.available ? ("config_disabled" as const) : ("tool_missing" as const),
-		}));
 		skipped.push(...allRuns.flatMap((run) => (run.skipped ? [run.skipped] : [])));
 		const completedToolIds = new Set(
 			allRuns.filter((run) => run.skipped === undefined).map((run) => run.metric.tool),

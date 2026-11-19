@@ -24,9 +24,13 @@
 // inherently heuristic on union/intersection/generic boundaries).
 
 import type * as TS from "typescript";
+import { relative, resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import { loadCheckTypescript, resetCheckTypescriptCache } from "./check-typescript.js";
 import { getExtension, type InlineMatch, isTestFile } from "./shared.js";
+import { hasParseErrors } from "./cyclomatic-ast.js";
+import { getProjectCheckEvidence } from "./project-check-evidence.js";
+import { withCheckRoot } from "./check-root.js";
 
 // Only .ts/.tsx/.mts/.cts are typechecked — plain .js/.jsx have no `as`
 // expressions to analyze (cast-shaped JSDoc casts aren't in the AST as
@@ -183,13 +187,13 @@ function targetIsAnyOrUnknownSyntax(ts: TsModule, typeNode: TS.TypeNode): boolea
  * Walk all AsExpression and TypeAssertionExpression nodes in the source
  * file and decide per-node whether it's smuggling.
  *
- * Returns `null` when the file should be skipped silently (parse errors,
- * checker unavailable, too-large file).
+ * Foreground callers retain all findings. Hook callers retain their result bound.
  */
 function collectSmugglingCasts(
 	ts: TsModule,
 	program: TS.Program,
 	sourceFile: TS.SourceFile,
+	maxMatches: number,
 ): InlineMatch[] | null {
 	const checker = program.getTypeChecker();
 
@@ -199,7 +203,7 @@ function collectSmugglingCasts(
 	const lines = starts.map((start, index) => sourceFile.text.slice(start, starts[index + 1] ?? sourceFile.text.length));
 
 	const visit = (node: TS.Node): void => {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return;
+		if (matches.length >= maxMatches) return;
 
 		// `foo as Bar` — AsExpression
 		// `<Bar>foo`  — TypeAssertionExpression (legacy syntax; rare in .tsx
@@ -333,6 +337,7 @@ function createSingleFileProgram(
 	ts: TsModule,
 	content: string,
 	filePath: string,
+	syntaxMode: "recovered" | "complete",
 ): { program: TS.Program; sourceFile: TS.SourceFile } | null {
 	const compilerOptions: TS.CompilerOptions = {
 		target: ts.ScriptTarget.ES2022,
@@ -353,6 +358,7 @@ function createSingleFileProgram(
 		/* setParentNodes */ true,
 		filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
 	);
+	if (syntaxMode === "complete" && hasParseErrors(sourceFile)) throw new Error("TypeScript syntax parsing failed; cast evidence is unavailable");
 	// Imports aliased with `as`, comments, strings, `as const`, and broad
 	// any/unknown assertions do not need a type checker or standard libraries.
 	const relevant = (node: TS.Node): boolean => {
@@ -387,15 +393,10 @@ function createSingleFileProgram(
 		getDefaultLibFileName: realHost.getDefaultLibFileName.bind(realHost),
 	};
 
-	let program: TS.Program;
-	try {
-		program = ts.createProgram([filePath], compilerOptions, host);
-	} catch {
-		return null;
-	}
+	const program = ts.createProgram([filePath], compilerOptions, host);
 
 	const resolved = program.getSourceFile(filePath);
-	if (!resolved) return null;
+	if (!resolved) throw new Error("TypeScript compiler source is unavailable");
 	return { program, sourceFile: resolved };
 }
 
@@ -403,10 +404,9 @@ function createSingleFileProgram(
  * Public API — flags TypeScript `as T` casts where the source expression's
  * static type does not structurally overlap with `T`.
  *
- * Returns `InlineMatch[]` like every other check. Returns `[]` when the
- * file is non-TS, too large, has no `as` expressions, is a test file, or
- * the type-checker can't be built — all "skip silently" paths are merged
- * into the empty-result return.
+ * Non-TS files, test files and irrelevant assertions remain outside this check.
+ * Hooks retain bounded work. Foreground verification retains whole-file evidence
+ * and records unavailable compiler or syntax evidence in its coverage receipts.
  *
  * Also returns `[]` when the TypeScript compiler API resolves neither from
  * the harness installation nor from the check root; that path reports the
@@ -415,32 +415,28 @@ function createSingleFileProgram(
 export function checkTypeSmuggling(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
 	if (!TS_EXTS.has(getExtension(filePath))) return [];
+	const evidence = getProjectCheckEvidence();
 
-	// Bail on huge files — type-checking is expensive and this is advisory.
-	// `split("\n")` already counts; cheap relative to the AST walk that
-	// follows.
 	const lineCount = content.length === 0 ? 0 : content.split("\n").length;
-	if (lineCount > MAX_LINES_PER_FILE) return [];
+	if (!evidence && lineCount > MAX_LINES_PER_FILE) return [];
 
 	if (!hasAsExpressionLikely(content)) return [];
 
-	const ts = loadTs();
-	// No `typescript` from either base: loadTs already reported NOT MEASURED.
-	if (!ts) return [];
-
-	let result: InlineMatch[] | null = null;
 	try {
-		const built = createSingleFileProgram(ts, content, filePath);
+		const ts = evidence ? withCheckRoot(evidence.root, loadTs).result : loadTs();
+		if (!ts) {
+			evidence?.reportUnavailable("type_smuggling", relative(evidence.root, resolve(evidence.root, filePath)),
+				"TypeScript compiler API is unavailable");
+			return [];
+		}
+		const built = createSingleFileProgram(ts, content, filePath, evidence ? "complete" : "recovered");
+		// No relevant assertion requires a checker program.
 		if (!built) return [];
-		result = collectSmugglingCasts(ts, built.program, built.sourceFile);
-	} catch {
-		// Anything thrown by the compiler — bail silently. The detector is
-		// advisory; we'd rather miss a case than false-fire on broken type
-		// info. Anchored to the user's CLAUDE.md instruction: "If the
-		// type-checker can't resolve a type (errors, dependencies missing),
-		// skip silently — don't false-fire on broken type info."
+		return collectSmugglingCasts(ts, built.program, built.sourceFile,
+			evidence ? Number.POSITIVE_INFINITY : MAX_MATCHES_PER_FILE) ?? [];
+	} catch (error) {
+		evidence?.reportUnavailable("type_smuggling", relative(evidence.root, resolve(evidence.root, filePath)),
+			error instanceof Error ? error.message : String(error));
 		return [];
 	}
-
-	return result ?? [];
 }

@@ -1,7 +1,8 @@
 // CLASS: a test observes only default/empty/no-op outcomes for unpinned targets.
 // FIRES WHEN: every assertion in an active test is a default matcher and no
 // non-default assertion pins any normalized target in the file or a same-SUT
-// sibling test file (bounded filename-based lookup, one-hop aliases).
+// sibling test file (filename-based lookup with separate foreground/runtime
+// collection policies, one-hop aliases).
 // DOES NOT FIRE: a non-default sibling pin, recognized boolean predicate,
 // explicit default-outcome title, resilience/no-throw contract, or skipped block.
 // CALIBRATION (2026-09-06/07, tracked tests in this tree; historical snapshots):
@@ -19,6 +20,9 @@ import { siblingNonDefaultTargets } from "./test-discrimination-fallback-sibling
 import { findCallSpan } from "./test-hygiene-shared.js";
 import { extractTestBlocks, type TestBlock } from "./test-structure.js";
 import { stripAllLiterals } from "../strip-helpers.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
+import { reportNotMeasured } from "./check-root.js";
+import { getProjectCheckEvidence } from "./project-check-evidence.js";
 
 const MAX_MATCHES = 10;
 
@@ -355,12 +359,14 @@ export function checkFallbackOnlyAssertion(content: string, filePath: string): I
 		for (const target of siblingNonDefaultTargets(filePath, computeNonDefaultTargetsForContent)) {
 			nonDefaultTargets.add(target);
 		}
-	} catch (e) {
-		void e; // never let sibling lookup turn a heuristic check fatal
+	} catch (error) {
+		const reason = `Sibling outcome lookup failed (${error instanceof Error ? error.message : String(error)})`;
+		getProjectCheckEvidence()?.reportUnavailable("fallback_only_assertion", filePath, reason);
+		reportNotMeasured("fallback_only_assertion", `${filePath}: ${reason}`);
 	}
 	const matches: InlineMatch[] = [];
-
-	for (let i = 0; i < blocks.length && matches.length < MAX_MATCHES; i++) {
+	const maxMatches = checkMatchLimit(MAX_MATCHES);
+	for (let i = 0; i < blocks.length && matches.length < maxMatches; i++) {
 		const block = blocks[i];
 		const assertions = byBlock.get(i);
 		if (!block || !assertions) continue;

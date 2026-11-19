@@ -1,6 +1,7 @@
 import { makeFakeChild } from "./test-child-process.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runProcessAsync } from "./spawn-async.js";
+import { withProcessCaptureLimit } from "./process-capture-policy.js";
 
 // Partial mock: default behavior delegates to the real `spawn` (so every
 // existing real-binary test below is unaffected), but individual tests can
@@ -29,6 +30,27 @@ describe("runProcessAsync", () => {
 		expect(r.stdout).toContain("hello");
 		expect(r.code).toBe(0);
 		expect(r.timedOut).toBe(false);
+	});
+
+	it("delivers complete explicit stdin and EOF without an argv-size boundary", async () => {
+		const input = "complete input\n".repeat(400_000);
+		const result = await runProcessAsync(process.execPath, ["-e", "let size=0;process.stdin.on('data',chunk=>size+=chunk.length);process.stdin.on('end',()=>process.stdout.write(String(size)));"] , { input, timeout: 0 });
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe(String(Buffer.byteLength(input)));
+		expect(result.inputError).toBeUndefined();
+	});
+
+	it("retains cancellation while an owned stdin-consuming child remains active", async () => {
+		const controller = new AbortController();
+		const pending = runProcessAsync(process.execPath, ["-e", "process.stdin.resume();setInterval(()=>{},1000)"], { input: "source", timeout: 0, signal: controller.signal });
+		setTimeout(() => controller.abort(), 40);
+		expect(await pending).toMatchObject({ killed: true, timedOut: false });
+	});
+
+	it("reports input delivery failure when a successful child closes its stdin early", async () => {
+		const result = await runProcessAsync(process.execPath, ["-e", "process.stdin.destroy();setTimeout(()=>process.exit(0),40)"], { input: "x".repeat(8 * 1024 * 1024), timeout: 5000 });
+		expect(result.code).toBe(0);
+		expect(result.inputError).toBeTruthy();
 	});
 
 	it("captures stderr separately from stdout", async () => {
@@ -83,6 +105,97 @@ describe("runProcessAsync", () => {
 		const r = await runProcessAsync("/bin/echo", ["hi"]);
 		expect(r.stdout).toContain("hi");
 		expect(r.timedOut).toBe(false);
+	});
+
+	it.each([0, null])("creates no deadline timer for explicit timeout %s", async (timeout) => {
+		vi.useFakeTimers();
+		const child = makeFakeChild(undefined);
+		vi.mocked(spawn).mockImplementationOnce(() => child);
+		const pending = runProcessAsync("fixture", [], { timeout });
+		try {
+			expect(vi.getTimerCount()).toBe(0);
+			await vi.advanceTimersByTimeAsync(3_600_001);
+			expect(child.kill).not.toHaveBeenCalled();
+		} finally {
+			child.emit("close", 0);
+			await pending;
+			vi.useRealTimers();
+		}
+	});
+
+	it("cancels an owned process with no deadline and reports no timeout", async () => {
+		const controller = new AbortController();
+		const pending = runProcessAsync(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { timeout: null, signal: controller.signal });
+		setTimeout(() => controller.abort(), 50);
+		const result = await pending;
+		expect(result).toMatchObject({ killed: true, timedOut: false, pid: expect.any(Number) });
+		expect(() => process.kill(result.pid!, 0)).toThrow();
+	});
+
+	it("retains complete output beyond the default cap when explicitly requested", async () => {
+		const bytes = 11 * 1024 * 1024;
+		const result = await runProcessAsync(process.execPath, ["-e", `process.stdout.write('a'.repeat(${bytes}));process.stderr.write('b'.repeat(${bytes}));`], { timeout: 5000, maxBufferBytes: null });
+		expect(result.stdout).toHaveLength(bytes);
+		expect(result.stderr).toHaveLength(bytes);
+		expect(result.stdoutTruncated).not.toBe(true);
+		expect(result.stderrTruncated).not.toBe(true);
+	});
+
+	it("keeps scoped foreground capture separate from concurrent bounded calls", async () => {
+		const args = ["-e", "process.stdout.write('abcdefghijklmnop');process.stderr.write('qrstuvwxyz');"];
+		const [foreground, bounded] = await Promise.all([
+			withProcessCaptureLimit(null, () => runProcessAsync(process.execPath, args, { timeout: 5000 })),
+			runProcessAsync(process.execPath, args, { timeout: 5000, maxBufferBytes: 8 }),
+		]);
+		expect(foreground.stdout).toBe("abcdefghijklmnop");
+		expect(bounded.stdout).toBe("abcdefgh");
+		expect(bounded.stderr).toBe("qrstuvwx");
+		expect(bounded.stdoutTruncated).toBe(true);
+		expect(bounded.stderrTruncated).toBe(true);
+	});
+
+	it("keeps default background capture bounded during a concurrent complete foreground capture", async () => {
+		const args = ["-e", "process.stdout.write('x'.repeat(11 * 1024 * 1024));"];
+		const [foreground, background] = await Promise.all([
+			withProcessCaptureLimit(null, () => runProcessAsync(process.execPath, args, { timeout: 5000 })),
+			runProcessAsync(process.execPath, args, { timeout: 5000 }),
+		]);
+		expect(foreground.stdout).toHaveLength(11 * 1024 * 1024);
+		expect(foreground.stdoutTruncated).not.toBe(true);
+		expect(background.stdout).toHaveLength(10 * 1024 * 1024);
+		expect(background.stdoutTruncated).toBe(true);
+	});
+
+	it("decodes complete Unicode output across arbitrary chunk boundaries", async () => {
+		const child = makeFakeChild(undefined);
+		vi.mocked(spawn).mockImplementationOnce(() => child);
+		const pending = runProcessAsync("fixture", [], { timeout: 0, maxBufferBytes: null });
+		const bytes = Buffer.from("start🙂éend");
+		for (const byte of bytes) child.stdout.emit("data", Buffer.from([byte]));
+		child.emit("close", 0);
+		expect((await pending).stdout).toBe("start🙂éend");
+	});
+
+	it("waits for complete descendant output after its wrapper exits", async () => {
+		const descendant = 'setTimeout(() => process.stdout.write("late complete report"), 500)';
+		const wrapper = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: ['ignore', 1, 2] });process.exit(0);`;
+		const result = await runProcessAsync(process.execPath, ["-e", wrapper], { timeout: null, maxBufferBytes: null });
+		expect(result.stdout).toBe("late complete report");
+		expect(result.stdoutTruncated).not.toBe(true);
+		expect(result.code).toBe(0);
+	});
+
+	it("keeps cancellation ownership after a complete-capture wrapper exits", async () => {
+		const child = makeFakeChild(undefined);
+		vi.mocked(spawn).mockImplementationOnce(() => child);
+		const controller = new AbortController();
+		const pending = runProcessAsync("fixture", [], { timeout: null, maxBufferBytes: null, signal: controller.signal });
+		child.emit("exit", 0);
+		controller.abort();
+		child.emit("close", 0);
+		const result = await pending;
+		expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+		expect(result).toMatchObject({ killed: true, timedOut: false });
 	});
 
 	it("merges opts.env on top of process.env", async () => {

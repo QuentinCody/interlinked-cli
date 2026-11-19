@@ -2,6 +2,7 @@
 // Extracted from generic-checks.ts.
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import {
 	countBooleanArgsFrom,
 	matchFunctionName,
@@ -43,9 +44,10 @@ export function checkBooleanTrap(content: string, filePath: string): InlineMatch
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 
 	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		const line = nonNull(strippedLines[i]);
 
 		// Must have a function call on this line
@@ -164,9 +166,10 @@ export function checkPositionalOptionalBoolean(
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 
 	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		const trimmed = nonNull(strippedLines[i]).trim();
 		if (!JS_TS_FUNC_PATTERNS.some((pat) => pat.test(trimmed))) continue;
 
@@ -214,9 +217,10 @@ export function checkManyOptionalParams(content: string, filePath: string): Inli
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 
 	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		const trimmed = nonNull(strippedLines[i]).trim();
 		if (!JS_TS_FUNC_PATTERNS.some((pat) => pat.test(trimmed))) continue;
 

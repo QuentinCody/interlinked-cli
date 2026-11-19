@@ -12,6 +12,7 @@ import {
 	stripCommentsAndStrings,
 } from "./shared.js";
 import { findSkipMarkers } from "./test-skip-markers.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 // ===========================================
 // JS/TS General Checks
@@ -267,10 +268,11 @@ export function checkHardcodedTimeout(content: string, filePath: string): Inline
  * or re-enable. Polyglot since 2026-07 (Bun test-oracle work): the marker table
  * lives in test-skip-markers.ts, shared with the skipped-tests water-line so
  * the check and the baseline can never disagree about what a "skip" is.
- * JS/TS behavior is unchanged (same pattern, same per-file cap).
+ * Recognition is unchanged. The detector selects foreground result collection;
+ * direct helper calls and skipped-test baseline counters keep their default cap.
  */
 export function checkDisabledTests(content: string, filePath: string): InlineMatch[] {
-	return findSkipMarkers(content, filePath);
+	return findSkipMarkers(content, filePath, checkMatchLimit(15));
 }
 
 /**

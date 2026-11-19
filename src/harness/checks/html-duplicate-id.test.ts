@@ -15,6 +15,15 @@ describe("checkHtmlDuplicateId", () => {
             .toEqual([{ line: 1, text: 'Duplicate HTML id "x"; first used on line 1.' }]);
     });
 
+    // Census gap (docs/reviews/kill-proof-census-harness.md, "Three worst gaps" 1): no companion
+    // case held an unmatched close tag, so dropping the depth clamp went unnoticed.
+    // test-contract: bug — a stray </template> must not drive the template depth negative and silence the rest of the body
+    it("MUST-FIRE: still reports duplicates after a stray </template> (template depth clamps at 0)", () => {
+        const html = '<body>\n</template>\n<div id="x"></div>\n<p id="x"></p>\n</body>';
+        expect(checkHtmlDuplicateId(html, "index.html"))
+            .toEqual([{ line: 4, text: 'Duplicate HTML id "x"; first used on line 3.' }]);
+    });
+
     it.each(["\n", "\r\n", "\r"])("preserves %j line endings in locations", (newline) => {
         const html = ['<body id="x">', '<p id="x"></p>', '</body>'].join(newline);
         expect(checkHtmlDuplicateId(html, "index.html"))

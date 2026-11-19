@@ -17,6 +17,7 @@ import {
 	stripCommentsAndStrings,
 } from "./shared.js";
 import { findCallSpan, IT_TEST_OPEN_RE } from "./test-hygiene-shared.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 // ==========================================================================
 // 8. Mock-only test — every assertion is a call-interaction matcher
@@ -273,7 +274,7 @@ export function checkMockOnlyTest(content: string, filePath: string): InlineMatc
 	const stripped = stripCommentsAndStrings(content);
 	const importedAssertHelpers = collectImportedAssertHelpers(content);
 	const matches: InlineMatch[] = [];
-	const MAX_MATCHES = 12;
+	const MAX_MATCHES = checkMatchLimit(12);
 
 	IT_TEST_OPEN_RE.lastIndex = 0;
 	let m: RegExpExecArray | null = IT_TEST_OPEN_RE.exec(stripped);

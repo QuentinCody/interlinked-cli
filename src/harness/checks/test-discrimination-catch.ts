@@ -15,6 +15,7 @@ import { createRequire } from "node:module";
 import type * as TS from "typescript";
 import { parseTsSourceWith } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isTestFile, JS_TS_EXTS } from "./shared.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 type TsModule = typeof TS;
 
@@ -240,12 +241,13 @@ export function checkCatchWithoutAssertionGuard(content: string, filePath: strin
 
 	const sf = parseTsSourceWith(ts, content, filePath);
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(MAX_MATCHES);
 
 	for (const block of findTestBlocks(ts, sf)) {
-		if (matches.length >= MAX_MATCHES) break;
+		if (matches.length >= maxMatches) break;
 		if (hasAssertionsCountGuard(ts, block.body) || hasToThrowGuard(ts, block.body)) continue;
 		for (const tryStmt of collectTryStatements(ts, block.body).filter((statement) => unguardedCatch(ts, statement))) {
-			if (matches.length >= MAX_MATCHES) break;
+			if (matches.length >= maxMatches) break;
 			matches.push(buildMatch(sf, tryStmt, content));
 		}
 	}

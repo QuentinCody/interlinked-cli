@@ -33,6 +33,7 @@ import {
 	loopBodyHasThrowOrFail,
 } from "./test-vacuous-loop-pins.js";
 import { extractTestBlocks, type TestBlock } from "./test-structure.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 const MAX_MATCHES = 10;
 
@@ -160,7 +161,8 @@ export function checkVacuousLoopAssertion(content: string, filePath: string): In
 	};
 
 	const matches: InlineMatch[] = [];
-	for (let i = 0; i < blocks.length && matches.length < MAX_MATCHES; i++) {
+	const maxMatches = checkMatchLimit(MAX_MATCHES);
+	for (let i = 0; i < blocks.length && matches.length < maxMatches; i++) {
 		const block = blocks[i];
 		if (!block || block.kind !== "test" || isGatedOut(blocks, i)) continue;
 		if (isEachBlock(mLines, block)) continue;

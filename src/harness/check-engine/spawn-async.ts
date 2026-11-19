@@ -18,15 +18,20 @@
 //   • spawn errors — ENOENT / EACCES / etc. surface as `code: null` rather
 //     than throwing, so runners can decide whether the missing tool is fatal.
 //
-// stdout and stderr are captured independently into UTF-8 strings, capped
-// at MAX_BUFFER_BYTES to defend against runaway output. Capping
+// stdout and stderr are captured independently into UTF-8 strings. Background
+// capture defaults to MAX_BUFFER_BYTES. Explicit/scoped null retains complete
+// output for foreground reports. Capping
 // truncates rather than rejecting. The result identifies each truncated stream
 // so report consumers can refuse an incomplete measurement.
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import type { ResourceBudget } from "../resource-budget.js";
 import { createPeakTracker, watchResources } from "../resource-watch.js";
 import { combinedProcessSignal } from "./process-cancellation.js";
+import { currentProcessCaptureLimit } from "./process-capture-policy.js";
+import { snapshotDescendantGroups } from "./process-group-teardown.js";
+import { hasErrorCode } from "./tool-errors.js";
 
 /** Per-stream capture threshold. Complete reports that exceed it require
  *  streaming; bounded prefixes must not stand in for complete measurements. */
@@ -39,8 +44,13 @@ const PROCESS_GROUP_REAP_POLL_MS = 10;
 const PIPE_CLOSE_GUARD_MS = 250;
 
 export interface RunProcessOptions {
-	/** Timeout in ms; the process is SIGTERM'd at this deadline. Default 30 s. */
-	timeout?: number;
+	/** Complete UTF-8 stdin body. Supplied input is followed by EOF. */
+	input?: string;
+	/** Timeout in ms. Omitted uses 30 s. Explicit 0 or null creates no deadline. */
+	timeout?: number | null;
+	/** Per-stream captured byte limit. Omitted uses the scoped limit or 10 MiB.
+	 * Explicit null retains the complete report. */
+	maxBufferBytes?: number | null;
 	/** Optional AbortController signal; the process is killed when it fires. */
 	signal?: AbortSignal;
 	/** Working directory for the spawned process. */
@@ -53,9 +63,13 @@ export interface RunProcessOptions {
     resourceBudget?: ResourceBudget;
     /** Stream command output directly for supervised developer commands. */
     inheritOutput?: boolean;
+    /** A foreground supervisor also owns detached analyzer groups below its CLI child. */
+    reapDescendantGroups?: boolean;
 }
 
 export interface RunProcessResult {
+	/** Input delivery failed before EOF. Consumers must reject partial evidence. */
+	inputError?: string;
 	stdout: string;
 	stderr: string;
 	/** True when capture discarded stdout bytes; omitted for complete output. */
@@ -89,6 +103,7 @@ interface SpawnedProcessRunInput {
  * settlement. Keeping the mutable lifecycle in one object makes each timer
  * and event transition independently reviewable without changing their order. */
 class SpawnedProcessRun {
+	private descendantGroups: number[] = [];
 	private readonly child: ChildProcess;
 	private readonly opts: RunProcessOptions;
 	private readonly timeoutMs: number;
@@ -99,6 +114,10 @@ class SpawnedProcessRun {
 	private stderrBytes = 0;
 	private stdoutTruncated = false;
 	private stderrTruncated = false;
+	private inputError: string | undefined;
+	private readonly stdoutDecoder = new StringDecoder("utf8");
+	private readonly stderrDecoder = new StringDecoder("utf8");
+	private readonly captureLimitBytes: number | null;
 	private timedOut = false;
 	private killed = false;
 	private settled = false;
@@ -117,26 +136,39 @@ class SpawnedProcessRun {
 		this.opts = input.opts;
 		this.timeoutMs = input.timeoutMs;
 		this.resolve = input.resolve;
+		this.captureLimitBytes = input.opts.maxBufferBytes === undefined ? MAX_BUFFER_BYTES : input.opts.maxBufferBytes;
 		this.processGroupId = process.platform === "win32" ? undefined : input.child.pid;
 	}
 
 	start(): void {
-		this.timeoutTimer = setTimeout(() => {
-			this.timedOut = true;
-			this.killTree();
-		}, this.timeoutMs);
+		if (this.timeoutMs > 0) this.armDeadline(Date.now() + this.timeoutMs);
 		this.registerAbort();
 		this.child.stdout?.on("data", (chunk: Buffer) => this.captureStdout(chunk));
 		this.child.stderr?.on("data", (chunk: Buffer) => this.captureStderr(chunk));
 		this.child.on("exit", (code) => this.handleExit(code));
 		this.child.on("error", () => this.handleError());
 		this.child.on("close", (code) => this.handleClose(code));
+		if (this.opts.input !== undefined && this.child.stdin) {
+			this.child.stdin.on("error", error => { this.inputError = error.message; });
+			this.child.stdin.end(this.opts.input);
+		}
         if (this.opts.resourceBudget && this.child.pid) {
             this.stopResourceWatch = watchResources(this.child.pid, this.opts.resourceBudget, reason => {
                 this.resourceReason = reason;
                 this.killTree();
             }, rss => this.peakTracker.observe(rss));
         }
+	}
+
+	private armDeadline(deadline: number): void {
+		this.timeoutTimer = setTimeout(() => {
+			if (Date.now() < deadline) {
+				this.armDeadline(deadline);
+				return;
+			}
+			this.timedOut = true;
+			this.killTree();
+		}, Math.min(deadline - Date.now(), 2_147_483_647));
 	}
 
 	private registerAbort(): void {
@@ -147,26 +179,26 @@ class SpawnedProcessRun {
 	}
 
 	private captureStdout(chunk: Buffer): void {
-		if (this.stdoutBytes >= MAX_BUFFER_BYTES) {
-			this.stdoutTruncated = true;
-			return;
-		}
-		this.stdoutBytes += chunk.length;
-		this.stdout += chunk.toString("utf-8");
+		const available = this.captureLimitBytes === null ? chunk.length : Math.max(0, this.captureLimitBytes - this.stdoutBytes);
+		const captured = chunk.subarray(0, available);
+		this.stdoutBytes += captured.length;
+		this.stdout += this.stdoutDecoder.write(captured);
+		if (captured.length < chunk.length) this.stdoutTruncated = true;
 	}
 
 	private captureStderr(chunk: Buffer): void {
-		if (this.stderrBytes >= MAX_BUFFER_BYTES) {
-			this.stderrTruncated = true;
-			return;
-		}
-		this.stderrBytes += chunk.length;
-		this.stderr += chunk.toString("utf-8");
+		const available = this.captureLimitBytes === null ? chunk.length : Math.max(0, this.captureLimitBytes - this.stderrBytes);
+		const captured = chunk.subarray(0, available);
+		this.stderrBytes += captured.length;
+		this.stderr += this.stderrDecoder.write(captured);
+		if (captured.length < chunk.length) this.stderrTruncated = true;
 	}
 
 	private finalize(code: number | null): void {
 		if (this.settled) return;
 		this.settled = true;
+		this.stdout += this.stdoutDecoder.end();
+		this.stderr += this.stderrDecoder.end();
 		this.clearLifecycleTimers();
         this.stopResourceWatch?.();
 		this.opts.signal?.removeEventListener("abort", this.onAbort);
@@ -179,6 +211,7 @@ class SpawnedProcessRun {
 		};
 		if (this.stdoutTruncated) result.stdoutTruncated = true;
 		if (this.stderrTruncated) result.stderrTruncated = true;
+		if (this.inputError !== undefined) result.inputError = this.inputError;
         if (this.resourceReason) result.resourceReason = this.resourceReason;
         if (this.child.pid !== undefined) result.pid = this.child.pid;
         if (this.peakTracker.peak !== undefined) result.peakRssBytes = this.peakTracker.peak;
@@ -210,6 +243,12 @@ class SpawnedProcessRun {
 				/* intentional: the process may already be reaped */
 			}
 		}
+		for (const group of this.descendantGroups) {
+			try { process.kill(-group, signal); }
+			catch (error) {
+				if (!hasErrorCode(error, "ESRCH")) this.resourceReason = "Owned descendant process group could not be signalled";
+			}
+		}
 	}
 
 	private processGroupIsAlive(processGroupId: number): boolean {
@@ -225,7 +264,7 @@ class SpawnedProcessRun {
 
 	private settleAfterKilledTreeExits(): void {
 		if (this.settled || !this.killed || this.processGroupId === undefined) return;
-		if (!this.processGroupIsAlive(this.processGroupId)) {
+		if (!this.processGroupIsAlive(this.processGroupId) && !this.descendantGroups.some(group => this.processGroupIsAlive(group))) {
 			// A wrapper can exit while a TERM-resistant compiler grandchild still
 			// owns the group. Group absence is what makes lease release safe.
 			this.finalize(this.pendingExitCode);
@@ -241,6 +280,10 @@ class SpawnedProcessRun {
 	private killTree(): void {
 		if (this.killed) return;
 		this.killed = true;
+		if (this.opts.reapDescendantGroups && this.processGroupId !== undefined) {
+			try { this.descendantGroups = snapshotDescendantGroups(this.processGroupId); }
+			catch { this.resourceReason = "Owned descendant process-group inspection failed during cancellation"; }
+		}
 		this.signalTree("SIGTERM");
 		this.killGraceTimer = setTimeout(() => {
 			if (!this.settled) this.signalTree("SIGKILL");
@@ -254,6 +297,9 @@ class SpawnedProcessRun {
 			this.settleAfterKilledTreeExits();
 			return;
 		}
+		// Wrapper exit does not end its descendants' report streams. Complete
+		// capture waits for pipe EOF while retaining cancellation/deadline ownership.
+		if (this.captureLimitBytes === null && (this.child.stdout || this.child.stderr)) return;
 		clearTimeout(this.timeoutTimer);
 		this.opts.signal?.removeEventListener("abort", this.onAbort);
 		this.scheduleCloseGuard(code);
@@ -269,6 +315,8 @@ class SpawnedProcessRun {
 		// throw in that case (mutation-kill-pinned in spawn-async test suite).
 		const closeGuard: { unref?(): void } = setTimeout(() => {
 			if (this.settled) return;
+			if (this.child.stdout && !this.child.stdout.readableEnded) this.stdoutTruncated = true;
+			if (this.child.stderr && !this.child.stderr.readableEnded) this.stderrTruncated = true;
 			this.child.stdout?.destroy();
 			this.child.stderr?.destroy();
 			this.finalize(code);
@@ -300,7 +348,8 @@ function startProcessRun(resolve: RunProcessResolver, input: ProcessStartInput):
 	const env = opts.exactEnv ?? (opts.env ? { ...process.env, ...opts.env } : process.env);
 	// Detached children lead their own process group so timeout/abort can stop
 	// wrapper-spawned descendants without signalling the daemon's group.
-	const child = spawn(cmd, args, { cwd: opts.cwd, env, detached: true, ...(opts.inheritOutput ? { stdio: "inherit" as const } : {}) });
+	const stdio = opts.inheritOutput ? { stdio: opts.input === undefined ? "inherit" as const : ["pipe", "inherit", "inherit"] as ["pipe", "inherit", "inherit"] } : {};
+	const child = spawn(cmd, args, { cwd: opts.cwd, env, detached: true, ...stdio });
 	new SpawnedProcessRun({ child, opts, timeoutMs, resolve }).start();
 }
 
@@ -314,7 +363,9 @@ export function runProcessAsync(
 	args: string[],
 	opts: RunProcessOptions = {},
 ): Promise<RunProcessResult> {
-	const timeoutMs = opts.timeout ?? 30_000;
+	const timeoutMs = opts.timeout === null ? 0 : opts.timeout ?? 30_000;
+    const scopedCaptureLimit = currentProcessCaptureLimit();
+    if (opts.maxBufferBytes === undefined && scopedCaptureLimit !== undefined) opts = { ...opts, maxBufferBytes: scopedCaptureLimit };
     const signal = combinedProcessSignal(opts.signal);
     if (signal) opts = { ...opts, signal };
 	return new Promise((resolve) => startProcessRun(resolve, { cmd, args, opts, timeoutMs }));

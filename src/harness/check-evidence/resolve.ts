@@ -72,7 +72,7 @@ export interface DetectorIndex {
 }
 
 /** Matches `export function foo`, `export const foo =`, and `export async function foo`. */
-function exportedNames(source: string): string[] {
+export function exportedNames(source: string): string[] {
 	const names: string[] = [];
 	const re = /^\s*export\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/gm;
 	let m: RegExpExecArray | null = re.exec(source);

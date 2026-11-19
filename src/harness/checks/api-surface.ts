@@ -26,6 +26,7 @@
 // declaration consumers only pays this cost at refactor time.
 
 import { getExtension, type InlineMatch, isTestFile, stripCommentsAndStrings } from "./shared.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 
 const MAX_MATCHES = 5;
 /** Lines an export declaration's signature window may span. */
@@ -188,7 +189,7 @@ export function checkPublicApiLeaksInternalType(
 
 	const matches: InlineMatch[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		if (matches.length >= MAX_MATCHES) break;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES)) break;
 		if (!EXPORT_DECL_RE.test(lines[i] ?? "")) continue;
 		const leaked = leakedNameIn(signatureWindow(lines, i), internalNames);
 		if (leaked === null) continue;

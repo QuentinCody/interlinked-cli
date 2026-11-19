@@ -248,7 +248,7 @@ export const AGENT_CLARITY_ENTRIES: CheckRegistration[] = [
 		phase: "post",
 		name: "NaN Coercion Guard",
 		description:
-			"Detects Date.parse / Number / parseInt / parseFloat results used in a relational comparison (<, >, <=, >=) without a Number.isFinite / Number.isNaN / isNaN guard — NaN makes the comparison silently false, falling through to a permissive/default branch (fail-open).",
+			"Detects Date.parse / Number / parseInt / parseFloat results used in a relational comparison (<, >, <=, >=) without a Number.isFinite / Number.isInteger / Number.isSafeInteger / Number.isNaN / isNaN guard (or, inline, a preceding anchored digit-only regex test of the same argument) — NaN makes the comparison silently false, falling through to a permissive/default branch (fail-open).",
 		tier: 1,
 		determinism: "heuristic",
 		severity: "warning",

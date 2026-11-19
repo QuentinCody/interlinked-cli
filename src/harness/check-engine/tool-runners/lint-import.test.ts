@@ -27,6 +27,12 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); rmSync(root, { recursive: true, force: true }); });
 
 describe("nested imported lint admission", () => {
+    it("keeps an unbounded foreground timeout through nested project admission", async () => {
+        await runImportedLintAsync({ scope: { projectRoot: nested, mode: "project" }, timeoutMs: 0, waitForCapacity: true, resourcePolicy: "foreground-verify" });
+        expect(wait).toHaveBeenCalledWith(root, Infinity, expect.any(AbortSignal));
+        expect(measure).toHaveBeenCalledWith(root, expect.anything(), { timeoutMs: 0, cadence: "hook", resourcePolicy: "foreground-verify" });
+        expect(release).toHaveBeenCalledTimes(1);
+    });
     it("carries background admission from the real engine to the nested runner", async () => {
         const report = await new CheckEngine(nested).runChecksAsync(
             { projectRoot: nested, mode: "project" },

@@ -21,10 +21,13 @@
 //      "genuinely orphaned" (nobody even mentions it) still reports.
 
 import { readFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 import { parseExports } from "../project-graph.js";
 import { getGitSourceFiles } from "./export-ripple.js";
 import { getExtension, type InlineMatch, isTestFile } from "./shared.js";
+import { collectExportUsage as collectEdges, consumptionPathKey as pathKey, type ExportUsageScan as EdgeScan } from "./export-consumption.js";
+import { getProjectCheckEvidence } from "./project-check-evidence.js";
+import { projectExportUsage } from "./dead-exports-project.js";
 
 /** Injectable repo view so tests need neither git nor a real filesystem. */
 export interface DeadExportsRepo {
@@ -32,6 +35,8 @@ export interface DeadExportsRepo {
 	listFiles: () => string[];
 	/** Contents by repo-relative path, or null when unreadable. */
 	readFile: (relPath: string) => string | null;
+	usageFor?: (selfRel: string, targetKey: string) => EdgeScan | null;
+	fullPopulation?: boolean;
 }
 
 export interface DeadExportsArgs {
@@ -48,37 +53,6 @@ export interface DeadExportsArgs {
 const EXPORTABLE_EXT = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"];
 const MAX_FLAGGED = 10;
 
-/** `import`/`export … from` edges in one importer, named symbols + wildcards. */
-const EDGE_RE =
-	/\b(?:import|export)\s+(?:type\s+)?(\*(?:\s+as\s+\w+)?|\{[^}]*\}|[\w$]+(?:\s*,\s*\{[^}]*\})?)\s+from\s+["']([^"']+)["']/g;
-
-/** The comparison key both sides reduce to: no extension, no trailing /index. */
-function pathKey(p: string): string {
-	return p.replace(/\.(?:[cm]?[jt]sx?|d\.ts)$/, "").replace(/\/index$/, "");
-}
-
-/** Original (pre-`as`) names from an import/export clause; "*" for wildcard. */
-function symbolsOf(clause: string): string[] {
-	if (clause.startsWith("*")) return ["*"];
-	const inner = clause.match(/\{([^}]*)\}/)?.[1] ?? "";
-	const named = inner
-		.split(",")
-		// `import { type Foo }` consumes Foo just as `import type { Foo }` does —
-		// strip the inline specifier keyword or the consumption is invisible.
-		.map((s) => s.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]?.trim() ?? "")
-		.filter((s) => s !== "");
-	// A bare default-import clause consumes only `default`, which this detector
-	// never flags — contribute nothing rather than a fake name.
-	return named;
-}
-
-interface EdgeScan {
-	mentions: number;
-	resolvedEdges: number;
-	allUsed: boolean;
-	symbols: Set<string>;
-}
-
 /** Walk every candidate importer, collecting the symbols that resolve to us. */
 function scanImporters(repo: DeadExportsRepo, selfRel: string, targetKey: string): EdgeScan {
 	const base = basename(selfRel).replace(/\.[^.]*$/, "");
@@ -92,38 +66,6 @@ function scanImporters(repo: DeadExportsRepo, selfRel: string, targetKey: string
 		if (scan.allUsed) return scan;
 	}
 	return scan;
-}
-
-/** `import("spec")` / `require("spec")` — namespace access with no named
- *  clause, so a resolving edge marks the whole module consumed (this also
- *  covers `import("./mod").Foo` in type positions and lazy runtime loads). */
-const DYNAMIC_EDGE_RE = /\b(?:import|require)\s*\(\s*["']([^"']+)["']\s*\)/g;
-
-function edgeResolvesTo(spec: string, importerRel: string, targetKey: string): boolean {
-	if (!spec.startsWith(".")) return false;
-	const resolved = pathKey(resolve("/", dirname(importerRel), spec)).replace(/^\/+/, "");
-	return resolved === targetKey;
-}
-
-function collectEdges(content: string, importerRel: string, targetKey: string, scan: EdgeScan): void {
-	EDGE_RE.lastIndex = 0;
-	for (const m of content.matchAll(EDGE_RE)) {
-		if (!edgeResolvesTo(m[2] ?? "", importerRel, targetKey)) continue;
-		scan.resolvedEdges++;
-		const syms = symbolsOf(m[1] ?? "");
-		if (syms.includes("*")) {
-			scan.allUsed = true;
-			return;
-		}
-		for (const s of syms) scan.symbols.add(s);
-	}
-	DYNAMIC_EDGE_RE.lastIndex = 0;
-	for (const m of content.matchAll(DYNAMIC_EDGE_RE)) {
-		if (!edgeResolvesTo(m[1] ?? "", importerRel, targetKey)) continue;
-		scan.resolvedEdges++;
-		scan.allUsed = true;
-		return;
-	}
 }
 
 /** How far above an export a doc comment may sit and still cover it. */
@@ -201,6 +143,7 @@ function resolveAndScan(args: DeadExportsArgs, repo: DeadExportsRepo): EdgeScan 
 	// one imports it" would be vacuously true — say nothing instead. (Guard
 	// carried over from the pre-extraction detector; its tests pin it.)
 	if (selfRel.startsWith("..")) return null;
+	if (repo.usageFor) return repo.usageFor(selfRel, pathKey(selfRel));
 	const scan = scanImporters(repo, selfRel, pathKey(selfRel));
 	if (scan.allUsed) return null;
 	// The evidence guard (lesson 3): mentioned but never resolved ⇒ our
@@ -348,7 +291,7 @@ function isExemptExport(
 /** Turn the resolved scan + candidate exports into findings, honoring the
  *  public-API escape, the same-file exported-signature escape, and the
  *  MAX_FLAGGED cap. */
-function buildMatches(args: DeadExportsArgs, exports: ReturnType<typeof candidateExports>, scan: EdgeScan): InlineMatch[] {
+function buildMatches(args: DeadExportsArgs, exports: ReturnType<typeof candidateExports>, scan: EdgeScan, limit: number): InlineMatch[] {
 	const lines = args.content.split("\n");
 	// Only type-only exports need the signature scan — for value exports
 	// `exp.isTypeOnly` is always false (candidateExports already filtered on
@@ -361,7 +304,7 @@ function buildMatches(args: DeadExportsArgs, exports: ReturnType<typeof candidat
 	for (const exp of exports) {
 		if (isExemptExport(exp, lines, scan, signatureSpans)) continue;
 		matches.push({ line: exp.line, text: remedyFor(args.content, exp.name) });
-		if (matches.length >= MAX_FLAGGED) break;
+		if (matches.length >= limit) break;
 	}
 	return matches;
 }
@@ -380,7 +323,7 @@ function findDeadExportsCore(
 	const scan = resolveAndScan(args, repo);
 	if (scan === null) return [];
 
-	return buildMatches(args, exports, scan);
+	return buildMatches(args, exports, scan, repo.fullPopulation ? Infinity : MAX_FLAGGED);
 }
 
 /** Core detector over an injectable repo view — VALUE exports only. */
@@ -401,7 +344,14 @@ export function findDeadTypeExports(args: DeadExportsArgs, repo: DeadExportsRepo
 }
 
 /** Real repo view: git file listing + filesystem reads. */
-function liveRepo(cwd: string): DeadExportsRepo {
+function liveRepo(cwd: string, check: string): DeadExportsRepo {
+	const evidence = getProjectCheckEvidence(cwd);
+	if (evidence) return {
+		listFiles: () => evidence.listFiles(),
+		readFile: rel => evidence.readFile(rel),
+		usageFor: (self, key) => projectExportUsage(evidence, self, key, check),
+		fullPopulation: true,
+	};
 	return {
 		listFiles: () => getGitSourceFiles(cwd),
 		readFile: (rel) => {
@@ -417,7 +367,8 @@ function liveRepo(cwd: string): DeadExportsRepo {
 
 /** Registry-facing wrapper: real git file listing + real filesystem. */
 export function checkDeadExports(content: string, filePath: string, cwd: string): InlineMatch[] {
-	return findDeadExports({ content, filePath, cwd }, liveRepo(cwd));
+	if (getProjectCheckEvidence(cwd)?.isExcluded(filePath)) return [];
+	return findDeadExports({ content, filePath, cwd }, liveRepo(cwd, "dead_exports"));
 }
 
 /** Registry-facing wrapper for the TYPE lane (see findDeadTypeExports). */
@@ -426,5 +377,6 @@ export function checkDeadTypeExports(
 	filePath: string,
 	cwd: string,
 ): InlineMatch[] {
-	return findDeadTypeExports({ content, filePath, cwd }, liveRepo(cwd));
+	if (getProjectCheckEvidence(cwd)?.isExcluded(filePath)) return [];
+	return findDeadTypeExports({ content, filePath, cwd }, liveRepo(cwd, "dead_type_exports"));
 }

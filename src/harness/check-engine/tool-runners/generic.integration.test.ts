@@ -231,6 +231,7 @@ function existsForPaths(paths: Iterable<string>): (p: unknown) => boolean {
 }
 
 beforeEach(() => {
+	memoryBudgetMock.mockReset().mockReturnValue({ reserveBytes: 2 * 1024 ** 3, maxRssBytes: 1024 ** 3 });
 	spawnSyncMock.mockReset();
 	existsSyncMock.mockReset();
 	runProcessAsyncMock.mockReset();
@@ -651,7 +652,7 @@ describe("runGitleaks (sync)", () => {
 			"--report-format",
 			"json",
 			"--report-path",
-			"/dev/stdout",
+			"-",
 			"--source",
 			".",
 		]);
@@ -918,10 +919,10 @@ describe("runEslintAsync", () => {
 		expect(args[args.length - 1]).toBe(".");
 	});
 
-	it("returns [] when code === 0 (clean) even with stdout content", async () => {
+	it("retains zero-exit ESLint warnings", async () => {
 		existsSyncMock.mockImplementation(existsForPaths([ESLINT_CONFIG]));
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: eslintUnix() }));
-		expect(await runEslintAsync(input(fileScope()))).toEqual([]);
+		expect(await runEslintAsync(input(fileScope()))).toHaveLength(2);
 	});
 
 	it("parses findings from stdout+stderr on a non-zero code", async () => {
@@ -956,19 +957,19 @@ describe("runOxlintAsync", () => {
 		expect(args).toEqual(["oxlint", "--format=json", "."]);
 	});
 
-	it("returns [] when code === null (ENOENT etc.)", async () => {
+	it("reports unavailable Oxlint execution when code is null", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null, stdout: oxlintJson() }));
-		expect(await runOxlintAsync(input(fileScope()))).toEqual([]);
+		await expect(runOxlintAsync(input(fileScope()))).rejects.toThrow("no check verdict");
 	});
 
-	it("returns [] when code === 0 (clean)", async () => {
+	it("retains zero-exit Oxlint diagnostics", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: oxlintJson() }));
-		expect(await runOxlintAsync(input(fileScope()))).toEqual([]);
+		expect(await runOxlintAsync(input(fileScope()))).toHaveLength(2);
 	});
 
-	it("returns [] on a non-zero code with empty stdout (trim → '' guard)", async () => {
+	it("reports unavailable Oxlint failure with empty diagnostics", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: "  " }));
-		expect(await runOxlintAsync(input(fileScope()))).toEqual([]);
+		await expect(runOxlintAsync(input(fileScope()))).rejects.toThrow("no diagnostics parsed");
 	});
 
 	it("parses diagnostics on a non-zero code", async () => {
@@ -993,24 +994,24 @@ describe("runKnipAsync", () => {
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 3_456 });
 	});
 
-	it("returns [] when code === null (ENOENT etc.)", async () => {
+	it("reports unavailable Knip execution when code is null", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null, stdout: knipJson() }));
-		expect(await runKnipAsync(input(fileScope()))).toEqual([]);
+		await expect(runKnipAsync(input(fileScope()))).rejects.toThrow("no check verdict");
 	});
 
-	it("returns [] when code === 0 (clean)", async () => {
+	it("retains zero-exit Knip findings", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: knipJson() }));
-		expect(await runKnipAsync(input(fileScope()))).toEqual([]);
+		expect(await runKnipAsync(input(fileScope()))).toHaveLength(2);
 	});
 
-	it("returns [] when code === 2 (config error)", async () => {
+	it("retains Knip findings within an unavailable config-error result", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 2, stdout: knipJson() }));
-		expect(await runKnipAsync(input(fileScope()))).toEqual([]);
+		await expect(runKnipAsync(input(fileScope()))).rejects.toMatchObject({ results: expect.arrayContaining([expect.objectContaining({ ruleId: "unused-file" })]) });
 	});
 
-	it("returns [] on a non-zero code with empty stdout (trim → '' guard)", async () => {
+	it("reports unavailable Knip failure with empty diagnostics", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: "" }));
-		expect(await runKnipAsync(input(fileScope()))).toEqual([]);
+		await expect(runKnipAsync(input(fileScope()))).rejects.toThrow("no diagnostics parsed");
 	});
 
 	it("parses unused files + exports on a non-zero code (project mode, no filtering)", async () => {
@@ -1041,7 +1042,7 @@ describe("runKnipAsync", () => {
 
 describe("runSemgrepAsync", () => {
 	it("invokes runProcessAsync with the default ruleset + targetFile, cwd/timeout", async () => {
-		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: '{"results":[]}' }));
 		await runSemgrepAsync(input(fileScope(), 9_090));
 		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("semgrep");
@@ -1060,25 +1061,25 @@ describe("runSemgrepAsync", () => {
 	});
 
 	it("targets '.' in project mode", async () => {
-		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: '{"results":[]}' }));
 		await runSemgrepAsync(input(projectScope()));
 		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args[args.length - 1]).toBe(".");
 	});
 
-	it("returns [] when code === null (ENOENT etc.)", async () => {
+	it("reports unavailable Semgrep execution when code is null", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null, stdout: semgrepJson() }));
-		expect(await runSemgrepAsync(input(fileScope()))).toEqual([]);
+		await expect(runSemgrepAsync(input(fileScope()))).rejects.toThrow("no check verdict");
 	});
 
-	it("returns [] when code === 2 (config/auth error)", async () => {
+	it("retains Semgrep findings within an unavailable config/auth result", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 2, stdout: semgrepJson() }));
-		expect(await runSemgrepAsync(input(fileScope()))).toEqual([]);
+		await expect(runSemgrepAsync(input(fileScope()))).rejects.toMatchObject({ results: [expect.objectContaining({ ruleId: "rules.no-eval" })] });
 	});
 
-	it("returns [] on a clean run with empty stdout (trim → '' guard)", async () => {
+	it("reports a missing Semgrep JSON report as unavailable", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: "  " }));
-		expect(await runSemgrepAsync(input(fileScope()))).toEqual([]);
+		await expect(runSemgrepAsync(input(fileScope()))).rejects.toThrow("no complete scan verdict");
 	});
 
 	it("parses findings and relativizes path on a non-zero code", async () => {
@@ -1103,13 +1104,21 @@ describe("runSemgrepAsync", () => {
 // ===========================================================================
 
 describe("runGitleaksAsync", () => {
+    it("runs a foreground verification scan without memory admission or a kill budget", async () => {
+        memoryBudgetMock.mockReturnValue(null);
+        runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: gitleaksJson() }));
+        const findings = await runGitleaksAsync({ ...input(projectScope()), resourcePolicy: "foreground-verify" });
+        expect(findings).toHaveLength(1);
+        expect(memoryBudgetMock).not.toHaveBeenCalled();
+        expect(runProcessAsyncMock.mock.calls[0]?.[2]).not.toHaveProperty("resourceBudget");
+    });
     it("does not spawn without the light scanner memory budget", async () => {
         memoryBudgetMock.mockReturnValueOnce(null);
         await expect(runGitleaksAsync(input(projectScope()))).rejects.toThrow("lacks memory headroom");
         expect(runProcessAsyncMock).not.toHaveBeenCalled();
     });
     it("monitors the admitted scanner tree at the light budget", async () => {
-        runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+        runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: "[]" }));
         await runGitleaksAsync(input(projectScope()));
         expect(memoryBudgetMock).toHaveBeenCalledWith("light");
         expect(runProcessAsyncMock).toHaveBeenCalledWith("gitleaks", expect.arrayContaining(["--redact", "--no-git"]), expect.objectContaining({ resourceBudget: { reserveBytes: 2 * 1024 ** 3, maxRssBytes: 1024 ** 3 } }));
@@ -1119,7 +1128,7 @@ describe("runGitleaksAsync", () => {
         vi.stubEnv("GOMAXPROCS", value);
         try {
             spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
-            runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+            runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: "[]" }));
             runGitleaks(input(projectScope()));
             await runGitleaksAsync(input(projectScope()));
             const expected = value === "1" ? "1" : "2";
@@ -1129,8 +1138,8 @@ describe("runGitleaksAsync", () => {
     });
 
     it.each(["timedOut", "killed", "stdoutTruncated", "stderrTruncated"] as const)("refuses a security verdict when %s", async flag => {
-        runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, [flag]: true }));
-        await expect(runGitleaksAsync(input(projectScope()))).rejects.toThrow("no complete security verdict");
+        runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: "[]", [flag]: true }));
+        await expect(runGitleaksAsync(input(projectScope()))).rejects.toThrow("no check verdict");
     });
 
 	it("returns [] without spawning when mode is not 'project' (hot-path skip)", async () => {
@@ -1140,7 +1149,7 @@ describe("runGitleaksAsync", () => {
 	});
 
 	it("invokes runProcessAsync with detect args in project mode", async () => {
-		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: "[]" }));
 		await runGitleaksAsync(input(projectScope(), 11_111));
 		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("gitleaks");
@@ -1152,40 +1161,40 @@ describe("runGitleaksAsync", () => {
 			"--report-format",
 			"json",
 			"--report-path",
-			"/dev/stdout",
+			"-",
 			"--source",
 			".",
 		]);
 		expect(opts).toMatchObject({ cwd: PROJECT_ROOT, timeout: 11_111 });
 	});
 
-	it("returns [] when code === null (process never started)", async () => {
+	it("reports unavailable Gitleaks execution when code is null", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null, stdout: gitleaksJson() }));
-		expect(await runGitleaksAsync(input(projectScope()))).toEqual([]);
+		await expect(runGitleaksAsync(input(projectScope()))).rejects.toThrow("no check verdict");
 	});
 
-	it("returns [] when code !== 1 (e.g. clean exit 0)", async () => {
+	it("retains zero-exit Gitleaks findings", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: gitleaksJson() }));
-		expect(await runGitleaksAsync(input(projectScope()))).toEqual([]);
+		expect(await runGitleaksAsync(input(projectScope()))).toHaveLength(1);
 	});
 
-	it("returns [] when code === 1 but output contains FTL", async () => {
+	it("retains findings with unavailable scope when Gitleaks stderr reports FTL", async () => {
 		runProcessAsyncMock.mockResolvedValue(
 			procResult({ code: 1, stderr: "FTL boom", stdout: gitleaksJson() }),
 		);
-		expect(await runGitleaksAsync(input(projectScope()))).toEqual([]);
+		await expect(runGitleaksAsync(input(projectScope()))).rejects.toMatchObject({ results: [expect.objectContaining({ ruleId: "aws-access-key" })] });
 	});
 
-	it("returns [] when code === 1 but output contains 'no such file'", async () => {
+	it("retains findings with unavailable scope when a Gitleaks input is missing", async () => {
 		runProcessAsyncMock.mockResolvedValue(
 			procResult({ code: 1, stderr: "no such file", stdout: gitleaksJson() }),
 		);
-		expect(await runGitleaksAsync(input(projectScope()))).toEqual([]);
+		await expect(runGitleaksAsync(input(projectScope()))).rejects.toMatchObject({ results: [expect.objectContaining({ ruleId: "aws-access-key" })] });
 	});
 
-	it("returns [] when code === 1 with empty stdout (trim → '' guard)", async () => {
+	it("reports unavailable Gitleaks failure without diagnostics", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: "", stderr: "" }));
-		expect(await runGitleaksAsync(input(projectScope()))).toEqual([]);
+		await expect(runGitleaksAsync(input(projectScope()))).rejects.toThrow("no complete security verdict");
 	});
 
 	it("parses leaks on code === 1 with a clean (non-fatal) stdout", async () => {

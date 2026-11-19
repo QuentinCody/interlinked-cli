@@ -46,7 +46,8 @@ export function directionFromTitle(title: string): CaseDirection | null {
 	// with the hyphenated dialect (`MUST-NOT-FIRE:`), and an explicit label in a
 	// spelling variant is evidence, not an inference. Negative stays first, so
 	// the `fire` tail of `must-not-fire` can never read as positive.
-	if (/must[ -]not[ -]fire|does[ -]not[ -]fire|no[ -]match|negative|must[ -]stay[ -]silent|silent/.test(t)) {
+	// `no[ -]match\b`: "no matching const" is not a "no match" label (2026-11-05).
+	if (/must[ -]not[ -]fire|does[ -]not[ -]fire|no[ -]match\b|negative|must[ -]stay[ -]silent|silent/.test(t)) {
 		return "negative";
 	}
 	if (/must[ -]fire|does[ -]fire|positive|detects|flags/.test(t)) return "positive";
@@ -63,8 +64,19 @@ function braceDelta(line: string): number {
 	return delta;
 }
 
+/** Count `(` minus `)` in a text, crudely (string contents included). */
+function parenDelta(text: string): number {
+	let delta = 0;
+	for (const ch of text) {
+		if (ch === "(") delta++;
+		else if (ch === ")") delta--;
+	}
+	return delta;
+}
+
 interface DescribeFrame {
 	direction: CaseDirection | null;
+	title: string;
 	/** Brace depth at which this describe block closes. */
 	closesAt: number;
 }
@@ -73,6 +85,8 @@ interface DescribeFrame {
 interface BlockOpener {
 	kind: "describe" | "test";
 	title: string;
+	/** Column of the opener keyword. */
+	index: number;
 }
 
 /** Every block opener on a line, in the order they appear. */
@@ -81,10 +95,36 @@ function scanBlockOpeners(line: string): BlockOpener[] {
 	BLOCK_RE.lastIndex = 0;
 	let m: RegExpExecArray | null = BLOCK_RE.exec(line);
 	while (m) {
-		found.push({ kind: m[1] === "describe" ? "describe" : "test", title: m[3] ?? "" });
+		found.push({ kind: m[1] === "describe" ? "describe" : "test", title: m[3] ?? "", index: m.index });
 		m = BLOCK_RE.exec(line);
 	}
 	return found;
+}
+
+/**
+ * A labeled case with the lines its body spans and the describe titles around
+ * it — the lexical scope `attribution.ts` reads to decide which detector a case
+ * names. The span is line-based and crude, like the rest of this parser: it
+ * ends where the case's brace block closes, or at the next block opener, or at
+ * the close of the enclosing block, whichever comes first.
+ */
+export interface CaseSpan {
+	labeled: LabeledCase;
+	/** 1-based last line of the case body (the opener line for a one-line case). */
+	endLine: number;
+	/** Titles of the enclosing describe blocks, outermost first. */
+	describeTitles: string[];
+}
+
+/** The case whose end line is still unknown. */
+interface OpenCase {
+	span: CaseSpan;
+	/** Brace depth at the opener keyword. */
+	depth: number;
+	/** `pending` until its opener line is read; `braced` closes on its brace, `window` on the next boundary. */
+	mode: "pending" | "braced" | "window";
+	/** The opener's parentheses balance on its own line. */
+	closedInline: boolean;
 }
 
 /** True for lines that are entirely comment, so disabled tests are not counted. */
@@ -104,34 +144,68 @@ function inheritedDirection(stack: readonly DescribeFrame[]): CaseDirection | nu
 	return stack.length > 0 ? stack[stack.length - 1]?.direction ?? null : null;
 }
 
-/** Mutable scan state threaded line-by-line through {@link parseLabeledCases}. */
+/** Mutable scan state threaded line-by-line through {@link parseCaseSpans}. */
 interface ParseState {
 	readonly stack: DescribeFrame[];
-	readonly cases: LabeledCase[];
+	readonly spans: CaseSpan[];
 	depth: number;
+	open: OpenCase | null;
+}
+
+/** End the open case: a new opener on `lineNumber` starts after it (tests do not nest). */
+function endOpenCaseBefore(state: ParseState, lineNumber: number): void {
+	const open = state.open;
+	if (!open) return;
+	open.span.endLine = Math.max(open.span.labeled.line, lineNumber - 1);
+	state.open = null;
 }
 
 /** Apply every block opener found on one line to the running parse state. */
 function applyLineOpeners(line: string, lineNumber: number, state: ParseState): void {
 	for (const opener of scanBlockOpeners(line)) {
+		endOpenCaseBefore(state, lineNumber);
 		if (opener.kind === "describe") {
-			state.stack.push({ direction: directionFromTitle(opener.title), closesAt: state.depth });
+			state.stack.push({ direction: directionFromTitle(opener.title), title: opener.title, closesAt: state.depth });
 			continue;
 		}
 		const direction = directionFromTitle(opener.title) ?? inheritedDirection(state.stack);
-		if (direction) state.cases.push({ direction, title: opener.title, line: lineNumber });
+		if (!direction) continue;
+		const span: CaseSpan = {
+			labeled: { direction, title: opener.title, line: lineNumber },
+			endLine: lineNumber,
+			describeTitles: state.stack.map((frame) => frame.title),
+		};
+		state.spans.push(span);
+		const depth = state.depth + braceDelta(line.slice(0, opener.index));
+		state.open = { span, depth, mode: "pending", closedInline: parenDelta(line.slice(opener.index)) <= 0 };
 	}
 }
 
+/** After a line's braces are counted, decide whether the open case ended on it. */
+function settleOpenCase(state: ParseState, lineNumber: number): void {
+	const open = state.open;
+	if (!open) return;
+	if (open.mode === "pending") {
+		if (state.depth > open.depth) open.mode = "braced";
+		else if (open.closedInline) state.open = null;
+		else open.mode = "window";
+		return;
+	}
+	const closed = open.mode === "braced" ? state.depth <= open.depth : state.depth < open.depth;
+	if (!closed) return;
+	open.span.endLine = lineNumber;
+	state.open = null;
+}
+
 /**
- * Extract every labeled test case from test-file source.
+ * Extract every labeled test case with its body span and describe chain.
  *
  * Unlabeled tests are ignored rather than guessed at — an unlabeled test is
  * not evidence of a direction, and inferring one would manufacture compliance.
  */
-export function parseLabeledCases(source: string): LabeledCase[] {
+export function parseCaseSpans(source: string): CaseSpan[] {
 	const lines = source.split("\n");
-	const state: ParseState = { stack: [], cases: [], depth: 0 };
+	const state: ParseState = { stack: [], spans: [], depth: 0, open: null };
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i] ?? "";
@@ -142,9 +216,16 @@ export function parseLabeledCases(source: string): LabeledCase[] {
 		}
 
 		state.depth += braceDelta(line);
+		settleOpenCase(state, i + 1);
 	}
+	if (state.open) state.open.span.endLine = lines.length;
 
-	return state.cases;
+	return state.spans;
+}
+
+/** Extract every labeled test case from test-file source (see {@link parseCaseSpans}). */
+export function parseLabeledCases(source: string): LabeledCase[] {
+	return parseCaseSpans(source).map((span) => span.labeled);
 }
 
 /**

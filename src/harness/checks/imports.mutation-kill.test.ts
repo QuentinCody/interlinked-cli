@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { _resetPackageNameCacheForTests, checkImportFromOwnBarrel } from "./imports.js";
 
 let sandbox = "";
 
 beforeEach(() => {
-	sandbox = mkdtempSync(join(tmpdir(), "imports-mutkill-"));
+	sandbox = mkdtempSync(join(process.cwd(), "scratch", "imports-mutkill-"));
+	TS = join(sandbox, "foo.ts");
+	writeFileSync(TS, "export const Foo = 1;");
+	writeFileSync(join(sandbox, "many.ts"), "export const v = 1;");
+	for (const extension of ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"]) {
+		writeFileSync(join(sandbox, `index.${extension}`), 'export * from "./foo.js";\nexport * from "./many.js";');
+	}
 	_resetPackageNameCacheForTests();
 });
 
@@ -27,7 +32,7 @@ function packageAt(dir: string, name: string): void {
 	writeFileSync(join(dir, "package.json"), JSON.stringify({ name }));
 }
 
-const TS = "src/lib/foo.ts";
+let TS: string;
 
 describe("nearestPackageName — ancestor-walk bound (i < 6) and increment direction", () => {
 	// test-contract: boundary — the loop checks the file's own directory plus five
@@ -73,24 +78,20 @@ describe("nearestPackageName — package.json only found further up, not at the 
 	});
 });
 
-describe("nearestPackageName — per-directory cache staleness and the exported reset hook", () => {
-	// test-contract: invariant — a directory's package name is cached on first
-	// lookup; a later on-disk change is invisible until the cache is explicitly
-	// cleared, and the reset hook must actually clear it (not be a no-op).
-	it("serves a stale cached name until _resetPackageNameCacheForTests is called", () => {
+describe("nearestPackageName — invocation-local identity", () => {
+	// test-contract: invariant — a later invocation observes changed package identity.
+	it("reads a changed package name without requiring a reset", () => {
 		const dir = dirAt("pkgcache");
 		packageAt(dir, "name-v1");
 		const file = join(dir, "widget.ts");
 
-		// First lookup: populates the cache with "name-v1".
 		expect(checkImportFromOwnBarrel('import x from "name-v1";', file)).toEqual([
 			{ line: 1, text: `imports from own package 'name-v1' — use a deep submodule path instead: import x from "name-v1";` },
 		]);
 
-		// Change the on-disk package.json without resetting the cache.
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "name-v2" }));
-		expect(checkImportFromOwnBarrel('import x from "name-v2";', file)).toEqual([]);
+		expect(checkImportFromOwnBarrel('import x from "name-v1";', file)).toEqual([]);
 
 		// After the explicit reset, the fresh on-disk name is picked up.
 		_resetPackageNameCacheForTests();
@@ -116,7 +117,7 @@ describe("checkImportFromOwnBarrel — five-finding cap boundary", () => {
 	// let a sixth finding through.
 	it("caps at exactly five findings out of six candidate lines", () => {
 		const content = Array.from({ length: 6 }, (_, index) => ` import { v } from "./index"; // ${index + 1}`).join("\n");
-		const out = checkImportFromOwnBarrel(content, "src/lib/many.ts");
+		const out = checkImportFromOwnBarrel(content, join(sandbox, "many.ts"));
 		expect(out).toHaveLength(5);
 		expect(out.map((m) => m.line)).toEqual([1, 2, 3, 4, 5]);
 	});
@@ -134,10 +135,10 @@ describe("checkImportFromOwnBarrel — keyword-line detection requires trim + st
 
 	// test-contract: security — without the `^` anchor, "export" appearing after an
 	// unrelated leading statement would still match, spuriously flagging the line.
-	it("does not flag a keyword that appears mid-line, not at the start", () => {
+	it("recognizes an actual export declaration after another statement", () => {
 		const content = 'doStuff(); export { X } from "./index";\n';
 		const out = checkImportFromOwnBarrel(content, TS);
-		expect(out).toEqual([]);
+		expect(out).toHaveLength(1);
 	});
 });
 

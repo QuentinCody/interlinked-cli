@@ -14,12 +14,13 @@
 //
 // Optional fields capture the real asymmetry: project-wide tools (semgrep,
 // gitleaks, eslint) and filename-dispatched tools (actionlint, hadolint)
-// declare no `extensions`; discovery-only tools (dep-audit, docs-check)
+// declare no `extensions`; discovery-only tools (dep-audit, tseslint-types)
 // declare no `runner`. Order matters for `extensions`: per-extension tool
 // lists are built in catalog order, so a tool that should appear LAST for an
 // extension (lizard) is placed after the per-language compilers.
 
 import { runActionlint, runActionlintAsync } from "./tool-runners/actionlint.js";
+import { runDocsCheck, runDocsCheckAsync } from "./tool-runners/docs-check.js";
 import { TYPED_ESLINT_PROFILE } from "../../lib/lint-import/builtin-profiles.js";
 import { runBiome, runBiomeAsync } from "./tool-runners/biome.js";
 import { runCCompile, runClangTidy } from "./tool-runners/c-cpp.js";
@@ -47,7 +48,7 @@ import {
 	runRuffFormat,
 	runRuffFormatAsync,
 } from "./tool-runners/python.js";
-import { runCargoCheck, runCargoClippy, runRustfmtCheck } from "./tool-runners/rust.js";
+import { runCargoCheck, runCargoClippy, runRustfmtCheck, runRustfmtCheckAsync } from "./tool-runners/rust.js";
 import { runShellcheck, runShellcheckAsync } from "./tool-runners/shellcheck.js";
 import { runSwiftBuild, runSwiftLint, runSwiftLintAsync } from "./tool-runners/swift.js";
 import { runTaplo, runTaploAsync } from "./tool-runners/taplo.js";
@@ -200,6 +201,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
 		configNames: ["rustfmt_check"],
 		extensions: [".rs"],
 		runner: runRustfmtCheck,
+		runnerAsync: runRustfmtCheckAsync,
 		concurrencySafe: true,
 		versionCmd: ["rustfmt", "--version"],
 		versionRegex: /rustfmt\s+(\S+)/,
@@ -397,8 +399,11 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
 		requiresConfig: true,
 	},
 	{
-		// Discovery-only project-local Node script (`scripts/check-docs.mjs`).
+		// Project-local Node script (`scripts/check-docs.mjs`).
 		id: "docs-check",
+		runner: runDocsCheck,
+		runnerAsync: runDocsCheckAsync,
+		concurrencySafe: false,
 		versionCmd: ["node", "--version"],
 		versionRegex: /v?(\d+\.\d+\.\d+)/,
 		configFiles: ["scripts/check-docs.mjs"],
@@ -443,7 +448,7 @@ export function buildExtensionTools(): Record<string, ToolId[]> {
 }
 
 /** Tool ids the engine can actually EXECUTE — catalog rows that declare a
- *  `runner`. `dep-audit` / `docs-check` are discovery-only: present for
+ *  `runner`. `dep-audit` / `tseslint-types` are discovery-only: present for
  *  availability reporting (and dispatched elsewhere, e.g. `interlinked
  *  verify`), but with no runner in the registry. `runChecks({tools:[id]})`
  *  skips a runner-less id and returns 0 findings, so a caller that maps a

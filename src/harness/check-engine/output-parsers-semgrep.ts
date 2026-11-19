@@ -1,5 +1,5 @@
 // Pure Semgrep JSON decoding, shared through the public output-parsers barrel.
-import { relative } from "node:path";
+import { relative, resolve } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
 import type { CheckResult } from "./types.js";
 
@@ -35,7 +35,7 @@ function pushSemgrepFinding(entry: unknown, projectRoot: string, results: CheckR
 	results.push({
 		tool: "semgrep",
 		severity: "warning",
-		file: relative(projectRoot, finding.path || ""),
+		file: relative(projectRoot, resolve(projectRoot, finding.path || "")),
 		line: finding.line || 0,
 		column: finding.col,
 		message: `${finding.checkId || "unknown"}: ${finding.message || ""}`.trim(),

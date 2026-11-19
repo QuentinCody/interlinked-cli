@@ -1,4 +1,6 @@
 import { buildConfigToTool, buildToolRegistry } from "./tool-catalog.js";
+import { withProcessCaptureLimit } from "./process-capture-policy.js";
+import { PartialToolReportError } from "./tool-errors.js";
 import type {
 	CheckOptions,
 	CheckReport,
@@ -52,15 +54,22 @@ export async function runAsyncTool(
 			skipped: {
 				check: tool.id,
 				reason: meta
-					? "async runner unavailable; run `interlinked verify` for this tool"
-					: "no async check runner is registered; run `interlinked verify` for this tool",
+					? "async runner unavailable for this tool; no verification verdict"
+					: "no async check runner is registered for this tool; no verification verdict",
 				category: "error",
 			},
 		};
 	}
+	const runnerAsync = meta.runnerAsync;
 	const toolStart = Date.now();
 	try {
-		const results = await meta.runnerAsync({ scope, timeoutMs, ...(options?.waitForCapacity ? { waitForCapacity: true } : {}) });
+		const run = () => runnerAsync({ scope, timeoutMs,
+			...(options?.gitleaksScope ? { gitleaksScope: options.gitleaksScope } : {}),
+			...(options?.onInputScope ? { onInputScope: options.onInputScope } : {}),
+            ...(options?.waitForCapacity ? { waitForCapacity: true } : {}),
+            ...(options?.resourcePolicy ? { resourcePolicy: options.resourcePolicy } : {}),
+        });
+		const results = await (options?.resourcePolicy === "foreground-verify" ? withProcessCaptureLimit(null, run) : run());
 		return {
 			results,
 			metric: {
@@ -71,12 +80,13 @@ export async function runAsyncTool(
 			},
 		};
 	} catch (error) {
+		const results = error instanceof PartialToolReportError ? error.results : [];
 		return {
-			results: [],
+			results,
 			metric: {
 				tool: tool.id,
 				elapsedMs: Date.now() - toolStart,
-				findingCount: 0,
+				findingCount: results.length,
 				cacheHit: false,
 			},
 			skipped: {

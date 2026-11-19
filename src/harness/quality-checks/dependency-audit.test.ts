@@ -57,6 +57,34 @@ describe("hasOsvScanner — spawnSync throws", () => {
 });
 
 describe("resolveDependencyAuditCommandAsync — osv-scanner probe via runProcessAsync", () => {
+	it.each([0, 1234])("retains a nonzero foreground version exit as unavailable with deadline %i", async probeTimeoutMs => {
+		runProcessAsyncMock.mockResolvedValueOnce({ stdout: "", stderr: "Version probe failed", code: 2, timedOut: false, killed: false });
+		await expect(resolveDependencyAuditCommandAsync("package.json", { probeTimeoutMs })).rejects.toThrow("OSV availability probe exited 2");
+		expect(runProcessAsyncMock).toHaveBeenCalledWith("osv-scanner", ["--version"], { timeout: probeTimeoutMs });
+	});
+
+	it("retries an explicit foreground version probe after a nonzero exit without poisoning the bounded cache", async () => {
+		runProcessAsyncMock.mockResolvedValueOnce({ stdout: "", stderr: "Probe failed", code: 2, timedOut: false, killed: false })
+			.mockResolvedValueOnce({ stdout: "OSV 2", stderr: "", code: 0, timedOut: false, killed: false });
+		await expect(resolveDependencyAuditCommandAsync("go.mod", { probeTimeoutMs: 0 })).rejects.toThrow("OSV availability probe");
+		expect((await resolveDependencyAuditCommandAsync("go.mod", { probeTimeoutMs: 0 }))?.parser).toBe("osv-scanner");
+		expect(runProcessAsyncMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("foreground probing has no implicit deadline and rechecks a bounded negative cache", async () => {
+		runProcessAsyncMock.mockResolvedValueOnce({ stdout: "", stderr: "", code: null, timedOut: true, killed: true })
+			.mockResolvedValueOnce({ stdout: "OSV 2", stderr: "", code: 0, timedOut: false, killed: false });
+		expect((await resolveDependencyAuditCommandAsync("go.mod"))?.parser).toBe("govulncheck");
+		expect((await resolveDependencyAuditCommandAsync("go.mod", { probeTimeoutMs: 0 }))?.parser).toBe("osv-scanner");
+		expect(runProcessAsyncMock).toHaveBeenLastCalledWith("osv-scanner", ["--version"], { timeout: 0 });
+	});
+
+	it("an explicit foreground probe deadline remains unavailable instead of becoming tool absence", async () => {
+		runProcessAsyncMock.mockResolvedValueOnce({ stdout: "", stderr: "", code: null, timedOut: true, killed: true });
+		await expect(resolveDependencyAuditCommandAsync("go.mod", { probeTimeoutMs: 1234 })).rejects.toThrow("OSV availability probe");
+		expect(runProcessAsyncMock).toHaveBeenCalledWith("osv-scanner", ["--version"], { timeout: 1234 });
+	});
+
 	it("prefers osv-scanner when the async probe exits 0", async () => {
 		runProcessAsyncMock.mockResolvedValueOnce({
 			stdout: "",

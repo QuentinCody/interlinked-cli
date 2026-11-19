@@ -820,6 +820,16 @@ describe("runTscAsync — project mode", () => {
 		]);
 	});
 
+	it.each([false, true])("uses actual capture truncation evidence for a compiler report above ten MiB, truncated=%s", async truncated => {
+		requireResolveMock.mockImplementation(() => { throw new Error("no tsgo"); });
+		existsSyncMock.mockImplementation(existsForPaths([TSCONFIG_AT_ROOT]));
+		spawnSyncMock.mockImplementation(() => spawnResult({ status: 1 }));
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: `${"x".repeat(10 * 1024 * 1024)}\n${tscFileDiag("src/x.ts")}`, ...(truncated ? { stdoutTruncated: true } : {}) }));
+		const { runTscAsync } = await loadTsc();
+		const out = await runTscAsync({ ...input(projectScope()), resourcePolicy: "foreground-verify" });
+		expect(out.map(row => row.ruleId)).toEqual([truncated ? "tsc-unavailable" : "TS2345"]);
+	});
+
 	it("parses file-level diagnostics from runProcessAsync output", async () => {
 		requireResolveMock.mockImplementation(() => {
 			throw new Error("no tsgo");

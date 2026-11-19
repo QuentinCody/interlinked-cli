@@ -136,7 +136,7 @@ export const TASTE_ENTRIES: CheckRegistration[] = [
 		severity: "warning",
 		pipeline: "agent_safety",
 		fix_instruction:
-			"This class exposes public fields AND has behavioral methods — worst of both worlds. Either keep it a pure data structure (fields only), or hide the fields behind methods. Don't mix.",
+			"Review whether public mutable fields let callers bypass this class's invariants. Encapsulate fields that require coordinated updates; immutable value objects and intentional domain models may legitimately combine data and behavior.",
 		fn: checkHybridClass,
 		resultsPropName: "hybridClass",
 	},
@@ -178,7 +178,7 @@ export const TASTE_ENTRIES: CheckRegistration[] = [
 		severity: "warning",
 		pipeline: "agent_safety",
 		fix_instruction:
-			"Passing a literal true/false to a function means the function does two different things. Split it into two functions with clear names.",
+			"Review whether the positional boolean's meaning is clear. Prefer a named option or explicit operation when it reduces ambiguity; a boolean alone does not prove multiple responsibilities.",
 		fn: checkFlagArgument,
 		resultsPropName: "flagArgument",
 	},

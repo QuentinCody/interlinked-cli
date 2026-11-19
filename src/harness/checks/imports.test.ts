@@ -1,8 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import { _resetPackageNameCacheForTests, checkImportFromOwnBarrel } from "./imports.js";
 
-const TS = "src/lib/foo.ts";
+let sandbox: string;
+let TS: string;
+beforeEach(() => {
+	sandbox = mkdtempSync(join(process.cwd(), "scratch", "imports-api-"));
+	TS = join(sandbox, "foo.ts");
+	writeFileSync(TS, "export const Foo = 1;");
+	writeFileSync(join(sandbox, "index.ts"), 'export * from "./foo.js";');
+});
+afterEach(() => rmSync(sandbox, { recursive: true, force: true }));
 
 describe("checkImportFromOwnBarrel — positive cases", () => {
 	it("flags `from './index'` in a non-barrel file", () => {

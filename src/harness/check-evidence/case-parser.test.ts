@@ -5,7 +5,7 @@
 // evidence (unlabeled tests, comments, nested blocks).
 
 import { describe, expect, it } from "vitest";
-import { countCases, directionFromTitle, parseLabeledCases } from "./case-parser.js";
+import { countCases, directionFromTitle, parseCaseSpans, parseLabeledCases } from "./case-parser.js";
 
 describe("directionFromTitle — positive (must classify as positive)", () => {
 	it("P1: reads an explicit P-prefix", () => {
@@ -26,6 +26,10 @@ describe("directionFromTitle — positive (must classify as positive)", () => {
 
 	it("P5: reads hyphenated 'does-fire' prose", () => {
 		expect(directionFromTitle("does-fire on an unguarded call")).toBe("positive");
+	});
+
+	it("P6: 'no matching' is not a 'no match' label, so 'STILL flags' stays positive", () => {
+		expect(directionFromTitle("STILL flags a bare ident with no matching const declaration anywhere")).toBe("positive");
 	});
 });
 
@@ -56,6 +60,51 @@ describe("directionFromTitle — negative (must classify as negative or null)", 
 
 	it("N7: reads hyphenated 'must-stay-silent' prose", () => {
 		expect(directionFromTitle("must-stay-silent on vendored paths")).toBe("negative");
+	});
+
+	it("N8: a whole-word 'no match' / 'no-match' label is still negative", () => {
+		expect(directionFromTitle("no match for a guarded call")).toBe("negative");
+		expect(directionFromTitle("no-match: guarded call")).toBe("negative");
+	});
+});
+
+describe("parseCaseSpans", () => {
+	it("P1: a braced case ends on the line that closes its block", () => {
+		const src = [
+			'describe("checkThing — positive (must fire)", () => {', // 1
+			'\tit("braced", () => {', // 2
+			"\t\texpect(checkThing(x)).toHaveLength(1);", // 3
+			"\t});", // 4
+			'\tit("one line", () => expect(run(y)).toHaveLength(1));', // 5
+			"});", // 6
+		].join("\n");
+		const spans = parseCaseSpans(src);
+		expect(spans.map((s) => [s.labeled.line, s.endLine])).toEqual([[2, 4], [5, 5]]);
+		expect(spans[0]?.describeTitles).toEqual(["checkThing — positive (must fire)"]);
+	});
+
+	it("P2: a case without braces runs until the next opener", () => {
+		const src = [
+			'describe("negative (must not fire)", () => {', // 1
+			'\tit("arrow", () =>', // 2
+			"\t\texpect(run(z)).toEqual([]));", // 3
+			'\tit("next", () => {});', // 4
+			"});", // 5
+		].join("\n");
+		expect(parseCaseSpans(src).map((s) => [s.labeled.line, s.endLine])).toEqual([[2, 3], [4, 4]]);
+	});
+
+	it("N1: an unlabeled test ends the labeled case before it and adds no span", () => {
+		const src = [
+			'describe("checkThing", () => {', // 1
+			'\tit("P1: labeled", () =>', // 2
+			"\t\texpect(a).toBe(1));", // 3
+			'\tit("unlabeled helper case", () => {', // 4
+			"\t\texpect(checkOther(b)).toEqual([]);", // 5
+			"\t});", // 6
+			"});", // 7
+		].join("\n");
+		expect(parseCaseSpans(src).map((s) => [s.labeled.line, s.endLine])).toEqual([[2, 3]]);
 	});
 });
 

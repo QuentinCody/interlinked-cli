@@ -4,7 +4,9 @@
 // Each function depends only on ./shared.js helpers (no project-graph / fs / path).
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import { blankJsxText } from "./nan-comparison-scan.js";
+import { maskDiscardedValidators } from "./discarded-validation.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -39,8 +41,9 @@ export function checkThrowLiteral(content: string, filePath: string): InlineMatc
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		const trimmed = nonNull(strippedLines[i]).trim();
 		// throw followed by a string literal, number, boolean, null, undefined, or a variable (not `new`)
 		// We check original content for string literals since stripped content removes them
@@ -75,9 +78,11 @@ export function checkThrowLiteral(content: string, filePath: string): InlineMatc
  *   - `const/let/var <v> = await <expr>.json()` (fetch/Response/Request body)
  *
  * Resolves as safe if within the next `SCAN_AHEAD` lines `<v>` appears as the
- * argument to `.parse(`, `.safeParse(`, `.decode(`, `.check(`, or
+ * argument to `.parse(`, `.decode(`, `.check(`, or
  * `.validate(` — covering zod, valibot, ajv, yup, io-ts, arktype, superstruct,
- * and friends.
+ * and friends. A nonthrowing `.safeParse()` result does not establish success
+ * for the original value. Consume its guarded result instead. This remains a
+ * bounded naming heuristic, not proof of a parser's runtime contract.
  *
  * Flags as unsafe if `<v>.<field>` appears before any validation call.
  * Otherwise (value returned, passed to a function, etc.) we can't tell — skip
@@ -103,7 +108,7 @@ function reachesPropertyAccessBeforeValidation(
 	// (`JSON.parse(v)`) from counting as validation — JSON.parse asserts
 	// nothing about shape.
 	const validated = new RegExp(
-		`(?<!JSON)\\.(?:parse|safeParse|decode|check|validate)\\s*\\(\\s*${varName}\\b`,
+		`(?<!JSON)\\.(?:parse|decode|check|validate)\\s*\\(\\s*${varName}\\b`,
 	);
 	// Local validator (boundary-parser campaign): a bare `parseX(v)` /
 	// `isX(v)` / `validateX(v)` / `normalizeX(v)` call with the value as
@@ -134,17 +139,18 @@ export function checkUnvalidatedJsonBoundary(content: string, filePath: string):
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
 
-	const stripped = stripCommentsAndStrings(content);
+	const stripped = stripCommentsAndStrings(maskDiscardedValidators(content, filePath));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 
 	// Assignment form: `const/let/var <v> = (await )?(JSON.parse|<ident>.json)(`.
 	const ASSIGN =
 		/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?\s*=\s*(?:await\s+)?(?:JSON\.parse|[\w.]+\.json)\s*\(/;
 
 	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		const line = nonNull(strippedLines[i]);
 
 		const m = ASSIGN.exec(line);
@@ -188,13 +194,14 @@ export function checkPromiseRejectNonError(content: string, filePath: string): I
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 
 	// `Promise.reject(` followed by a literal we recognize as non-Error.
 	// Literals: string (', ", or `), number, true/false/null/undefined.
 	const NON_ERROR_ARG = /(?<![\w$])Promise\.reject\s*\(\s*(?:["'`]|-?\d|true\b|false\b|null\b|undefined\b)/;
 
 	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		if (NON_ERROR_ARG.test(nonNull(strippedLines[i]))) {
 			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 		}

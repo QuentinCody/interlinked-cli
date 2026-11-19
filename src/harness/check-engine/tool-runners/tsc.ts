@@ -12,12 +12,14 @@ import { errorMessage } from "../../../lib/error-message.js";
 import { nonNull } from "../../../lib/non-null.js";
 import {
 	ProjectCompilerUnavailableError,
+	type ProjectCompilerLeaseOptions,
 	runWithProjectCompilerLease,
 	tryAcquireProjectCompilerLease,
 } from "../../project-compiler-gate.js";
 import { filterResultsToFile, parseTscOutput } from "../output-parsers.js";
 import { runProcessAsync, type RunProcessResult } from "../spawn-async.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
+import { currentProcessSignal } from "../process-cancellation.js";
 
 /** Walk up from startDir to find tsconfig.json (max 5 levels). */
 function findTsconfig(startDir: string): string | null {
@@ -58,8 +60,8 @@ function unavailableFinding(file: string, reason: string): CheckResult[] {
 	];
 }
 
-export function parseCompletedCompiler(output: string, status: number, file: string): CheckResult[] {
-	if (output.length >= COMPILER_OUTPUT_LIMIT_BYTES) {
+export function parseCompletedCompiler(output: string, status: number, file: string, completeOutput = false): CheckResult[] {
+	if (!completeOutput && output.length >= COMPILER_OUTPUT_LIMIT_BYTES) {
 		return unavailableFinding(file, "compiler output was truncated");
 	}
 	const parsed = parseTscOutput(output);
@@ -109,7 +111,8 @@ function parseAsyncCompilerResult(result: RunProcessResult, file: string): Check
 	if (result.timedOut) return unavailableFinding(file, "compiler timed out and was terminated");
 	if (result.killed) return unavailableFinding(file, "compiler was terminated before completion");
 	if (result.code === null) return unavailableFinding(file, "compiler failed to spawn or exit cleanly");
-	return parseCompletedCompiler(`${result.stdout}${result.stderr}`, result.code, file);
+	if (result.stdoutTruncated || result.stderrTruncated) return unavailableFinding(file, "compiler output was truncated");
+	return parseCompletedCompiler(`${result.stdout}${result.stderr}`, result.code, file, true);
 }
 
 function compilerResultFile(input: ToolRunnerInput, projectRoot: string): string {
@@ -285,12 +288,13 @@ function runTscStandalone(filePath: string, cwd: string, timeoutMs: number): Che
  */
 export async function runTscAsync(input: ToolRunnerInput): Promise<CheckResult[]> {
 	const { scope, timeoutMs } = input;
+	const foregroundDeadline = input.resourcePolicy === "foreground-verify" ? (timeoutMs === 0 ? Infinity : Date.now() + timeoutMs) : undefined;
 	const tscRoot = findTsconfig(scope.projectRoot);
 	const { cmd, args: cmdArgs } = tscCommandForAsyncRunner();
 
 	if (!tscRoot) {
 		if (scope.mode === "file" && scope.targetFile?.match(/\.tsx?$/)) {
-			return runTscStandaloneAsync(scope.targetFile, scope.projectRoot, timeoutMs);
+			return runTscStandaloneAsync(scope.targetFile, scope.projectRoot, timeoutMs, foregroundDeadline);
 		}
 		return [];
 	}
@@ -301,6 +305,7 @@ export async function runTscAsync(input: ToolRunnerInput): Promise<CheckResult[]
 		cmd,
 		cmdArgs,
 		compilerResultFile(input, tscRoot),
+		foregroundDeadline,
 	);
 
 	if (scope.mode === "file" && scope.targetFile && scope.filterToFile) {
@@ -308,11 +313,27 @@ export async function runTscAsync(input: ToolRunnerInput): Promise<CheckResult[]
 		const rel = relative(tscRoot, scope.targetFile);
 		const filtered = filterResultsToFile(parsed, rel);
 		if (filtered.length === 0 && !isFileInTscScope(scope.targetFile, tscRoot)) {
-			return runTscStandaloneAsync(scope.targetFile, tscRoot, timeoutMs);
+			return runTscStandaloneAsync(scope.targetFile, tscRoot, timeoutMs, foregroundDeadline);
 		}
 		return filtered;
 	}
 	return parsed;
+}
+
+function compilerAdmissionOptions(deadline: number | undefined): ProjectCompilerLeaseOptions {
+	if (deadline === undefined) return {};
+	const signal = currentProcessSignal();
+	return { admissionTimeoutMs: Number.isFinite(deadline) ? Math.max(0, deadline - Date.now()) : null,
+		maxQueued: null, ...(signal ? { signal } : {}),
+	};
+}
+
+function remainingCompilerTimeout(timeoutMs: number, deadline: number | undefined): number {
+	if (deadline === undefined) return timeoutMs;
+	if (!Number.isFinite(deadline)) return 0;
+	const remaining = deadline - Date.now();
+	if (remaining <= 0) throw new ProjectCompilerUnavailableError("busy", "compiler deadline exhausted before execution");
+	return remaining;
 }
 
 async function runProjectCheck(
@@ -321,16 +342,17 @@ async function runProjectCheck(
 	cmd: string,
 	cmdArgs: string[],
 	resultFile: string,
+	foregroundDeadline?: number,
 ): Promise<CheckResult[]> {
 	try {
 		return await runWithProjectCompilerLease(tscRoot, async () => {
 			const result = await runProcessAsync(
 				cmd,
 				[...cmdArgs, "--noEmit", "--pretty", "false"],
-				{ cwd: tscRoot, timeout: timeoutMs },
+				{ cwd: tscRoot, timeout: remainingCompilerTimeout(timeoutMs, foregroundDeadline) },
 			);
 			return parseAsyncCompilerResult(result, resultFile);
-		});
+		}, compilerAdmissionOptions(foregroundDeadline));
 	} catch (error) {
 		const reason =
 			error instanceof ProjectCompilerUnavailableError
@@ -344,6 +366,7 @@ async function runTscStandaloneAsync(
 	filePath: string,
 	cwd: string,
 	timeoutMs: number,
+	foregroundDeadline?: number,
 ): Promise<CheckResult[]> {
 	const { cmd, args: cmdArgs, useTsgo } = tscCommandForAsyncRunner();
 	const args = [
@@ -364,7 +387,8 @@ async function runTscStandaloneAsync(
 	];
 	try {
 		const result = await runWithProjectCompilerLease(cwd, () =>
-			runProcessAsync(cmd, args, { cwd, timeout: timeoutMs }),
+			runProcessAsync(cmd, args, { cwd, timeout: remainingCompilerTimeout(timeoutMs, foregroundDeadline) }),
+			compilerAdmissionOptions(foregroundDeadline),
 		);
 		return parseAsyncCompilerResult(result, relative(cwd, filePath));
 	} catch (error) {

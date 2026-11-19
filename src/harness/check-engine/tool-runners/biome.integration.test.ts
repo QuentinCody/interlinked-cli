@@ -332,9 +332,9 @@ describe("runBiomeAsync", () => {
 		]);
 	});
 
-	it("returns [] when code === 0 (clean)", async () => {
+	it("retains zero-exit warning diagnostics", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: biomeLintFinding() }));
-		expect(await runBiomeAsync(input(fileScope()))).toEqual([]);
+		expect(await runBiomeAsync(input(fileScope()))).toMatchObject([{ ruleId: "lint/suspicious/noDoubleEquals" }]);
 	});
 
 	it("parses a lint finding on non-zero code (stdout + stderr concat)", async () => {
@@ -353,19 +353,18 @@ describe("runBiomeAsync", () => {
 		]);
 	});
 
-	it("synthesizes a tool-FAILURE finding on a non-zero code that parses NO diagnostics", async () => {
+	it("reports unavailable scope on a nonzero process with no diagnostics", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 2, stdout: "panic\n" }));
-		const out = await runBiomeAsync(input(fileScope()));
-		expect(out).toHaveLength(1);
-		expect(nonNull(out[0]).message).toContain("biome exited 2");
-		expect(nonNull(out[0]).message).toContain("NOT validated");
+		await expect(runBiomeAsync(input(fileScope()))).rejects.toThrow("no check verdict");
 	});
 
 	it("reports 'without status' when code is null and no diagnostics parse", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: null }));
-		const out = await runBiomeAsync(input(fileScope()));
-		expect(out).toHaveLength(1);
-		expect(nonNull(out[0]).message).toContain("biome exited without status");
+		await expect(runBiomeAsync(input(fileScope()))).rejects.toThrow("without status");
+	});
+	it.each(["timedOut", "killed", "stdoutTruncated", "stderrTruncated"] as const)("preserves positives with unavailable scope on %s", async flag => {
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: biomeLintFinding(), [flag]: true }));
+		await expect(runBiomeAsync(input(fileScope()))).rejects.toMatchObject({ results: [expect.objectContaining({ ruleId: "lint/suspicious/noDoubleEquals" })] });
 	});
 });
 

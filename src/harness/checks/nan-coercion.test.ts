@@ -155,6 +155,28 @@ function check(s: string, threshold: number): boolean {
 		const src = `function parse(s: string): number { return Number(s); }`;
 		expect(fires(src)).toBe(false);
 	});
+
+	it("N9: a digit-only regex test of the same argument short-circuits first — NaN cannot reach the comparison", () => {
+		const src = "if (!/^\\d+$/.test(value) || Number(value) <= 0) return `bad`;";
+		expect(fires(src)).toBe(false);
+		expect(fires("if (!/^-?[0-9]+$/.test(raw) || parseInt(raw, 10) > max) return null;")).toBe(false);
+	});
+
+	it("N10: Number.isSafeInteger / Number.isInteger on the value is a NaN guard (both are false for NaN)", () => {
+		expect(fires("if (Number(v) <= 0 || !Number.isSafeInteger(Number(v))) throw new Error(`x`);")).toBe(false);
+		const twoStep = "const n = Number(input);\nif (!Number.isInteger(n)) return;\nif (n > limit) return;";
+		expect(fires(twoStep)).toBe(false);
+	});
+});
+
+describe("detectNaNCoercionGuards — positive (digit-regex guard is argument-bound)", () => {
+	it("P7: a digit-only regex test of a DIFFERENT argument is no guard", () => {
+		expect(fires("if (!/^\\d+$/.test(other) || Number(value) <= 0) return null;")).toBe(true);
+	});
+
+	it("P8: a regex that is not digit-only is no guard", () => {
+		expect(fires("if (!/^\\w+$/.test(value) || Number(value) <= 0) return null;")).toBe(true);
+	});
 });
 
 // ─── Edge cases ───────────────────────────────────────────────────────────────

@@ -1,4 +1,3 @@
-import { isJsonObject } from "../../lib/json-types.js";
 // Check Evidence Contract — the independent adversarial pass.
 //
 // Spec: docs/design/verification-density-program.md (Phase 4).
@@ -10,130 +9,88 @@ import { isJsonObject } from "../../lib/json-types.js";
 // this points that discipline at check authoring, where the blind spot is most
 // structural.
 //
-// Two properties make the record trustworthy rather than ceremonial:
+// Source (2026-11-05): the executed suites under ADVERSARIAL_TEST_DIR, named
+// `<check_id>.adversarial.test.ts` (an FP hunt by an agent other than the
+// detector's author) or `<check_id>.foreign.test.ts` (confirmed false positives
+// from foreign repositories). Until that date this module read a JSON store,
+// `.interlinked/check-adversarial.json`, that nothing ever wrote, so 297 / 297
+// checks read `missing` while 51 real suites existed.
 //
-//   1. It is BOUND TO THE SOURCE. The record carries a hash of the detector's
-//      text at review time. Rewrite the detector and the pass goes stale
-//      automatically — a review of code that no longer exists proves nothing,
-//      and without this the record would be a one-time sticker that outlives
-//      every change it was supposed to scrutinize.
-//
-//   2. It NAMES A REVIEWER distinct from the author. Identity cannot be
-//      verified deterministically, but recording both makes a self-review
-//      visible in the diff instead of invisible in someone's head.
+// A check's obligation is met when at least one suite named for its id also
+// names its detector function (so the suite exercises THIS detector) and holds
+// at least one labeled MUST-NOT-FIRE case (an FP hunt's product is negatives).
+// Freshness comes from execution, not from a source hash: every vitest run
+// executes the suite, so a detector edit that re-admits a false positive turns
+// it red. Limit: the file name claims independence. Nothing here can verify
+// that the reviewer is not the detector's author (git authorship is one account).
 
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { countCases, parseLabeledCases } from "./case-parser.js";
+import { identifiersIn } from "./resolve.js";
 
-/** One recorded adversarial pass over a detector. */
-export interface AdversarialRecord {
-	/** Who (or what) performed the FP hunt. */
-	reviewer: string;
-	/** Who wrote the detector, when known — used to reject a self-review. */
-	author?: string;
-	/** sha256 of the detector source at review time. */
-	detector_sha256: string;
-	/**
-	 * Candidate false positives the pass turned up. Each one is expected to
-	 * become a negative test case; an empty list is a legitimate outcome but a
-	 * weaker signal than a list that found something.
-	 */
-	findings: string[];
-	/** Free-text context for a human reading the record. */
-	note?: string;
+/** Repo-relative directory of the independent adversarial / foreign suites. */
+export const ADVERSARIAL_TEST_DIR = "src/harness/__tests__/adversarial";
+
+const SUITE_RE = /^(.+)\.(?:adversarial|foreign)\.test\.ts$/;
+
+/** One adversarial suite file and its text. */
+export interface AdversarialSuite {
+	/** Repo-relative path. */
+	file: string;
+	source: string;
 }
 
-/** The committed adversarial store. */
-interface AdversarialStore {
-	version: 1;
-	checks: Record<string, AdversarialRecord>;
+/** Why the adversarial obligation is not met. */
+export type AdversarialGap = "missing" | "detector_not_named" | "no_negative_cases";
+
+/** The check id a suite file name declares, or null when the name has no suite shape. */
+export function adversarialSuiteCheckId(fileName: string): string | null {
+	return SUITE_RE.exec(fileName)?.[1] ?? null;
 }
 
-/** Repo-relative path of the committed store. */
-export const CHECK_ADVERSARIAL_PATH = ".interlinked/check-adversarial.json";
-
-/** An empty store, returned for a missing or malformed file. */
-export const EMPTY_ADVERSARIAL: AdversarialStore = { version: 1, checks: {} };
-
-/** Hash detector source the same way records do. */
-export function detectorHash(source: string): string {
-	return createHash("sha256").update(source).digest("hex");
+/** Read every suite under `<repoRoot>/ADVERSARIAL_TEST_DIR`, keyed by check id; a missing directory reads as none. */
+export function loadAdversarialSuites(repoRoot: string): Record<string, AdversarialSuite[]> {
+	const out: Record<string, AdversarialSuite[]> = {};
+	let names: string[];
+	try {
+		names = readdirSync(join(repoRoot, ADVERSARIAL_TEST_DIR)).sort();
+	} catch {
+		return out;
+	}
+	for (const name of names) {
+		const id = adversarialSuiteCheckId(name);
+		if (!id) continue;
+		const file = `${ADVERSARIAL_TEST_DIR}/${name}`;
+		try {
+			(out[id] ??= []).push({ file, source: readFileSync(join(repoRoot, file), "utf8") });
+		} catch {
+			// An unreadable suite is not evidence; the check reads `missing` unless another suite counts.
+		}
+	}
+	return out;
 }
-
-/** Why an adversarial record does not satisfy the obligation. */
-export type AdversarialGap = "missing" | "stale_source" | "self_review" | "no_reviewer";
 
 /**
- * Check one record against the detector's CURRENT source.
- *
- * Returns null when the obligation is met, otherwise the reason it is not.
- * A record for source that has since changed is `stale_source`, not a pass:
- * the whole point of binding to the hash is that edits re-open the question.
+ * Judge a check's adversarial suites. Returns null when the obligation is met,
+ * otherwise the reason it is not.
  */
-export function adversarialGap(
-	record: AdversarialRecord | undefined,
-	currentSource: string | undefined,
-): AdversarialGap | null {
-	if (!record) return "missing";
-	if (!record.reviewer.trim()) return "no_reviewer";
-	if (record.author && record.author.trim() === record.reviewer.trim()) return "self_review";
-	// No current source means the detector could not be read; the record cannot
-	// be confirmed fresh, so it does not count.
-	if (!currentSource) return "stale_source";
-	return record.detector_sha256 === detectorHash(currentSource) ? null : "stale_source";
+export function adversarialGap(suites: readonly AdversarialSuite[] | undefined, detectorFn: string): AdversarialGap | null {
+	if (!suites || suites.length === 0) return "missing";
+	const naming = suites.filter((suite) => identifiersIn(suite.source).has(detectorFn));
+	if (naming.length === 0) return "detector_not_named";
+	const negatives = naming.reduce((sum, suite) => sum + countCases(parseLabeledCases(suite.source)).negative, 0);
+	return negatives > 0 ? null : "no_negative_cases";
 }
 
 /** Human-readable explanation of a gap, for the pin's failure message. */
 export function describeAdversarialGap(gap: AdversarialGap): string {
 	switch (gap) {
 		case "missing":
-			return "no independent adversarial pass recorded — the detector's author is currently its only adversary";
-		case "stale_source":
-			return "the recorded adversarial pass covers an older version of the detector — re-run it against the current source";
-		case "self_review":
-			return "the recorded adversarial pass names the detector's own author as reviewer — it must be independent";
-		case "no_reviewer":
-			return "the recorded adversarial pass names no reviewer";
+			return `no independent adversarial suite in ${ADVERSARIAL_TEST_DIR}/<check_id>.{adversarial,foreign}.test.ts — the detector's author is currently its only adversary`;
+		case "detector_not_named":
+			return "the adversarial suite named for this check never names its detector function — it does not exercise this detector";
+		case "no_negative_cases":
+			return "the adversarial suite has no labeled MUST-NOT-FIRE case — an FP hunt must pin the false positives it found";
 	}
-}
-
-/** Narrow unknown JSON to one record, or null when malformed. */
-function parseRecord(raw: unknown): AdversarialRecord | null {
-	if (!isJsonObject(raw)) return null;
-	const o = raw;
-	if (typeof o.reviewer !== "string" || typeof o.detector_sha256 !== "string") return null;
-	// Missing or discarded findings cannot establish a completed review.
-	if (!Array.isArray(o.findings) || !o.findings.every((finding): finding is string => typeof finding === "string")) return null;
-	return {
-		reviewer: o.reviewer,
-		detector_sha256: o.detector_sha256,
-		findings: o.findings,
-		...(typeof o.author === "string" ? { author: o.author } : {}),
-		...(typeof o.note === "string" ? { note: o.note } : {}),
-	};
-}
-
-/** Load the committed store, failing closed to an empty one. */
-export function loadAdversarialStore(repoRoot: string): AdversarialStore {
-	const path = join(repoRoot, CHECK_ADVERSARIAL_PATH);
-	if (!existsSync(path)) return EMPTY_ADVERSARIAL;
-	try {
-		return parseAdversarialStore(JSON.parse(readFileSync(path, "utf8")));
-	} catch {
-		return EMPTY_ADVERSARIAL;
-	}
-}
-
-/** Narrow unknown JSON to the store, failing closed to an empty one. */
-export function parseAdversarialStore(raw: unknown): AdversarialStore {
-	if (!isJsonObject(raw)) return EMPTY_ADVERSARIAL;
-	const checks = raw.checks;
-	if (!isJsonObject(checks)) return EMPTY_ADVERSARIAL;
-	const out: Record<string, AdversarialRecord> = {};
-	for (const [id, value] of Object.entries(checks)) {
-		const record = parseRecord(value);
-		if (record) out[id] = record;
-	}
-	return { version: 1, checks: out };
 }

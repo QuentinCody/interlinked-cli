@@ -3,6 +3,7 @@
 // Extracted from agent-safety.ts to stay under the per-file line ceiling.
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import { stripTemplateLiterals } from "../strip-helpers.js";
 import { isExemptBareObject } from "./broad-object-types-exemptions.js";
 import { blankJsxText, blankRegexLiterals, NAN_COMPARISON } from "./nan-comparison-scan.js";
@@ -33,8 +34,9 @@ export function checkNonNullAssertions(content: string, filePath: string): Inlin
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
+	const maxMatches = checkMatchLimit(10);
 	for (const [i, line] of strippedLines.entries()) {
-		if (matches.length >= 10) break;
+		if (matches.length >= maxMatches) break;
 		// Match identifier! followed by . or [ or ) — but not !== or !=
 		if (/\w!\.|\w!\[|\w!\)/.test(line) && !/!==|!=/.test(line.replace(/\w!\./g, ""))) {
 			// The predicate already matched a word character followed by ! and . / [ / ).
@@ -296,7 +298,7 @@ export function checkNanComparison(content: string, filePath: string): InlineMat
 	const stripped = blankRegexLiterals(stripCommentsAndStrings(blankJsxText(content, filePath)));
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
-	return scanLinesStripped(originalLines, strippedLines, NAN_COMPARISON, 10);
+	return scanLinesStripped(originalLines, strippedLines, NAN_COMPARISON, checkMatchLimit(10));
 }
 
 /**
@@ -400,7 +402,7 @@ export function checkUnsafeOptionalChaining(content: string, filePath: string): 
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
 	if (isVendoredOrFixturePath(filePath)) return [];
-	return scanBrokenOptionalGrouping(content, filePath);
+	return scanBrokenOptionalGrouping(content, filePath, checkMatchLimit(10));
 }
 
 /**

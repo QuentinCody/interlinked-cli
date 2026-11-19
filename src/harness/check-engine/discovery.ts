@@ -7,8 +7,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
+import { errorMessage } from "../../lib/error-message.js";
 import { buildToolSpecs } from "./tool-catalog.js";
-import type { ToolAvailability, ToolId } from "./types.js";
+import { hasErrorCode } from "./tool-errors.js";
+import type { CheckOptions, ToolAvailability, ToolId } from "./types.js";
 
 export interface ToolBinarySpec {
 	versionCmd: string[];
@@ -43,34 +45,42 @@ function findConfig(startDir: string, configFiles: string[]): boolean {
 }
 
 /** Try running a version command and extract the version string. */
-export function tryBinary(bin: ToolBinarySpec): { available: boolean; version?: string | undefined } {
+type BinaryProbe = Pick<ToolAvailability, "available" | "version" | "probeError">;
+
+function failedProbe(error: unknown): BinaryProbe {
+	return hasErrorCode(error, "ENOENT") ? { available: false } : { available: false, probeError: errorMessage(error) };
+}
+
+export function tryBinary(bin: ToolBinarySpec, timeoutMs = 5_000): BinaryProbe {
 	try {
 		const result = spawnSync(nonNull(bin.versionCmd[0]), bin.versionCmd.slice(1), {
-			timeout: 5_000,
+			timeout: timeoutMs,
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error) return { available: false };
+		if (result.error) return failedProbe(result.error);
+		if (result.signal || result.status !== 0) return { available: false, probeError: `Version command ${bin.versionCmd[0]} ${result.signal ? `was killed by ${result.signal}` : `exited ${result.status ?? "without status"}`}` };
 		// Both streams are piped and decoded as UTF-8; spawn errors returned above.
 		const output = result.stdout + result.stderr;
 		const match = output.match(bin.versionRegex);
 		return { available: true, version: match?.[1] };
-	} catch {
-		return { available: false };
+	} catch (error) {
+		return failedProbe(error);
 	}
 }
 
 /** Check if a tool binary is available, trying fallback if primary fails. */
-function checkBinary(spec: ToolSpec): { available: boolean; version?: string | undefined } {
-	const primary = tryBinary(spec);
+function checkBinary(spec: ToolSpec, timeoutMs: number): BinaryProbe {
+	const primary = tryBinary(spec, timeoutMs);
 	if (primary.available) return primary;
-	if (spec.fallback) return tryBinary(spec.fallback);
-	return { available: false };
+	if (!spec.fallback) return primary;
+	const fallback = tryBinary(spec.fallback, timeoutMs);
+	return fallback.available || fallback.probeError ? fallback : primary;
 }
 
 /** Check a single tool spec against the project root. */
-function checkTool(spec: ToolSpec, projectRoot: string): ToolAvailability {
+function checkTool(spec: ToolSpec, projectRoot: string, timeoutMs: number): ToolAvailability {
 	// Check config files first (fast, no subprocess)
 	if (spec.requiresConfig && spec.configFiles && !findConfig(projectRoot, spec.configFiles)) {
 		return {
@@ -80,8 +90,9 @@ function checkTool(spec: ToolSpec, projectRoot: string): ToolAvailability {
 		};
 	}
 
-	const binary = checkBinary(spec);
+	const binary = checkBinary(spec, timeoutMs);
 	if (!binary.available) {
+		if (binary.probeError) return { id: spec.id, ...binary, reason: `availability probe failed: ${binary.probeError}` };
 		return { id: spec.id, available: false, reason: "not installed" };
 	}
 
@@ -92,8 +103,10 @@ function checkTool(spec: ToolSpec, projectRoot: string): ToolAvailability {
  * Discover which tools are available for the given project root.
  * Checks binary availability and config file presence.
  */
-export function discoverTools(projectRoot: string): ToolAvailability[] {
-	return TOOL_SPECS.map((spec) => checkTool(spec, projectRoot));
+export function discoverTools(projectRoot: string, timeoutMs = 5_000, selection?: Pick<CheckOptions, "tools" | "skipTools">): ToolAvailability[] {
+	return TOOL_SPECS.map(spec => selection?.skipTools?.includes(spec.id) || (selection?.tools && !selection.tools.includes(spec.id))
+		? { id: spec.id, available: false, reason: "not selected; availability not probed" }
+		: checkTool(spec, projectRoot, timeoutMs));
 }
 
 /**
@@ -101,10 +114,10 @@ export function discoverTools(projectRoot: string): ToolAvailability[] {
  * Use this instead of discoverTools() when you only need to check a few tools
  * (e.g., getDiagnostics for a single file) to avoid spawning subprocesses for all 20+ tools.
  */
-export function discoverSingleTool(id: string, projectRoot: string): ToolAvailability | undefined {
+export function discoverSingleTool(id: string, projectRoot: string, timeoutMs = 5_000): ToolAvailability | undefined {
 	const spec = TOOL_SPECS.find((s) => s.id === id);
 	if (!spec) return undefined;
-	return checkTool(spec, projectRoot);
+	return checkTool(spec, projectRoot, timeoutMs);
 }
 
 /** Format tool availability as a human-readable report. */

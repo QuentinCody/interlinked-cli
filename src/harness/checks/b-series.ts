@@ -2,6 +2,7 @@
 // Extracted from generic-checks.ts.
 
 import { nonNull } from "../../lib/non-null.js";
+import { checkAssertionFreeTest } from "../taste-checks-test-assertions.js";
 import { getExtension, type InlineMatch, isTestFile, stripCommentsAndStrings } from "./shared.js";
 
 export {
@@ -133,97 +134,36 @@ export function checkSilentCatch(content: string, filePath: string): InlineMatch
 	return matches;
 }
 
-/**
- * Net change in brace depth contributed by one source line (naive
- * char-by-char count — deliberately does not strip string/comment content,
- * matching the pre-extraction behavior this helper was pulled from).
- */
+/** Net `{` minus `}` on one line, counting only code: a brace inside a one-line string or template literal, or
+ *  after a `//` comment, is text, not structure. Per-line only — a block comment or a template literal that
+ *  spans lines is NOT tracked (the one user left, `checkSyncIoInAsync`, tolerates that; the assertion-free
+ *  check delegates to the file-wide stripper instead). */
 function braceCountDelta(line: string): number {
 	let delta = 0;
-	for (const ch of line) {
-		if (ch === "{") delta++;
-		if (ch === "}") delta--;
+	let quote: string | null = null;
+	for (let i = 0; i < line.length; i++) {
+		const ch = line[i] as string;
+		if (quote !== null) {
+			if (ch === "\\") i++;
+			else if (ch === quote) quote = null;
+			continue;
+		}
+		if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+		else if (ch === "/" && line[i + 1] === "/") break;
+		else if (ch === "{") delta++;
+		else if (ch === "}") delta--;
 	}
 	return delta;
 }
 
-/** Scan state for one `it(`/`test(` block being walked line by line. */
-interface TestBlockScanState {
-	inTestBlock: boolean;
-	testStartLine: number;
-	braceDepth: number;
-	hasAssertion: boolean;
-	testName: string;
-}
-
-/** True when the line carries an assertion in any supported flavour. */
-function lineHasAssertion(trimmed: string): boolean {
-	return (
-		/\b(expect|assert)\s*\(/.test(trimmed) ||
-		/\.should\./.test(trimmed) ||
-		/\bthrows\s*\(/.test(trimmed)
-	);
-}
-
-/** Open a test block on `state` when the line starts one; otherwise leave `state` alone. */
-function tryEnterTestBlock(line: string, lineIndex: number, state: TestBlockScanState): void {
-	const trimmed = line.trim();
-	if (!/^(?:it|test)\s*\(/.test(trimmed)) return;
-	state.inTestBlock = true;
-	state.testStartLine = lineIndex;
-	state.hasAssertion = false;
-	state.testName = trimmed.slice(0, 80);
-	// Count braces on the opening line (arrow function body brace)
-	state.braceDepth = braceCountDelta(line);
-}
-
 /**
- * Detect test blocks without assertions.
- * `it(` or `test(` blocks without `expect(`, `assert(`, or `.should.`.
- * Only runs on test files.
+ * Detect test blocks without assertions. ONE implementation: this barrel-era name delegates to the registered
+ * `assertion_free_test` detector (`taste-checks-test-assertions.ts`), whose file-wide comment/string/template
+ * stripping is correct across lines. The old line scanner here drifted from it — block comments, multi-line
+ * template literals and `it(` lines inside a fixture string all produced false findings (seventh review).
  */
 export function checkAssertionFreeTests(content: string, filePath: string): InlineMatch[] {
-	if (!isTestFile(filePath)) return [];
-
-	const matches: InlineMatch[] = [];
-	const lines = content.split("\n");
-	const state: TestBlockScanState = {
-		inTestBlock: false,
-		testStartLine: 0,
-		braceDepth: 0,
-		hasAssertion: false,
-		testName: "",
-	};
-
-	for (let i = 0; i < lines.length; i++) {
-		const line = nonNull(lines[i]);
-
-		if (!state.inTestBlock) {
-			tryEnterTestBlock(line, i, state);
-			continue;
-		}
-
-		// Count braces
-		state.braceDepth += braceCountDelta(line);
-
-		// Check for assertions
-		if (lineHasAssertion(line.trim())) {
-			state.hasAssertion = true;
-		}
-
-		// End of test block
-		if (state.braceDepth <= 0 && i > state.testStartLine) {
-			if (!state.hasAssertion && matches.length < 10) {
-				matches.push({
-					line: state.testStartLine + 1,
-					text: state.testName,
-				});
-			}
-			state.inTestBlock = false;
-		}
-	}
-
-	return matches;
+	return checkAssertionFreeTest(content, filePath);
 }
 
 /**

@@ -27,6 +27,7 @@
 import { createRequire } from "node:module";
 import type * as TS from "typescript";
 import { parseTsSourceWith } from "./cyclomatic-ast.js";
+import { checkMatchLimit } from "./check-scan-policy.js";
 import { getExtension, type InlineMatch, JS_TS_ALL_EXTS } from "./shared.js";
 
 type TsModule = typeof TS;
@@ -200,7 +201,7 @@ function checkFunctionNode(
 	const nameSet = acceptedNameSet(names);
 
 	for (const tag of paramTags) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) return;
 		const tagName = tagDriftName(ts, sf, tag, rawLines, nameSet);
 		if (tagName === null) continue;
 
@@ -241,7 +242,7 @@ export function detectJsdocParamDrift(content: string, filePath: string): Inline
 	const matches: InlineMatch[] = [];
 
 	const visit = (node: TS.Node): void => {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return;
+		if (matches.length >= checkMatchLimit(MAX_MATCHES_PER_FILE)) return;
 		if (isCheckableFunction(ts, node)) {
 			checkFunctionNode(ts, sf, node, overloadKeys, rawLines, matches);
 		}

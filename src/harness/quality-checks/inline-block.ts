@@ -1,9 +1,10 @@
 // ===========================================
-// Inline Checks — generic + language-specific (no subprocess, <10ms total)
+// Inline Checks — generic + language-specific synchronous detectors
 // ===========================================
 // Runs AFTER the subprocess checks (tsc, lint, etc.) for additional signal.
-// Operates on the file content already snapshotted by the orchestrator, so
-// there is no extra disk read here. Extracted from runQualityChecks to keep
+// Uses the edited-file snapshot supplied by the orchestrator. Scoped
+// cross-file detectors can additionally read query-selected dependencies.
+// Extracted from runQualityChecks to keep
 // the orchestrator a thin sequencer; ordering of the pushed findings is
 // identical to the original inline section.
 
@@ -25,7 +26,7 @@ import { loadDisabledLibraries, runFootgunChecks } from "../library-footguns/reg
 import type { DiffAwareConfig, HarnessEvent, PreEditBaseline } from "../types.js";
 import type { QualityCheckResult } from "./result-types.js";
 
-/** Read-only context the inline-check block needs from the orchestrator. */
+/** Read-only edited-file context; optional dependency queries are invocation-scoped. */
 export interface InlineBlockContext {
 	event: HarnessEvent;
 	/** Display path used in finding messages. */
@@ -305,12 +306,14 @@ function checkAgentSafetyBlock(ctx: InlineBlockContext): QualityCheckResult[] {
 					).map(formatCodeCloneFinding(absFilePath))
 				: check.fn();
 		if (matches.length > 0) {
+			const sourceEvidence = matches.flatMap(match => "sourceEvidence" in match ? match.sourceEvidence ?? [] : []);
 			out.push({
 				name: check.name,
 				severity: check.severity,
 				message: `${matches.length} ${check.name.replace(/_/g, " ")} issue(s) in ${filePath}`,
 				file: filePath,
 				detail: listWithOverflow(matches, (m) => `  L${m.line}: ${m.text}`),
+				...(sourceEvidence.length ? { sourceEvidence } : {}),
 			});
 		}
 	}
