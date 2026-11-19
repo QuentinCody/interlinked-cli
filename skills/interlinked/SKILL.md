@@ -21,7 +21,7 @@ For input strictness on JS/TS edits, including optional parameters omitted by
 every observed direct caller, use **interlinked-verify**.
 
 For JS/TS test mapping and Vitest discovery limits in `check --only missing-tests`,
-and documented or workflow entry points in `deadcode`, use **interlinked-verify**.
+and documented, workflow, Worker or oxlint entry points in `deadcode`, use **interlinked-verify**.
 That skill also covers per-declaration configuration gaps and historical document
 scope in the verification catalogue.
 

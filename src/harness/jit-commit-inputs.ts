@@ -50,7 +50,7 @@ export interface DeriveOptions {
 }
 
 const DAY_SECONDS = 86_400;
-export const DEFAULT_LONG_WINDOW_DAYS = 365;
+const DEFAULT_LONG_WINDOW_DAYS = 365;
 export const DEFAULT_RECENT_WINDOW_DAYS = 90;
 export const DEFAULT_MAX_COMMIT_FILES = 30;
 const HISTORY_COMMIT_CAP = 2000;

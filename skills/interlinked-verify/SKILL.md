@@ -197,7 +197,8 @@ produce `cannot-judge`. A candidate means neither mapping found a test.
 
 `deadcode` recognizes repository-relative JS/TS scripts invoked directly by
 `node` or `tsx` in root README, docs and skills command examples, and in
-GitHub Actions `run` steps. Directory overrides, compound shell commands and
+GitHub Actions `run` steps. Wrangler JSON/JSONC `main` and local oxlint JSON `jsPlugins` paths
+resolve from the configuration directory. Directory overrides, compound shell commands and
 dynamic paths can leave a reachable file in the candidate list. Review the
 entry point before removing it.
 

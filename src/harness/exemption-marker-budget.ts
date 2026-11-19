@@ -44,7 +44,7 @@ import {
 } from "./checks/cyclomatic-ast.js";
 import { isGeneratedFile } from "./checks/shared.js";
 
-export const CODEGEN_DATA_MARKER = "@codegen-data";
+const CODEGEN_DATA_MARKER = "@codegen-data";
 
 /**
  * Branch tokens an exempt (data) file may still carry in executable code — a
@@ -336,7 +336,7 @@ function measure(content: string, filePath: string | undefined): Measurement {
 
 // ---------- not-measured warning ----------
 
-export const CODEGEN_MARKER_NOT_MEASURED = "[interlinked:codegen-marker] NOT MEASURED";
+const CODEGEN_MARKER_NOT_MEASURED = "[interlinked:codegen-marker] NOT MEASURED";
 
 function notMeasuredText(marker: string, filePath: string | undefined, reason: string): string {
 	return (
@@ -397,7 +397,7 @@ function budgetDenial(content: string, filePath: string | undefined, marker: str
 
 /** Bounded header scan: the first 20 lines, split on EVERY line terminator, so
  *  a CR-only or U+2028 file has a header and not one 20-line-long line. */
-export function hasCodegenDataMarker(content: string): boolean {
+function hasCodegenDataMarker(content: string): boolean {
 	return content.split(LINE_TERMINATOR_RE, 20).join("\n").includes(CODEGEN_DATA_MARKER);
 }
 

@@ -24,8 +24,8 @@ export interface ScanLedger {
 	partial: PartialRun | null;
 }
 
-export const DEFAULT_PAIR_BUDGET_MS = 15_000;
-export const DEFAULT_FILE_BUDGET_MS = 60_000;
+const DEFAULT_PAIR_BUDGET_MS = 15_000;
+const DEFAULT_FILE_BUDGET_MS = 60_000;
 const SET_ASIDE_LISTED_CAP = 200;
 const NOT_MEASURED_ROWS_CAP = 500;
 

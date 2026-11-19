@@ -10,7 +10,7 @@ export function safeRelative(path: string): string {
     if (!path || isAbsolute(path) || path.split(/[\\/]/).some(p => p === ".." || p === ".git") || /[\0\r\n]/.test(path)) throw new Error("unsafe repository path");
     return path;
 }
-export function gitFile(root: string, revision: string, path: string): string {
+function gitFile(root: string, revision: string, path: string): string {
     return execFileSync("git", ["--no-replace-objects", "-C", root, "show", `${revision}:${safeRelative(path)}`], { encoding: "utf8", maxBuffer: 4_000_000, stdio: ["ignore", "pipe", "pipe"] });
 }
 export function loadRelationPolicy(root: string, revision: string | null, exploratory = false): PolicyReference {

@@ -53,7 +53,7 @@ const WALK_ENTRY_CAP = 200_000;
 const GIT_TIMEOUT_MS = 30_000;
 const GIT_OUTPUT_BYTES = 16 * 1024 * 1024;
 
-export function emptyScan(status: PythonImportScan["status"], note?: string): PythonImportScan {
+function emptyScan(status: PythonImportScan["status"], note?: string): PythonImportScan {
 	return {
 		status,
 		...(note ? { note } : {}),

@@ -44,7 +44,7 @@ function withoutLanguage(inventory: RepositoryInventory, drop: (language: string
 		inputHash: inventoryHash(files), sourceHash: inventoryHash(product) };
 }
 
-export async function measureAutoDiagnosticInventory(inventory: RepositoryInventory, options: Pick<InventoryOptions, "signal"> = {}): Promise<AutoDiagnosticReport> {
+async function measureAutoDiagnosticInventory(inventory: RepositoryInventory, options: Pick<InventoryOptions, "signal"> = {}): Promise<AutoDiagnosticReport> {
 	const profileSelection = selectProfile(inventory);
 	if (profileSelection.rule === "both-languages") {
 		const js = measureDiagnosticInventory(withoutLanguage(inventory, language => language === "python"));

@@ -51,7 +51,7 @@ export function parseHistoryPointer(raw: unknown): HookHistoryPointer {
         reviews: parseOffsets(raw.recent.reviews, "reviews", bytes, reviews) } };
 }
 
-export function parseHistoryRow(raw: unknown): HookHistoryRow {
+function parseHistoryRow(raw: unknown): HookHistoryRow {
     if (isJsonObject(raw) && raw.kind === "manual_review") return parseHookReviewReceipt(raw);
     if (!isHookCheckReceipt(raw)) throw new Error("Invalid hook check receipts");
     return raw;

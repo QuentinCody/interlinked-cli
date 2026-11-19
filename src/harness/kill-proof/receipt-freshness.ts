@@ -137,7 +137,7 @@ export function uncommittedPaths(root: string, files: readonly HashedFile[]): st
 }
 
 /** Every recorded case of one test file, name (after ` › `) and verdict, in report order; a duplicated full name yields one row per case. */
-export function caseRowsForTest(receipt: KillProofReceipt, testPath: string): Array<{ name: string; verdict: CaseOutcome["verdict"] }> {
+function caseRowsForTest(receipt: KillProofReceipt, testPath: string): Array<{ name: string; verdict: CaseOutcome["verdict"] }> {
 	const head = `${testPath} › `;
 	return receipt.underMutant.cases.filter(row => row.test.startsWith(head)).map(row => ({ name: row.test.slice(head.length), verdict: row.verdict }));
 }
@@ -175,7 +175,7 @@ export function receiptCertifies(root: string, id: string, testPath: string, req
 }
 
 /** The current (non-superseded) receipt ids naming `testPath` (review M8, M10): the index is the locator, the receipt file the record. */
-export function currentReceiptIdsFor(root: string, testPath: string): string[] {
+function currentReceiptIdsFor(root: string, testPath: string): string[] {
 	return readKillProofIndex(root).receipts.filter(row => row.supersededBy === undefined && row.tests.some(test => test.path === testPath)).map(row => row.id);
 }
 

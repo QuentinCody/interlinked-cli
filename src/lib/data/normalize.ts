@@ -23,7 +23,7 @@ export interface NormalizedDataRecord {
     summary: JsonObject;
 }
 
-export function firstDataString(record: JsonObject, fields: readonly string[]): string | null {
+function firstDataString(record: JsonObject, fields: readonly string[]): string | null {
     for (const field of fields) {
         const value = record[field];
         if (typeof value === "string" && value.length > 0) return value;

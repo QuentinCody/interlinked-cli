@@ -10,7 +10,7 @@ import type { DeadCodeReport } from "./deadcode.js";
 export interface SetAsideDecision { role: string; evidence: string; detail: string; }
 export interface DeadCodeSetAsideRow { file: string; role: string; evidence: string; detail: string; findings: number; }
 export interface DeadCodeSetAside { files: number; byRole: Record<string, number>; listed: DeadCodeSetAsideRow[]; omitted: number; findings: number; }
-export const DEADCODE_SET_ASIDE_LISTED = 50;
+const DEADCODE_SET_ASIDE_LISTED = 50;
 const SET_ASIDE_ROLES: ReadonlySet<string> = new Set(["generated", "vendor", "unlinted"]);
 
 /** The source-role decision that verify and the metrics share: a set-aside role with evidence takes the file out of the findings. */

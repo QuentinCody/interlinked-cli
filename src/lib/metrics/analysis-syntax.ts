@@ -11,7 +11,7 @@ export interface SyntaxFacts {
     declarations: Declaration[]; identifiers: Map<string, number>; topLevelTokens: number;
 }
 
-export function syntaxSpan(node: TS.Node, parsed: ParsedTsSource): SyntaxSpan {
+function syntaxSpan(node: TS.Node, parsed: ParsedTsSource): SyntaxSpan {
     const start = node.getStart(parsed.sf), end = node.getEnd();
     return { start, end, line: parsed.sf.getLineAndCharacterOfPosition(start).line + 1,
         endLine: parsed.sf.getLineAndCharacterOfPosition(end).line + 1 };

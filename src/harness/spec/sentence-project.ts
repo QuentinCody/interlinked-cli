@@ -6,10 +6,10 @@ import { withCheckRoot } from "../checks/check-root.js";
 import { parseSpecSentences, SENTENCE_GRAMMAR, type SentenceClass, type SpecSentence } from "./sentences.js";
 
 export const SPEC_FILE_BYTES = 1024 * 1024;
-export const SPEC_CITATION_FILES = 25_000;
+const SPEC_CITATION_FILES = 25_000;
 const SKIP = new Set(["node_modules", "dist", "build", "coverage", "generated", "@codegen-data", "fixtures", "__fixtures__"]);
 export interface SentenceScanIssue { file: string; reason: string; }
-export function defaultSentenceDocs(root: string): string[] {
+function defaultSentenceDocs(root: string): string[] {
     let plans: string[] = [];
     try { plans = readdirSync(join(root, "docs/plans")).filter(name => name.endsWith(".md")).sort().map(name => `docs/plans/${name}`); }
     catch { plans = []; /* Missing standard docs are reported when read below. */ }
@@ -49,7 +49,7 @@ function* sources(root: string, issues: SentenceScanIssue[]): Generator<Citation
     }
     for (const dir of ["src", "test", "tests", "docs", "README.md", "CLAUDE.md"]) yield* walk(dir);
 }
-export function summarizeSentences(rows: SpecSentence[]) {
+function summarizeSentences(rows: SpecSentence[]) {
     const counts: Record<SentenceClass, number> = { requirement: 0, rationale: 0, example: 0, note: 0 };
     for (const row of rows) counts[row.class]++;
     const requirements = rows.filter(row => row.class === "requirement");

@@ -79,7 +79,7 @@ export interface InventoryGap { path: string; role: SourceRole; reason: string; 
  * `tool-config` (a linter exclude) says "not linted by the owner" and gives the role `unlinted`, never `generated`.
  * Every detail names the tool, the file and the line.
  */
-export const ROLE_EVIDENCE_KINDS = ["path", "tool-path", "marker", "shape", "tool-config", "attributes", "generator-config", "generator-command", "uniform-structure"] as const;
+const ROLE_EVIDENCE_KINDS = ["path", "tool-path", "marker", "shape", "tool-config", "attributes", "generator-config", "generator-command", "uniform-structure"] as const;
 export type RoleEvidenceKind = typeof ROLE_EVIDENCE_KINDS[number];
 export const emptyEvidenceCounts = (): Record<RoleEvidenceKind, number> => Object.fromEntries(ROLE_EVIDENCE_KINDS.map((kind) => [kind, 0])) as Record<RoleEvidenceKind, number>;
 export interface RoleEvidence { kind: RoleEvidenceKind; detail: string; }

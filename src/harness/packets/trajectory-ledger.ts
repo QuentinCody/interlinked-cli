@@ -22,9 +22,9 @@ import { PACKET_FILE_BASENAME, type PacketFile, type PacketsConfig } from "./typ
 import type { WindowDigest } from "./window.js";
 import { readCollectionCalls, readTimelineRows, sessionWindow, turnWindows } from "./window-source.js";
 
-export const DEFAULT_WINDOW_TAIL_MB = 32;
+const DEFAULT_WINDOW_TAIL_MB = 32;
 
-export const WINDOW_PENDING = "packet-window-pending.jsonl";
+const WINDOW_PENDING = "packet-window-pending.jsonl";
 let ledgerErrors = 0;
 
 /** Test seam (the queue and the delivery ledger live on disk; this only resets the error counter). */
@@ -32,7 +32,7 @@ export function resetWindowQueue(): void {
 	ledgerErrors = 0;
 }
 
-export function appendWindowRows(cwd: string, rows: readonly WindowJudgmentRow[]): void {
+function appendWindowRows(cwd: string, rows: readonly WindowJudgmentRow[]): void {
 	if (rows.length === 0) return;
 	try {
 		appendFileSync(join(cwd, ".interlinked", WINDOW_LEDGER), rows.map((r) => `${JSON.stringify(r)}\n`).join(""));
@@ -101,7 +101,7 @@ function windowNonLiveReason(rows: readonly WindowJudgmentRow[]): string | null 
 /** §9 for window packets (R41): when a window evaluation hits the cap or an outage, queue the released text of
  *  every released packet for the session's next delivery point, once per session. Rides the pending queue as
  *  `fallback` rows so a daemon restart cannot lose it. */
-export function queueReleasedFallback(cwd: string, sessionId: string, rows: readonly WindowJudgmentRow[], file: PacketFile): void {
+function queueReleasedFallback(cwd: string, sessionId: string, rows: readonly WindowJudgmentRow[], file: PacketFile): void {
 	const template = rows[0];
 	const reason = windowNonLiveReason(rows);
 	// Replay never queues; a SESSION window ends the session, so nobody is left to receive it (its successor gets

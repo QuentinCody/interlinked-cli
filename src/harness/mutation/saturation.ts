@@ -62,7 +62,7 @@ export interface SaturationBaseline {
 	saturated: string[];
 }
 
-export const SATURATION_BASELINE_BASENAME = "saturation-baseline.json";
+const SATURATION_BASELINE_BASENAME = "saturation-baseline.json";
 
 function emptyCounts(): SaturationCounts {
 	return { killed: 0, equivalent: 0, survived: 0, uncovered: 0, accepted: 0, indeterminate: 0 };

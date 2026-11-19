@@ -15,7 +15,7 @@ export function inheritedStructuralMetricPolicy(value: unknown): { mode: MetricP
 	return { mode: "block", issues: ["Invalid edit_metrics policy; retaining enforcement. Use mode advisory or enforced."] };
 }
 
-export function structuralMetricThresholds(cwd: string): StructuralMetricThresholds {
+function structuralMetricThresholds(cwd: string): StructuralMetricThresholds {
 	return { cyclomatic: maxCyclomaticFor(cwd), cognitive: maxCognitiveFor(cwd), "function-tokens": maxFunctionTokensFor(cwd) };
 }
 

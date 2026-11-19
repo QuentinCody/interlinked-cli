@@ -21,10 +21,10 @@ import { listProjectFiles } from "./check-python-files.js";
 import { scanPythonMissingTests } from "./check-python-missing-tests.js";
 import { jsModuleIndex, pythonModuleIndex, type Resolved, resolveJsImports, resolvePythonImports } from "./check-test-resolve.js";
 
-export const MAPPING_RULE =
+const MAPPING_RULE =
 	"A module has a test by name when a test file carries its name and sits in the module's own directory, or in a tests / test / __tests__ / spec directory (or any depth below one) that is a child of the module's directory or of any ancestor of it. " +
 	"Python: test_<name>.py or <name>_test.py (extra words must be words of a directory in the module path). JS/TS: <name>[.<qualifier>].test|spec.<ext> or <name>.<ext> under __tests__; case, - and _ are ignored.";
-export const IMPORT_RULE =
+const IMPORT_RULE =
 	"A module is imported by tests when a test file imports it (Python import / from-import / mock.patch target; JS/TS import, require, dynamic import, vi.mock / jest.mock) and the import resolves to the module by path or dotted-name suffix. " +
 	"Package names, workspace packages, tsconfig paths and re-exports through a barrel or __init__ are not followed.";
 

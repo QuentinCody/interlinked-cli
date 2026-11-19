@@ -35,7 +35,7 @@ function sameBinding(a: Packet["calibration"]["bound_to"], b: Packet["calibratio
  *  calibration carries. This is provenance by content, not by signature: a hand edit that fabricates all
  *  of it passes, and that edit TIGHTENS enforcement on the agent (the gaming direction is loosening), so
  *  the gate accepts it and the ledger shows no judgments behind it. */
-export function isMeasuredPromotion(p: Packet): boolean {
+function isMeasuredPromotion(p: Packet): boolean {
 	const txn = claimedMeasuredTxn(p.calibration);
 	return txn !== null && applyPacketTransition(p.calibration, txn, p.packet_hash).ok;
 }
@@ -76,7 +76,7 @@ export type SourceReader = (file: string) => string | null;
  *  one the set records — it holds the pointer, no longer holds the quote, and hashes to `sources[file]`. A hand
  *  edit that fabricates all of that has done exactly what `packets release` does, and the fallback still
  *  carries the words; the loosening it guards against (text gone, nothing enforcing) cannot pass. */
-export function isConsistentRelease(p: Packet, sources: Record<string, string>, readSource: SourceReader | undefined): boolean {
+function isConsistentRelease(p: Packet, sources: Record<string, string>, readSource: SourceReader | undefined): boolean {
 	const r = p.release;
 	if (!r || !readSource || !isMeasuredPromotion(p)) return false;
 	if (createHash("sha256").update(r.text).digest("hex") !== r.span_hash) return false;

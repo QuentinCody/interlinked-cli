@@ -68,7 +68,7 @@ export function proofKey(receipt: Pick<KillProofReceipt, "source" | "mutant" | "
 	return [receipt.source.path, mutant, ...receipt.tests.map(test => test.path).sort()].join("\u0001");
 }
 
-export function sha256Text(text: string): string {
+function sha256Text(text: string): string {
 	return createHash("sha256").update(text).digest("hex");
 }
 

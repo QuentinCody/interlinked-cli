@@ -30,7 +30,7 @@ import { editProtectionCommand } from "./post-tool-edit-protection.js";
 import { isFileWrite } from "./tool-classifiers.js";
 import { readToolString } from "./tool-input-values.js";
 
-export const KILL_PROOF_TAG = "kill-proof";
+const KILL_PROOF_TAG = "kill-proof";
 
 export interface KillProofNudgeInput {
 	root: string;

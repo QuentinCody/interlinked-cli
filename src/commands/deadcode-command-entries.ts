@@ -1,5 +1,8 @@
+import { posix } from "node:path";
 import { extractWorkflowCommands } from "../harness/ci-command-extractor.js";
 import { extractFencedBlocks, fencedLineSet } from "../harness/spec/extract-misc.js";
+import { parseJsonc } from "../lib/import-resolution/jsonc.js";
+import { isJsonObject } from "../lib/json-types.js";
 
 // Only the launcher's script operand is a root. Paths after it can be data or
 // ordinary CLI arguments. Keep unsupported shell syntax out of this evidence.
@@ -8,6 +11,22 @@ const SHELL_FENCE = /^(?:bash|sh|shell|console)$/i;
 const FIXTURE = /(?:^|\/)(?:__fixtures__|fixtures?|tests?|__tests__|node_modules|vendor)(?:\/|$)/;
 const DOC = /^(?:readme(?:\.[\w-]+)?\.md|(?:docs|skills)\/.+\.md)$/i;
 const WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
+const WORKER_CONFIG = /(?:^|\/)wrangler\.jsonc?$/;
+const OXLINT_CONFIG = /(?:^|\/)(?:\.oxlintrc|oxlint(?:\.[\w.-]+)?)\.json$/;
+
+/** Local configured entry modules are loaded by their tool even without a JS import. */
+function configEntries(file: string, text: string): string[] {
+	const config = parseJsonc(text);
+	if (!isJsonObject(config)) return [];
+	const plugins = Array.isArray(config.jsPlugins) ? config.jsPlugins : [];
+	const paths = WORKER_CONFIG.test(file) ? [config.main] : plugins.map(plugin => isJsonObject(plugin) ? plugin.specifier : plugin);
+	return paths.flatMap(path => {
+		if (typeof path !== "string" || posix.isAbsolute(path)) return [];
+		if (OXLINT_CONFIG.test(file) && !/^\.{1,2}\//.test(path)) return [];
+		const target = posix.join(posix.dirname(file), path);
+		return target.startsWith("../") ? [] : [target];
+	});
+}
 
 function addInvocations(block: string, known: ReadonlySet<string>, found: Set<string>): void {
 	const lines = block.split(/\r?\n/).map(line => line.trim().replace(/^\$\s+/, "")).filter(line => line && !line.startsWith("#"));
@@ -37,11 +56,14 @@ function markdownInvocations(text: string, known: ReadonlySet<string>, found: Se
 export function scriptCommandEntries(files: readonly string[], read: (path: string) => string | null, known: ReadonlySet<string>): Set<string> {
 	const entries = new Set<string>();
 	for (const file of files) {
-		if (FIXTURE.test(file) || !(DOC.test(file) || WORKFLOW.test(file))) continue;
+		const config = WORKER_CONFIG.test(file) || OXLINT_CONFIG.test(file);
+		if (FIXTURE.test(file) || !(DOC.test(file) || WORKFLOW.test(file) || config)) continue;
 		const text = read(file);
 		if (!text) continue;
-		if (DOC.test(file)) markdownInvocations(text, known, entries);
-		else if (!/\bworking-directory["']?\s*:/.test(text)) {
+		if (config) {
+			for (const path of configEntries(file, text)) if (known.has(path)) entries.add(path);
+		} else if (DOC.test(file)) markdownInvocations(text, known, entries);
+		else if (WORKFLOW.test(file) && !/\bworking-directory["']?\s*:/.test(text)) {
 			for (const step of extractWorkflowCommands(text)) addInvocations(step.command, known, entries);
 		}
 	}

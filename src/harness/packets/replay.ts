@@ -46,7 +46,7 @@ export interface DryRunRow {
 }
 
 /** A trigger wider than this share of its tool's calls is sent back to the compiler (§5). */
-export const DEFAULT_WIDTH_BOUND = 0.2;
+const DEFAULT_WIDTH_BOUND = 0.2;
 
 function asRecord(v: unknown): Record<string, unknown> | null {
 	return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;

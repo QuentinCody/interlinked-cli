@@ -40,8 +40,8 @@ export interface WindowDigest {
 	truncated: boolean;
 }
 
-export const DEFAULT_MAX_CALLS = 200;
-export const DEFAULT_RENDER_CHARS = 4_096;
+const DEFAULT_MAX_CALLS = 200;
+const DEFAULT_RENDER_CHARS = 4_096;
 const COMMAND_CHARS = 120;
 const PROMPT_CHARS = 600;
 /** Aggregate budget for prompt text; the NEWEST prompts are kept. */

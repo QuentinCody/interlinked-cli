@@ -123,7 +123,7 @@ export function tuneTau(tune: readonly Scored[], floor: number): number | null {
 	return best?.tau ?? null;
 }
 
-export function evaluateHoldout(holdout: readonly Scored[], tau: number | null): HoldoutReport {
+function evaluateHoldout(holdout: readonly Scored[], tau: number | null): HoldoutReport {
 	const pos = holdout.filter((h) => h.y);
 	const neg = holdout.filter((h) => !h.y);
 	const flagged = tau === null ? [] : holdout.filter((h) => h.p >= tau);

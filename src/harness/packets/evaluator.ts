@@ -35,7 +35,7 @@ import { matchesTrigger, type Settled, settleView, type TriggerView, viewsFromTo
 import { PACKET_FILE_BASENAME, type Packet, type PacketFile, type PacketsConfig, type PacketStatus } from "./types.js";
 
 export const PACKET_LEDGER = "packet-judgments.jsonl";
-export const DEFAULT_MAX_SPEND_USD = 0.25;
+const DEFAULT_MAX_SPEND_USD = 0.25;
 export const DEFAULT_TIMEOUT_MS = 1_500;
 /** Rendering bounds; the label sheet re-renders with the same ones so labels see what Jev saw. */
 export const EVIDENCE_BOUNDS = { commandChars: 3_000, hunkChars: 2_500, maxHunks: 6 } as const;
@@ -409,14 +409,14 @@ export function hasLivePackets(cwd: string): boolean {
 }
 
 /** Hook-path entry: fire and forget after the PostToolUse response (no warning, no await). */
-export function schedulePacketEvaluation(event: HarnessEvent, rules: GuardRulesConfig): void {
+function schedulePacketEvaluation(event: HarnessEvent, rules: GuardRulesConfig): void {
 	if (event.dry_run === true || !enabledConfig(rules)) return;
 	setImmediate(() => {
 		void runPacketEvaluation(event, rules);
 	});
 }
 
-export const DEFAULT_DELIVERY_TIMEOUT_MS = 2_500;
+const DEFAULT_DELIVERY_TIMEOUT_MS = 2_500;
 
 /** Pipeline entry (stage 2): await the evaluation when a live packet exists so its warning can ride the
  *  response; otherwise shadow. `shown` is written TRUE only when the rows come back inside the budget —

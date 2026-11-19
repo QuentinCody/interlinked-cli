@@ -11,7 +11,7 @@
 import { collectPacketAsk } from "../packets/evaluator.js";
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent } from "../types.js";
 
-export const PACKET_ASK_TIMEOUT_MS = 2_500;
+const PACKET_ASK_TIMEOUT_MS = 2_500;
 
 export interface PacketAskPhaseDeps {
 	collect?: (event: HarnessEvent, rules: GuardRulesConfig, local: HarnessDecision) => Promise<HarnessDecision>;

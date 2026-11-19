@@ -35,8 +35,8 @@ import { digestSubject, renderDigestDetailed, type WindowCall, type WindowDigest
 export const WINDOW_LEDGER = "packet-window-judgments.jsonl";
 export const SCREEN_OPTIONS = ["could-apply", "cannot-apply", "insufficient"] as const;
 export type Screen = (typeof SCREEN_OPTIONS)[number];
-export const DEFAULT_SCREEN_SAMPLE = 0.1;
-export const DEFAULT_WINDOW_MAX_SPEND_USD = 0.25;
+const DEFAULT_SCREEN_SAMPLE = 0.1;
+const DEFAULT_WINDOW_MAX_SPEND_USD = 0.25;
 const DEFAULT_TIMEOUT_MS = 4_000;
 const NONE = "none";
 const WINDOW_KINDS = new Set(["window", "session", "cross-session"]);

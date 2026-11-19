@@ -23,9 +23,9 @@ import type { Confirmation, Edge, EdgeState, RelationshipType, Unit } from "./ty
 export const HAIKU_MODEL = "claude-haiku-5-5";
 /** Characters of each text placed in the prompt. */
 export const CONFIRM_TEXT_CAP = 3_000;
-export const HAIKU_TIMEOUT_MS = 120_000;
-export const HAIKU_MAX_BUFFER = 8 * 1024 * 1024;
-export const DEFAULT_CONFIRM_CONCURRENCY = 2;
+const HAIKU_TIMEOUT_MS = 120_000;
+const HAIKU_MAX_BUFFER = 8 * 1024 * 1024;
+const DEFAULT_CONFIRM_CONCURRENCY = 2;
 export const DEFAULT_CONFIRM_FRACTION = 0.05;
 export const DEFAULT_CONFIRM_MIN = 5;
 

@@ -59,7 +59,7 @@ export interface FallbackEntry {
 }
 
 /** The delivered line: tag, gap, then the released text verbatim (it may span lines). */
-export function fallbackLineFor(id: string, file: string, text: string, gap: string): string {
+function fallbackLineFor(id: string, file: string, text: string, gap: string): string {
 	return `[interlinked:packet ${id}] not live here (${gap}); instruction released from ${file}, verbatim:\n${text}`;
 }
 

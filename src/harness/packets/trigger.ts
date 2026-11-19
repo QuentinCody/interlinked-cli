@@ -73,7 +73,7 @@ export function viewsFromToolInput(tool: string, phase: "pre" | "post", input: J
 export type Settled = "compliant" | "violated" | null;
 
 /** The text a decider reads: the command, or every hunk's new text joined. */
-export function settleSubject(view: TriggerView): string {
+function settleSubject(view: TriggerView): string {
 	return view.command ?? view.hunks.map((h) => h.new).join("\n");
 }
 

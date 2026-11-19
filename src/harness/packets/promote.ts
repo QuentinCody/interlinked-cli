@@ -95,8 +95,8 @@ function belowPrecisionFloor(s: { n: number; tp: number } | undefined): boolean 
 }
 
 /** Rolling-precision floor for shown findings (§8): below this over ≥ DEMOTE_MIN_N adjudications, the packet is demoted. */
-export const DEMOTE_PRECISION = 0.6;
-export const DEMOTE_MIN_N = 30;
+const DEMOTE_PRECISION = 0.6;
+const DEMOTE_MIN_N = 30;
 
 export interface ApplyOptions {
 	/** Allow warn → cosign when the prerequisites hold; never implied by a plain --apply. */

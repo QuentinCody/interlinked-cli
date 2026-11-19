@@ -25,7 +25,7 @@ function adjacencyOf(edges: readonly PyEdge[]): Map<string, string[]> {
 }
 
 /** The `__init__.py` files of the parent packages, nearest first, stopping at the first directory without one. */
-export function parentInits(path: string, modules: ReadonlyMap<string, PyModule>): string[] {
+function parentInits(path: string, modules: ReadonlyMap<string, PyModule>): string[] {
 	const found: string[] = [];
 	for (let dir = posix.dirname(path); dir !== "." && dir !== "/"; dir = posix.dirname(dir)) {
 		const init = `${dir}/__init__.py`;

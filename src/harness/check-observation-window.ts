@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { scanFileLines } from "../lib/bounded-file-io.js";
 
-export const OBSERVATION_READ_LIMITS = { bytes: 2 * 1024 * 1024, records: 2000, lineBytes: 128 * 1024 };
+const OBSERVATION_READ_LIMITS = { bytes: 2 * 1024 * 1024, records: 2000, lineBytes: 128 * 1024 };
 export interface ObservationWindow {
     lines: string[]; file_bytes: number; scanned_bytes: number; omitted_prefix: boolean;
     omitted_records: number; incomplete_lines: number; oversized_lines: number;

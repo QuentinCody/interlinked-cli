@@ -31,7 +31,7 @@ import type { DecisionShadowBackend, DecisionShadowConfig, JevEntry, JevNoulQues
 
 export const DECISION_SHADOW_LEDGER = EDIT_SHADOW_LEDGER;
 /** Hard ceiling on one request; `decision_shadow.timeout_ms` may only lower it. */
-export const DECISION_SHADOW_MAX_TIMEOUT_MS = 3_000;
+const DECISION_SHADOW_MAX_TIMEOUT_MS = 3_000;
 export const CLEF_FLASH_MODEL = "clef-flash";
 export const CLOUDFLARE_TOKEN_ENV = "CLOUDFLARE_API_TOKEN";
 export const CLOUDFLARE_ACCOUNT_ENV = "CLOUDFLARE_ACCOUNT_ID";
@@ -146,7 +146,7 @@ type Credentials =
 	| { backend: "jev"; apiKey: string };
 
 /** Credentials for the configured backend, or the reason there are none. */
-export function resolveBackend(
+function resolveBackend(
 	rules: GuardRulesConfig,
 	resolveKey: (name: string) => string | undefined = resolveApiKey,
 ): { ok: true; creds: Credentials } | { ok: false; backend: DecisionShadowBackend; reason: string } {
@@ -165,7 +165,7 @@ export function resolveBackend(
 	return { ok: true, creds: { backend, token, account } };
 }
 
-export function clefFlashUrl(account: string): string {
+function clefFlashUrl(account: string): string {
 	return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/ai/run/@cf/cloudflare/${CLEF_FLASH_MODEL}`;
 }
 

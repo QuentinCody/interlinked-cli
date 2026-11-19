@@ -22,7 +22,7 @@ import { runnerIdOf } from "../packets/support.js";
 import { drainWindowWarnings } from "../packets/trajectory-ledger.js";
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent } from "../types.js";
 
-export const PACKET_DELIVERY_TIMEOUT_MS = 2_500;
+const PACKET_DELIVERY_TIMEOUT_MS = 2_500;
 
 export interface PacketPhaseDeps {
 	collect?: (event: HarnessEvent, rules: GuardRulesConfig) => Promise<string[]>;

@@ -23,7 +23,7 @@ export interface OpenRequest { key: string; generation: string; sessionId?: stri
 
 function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 /** Strict row parser; a malformed row is skipped, never guessed at. */
-export function parseRequestTxn(value: unknown): RequestTxn | null {
+function parseRequestTxn(value: unknown): RequestTxn | null {
     if (!isRecord(value) || typeof value.id !== "string" || !value.id || typeof value.atMs !== "number" || !Number.isInteger(value.atMs)) return null;
     if (value.op === "served") return typeof value.runId === "string" ? { op: "served", id: value.id, runId: value.runId, atMs: value.atMs } : null;
     if (value.op !== "open" || typeof value.key !== "string" || !value.key || typeof value.generation !== "string" || !GENERATION.test(value.generation)) return null;

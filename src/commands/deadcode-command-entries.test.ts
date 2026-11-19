@@ -31,3 +31,15 @@ it("credits workflow run targets and preserves unknowns when the directory chang
 		path => path.endsWith("/job.yml") ? workflow : "defaults:\n  run:\n    working-directory: nested\njobs:\n  test:\n    steps:\n      - run: node scripts/nested.ts", known);
 	expect([...result]).toEqual(["scripts/job.ts"]);
 });
+
+it("resolves worker and lint-plugin entries from their config directory without treating arbitrary JSON paths as entries", () => {
+	const inputs = new Map([
+		["deploy/workers/wrangler.jsonc", '{ /* entry */ "main": "../../src/worker.ts", "other": "../../src/stale.ts", }'],
+		["oxlint.custom.json", '{"jsPlugins":[{"name":"rules","specifier":"./tools/rules.ts"},"npm-plugin",{"specifier":"../outside.ts"}]}'],
+		["fixtures/wrangler.json", '{"main":"../src/stale.ts"}'],
+		["other.json", '{"main":"src/stale.ts"}'],
+		["oxlint.invalid.json", "{ broken"],
+	]);
+	const known = new Set(["src/worker.ts", "tools/rules.ts", "src/stale.ts", "../outside.ts"]);
+	expect([...scriptCommandEntries([...inputs.keys()], path => inputs.get(path) ?? null, known)].sort()).toEqual(["src/worker.ts", "tools/rules.ts"]);
+});

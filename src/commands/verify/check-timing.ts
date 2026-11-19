@@ -10,7 +10,7 @@ const active = new AsyncLocalStorage<VerifyTimingRun>();
 /** Compatibility callers outside public verify still need their unavailable disclosures. */
 export function hasVerifyTimingContext(): boolean { return active.getStore() !== undefined; }
 /** Foreground census measures every selected input; callers may explicitly bound work. */
-export const VERIFY_CHECK_BUDGET_MS = Number.POSITIVE_INFINITY;
+const VERIFY_CHECK_BUDGET_MS = Number.POSITIVE_INFINITY;
 
 export function timingSnapshot(run: VerifyTimingRun): VerifyCheckTiming[] {
     return [...run.rows.values()].map(row => ({ ...row })).sort((a, b) => b.duration_ms - a.duration_ms);

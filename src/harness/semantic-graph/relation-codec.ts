@@ -28,7 +28,7 @@ export function parseEngine(value: unknown): EngineSpec {
         timeoutMs: integer(r.timeoutMs, 100, 300000), band: parseBand(r.band),
     };
 }
-export function validateSnapshot(snapshot: RelationSnapshot): void {
+function validateSnapshot(snapshot: RelationSnapshot): void {
     const { digest, ...body } = snapshot;
     if (snapshot.schema !== "interlinked.relation-snapshot/1" || hash(body) !== digest) throw new Error("snapshot digest mismatch");
     for (const file of Object.values(snapshot.files)) if (textHash(file.text) !== file.hash) throw new Error("source hash mismatch");
@@ -38,7 +38,7 @@ export function validateSnapshot(snapshot: RelationSnapshot): void {
         if (!source || source.text.split(/\r?\n/).slice(unit.line - 1, unit.endLine).join("\n") !== unit.text || textHash(unit.text) !== unit.hash) throw new Error("unit source mismatch");
     }
 }
-export function validatePacket(packet: RelationPacket, snapshot: RelationSnapshot): void {
+function validatePacket(packet: RelationPacket, snapshot: RelationSnapshot): void {
     if (packet.schema !== "interlinked.relation-packet/1") throw new Error("unsupported packet schema");
     if (packet.evidenceHash !== hash({ evidence: packet.evidence, dependencies: packet.dependencies, missing: packet.missing }) || packet.id !== hash({ logicalKey: packet.logicalKey, evidenceHash: packet.evidenceHash })) throw new Error("packet digest mismatch");
     if (packet.complete !== (packet.missing.length === 0)) throw new Error("packet completeness mismatch");

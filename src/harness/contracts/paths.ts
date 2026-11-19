@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 export const CONTRACT_MANIFEST = ".interlinked/behavioral-contracts.json";
 export const CONTRACT_POLICY = ".interlinked/contract-policy.json";
-export const MAX_CONTRACT_BYTES = 1024 * 1024;
+const MAX_CONTRACT_BYTES = 1024 * 1024;
 export function contractDigest(value: unknown): string {
     if (Buffer.isBuffer(value)) return createHash("sha256").update(value).digest("hex");
     return createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value)).digest("hex");

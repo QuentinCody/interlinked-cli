@@ -131,7 +131,7 @@ def analyze(source):
 `;
 
 /** Shared driver: reads a JSON list of `{path, content}` from stdin and prints one result per file. */
-export const PYTHON_DIAGNOSTIC_MAIN = String.raw`
+const PYTHON_DIAGNOSTIC_MAIN = String.raw`
 results = []
 for entry in json.load(sys.stdin):
     try:

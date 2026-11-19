@@ -22,7 +22,7 @@ import type { HarnessEvent } from "../types.js";
 import { isFileWrite } from "./tool-classifiers.js";
 import { readToolString } from "./tool-input-values.js";
 
-export const EDIT_PROTECTION_TAG = "edit-protection";
+const EDIT_PROTECTION_TAG = "edit-protection";
 
 export function editProtectionCommand(relPath: string): string {
 	return `interlinked tests edit-protection ${relPath}`;

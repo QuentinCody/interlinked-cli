@@ -10,7 +10,7 @@ import { RELATION_CONTRACTS } from "../../lib/decision-metrics/relation-contract
 
 // Reuse the graph parser, but resolve exclusively against the immutable snapshot.
 // Bare imports are not guessed. Their omission is reported by the snapshot graph.
-export function snapshotGraph(snapshot: RelationSnapshot, root: string): { graph: ImportGraphView; unresolved: string[] } {
+function snapshotGraph(snapshot: RelationSnapshot, root: string): { graph: ImportGraphView; unresolved: string[] } {
     const edges = new Map<string, ImportEdge[]>(), reverse = new Map<string, string[]>();
     const unresolved: string[] = [];
     for (const [file, source] of Object.entries(snapshot.files)) {

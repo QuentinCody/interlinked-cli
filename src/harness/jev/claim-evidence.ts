@@ -284,7 +284,7 @@ function grammarSpans(lines: readonly string[]): GrammarSpan[] {
  * A claim is a sentence that matches the grammar exactly, after a line's list/blockquote markers and whole-line
  * emphasis are removed; lines inside fenced code blocks are never claims.
  */
-export function receiptGrammarClaims(finalMessage: string): string[] {
+function receiptGrammarClaims(finalMessage: string): string[] {
 	return [...new Set(grammarSpans(finalMessage.split(/\r?\n/)).map((s) => s.text))];
 }
 

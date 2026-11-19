@@ -104,7 +104,7 @@ export function commandOf(toolInput: unknown, limit = 1_000_000): string {
 // ─── E19: mask + maskedContext (scan.mts) ──────────────────────────────────
 
 /** Characters of masked context kept on each side of the highlighted match. */
-export const SECRET_CONTEXT_CHARS = 150;
+const SECRET_CONTEXT_CHARS = 150;
 /** Extra raw characters scanned around the window so a neighbour cut by the
  *  window edge is still recognised (and masked) whole. */
 const SECRET_WINDOW_MARGIN = 400;

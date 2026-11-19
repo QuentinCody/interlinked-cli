@@ -4,7 +4,7 @@ import { isReportTool, parseReportAdapter } from "./custom-adapters.js";
 import { LINT_BOOLEAN_OPTIONS, LINT_PATH_OPTIONS, LINT_REPORT_OPTIONS, LINT_VALUE_OPTIONS } from "./option-specs.js";
 import type { LintImportEntry } from "./types.js";
 
-export function confinedArgument(value: string): string {
+function confinedArgument(value: string): string {
     if (!value || value.startsWith("-") || value.startsWith("/") || /[\0\r\n\\$`]/.test(value) || /^[A-Za-z]:/.test(value)) throw new Error(`Unsupported lint path: ${value}`);
     if (value.split("/").includes("..")) throw new Error(`Lint path leaves its scope: ${value}`);
     return value;

@@ -107,7 +107,7 @@ export function buildSecretHitState(text: string, ruleIds: readonly string[], so
 }
 
 /** Ask and log for one hit. Never rejects. */
-export async function runSecretHitShadow(
+async function runSecretHitShadow(
 	event: HarnessEvent,
 	rules: GuardRulesConfig,
 	text: string,

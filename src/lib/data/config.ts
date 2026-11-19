@@ -10,7 +10,7 @@ export interface DataConfig {
     version: 1; auto_index: boolean; auto_compact: boolean;
     index_max_mb: number; index_max_records: number; keep_live_mb: number; compact_at_mb: number;
 }
-export const DEFAULT_DATA_CONFIG: Readonly<DataConfig> = {
+const DEFAULT_DATA_CONFIG: Readonly<DataConfig> = {
     version: 1, auto_index: false, auto_compact: false,
     index_max_mb: 256, index_max_records: 250_000, keep_live_mb: 64, compact_at_mb: 256,
 };

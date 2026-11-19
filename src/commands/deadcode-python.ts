@@ -102,7 +102,7 @@ function pythonDetails(graph: PythonGraph, reach: Reachability, exportScan: { co
 }
 
 /** The dead-code report of one loaded graph. Pure: no process, no disk. */
-export function pythonDeadCodeFromGraph(graph: PythonGraph): PythonDeadCode {
+function pythonDeadCodeFromGraph(graph: PythonGraph): PythonDeadCode {
 	const rootSet = new Set(graph.roots.map((root) => root.path));
 	const reach = reachability(graph, rootSet);
 	const exportScan = findUnusedExports(graph, rootSet);

@@ -42,7 +42,7 @@ const JOB_BUDGET_MS = 30 * 60 * 1000;
 export const RESOURCE_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
 
 /** Retry only explicit transient resource failures; filenames mentioning memory are not evidence. */
-export function retryableCapacityFailure(checkpoint: HookVerificationCheckpoint, now: number): boolean {
+function retryableCapacityFailure(checkpoint: HookVerificationCheckpoint, now: number): boolean {
     return checkpoint.job.status === "complete" && now >= (checkpoint.completedAt ?? checkpoint.deadlineAt) + RESOURCE_RETRY_COOLDOWN_MS
         && checkpoint.job.unmeasured.some(reason => /(?:host memory (?:capacity |reserve )?(?:unavailable|exhausted)|memory-budget-unavailable|memory admission (?:unavailable|timed out)|project heavyweight lease unavailable)/i.test(reason));
 }

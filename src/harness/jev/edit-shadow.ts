@@ -31,17 +31,17 @@ import type { JevConfig, JevNoulQuestion } from "./types.js";
 
 export const EDIT_SHADOW_QUESTION_ID = "edit_needs_verification_v1";
 export const EDIT_SHADOW_LEDGER = "decision-shadow.jsonl";
-export const EDIT_SHADOW_DEFAULT_MAX_SPEND_USD = 0.5;
-export const EDIT_SHADOW_DEFAULT_TIMEOUT_MS = 1_500;
+const EDIT_SHADOW_DEFAULT_MAX_SPEND_USD = 0.5;
+const EDIT_SHADOW_DEFAULT_TIMEOUT_MS = 1_500;
 /** Characters of the edit text (new_string / content) sent as state. */
 export const EDIT_SHADOW_SUMMARY_CHARS = 4_000;
 /** Characters of the replaced text (Edit old_string) sent as `before_excerpt`. */
-export const EDIT_SHADOW_BEFORE_CHARS = 2_000;
+const EDIT_SHADOW_BEFORE_CHARS = 2_000;
 /** Bound on the remembered tool_use_ids used for once-per-call de-duplication. */
 const SEEN_IDS_CAP = 4_096;
 
 /** The fixed question. Cited verbatim by the experiment; change the id if the text changes. */
-export const EDIT_SHADOW_QUESTION: JevNoulQuestion = {
+const EDIT_SHADOW_QUESTION: JevNoulQuestion = {
 	type: "noul",
 	instructions:
 		"An AI coding agent just made this edit to a TypeScript source file in a repository with a test suite. Before the agent makes its NEXT edit, does this edit warrant running the project's tests or type-checker first (as opposed to safely continuing to edit)?",
@@ -54,7 +54,7 @@ export const EDIT_SHADOW_QUESTION: JevNoulQuestion = {
 const SHADOW_TOOLS = new Set(["Write", "Edit", "MultiEdit", "apply_patch"]);
 
 /** Discriminator shared with the decision-shadow rows in the same ledger. */
-export const EDIT_SHADOW_SURFACE = "edit";
+const EDIT_SHADOW_SURFACE = "edit";
 
 export interface EditShadowRow {
 	ts: string;
@@ -163,7 +163,7 @@ function editCandidates(tool: string, input: Record<string, unknown>): { path: s
 }
 
 /** Selection: the FIRST in-scope file of the tool call, or null when none is in scope. */
-export function selectShadowTarget(event: HarnessEvent, scope: JevConfig["shadow_scope"] = "cappable"): ShadowTarget | null {
+function selectShadowTarget(event: HarnessEvent, scope: JevConfig["shadow_scope"] = "cappable"): ShadowTarget | null {
 	const tool = event.tool_name ?? "";
 	if (event.hook_event !== "PostToolUse" || !SHADOW_TOOLS.has(tool)) return null;
 	if (event.tool_outcome === "error" || event.tool_outcome === "interrupted") return null;

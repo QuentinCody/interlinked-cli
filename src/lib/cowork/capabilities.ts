@@ -5,7 +5,7 @@ import { DEVICE_BASH } from "./native.js";
 const POST_TOOL_MUTATIONS = `^(?:${[...CLAUDE_CODE_WRITE_TOOLS, DEVICE_BASH].join("|")})$`;
 
 export const COWORK_EVENTS = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"] as const;
-export const COWORK_PROBE_EVENTS = [...new Set([...COWORK_EVENTS, ...CLAUDE_CODE_CAPABILITIES.events.map(event => event.name)])];
+const COWORK_PROBE_EVENTS = [...new Set([...COWORK_EVENTS, ...CLAUDE_CODE_CAPABILITIES.events.map(event => event.name)])];
 const OBSERVED = new Set(["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "MessageDisplay", "PostToolBatch", "PostToolUseFailure", "TaskCreated", "PermissionRequest", "Notification", "TaskCompleted", "SubagentStart", "SubagentStop"]);
 
 /** A dated native observation never certifies the user's current installation. */

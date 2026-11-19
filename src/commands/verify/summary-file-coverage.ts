@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import type { CatalogueFinding } from "./catalogue-types.js";
 import { readTouchedLedger } from "../../harness/session-touched-files.js";
 
-export const SUMMARY_LOG_BYTES = 8 * 1024 * 1024;
+const SUMMARY_LOG_BYTES = 8 * 1024 * 1024;
 export interface BoundedLog {
     rows: Record<string, unknown>[];
     truncated: boolean;
