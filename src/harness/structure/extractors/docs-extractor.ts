@@ -5,8 +5,7 @@
 import * as path from "node:path";
 import { makeGlobalRef } from "../artifact-graph.js";
 import type { DocKind, ExtractorMetadata, ExtractorResult } from "../types.js";
-import { createWalkBudget, type WalkBudget } from "./bounded-walk.js";
-import { walkAndClassify } from "./walk-classify.js";
+import { createPathExtractor } from "./walk-classify.js";
 
 const DOC_EXTENSIONS = new Set([".md", ".mdx", ".rst"]);
 
@@ -55,6 +54,4 @@ export function classifyFile(_repoRoot: string, relPath: string): ExtractorResul
 	};
 }
 
-export function extract(repoRoot: string, budget: WalkBudget = createWalkBudget()): ExtractorResult {
-	return walkAndClassify(repoRoot, { classify: classifyFile, budget, extractorName: metadata.name });
-}
+export const extract = createPathExtractor(metadata.name, classifyFile);

@@ -464,21 +464,13 @@ interface VerifyBatchArgs {
 	scope: import("../harness/check-engine/types.js").CheckScope;
 }
 
-async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBatchArgs): Promise<void> {
+async function runBatchExternalChecks(
+	{ engine, scope, cwd, opts }: Omit<VerifyBatchArgs, "files">,
+	skipChecks: Set<string>,
+) {
 	const only = opts.only;
-	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks, only);
 	// SCA has a dedicated result shape and managed runner below.
 	const skipTools = [...new Set([...getSkipTools(skipChecks), "dep-audit" as const])];
-	setActiveSkipChecks(skipChecks);
-
-	// The inline census runs first: it is the part that can be cut short per file, so a deadline keeps its findings.
-	// Progress goes to stderr only — stdout stays byte-identical JSON.
-	const cq = opts.only
-		? emptyResults()
-		: filterCodeQualityResultsInPlace(
-				await runCodeQualityChecksProgressive(files, cwd, createScanProgress(files.length)),
-				skipChecks,
-			);
 	const inputScopeCollector = createToolInputScopeCollector();
 	const report = await runUntilSoftDeadline("external_tools", () => measureVerifyCheckAsync("external_tools", () => engine.runChecksAsync({ ...scope, lintCadence: opts.allChecks ? "all" : "hook" }, {
 		timeoutMs: opts.toolTimeout ?? 0,
@@ -499,6 +491,24 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 			recordVerifyInputDeferral(skipped.check, { file: "<project>", reason: skipped.reason });
 		}
 	}
+
+	return { report, auditResult, toolInputScopes };
+}
+
+async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBatchArgs): Promise<void> {
+	const only = opts.only;
+	const skipChecks = getEffectiveSkipChecks(opts.skip, opts.allChecks, only);
+	setActiveSkipChecks(skipChecks);
+
+	// The inline census runs first: it is the part that can be cut short per file, so a deadline keeps its findings.
+	// Progress goes to stderr only — stdout stays byte-identical JSON.
+	const cq = opts.only
+		? emptyResults()
+		: filterCodeQualityResultsInPlace(
+				await runCodeQualityChecksProgressive(files, cwd, createScanProgress(files.length)),
+				skipChecks,
+			);
+	const { report, auditResult, toolInputScopes } = await runBatchExternalChecks({ engine, scope, cwd, opts }, skipChecks);
 
 	const { tscResults, linterResults, linterName, semgrepResults, gitleaksResults, externalDiagnostics } = groupBatchToolResults(cwd, report);
 	const setupIssues = checkProjectSetup(cwd);
