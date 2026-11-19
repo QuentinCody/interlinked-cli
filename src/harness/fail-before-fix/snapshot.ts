@@ -81,7 +81,7 @@ function copyEntry(root: string, dir: string, rel: string): number {
 }
 
 /** Writes each override into an existing copy (null removes the file); every target goes through `copyWriteTarget`. */
-export function applyOverrides(dir: string, overrides: ReadonlyMap<string, string | null>): void {
+function applyOverrides(dir: string, overrides: ReadonlyMap<string, string | null>): void {
     for (const [rel, content] of overrides) {
         const target = copyWriteTarget(dir, rel);
         if (content === null) { rmSync(target, { force: true }); continue; }

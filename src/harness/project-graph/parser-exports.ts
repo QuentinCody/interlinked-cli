@@ -7,6 +7,7 @@
 
 import { nonNull } from "../../lib/non-null.js";
 import type { ExportedSymbol } from "../types.js";
+import { maskCommentsAndTemplates } from "./mask-templates.js";
 import {
 	bracketDepth,
 	destructuredExports,
@@ -24,7 +25,7 @@ import { matchNamespaceOrDeclareExport, trailingExportList } from "./parser-expo
  */
 export function parseExports(content: string): ExportedSymbol[] {
 	const exports: ExportedSymbol[] = [];
-	const lines = content.split("\n");
+	const lines = (content.includes("`") ? maskCommentsAndTemplates(content) : content).split("\n");
 
 	let inBlockComment = false;
 	let exportBuffer = "";

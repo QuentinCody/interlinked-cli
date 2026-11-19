@@ -15,6 +15,18 @@ it("finds documented invocation targets in shell blocks and inline code", () => 
 	expect([...scriptCommandEntries([...files.keys()], path => files.get(path) ?? null, known)].sort()).toEqual(["scripts/bench.ts", "scripts/scan.ts"]);
 });
 
+it("credits a subproject's repository-qualified commands in its own README and study reports", () => {
+	const docs = new Map([
+		["lab/README.md", "From the repository root, run `node --import tsx lab/run.ts`."],
+		["lab/studies/set/REPORT.md", "```sh\nnode lab/summary.ts\n```"],
+		["lab/old/report.md", "`node scripts/ambiguous.ts` or `node lab/shadowed.ts`"],
+		["lab/fixtures/REPORT.md", "`node lab/fixture.ts`"],
+		["other/README.md", "`node lab/unrelated.ts`"],
+	]);
+	const known = new Set(["lab/run.ts", "lab/summary.ts", "scripts/ambiguous.ts", "lab/fixture.ts", "lab/unrelated.ts", "lab/shadowed.ts", "lab/old/lab/shadowed.ts"]);
+	expect([...scriptCommandEntries([...docs.keys()], path => docs.get(path) ?? null, known)].sort()).toEqual(["lab/run.ts", "lab/summary.ts"]);
+});
+
 it("credits workflow run targets and preserves unknowns when the directory changes", () => {
 	const workflow = `jobs:
   lint:

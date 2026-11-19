@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { findUniformDirectories, UNIFORM_MIN_FILES } from "./role-generator-uniform.js";
+import { findUniformDirectories, measureFiles, UNIFORM_MIN_FILES } from "./role-generator-uniform.js";
 
 const model = (name: string): string => `from typing import Any\n\nfrom attrs import define\n\n\n@define\nclass ${name}:\n    id: str\n    value: Any\n\n    def to_dict(self) -> dict:\n        return {"id": self.id, "value": self.value}\n`;
 const mapOf = (files: Record<string, string>) => ({ paths: Object.keys(files), read: (path: string): string | null => files[path] ?? null });
+
+it("produces finite descriptive measurements for an empty sample and a repeated model", () => {
+	expect(measureFiles([])).toEqual({ top3: 0, sameCount: 0, identifierRatio: 1 });
+	const one = measureFiles([model("Invoice")]);
+	const repeated = measureFiles([model("Invoice"), model("Invoice")]);
+	expect(repeated).toEqual({ top3: 1, sameCount: 1, identifierRatio: one.identifierRatio / 2 });
+});
 
 function dirOf(prefix: string, count: number, text: (n: number) => string): Record<string, string> {
 	return Object.fromEntries(Array.from({ length: count }, (_, i) => [`${prefix}/f${i}.py`, text(i)]));

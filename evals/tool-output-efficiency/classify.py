@@ -1,13 +1,13 @@
 """Conservative tool-family classification; mixed shell calls stay mixed."""
 import ast, json, re
 from tokens import serialize
-def arguments(value):
+def _arguments(value):
     if isinstance(value, str):
         try: return json.loads(value)
         except ValueError: return value
     return value
 def commands(name, value):
-    value = arguments(value)
+    value = _arguments(value)
     if isinstance(value, dict): return [str(value.get("cmd") or value.get("command") or "")]
     text = str(value)
     pattern = r"""(?:["']?cmd["']?|["']?command["']?)\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\x60[^\x60]*\x60)"""
@@ -17,7 +17,7 @@ def commands(name, value):
         try: found.append(literal[1:-1] if literal[0] == chr(96) else ast.literal_eval(literal))
         except (ValueError, SyntaxError): found.append(literal[1:-1])
     return found or [text]
-def shell_category(command):
+def _shell_category(command):
     cats = set()
     pattern = r"(?:^|[;\n|&])\s*(?:(?:[A-Za-z_]\w*=\S+|command|env)\s+)*(?:[^\s;|&]*/)?(cat|rg|grep|head|tail|ls|find|wc|stat|sed|awk|git|npm|pnpm|yarn|bun|npx|vitest|pytest|jest|tsgo|tsc|eslint|gitleaks|apply_patch|tee|rm|mv|cp|mkdir|touch|jq)\b([^\n;|&]*)"
     for match in re.finditer(pattern, command):
@@ -41,14 +41,14 @@ def category(name, value):
     if name in ("grep", "glob", "search_files", "list_directory"): return "search"
     if name in ("edit", "write", "multiedit", "multi_edit", "apply_patch", "edit_file", "write_file"): return "edits"
     if name in ("exec", "bash", "exec_command", "shell", "shell_command", "run_command"):
-        cats = {shell_category(c) for c in commands(name, value)}
+        cats = {_shell_category(c) for c in commands(name, value)}
         if "tools.apply_patch" in str(value): cats.add("edits")
         return next(iter(cats)) if len(cats) == 1 else "mixed"
     if any(word in name for word in ("read", "search", "fetch", "query", "get_")): return "structured_data"
     return "other"
 def edited_paths(name, value):
     from tokens import paths
-    data = arguments(value)
+    data = _arguments(value)
     if name.lower() in ("edit", "write", "multiedit", "multi_edit", "edit_file", "write_file"): return paths(serialize(data))
     text = value if isinstance(value, str) else serialize(value)
     if "apply_patch" in name or "*** Update File:" in text or "*** Add File:" in text:

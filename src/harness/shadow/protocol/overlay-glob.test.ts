@@ -10,13 +10,19 @@
 import { describe, expect, it } from "vitest";
 import {
 	checkGitWildmatchPattern,
-	compileGitWildmatchV1,
-	matchCompiledGitWildmatchV1,
 	matchesGitWildmatchV1,
+	patternSegments,
 } from "./overlay-glob.js";
+import { compileGitWildmatchV1, matchCompiledGitWildmatchV1 } from "./overlay-manifest.js";
 import { MAX_PATH_BYTES } from "./path-rules.js";
 
 const BOUND_MS = 250;
+
+it("strips boundary anchors while retaining an empty interior component for validation", () => {
+	expect(patternSegments("/lib/**/")).toEqual(["lib", "**"]);
+	expect(patternSegments("lib//part")).toEqual(["lib", "", "part"]);
+	expect(checkGitWildmatchPattern("lib//part", "rule")).not.toBeNull();
+});
 
 /** Milliseconds `run` took, on the monotonic clock. */
 function elapsedMs(run: () => void): number {

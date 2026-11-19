@@ -77,7 +77,7 @@ export function calleeName(ts: TsModule, e: TS.Expression): string | null {
 }
 
 /** The async kind of a call's callbacks: event registration, timer, or promise continuation. */
-export function callKind(ts: TsModule, call: TS.CallExpression): AsyncKind | null {
+function callKind(ts: TsModule, call: TS.CallExpression): AsyncKind | null {
 	const name = calleeName(ts, call.expression);
 	if (name === null) return null;
 	if (EVENT_METHODS.has(name)) return "event";

@@ -202,6 +202,10 @@ resolve from the configuration directory. Directory overrides, compound shell co
 dynamic paths can leave a reachable file in the candidate list. Review the
 entry point before removing it.
 
+A nested README or report can also demonstrate a command when its script path
+starts with that subproject's root directory and resolves unambiguously. Export
+parsing ignores module source written inside template literals.
+
 Two catalogs, both surfaced by verify + PostToolUse: the **tool wrappers** (`typescript`,
 `biome_lint`, `eslint`, `semgrep`, `gitleaks`, `dependency_audit`, `secrets_in_source`,
 `affected_tests`, per-language tools…) and the **inline families** in

@@ -52,7 +52,7 @@ function scopeOf(options: Pick<EvaluateOptions, "projectId" | "scenarioIds">): E
     return scope;
 }
 /** Projects in scope — resolved independently of scenario rows so a project with no scenarios keeps its obligations (F5). */
-export function selectProjects(policy: E2ePolicy, options: Pick<EvaluateOptions, "projectId">): E2eProject[] {
+function selectProjects(policy: E2ePolicy, options: Pick<EvaluateOptions, "projectId">): E2eProject[] {
     const projects = options.projectId === undefined ? policy.projects : policy.projects.filter(project => project.id === options.projectId);
     if (!projects.length) throw new Error(`e2e: unknown project ${options.projectId}`);
     return projects;

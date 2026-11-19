@@ -56,7 +56,7 @@ function sample<T>(items: readonly T[]): T[] {
 interface Measured { top3: number; sameCount: number; identifierRatio: number; }
 
 const topShare = (counts: ReadonlyMap<unknown, number>, take: number, total: number): number =>
-	[...counts.values()].sort((a, b) => b - a).slice(0, take).reduce((sum, count) => sum + count, 0) / total;
+	total === 0 ? 0 : [...counts.values()].sort((a, b) => b - a).slice(0, take).reduce((sum, count) => sum + count, 0) / total;
 
 /** The three measures of a set of files whose contents are in hand (also used to report numbers for a directory that does not pass). */
 export function measureFiles(contents: readonly string[]): Measured { return measure(contents.map(shapeOf)); }

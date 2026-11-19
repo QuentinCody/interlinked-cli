@@ -66,7 +66,7 @@ export function lineTextAt(content: string, offset: number): string {
 	return content.slice(start, end === -1 ? content.length : end);
 }
 
-export function lineOf(content: string, offset: number): number {
+function lineOf(content: string, offset: number): number {
 	let line = 1;
 	for (let i = 0; i < offset && i < content.length; i++) if (content.charCodeAt(i) === 10) line++;
 	return line;

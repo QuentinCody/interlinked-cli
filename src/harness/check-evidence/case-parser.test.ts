@@ -5,7 +5,19 @@
 // evidence (unlabeled tests, comments, nested blocks).
 
 import { describe, expect, it } from "vitest";
-import { countCases, directionFromTitle, parseCaseSpans, parseLabeledCases } from "./case-parser.js";
+import { countCases, countTestCaseOpeners, directionFromTitle, parseCaseSpans, parseLabeledCases } from "./case-parser.js";
+
+it("counts unlabeled executable cases independently of directional evidence", () => {
+	const source = [
+		'describe("suite", () => {',
+		'  // it("retired case", () => {});',
+		'  it("survives the retry", () => {});',
+		'  test("N1: excludes an invalid row", () => {});',
+		'});',
+	].join("\n");
+	expect(countTestCaseOpeners(source)).toBe(2);
+	expect(parseLabeledCases(source)).toHaveLength(1);
+});
 
 describe("directionFromTitle — positive (must classify as positive)", () => {
 	it("P1: reads an explicit P-prefix", () => {

@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	BASELINE_RESTORE_PREFIX,
 	captureConfigWaterLines,
+	captureConfigWaterLinesSafely,
+	configCaptureFailures,
 	detectConfigWaterLineLoosening,
 	isConfigWaterLineName,
 	resetConfigDiscovery,
@@ -39,6 +41,14 @@ beforeEach(() => {
 
 afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
+});
+
+it("counts a failed config snapshot and can capture the next request", () => {
+	const before = configCaptureFailures();
+	expect(captureConfigWaterLinesSafely(root, () => { throw new Error("unreadable"); })).toEqual({});
+	expect(configCaptureFailures()).toBe(before + 1);
+	expect(captureConfigWaterLinesSafely(root, read)["tsconfig.json"]).toBe(STRICT);
+	expect(configCaptureFailures()).toBe(before + 1);
 });
 
 describe("config effect arm — positive (must fire)", () => {

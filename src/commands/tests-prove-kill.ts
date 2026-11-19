@@ -11,10 +11,13 @@
 
 import { realpathSync } from "node:fs";
 import { type PruneResult, pruneKillProofs } from "../harness/kill-proof/prune.js";
-import { ProofInterrupted, proveKill } from "../harness/kill-proof/run.js";
-import { listKillProofIds, mutantLabel, newestPerProofKey, proofKey, readKillProof, readKillProofIndex } from "../harness/kill-proof/receipt.js";
-import { uncommittedPaths, verifyKillProof } from "../harness/kill-proof/receipt-freshness.js";
-import type { KillProofReceipt, MutantSpec, ProveKillResult, ResolvedMutant } from "../harness/kill-proof/types.js";
+import {
+	listKillProofIds, mutantLabel, proveKill, readKillProof, readKillProofIndex, verifyKillProof,
+	type KillProofReceipt, type MutantSpec, type ProveKillResult, type ResolvedMutant,
+} from "../harness/kill-proof/index.js";
+import { ProofInterrupted } from "../harness/kill-proof/run.js";
+import { newestPerProofKey, proofKey } from "../harness/kill-proof/receipt.js";
+import { uncommittedPaths } from "../harness/kill-proof/receipt-freshness.js";
 import { shellQuote } from "../harness/managed-push-command.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 

@@ -3,9 +3,19 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { classifyByPath } from "./role-evidence.js";
-import { applyRepoEvidence, loadRepoEvidence } from "./role-repo-evidence.js";
+import { applyRepoEvidence, clearRepoEvidenceCache, loadRepoEvidence } from "./role-repo-evidence.js";
 
 const roots: string[] = [];
+
+it("reloads changed generation attributes after invalidating the repository cache", () => {
+	const { root } = tree({ ".gitattributes": "", "model.py": "x = 1\n" });
+	const count = () => loadRepoEvidence(root).summary().attributeRules;
+	expect(count()).toBe(0);
+	writeFileSync(join(root, ".gitattributes"), "model.py linguist-generated\n");
+	expect(count()).toBe(0);
+	clearRepoEvidenceCache();
+	expect(count()).toBe(1);
+});
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 function tree(files: Record<string, string>): { root: string; paths: string[] } {

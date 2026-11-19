@@ -36,7 +36,7 @@ import { PACKET_FILE_BASENAME, type Packet, type PacketFile, type PacketsConfig,
 
 export const PACKET_LEDGER = "packet-judgments.jsonl";
 const DEFAULT_MAX_SPEND_USD = 0.25;
-export const DEFAULT_TIMEOUT_MS = 1_500;
+const DEFAULT_TIMEOUT_MS = 1_500;
 /** Rendering bounds; the label sheet re-renders with the same ones so labels see what Jev saw. */
 export const EVIDENCE_BOUNDS = { commandChars: 3_000, hunkChars: 2_500, maxHunks: 6 } as const;
 const SEEN_IDS_CAP = 4_096;

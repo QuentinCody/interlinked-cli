@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { observeReceiptClaims } from "./receipt-shadow.js";
+import { observeReceiptClaims, receiptShadowFailures } from "./receipt-shadow.js";
 
 describe("default-off receipt shadow", () => {
     const claim = "All 3 executed tests passed.";
@@ -17,7 +17,9 @@ describe("default-off receipt shadow", () => {
         const rows: unknown[] = []; const write = (r: unknown) => { rows.push(r); };
         observeReceiptClaims([claim, "Other claim."], new Map(), { enabled: true, links: [link, link], write });
         expect(rows).toMatchObject([{ status: "not_assessable", reason: "ambiguous_link" }, { status: "not_assessable", reason: "missing_link" }]);
+        const failures = receiptShadowFailures();
         expect(() => observeReceiptClaims([claim], new Map(), { enabled: true, links: [link], write: () => { throw new Error("disk full"); } })).not.toThrow();
+        expect(receiptShadowFailures()).toBe(failures + 1);
     });
     const operation = { ...link.receipt, cwd: "/p", runner: "typescript", directInvocation: true, outputComplete: true,
         sourceUnchanged: true, exitCode: 0, signal: null };

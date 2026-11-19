@@ -30,6 +30,7 @@ import {
 	SHADOW_RECORD_REGISTRY,
 	type ShadowRecordDescriptorV1,
 	shadowRecordIds,
+	shadowRecordsOfKind,
 } from "./registry.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -322,6 +323,10 @@ describe("shadow record registry — positive (must hold)", () => {
 			expect(descriptorFor(id)?.id).toBe(id);
 		}
 		expect(SHADOW_RECORD_KINDS).toEqual(["wire", "persisted", "internal"]);
+		for (const kind of SHADOW_RECORD_KINDS) {
+			const idsFromSchema = indexRecordRows().filter(row => row.kind === kind).map(row => row.id);
+			expect(shadowRecordsOfKind(kind).map(row => row.id).sort()).toEqual(idsFromSchema.sort());
+		}
 		for (const descriptor of SHADOW_RECORD_REGISTRY) {
 			expect(SHADOW_RECORD_KINDS, descriptor.id).toContain(descriptor.kind);
 		}

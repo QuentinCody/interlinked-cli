@@ -10,6 +10,7 @@ const SCRIPT_INVOCATION = /^(?:node\s+(?:(?:--expose-gc|--enable-source-maps|--(
 const SHELL_FENCE = /^(?:bash|sh|shell|console)$/i;
 const FIXTURE = /(?:^|\/)(?:__fixtures__|fixtures?|tests?|__tests__|node_modules|vendor)(?:\/|$)/;
 const DOC = /^(?:readme(?:\.[\w-]+)?\.md|(?:docs|skills)\/.+\.md)$/i;
+const PROJECT_DOC = /\/(?:readme|report)(?:\.[\w-]+)?\.md$/i;
 const WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 const WORKER_CONFIG = /(?:^|\/)wrangler\.jsonc?$/;
 const OXLINT_CONFIG = /(?:^|\/)(?:\.oxlintrc|oxlint(?:\.[\w.-]+)?)\.json$/;
@@ -57,12 +58,20 @@ export function scriptCommandEntries(files: readonly string[], read: (path: stri
 	const entries = new Set<string>();
 	for (const file of files) {
 		const config = WORKER_CONFIG.test(file) || OXLINT_CONFIG.test(file);
-		if (FIXTURE.test(file) || !(DOC.test(file) || WORKFLOW.test(file) || config)) continue;
+		if (FIXTURE.test(file) || !(DOC.test(file) || PROJECT_DOC.test(file) || WORKFLOW.test(file) || config)) continue;
 		const text = read(file);
 		if (!text) continue;
 		if (config) {
 			for (const path of configEntries(file, text)) if (known.has(path)) entries.add(path);
 		} else if (DOC.test(file)) markdownInvocations(text, known, entries);
+		else if (PROJECT_DOC.test(file)) {
+			const paths = new Set<string>();
+			markdownInvocations(text, known, paths);
+			const root = file.slice(0, file.indexOf("/") + 1);
+			for (const path of paths) {
+				if (path.startsWith(root) && !known.has(posix.join(posix.dirname(file), path))) entries.add(path);
+			}
+		}
 		else if (WORKFLOW.test(file) && !/\bworking-directory["']?\s*:/.test(text)) {
 			for (const step of extractWorkflowCommands(text)) addInvocations(step.command, known, entries);
 		}

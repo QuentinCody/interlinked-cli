@@ -101,8 +101,9 @@ truth. No learned threshold, deployment qualification or automatic alert is impl
 
 ## Reproduce the exploratory study
 
-From a source checkout, run `node --import tsx semantic-relations/run-experiments.ts
-prepare <new-study-directory>`, then `assess <study-directory> fixtures|A|B`.
+From the repository root, set `STUDY_DIR` to a new directory for this run, then
+run `node --import tsx semantic-relations/run-experiments.ts prepare "${STUDY_DIR:?}"`.
+Use the same directory for `assess <study-directory> fixtures|A|B`.
 Preparation reads the decision-metrics `ollamaUrl` and records it in the frozen
 engine configuration. It resolves the `claude` executable through `PATH` and
 records its reported version in the engine identity.

@@ -15,11 +15,21 @@ import {
 	firstReason,
 	isRecord,
 	MAX_ID_BYTES,
+	MAX_STRING,
+	MAX_TOOL_INPUT_BYTES,
 	unknownKeysIn,
 } from "./field-checks.js";
 
 const HEX64 = "a".repeat(64);
 const SHA40 = "b".repeat(40);
+
+it("applies the default protocol limits in UTF-8 bytes to metadata and tool text", () => {
+	for (const [check, limit] of [[checkBoundedString, MAX_STRING], [checkBoundedText, MAX_TOOL_INPUT_BYTES]] as const) {
+		const atLimit = "é".repeat(limit / 2);
+		expect(check(atLimit, "field")).toBeNull();
+		expect(check(atLimit + "x", "field")).toBe(`field exceeds ${limit} bytes`);
+	}
+});
 
 describe("field-checks — positive (must accept)", () => {
 	it("P1: accepts a bounded non-empty string, an opaque id, a sha, a git sha and a timestamp", () => {

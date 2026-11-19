@@ -41,7 +41,7 @@ export function hasModifier(chain: ExpectChain, name: string): boolean {
 }
 
 /** Strip parentheses and `await` wrappers. */
-export function unwrapExpression(ts: TsModule, expr: TS.Expression): TS.Expression {
+function unwrapExpression(ts: TsModule, expr: TS.Expression): TS.Expression {
 	let cur = expr;
 	while (ts.isParenthesizedExpression(cur) || ts.isAwaitExpression(cur)) cur = cur.expression;
 	return cur;
@@ -53,7 +53,7 @@ export function statementChain(ts: TsModule, node: TS.Node): ExpectChain | null 
 	return parseExpectChain(ts, unwrapExpression(ts, node.expression));
 }
 
-export function isFunctionLike(ts: TsModule, node: TS.Node): boolean {
+function isFunctionLike(ts: TsModule, node: TS.Node): boolean {
 	return ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 }
 

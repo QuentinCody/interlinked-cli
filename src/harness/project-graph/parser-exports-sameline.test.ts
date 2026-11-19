@@ -7,6 +7,16 @@ import { parseExports } from "./parser-exports.js";
 
 const names = (code: string): string[] => parseExports(code).map((e) => e.name);
 
+it("distinguishes the enclosing module's exports from generated module text", () => {
+	const source = [
+		"export const script = String.raw`",
+		"export async function launch() { return 2; }",
+		"`;",
+		"export const after = 1;",
+	].join("\n");
+	expect(parseExports(source).map(({ name, line }) => [name, line])).toEqual([["script", 1], ["after", 4]]);
+});
+
 describe("parseExports — export after a comment that ends on the same line", () => {
 	it("P1: `*/ export function` closing a multi-line comment records the function", () => {
 		expect(names(["/**", " * doc", " */ export function applyIt(", "\tx: number,", ") {}"].join("\n"))).toEqual(["applyIt"]);

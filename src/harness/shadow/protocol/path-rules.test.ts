@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	ADMITTED_MODES,
 	ancestorConflict,
 	ancestorConflictAt,
 	asCanonicalPath,
@@ -21,6 +22,7 @@ describe("path-rules — positive (must accept)", () => {
 	});
 
 	it("P2: accepts both admitted git modes", () => {
+		expect(ADMITTED_MODES).toEqual(["100644", "100755"]);
 		expect(checkGitMode("100644", "mode")).toBeNull();
 		expect(checkGitMode("100755", "mode")).toBeNull();
 	});

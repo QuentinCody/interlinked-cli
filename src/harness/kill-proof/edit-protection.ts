@@ -198,7 +198,7 @@ async function judgeTest(options: EditProtectionOptions, root: string, test: str
 	return runnable.length === 0 ? retired : [...retired, ...(await reprove(options, root, test, runnable))];
 }
 
-export function summarize(rows: readonly ProtectionRow[]): EditProtectionSummary {
+function summarize(rows: readonly ProtectionRow[]): EditProtectionSummary {
 	const count = (v: ProtectionVerdict): number => rows.filter(row => row.verdict === v).length;
 	return { kept: count("kept"), lost: count("lost"), collateralLost: rows.filter(row => row.verdict === "lost" && row.collateral).length, retired: count("retired"), undecided: count("undecided") };
 }

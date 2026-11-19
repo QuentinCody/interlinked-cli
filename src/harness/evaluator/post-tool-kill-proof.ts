@@ -46,7 +46,7 @@ export interface KillProofNudgeInput {
 }
 
 /** Cases present in the written file but not in HEAD's version (an unborn file: every case). Null when git cannot say. */
-export function newCasesSinceHead(root: string, relPath: string): CaseRequirement[] | null {
+function newCasesSinceHead(root: string, relPath: string): CaseRequirement[] | null {
 	let current: string;
 	try { current = readFileSync(resolve(root, relPath), "utf8"); } catch { return null; }
 	let base = "";

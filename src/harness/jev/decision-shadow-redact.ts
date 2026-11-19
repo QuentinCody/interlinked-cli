@@ -123,7 +123,7 @@ export function maskToken(s: string): string {
 }
 
 /** Shannon entropy in bits per character. */
-export function shannonEntropy(s: string): number {
+function shannonEntropy(s: string): number {
 	if (!s) return 0;
 	const counts = new Map<string, number>();
 	for (const ch of s) counts.set(ch, (counts.get(ch) ?? 0) + 1);

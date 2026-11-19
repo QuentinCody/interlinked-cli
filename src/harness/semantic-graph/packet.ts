@@ -39,11 +39,6 @@ export type PacketState = {
 	candidates: PacketCandidate[];
 };
 
-/** Compile-time proof that a packet state is a valid Jev state. */
-export function asJevState(state: PacketState): JevEntry {
-	return state;
-}
-
 export interface Packet {
 	state: PacketState;
 	question: JevChoiceQuestion;
@@ -101,7 +96,7 @@ export function buildPacket(source: Unit, candidates: Unit[], type: Relationship
 			text: capText(source.text, SOURCE_TEXT_CAP),
 		},
 		candidates: packetCandidates,
-	};
+	} satisfies JevEntry;
 	const criteria: Record<string, JevEntry> = {};
 	candidates.forEach((unit, index) => {
 		criteria[candidateKey(index)] = describeUnit(unit);

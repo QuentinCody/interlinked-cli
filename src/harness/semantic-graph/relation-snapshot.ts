@@ -6,7 +6,7 @@ import { hash, parsePolicy, textHash } from "./relation-core.js";
 import { extractUnits } from "./units.js";
 import type { HistoryBoundary, PolicyReference, RelationSnapshot } from "./relation-types.js";
 
-export function safeRelative(path: string): string {
+function safeRelative(path: string): string {
     if (!path || isAbsolute(path) || path.split(/[\\/]/).some(p => p === ".." || p === ".git") || /[\0\r\n]/.test(path)) throw new Error("unsafe repository path");
     return path;
 }
