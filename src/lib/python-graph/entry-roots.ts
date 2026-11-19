@@ -118,22 +118,30 @@ function isCommandFile(path: string): boolean {
 	return COMMAND_NAMES.test(name) || COMMAND_EXTENSIONS.has(posix.extname(name).toLowerCase());
 }
 
+function commandFileTarget(modules: RootInputs["modules"], file: string, target: string, mode: "document" | "command"): string | null {
+	const local = posix.join(posix.dirname(file), target);
+	if (!modules.has(target)) return modules.has(local) ? local : null;
+	if (mode === "document" && local !== target && modules.has(local)) return null;
+	return target;
+}
+
+function addCommandReferences(inputs: RootInputs, set: RootSet, file: string, content: string, mode: "document" | "command"): void {
+	const refs = commandReferences(content, mode);
+	const kind = mode === "document" ? "documented-command" : "command";
+	for (const target of refs.files) {
+		set.add(commandFileTarget(inputs.modules, file, target, mode), kind, `${file} runs ${target}`);
+	}
+	const roots = [...inputs.importRoots, posix.dirname(file)];
+	for (const dotted of refs.modules) set.add(resolveModuleName(dotted, roots, inputs.modules), kind, `${file} runs -m ${dotted}`);
+}
+
 function commandRoots(inputs: RootInputs, set: RootSet): void {
 	for (const file of inputs.projectFiles) {
 		const extension = posix.extname(file).toLowerCase();
 		const mode = DOC_EXTENSIONS.has(extension) ? "document" : isCommandFile(file) ? "command" : null;
 		if (mode === null || inputs.modules.has(file)) continue;
 		const content = inputs.read(file);
-		if (content === null) continue;
-		const refs = commandReferences(content, mode);
-		const dir = posix.dirname(file);
-		const kind = mode === "document" ? "documented-command" : "command";
-		for (const target of refs.files) {
-			const local = dir === "." ? target : posix.join(dir, target);
-			const found = inputs.modules.has(target) ? target : inputs.modules.has(local) ? local : null;
-			set.add(found, kind, `${file} runs ${target}`);
-		}
-		for (const dotted of refs.modules) set.add(resolveModuleName(dotted, [...inputs.importRoots, dir], inputs.modules), kind, `${file} runs -m ${dotted}`);
+		if (content !== null) addCommandReferences(inputs, set, file, content, mode);
 	}
 }
 

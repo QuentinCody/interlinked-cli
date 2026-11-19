@@ -206,6 +206,10 @@ A nested README or report can also demonstrate a command when its script path
 starts with that subproject's root directory and resolves unambiguously. Export
 parsing ignores module source written inside template literals.
 
+For a Python invocation in nested documentation, the analyzer checks both
+the repository root and the document directory. If those paths identify two
+different Python files, the example supplies insufficient evidence to select one.
+
 Two catalogs, both surfaced by verify + PostToolUse: the **tool wrappers** (`typescript`,
 `biome_lint`, `eslint`, `semgrep`, `gitleaks`, `dependency_audit`, `secrets_in_source`,
 `affected_tests`, per-language tools…) and the **inline families** in

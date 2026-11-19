@@ -119,6 +119,15 @@ describe("discoverEntryRoots — packaging metadata and commands", () => {
 		const roots = discoverEntryRoots(inputs({ "ops/job.py": {} }, { "ops/Makefile": "run:\n\tpython job.py\n" }));
 		expect(kinds(roots, "ops/job.py")).toEqual(["command"]);
 	});
+
+	it("keeps an ambiguous command in nested documentation from assigning either file as an entrypoint", () => {
+		const roots = discoverEntryRoots(inputs(
+			{ "tools/run.py": {}, "workshop/tools/run.py": {} },
+			{ "workshop/README.md": "`python tools/run.py`" },
+		));
+		expect(kinds(roots, "tools/run.py")).toEqual([]);
+		expect(kinds(roots, "workshop/tools/run.py")).toEqual([]);
+	});
 });
 
 describe("discoverEntryRoots — framework strings", () => {
