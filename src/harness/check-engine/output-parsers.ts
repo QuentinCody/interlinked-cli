@@ -4,6 +4,7 @@
 // Pure functions: raw tool output string → CheckResult[].
 // Extracted from verify.ts and evaluator.ts so both can reuse them.
 
+import { isAbsolute, relative } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import type { AuditResult, CheckResult } from "./types.js";
@@ -443,4 +444,12 @@ export function parseTaploOutput(output: string, filePath?: string): CheckResult
  */
 export function filterResultsToFile(results: CheckResult[], filePath: string): CheckResult[] {
 	return results.filter((r) => r.file === filePath || r.file.endsWith(filePath));
+}
+
+/** Express tool findings relative to the project while preserving paths already supplied as relative. */
+export function relativeResultPaths(results: CheckResult[], root: string): CheckResult[] {
+	return results.map(result => ({
+		...result,
+		file: isAbsolute(result.file) ? relative(root, result.file) : result.file,
+	}));
 }

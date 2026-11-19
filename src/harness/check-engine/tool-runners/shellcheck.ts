@@ -6,8 +6,7 @@
 // Outputs JSON via --format=json1 for reliable parsing.
 
 import { spawnSync } from "node:child_process";
-import { relative } from "node:path";
-import { parseShellcheckJson } from "../output-parsers.js";
+import { parseShellcheckJson, relativeResultPaths } from "../output-parsers.js";
 import { runProcessAsync } from "../spawn-async.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
 import { requireFileProcessVerdict } from "./file-process-verdict.js";
@@ -38,10 +37,7 @@ export function runShellcheck(input: ToolRunnerInput): CheckResult[] {
 		const results = parseShellcheckJson(output);
 
 		// Make paths relative
-		return results.map((r) => ({
-			...r,
-			file: r.file.startsWith("/") ? relative(scope.projectRoot, r.file) : r.file,
-		}));
+		return relativeResultPaths(results, scope.projectRoot);
 	} catch {
 		return [];
 	}
@@ -58,8 +54,5 @@ export async function runShellcheckAsync(input: ToolRunnerInput): Promise<CheckR
 	);
 	const results = result.code === 0 ? [] : parseShellcheckJson(result.stdout);
     requireFileProcessVerdict("shellcheck", result, results.length);
-	return results.map((r) => ({
-		...r,
-		file: r.file.startsWith("/") ? relative(scope.projectRoot, r.file) : r.file,
-	}));
+	return relativeResultPaths(results, scope.projectRoot);
 }

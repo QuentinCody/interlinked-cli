@@ -6,8 +6,7 @@
 // images, and Dockerfile anti-patterns. JSON output via --format json.
 
 import { spawnSync } from "node:child_process";
-import { relative } from "node:path";
-import { parseHadolintJson } from "../output-parsers.js";
+import { parseHadolintJson, relativeResultPaths } from "../output-parsers.js";
 import { runProcessAsync } from "../spawn-async.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
 
@@ -32,10 +31,7 @@ export function runHadolint(input: ToolRunnerInput): CheckResult[] {
 		const output = result.stdout || "";
 		const results = parseHadolintJson(output);
 
-		return results.map((r) => ({
-			...r,
-			file: r.file.startsWith("/") ? relative(scope.projectRoot, r.file) : r.file,
-		}));
+		return relativeResultPaths(results, scope.projectRoot);
 	} catch {
 		return [];
 	}
@@ -52,8 +48,5 @@ export async function runHadolintAsync(input: ToolRunnerInput): Promise<CheckRes
 	);
 	if (result.code === null || result.code === 0) return [];
 	const results = parseHadolintJson(result.stdout);
-	return results.map((r) => ({
-		...r,
-		file: r.file.startsWith("/") ? relative(scope.projectRoot, r.file) : r.file,
-	}));
+	return relativeResultPaths(results, scope.projectRoot);
 }

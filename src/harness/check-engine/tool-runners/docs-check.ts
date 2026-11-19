@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { isAbsolute, relative } from "node:path";
-import { parseDocsCheckOutput } from "../output-parsers.js";
+import { parseDocsCheckOutput, relativeResultPaths } from "../output-parsers.js";
 import { runProcessAsync, type RunProcessResult } from "../spawn-async.js";
 import { projectToolInputMissing } from "../tool-applicability.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
@@ -8,7 +7,7 @@ import { requireFileProcessVerdict } from "./file-process-verdict.js";
 
 function interpret(result: RunProcessResult, projectRoot: string): CheckResult[] {
 	requireFileProcessVerdict("docs-check", result, 1);
-	const findings = parseDocsCheckOutput(`${result.stdout}${result.stderr}`).map(row => ({ ...row, file: isAbsolute(row.file) ? relative(projectRoot, row.file) : row.file }));
+	const findings = relativeResultPaths(parseDocsCheckOutput(`${result.stdout}${result.stderr}`), projectRoot);
 	requireFileProcessVerdict("docs-check", result, findings.length);
 	return findings;
 }

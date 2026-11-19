@@ -104,7 +104,11 @@ export function resolveCommand(ctx: Context, expression: TS.Expression, seen = n
 	if (ts.isIdentifier(expression)) {
 		return commandBinding(ctx, expression, seen);
 	}
-	if (!ts.isCallExpression(expression) || !ts.isPropertyAccessExpression(expression.expression)) return undefined;
+	return ts.isCallExpression(expression) ? fluentCommand(ctx, expression, seen) : undefined;
+}
+
+function fluentCommand(ctx: Context, expression: TS.CallExpression, seen: Set<TS.Node>): CommandModel | undefined {
+	if (!ctx.ts.isPropertyAccessExpression(expression.expression)) return undefined;
 	const method = expression.expression.name.text;
 	const receiver = resolveCommand(ctx, expression.expression.expression, seen);
 	if (!receiver) return undefined;
@@ -190,17 +194,32 @@ function applyDeclaration(ctx: Context, command: CommandModel, call: TS.CallExpr
 	else if (["storeOptionsAsProperties", "hook", "setOptionValue", "setOptionValueWithSource", "addArgument"].includes(method)) command.unsafe = true;
 }
 
+function* methodCalls(ctx: Context, calls: TS.CallExpression[], ...names: string[]) {
+	for (const call of calls) {
+		const method = call.expression;
+		if (ctx.ts.isPropertyAccessExpression(method) && names.includes(method.name.text)) {
+			yield { call, receiver: method.expression };
+		}
+	}
+}
+
+function hasCommandAncestor(command: CommandModel, matches: (ancestor: CommandModel) => boolean): boolean {
+	let ancestor: CommandModel | undefined = command;
+	while (ancestor) {
+		if (matches(ancestor)) return true;
+		ancestor = ancestor.parent;
+	}
+	return false;
+}
+
 /** Textual dispatch ambiguity invalidates evidence, rather than guessing when
  * separately declared callbacks and commands execute. */
 function markLateDeclarations(ctx: Context, calls: TS.CallExpression[], lastOption: Map<CommandModel, number>): void {
-	const { ts } = ctx;
-	for (const call of calls) {
-		if (!ts.isPropertyAccessExpression(call.expression) || !["parse", "parseAsync"].includes(call.expression.name.text)) continue;
-		const command = resolveCommand(ctx, call.expression.expression);
-		if (command) for (const [configured, end] of lastOption) {
-			let ancestor: CommandModel | undefined = configured;
-			while (ancestor && ancestor !== command) ancestor = ancestor.parent;
-			if (ancestor === command && end > call.end) configured.unsafe = true;
+	for (const { call, receiver } of methodCalls(ctx, calls, "parse", "parseAsync")) {
+		const command = resolveCommand(ctx, receiver);
+		if (!command) continue;
+		for (const [configured, end] of lastOption) {
+			if (end > call.end && hasCommandAncestor(configured, ancestor => ancestor === command)) configured.unsafe = true;
 		}
 	}
 }
@@ -222,9 +241,8 @@ export function actionBody(ctx: Context, expression: TS.Expression | undefined):
 
 function collectOptions(ctx: Context, calls: TS.CallExpression[]): Map<TS.Node, CommandModel> {
 	const { ts } = ctx, options = new Map<TS.Node, CommandModel>();
-	for (const call of calls) {
-		if (!ts.isPropertyAccessExpression(call.expression) || call.expression.name.text !== "action") continue;
-		const command = resolveCommand(ctx, call.expression.expression);
+	for (const { call, receiver } of methodCalls(ctx, calls, "action")) {
+		const command = resolveCommand(ctx, receiver);
 		if (!command) continue;
 		const action = actionBody(ctx, call.arguments[0]);
 		if (!action) { missingBinding(ctx, "action body requires cross-module or dynamic resolution"); continue; }
@@ -232,9 +250,8 @@ function collectOptions(ctx: Context, calls: TS.CallExpression[]): Map<TS.Node, 
 		if (opts && ts.isIdentifier(opts.name)) options.set(opts, command);
 		if (cmd && ts.isIdentifier(cmd.name)) ctx.commandParameters.set(cmd, command);
 	}
-	for (const call of calls) {
-		if (!ts.isPropertyAccessExpression(call.expression) || call.expression.name.text !== "opts") continue;
-		const command = resolveCommand(ctx, call.expression.expression);
+	for (const { call, receiver } of methodCalls(ctx, calls, "opts")) {
+		const command = resolveCommand(ctx, receiver);
 		if (command && ts.isVariableDeclaration(call.parent) && ts.isIdentifier(call.parent.name)) options.set(call.parent, command);
 	}
 	return options;
@@ -348,22 +365,27 @@ export function analyzeCommanderModule(content: string, filePath: string, report
 export function sameFileCommanderMatches({ ctx, options }: CommanderAnalysis): InlineMatch[] {
 	const unsafe = collectUnsafeBindings(ctx, options), matches: InlineMatch[] = [];
 	const { ts, sf } = ctx;
-	const visit = (node: TS.Node): void => {
-		const access = property(ctx, node), declaration = access && binding(ctx, access.receiver);
+	const inspect = (node: TS.Node): void => {
+		const access = property(ctx, node);
+		if (!access) return;
+		const declaration = binding(ctx, access.receiver);
 		const command = declaration && options.get(declaration);
-		if (command && access && declaration) {
-			const canonical = command.options.get(access.key);
-			if (mutatedBinding(ctx, node) !== declaration && !(canonical && fallbackReads(ctx, node, declaration, canonical))) {
-				let current: CommandModel | undefined = command, custom = false;
-				while (current) { custom ||= current.unsafe; current = current.parent; }
-				if (canonical && unsafe.has(declaration)) ctx.reportUnavailable(`Read of ${JSON.stringify(access.key)} has unresolved options mutation or escape`);
-				else if (custom) ctx.reportUnavailable("custom or dynamic Commander option configuration requires attribute mapping");
-				else if (canonical) matches.push({
-					line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
-					text: `${CHECK}: Commander stores --${access.key} as "${canonical}"; read that attribute or explicitly normalize the options object`,
-				});
-			}
+		if (!declaration || !command || mutatedBinding(ctx, node) === declaration) return;
+		const canonical = command.options.get(access.key);
+		if (canonical && fallbackReads(ctx, node, declaration, canonical)) return;
+		if (canonical && unsafe.has(declaration)) {
+			ctx.reportUnavailable(`Read of ${JSON.stringify(access.key)} has unresolved options mutation or escape`);
+		} else if (hasCommandAncestor(command, ancestor => ancestor.unsafe)) {
+			ctx.reportUnavailable("custom or dynamic Commander option configuration requires attribute mapping");
+		} else if (canonical) {
+			matches.push({
+				line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+				text: `${CHECK}: Commander stores --${access.key} as "${canonical}"; read that attribute or explicitly normalize the options object`,
+			});
 		}
+	};
+	const visit = (node: TS.Node): void => {
+		inspect(node);
 		ts.forEachChild(node, visit);
 	};
 	visit(sf);

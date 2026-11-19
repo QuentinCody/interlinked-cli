@@ -71,19 +71,25 @@ function importTargets(file: string, specifier: string): string[] {
     return [base, base.replace(/\.[cm]?js$/, ".ts"), base.replace(/\.jsx?$/, ".tsx"),
         `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.jsx`, `${base}/index.ts`, `${base}/index.js`];
 }
+function jumpTarget(ts: typeof import("typescript"), node: ts.BreakStatement | ts.ContinueStatement): ts.Node | undefined {
+    const label = node.label?.text;
+    for (let target: ts.Node | undefined = node.parent; target; target = target.parent) {
+        if (label !== undefined) {
+            if (ts.isLabeledStatement(target) && target.label.text === label) return target;
+        } else if (ts.isIterationStatement(target, false) || (ts.isBreakStatement(node) && ts.isSwitchStatement(target))) {
+            return target;
+        }
+    }
+    return undefined;
+}
+
 function jumpsOutside(ts: typeof import("typescript"), nodes: readonly ts.Statement[], start: number, end: number, spend: () => boolean): boolean {
     let outside = false;
     function walk(node: ts.Node): void {
         if (!spend()) { outside = true; return; }
         if (isBodyFunction(ts, node)) return;
         if (ts.isBreakStatement(node) || ts.isContinueStatement(node)) {
-            let target: ts.Node | undefined = node.parent;
-            while (target !== undefined) {
-                const label = node.label?.text;
-                if (label !== undefined ? ts.isLabeledStatement(target) && target.label.text === label
-                    : ts.isIterationStatement(target, false) || (ts.isBreakStatement(node) && ts.isSwitchStatement(target))) break;
-                target = target.parent;
-            }
+            const target = jumpTarget(ts, node);
             if (target === undefined || target.getStart() < start || target.end > end) outside = true;
         }
         ts.forEachChild(node, walk);
@@ -122,19 +128,29 @@ export function analyzeHelperOverlap(content: string, file: string): OverlapSour
     return out;
 }
 
+function unrelatedSibling(edited: OverlapSource, other: OverlapSource): boolean {
+    const file = resolve(edited.file), sibling = resolve(other.file);
+    return file !== sibling && dirname(file) === dirname(sibling)
+        && !edited.imports.includes(sibling) && !other.imports.includes(file);
+}
+
+function* matchingWindows(windows: readonly StatementWindow[], other: OverlapSource, introduced: ReadonlySet<string>) {
+    const index = new Map(other.windows.map(window => [window.hash, window]));
+    for (const window of windows) {
+        if (!introduced.has(window.name)) continue;
+        const target = index.get(window.hash);
+        if (target) yield { line: window.functionLine, name: window.name, window, otherFile: other.file, other: target };
+    }
+}
+
 export function matchPartialHelperOverlaps(edited: OverlapSource, siblings: readonly OverlapSource[], introduced: ReadonlySet<string>): PartialOverlapHit[] {
     const matches: PartialOverlapHit[] = [];
-    const seen = new Set<string>();
+    const remaining = new Set(introduced);
     for (const other of siblings.slice(0, HELPER_OVERLAP_LIMITS.siblings)) {
-        if (resolve(other.file) === resolve(edited.file) || dirname(resolve(other.file)) !== dirname(resolve(edited.file))) continue;
-        if (edited.imports.includes(resolve(other.file)) || other.imports.includes(resolve(edited.file))) continue;
-        const index = new Map(other.windows.map(window => [window.hash, window]));
-        for (const window of edited.windows) {
-            if (!introduced.has(window.name) || seen.has(window.name)) continue;
-            const target = index.get(window.hash);
-            if (target === undefined) continue;
-            matches.push({ line: window.functionLine, name: window.name, window, otherFile: other.file, other: target });
-            seen.add(window.name);
+        if (!unrelatedSibling(edited, other)) continue;
+        for (const hit of matchingWindows(edited.windows, other, remaining)) {
+            matches.push(hit);
+            remaining.delete(hit.name);
             if (matches.length >= HELPER_OVERLAP_LIMITS.findings) return matches;
         }
     }
